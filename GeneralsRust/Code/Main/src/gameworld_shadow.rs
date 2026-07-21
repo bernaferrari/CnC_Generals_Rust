@@ -15411,6 +15411,78 @@ mod tests {
     }
 
     #[test]
+    fn apply_ai_command_defers_host_attack_under_authority() {
+        use crate::game_logic::game_logic::AICommand;
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AiCmdAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("AcU") {
+            let mut t = ThingTemplate::new("AcU");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("AcU".into(), t);
+        }
+        let oid = logic
+            .create_object("AcU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        let vid = logic
+            .create_object("AcU", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("v");
+        logic.apply_ai_command_for_test(AICommand::AttackTarget {
+            object_id: oid,
+            target_id: vid,
+        });
+        logic.apply_ai_command_for_test(AICommand::SetAIState {
+            object_id: oid,
+            state: crate::game_logic::AIState::Attacking,
+        });
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == host_ai_decision_log::AI_DECISION_ATTACK),
+            "AttackTarget must be logged: {events:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == host_ai_decision_log::AI_DECISION_SET_STATE),
+            "SetAIState must be logged: {events:?}"
+        );
+        let host = logic.get_objects().get(&oid).unwrap();
+        assert!(
+            host.target.is_none(),
+            "apply_ai_command must not host-apply AttackTarget under decision authority"
+        );
+        // AI state stays default until writeback (Idle unless previously set).
+        assert_ne!(
+            host.ai_state,
+            crate::game_logic::AIState::Attacking,
+            "SetAIState must not host-apply under decision authority"
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn mood_auto_acquire_logs_decision_under_authority() {
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
