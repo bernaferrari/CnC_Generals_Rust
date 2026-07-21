@@ -11079,31 +11079,29 @@ mod tests {
 
     #[test]
     fn remaining_dual_world_registry_empty() {
-        for (path, needle) in [
-            (
-                include_str!("../../GameEngine/GameLogic/src/object/unit.rs"),
-                "OBJECT_REGISTRY.is_empty()",
-            ),
-            (
-                include_str!("../../GameEngine/GameLogic/src/ai/ai_build_list.rs"),
-                "OBJECT_REGISTRY.is_empty()",
-            ),
-            (
-                include_str!(
-                    "../../GameEngine/GameLogic/src/object/behavior/grant_stealth_behavior.rs"
-                ),
-                "OBJECT_REGISTRY.is_empty()",
-            ),
-            (
-                include_str!("../../GameEngine/GameLogic/src/terrain.rs"),
-                "OBJECT_REGISTRY.is_empty()",
-            ),
-        ] {
-            assert!(
-                path.contains(needle),
-                "expected empty-registry gate in dual-world bulk residual"
-            );
-        }
+        let unit = include_str!("../../GameEngine/GameLogic/src/object/unit.rs");
+        assert!(
+            unit.contains("OBJECT_REGISTRY.is_empty()")
+                || unit.contains("crate::object::registry::OBJECT_REGISTRY.is_empty()"),
+            "unit targeting must gate dual-world bulk scans"
+        );
+        let build = include_str!("../../GameEngine/GameLogic/src/ai/ai_build_list.rs");
+        assert!(
+            build.contains("OBJECT_REGISTRY.is_empty()"),
+            "ai_build_list threat/map-control must gate dual-world bulk scans"
+        );
+        let grant = include_str!(
+            "../../GameEngine/GameLogic/src/object/behavior/grant_stealth_behavior.rs"
+        );
+        assert!(
+            grant.contains("OBJECT_REGISTRY.is_empty()"),
+            "grant_stealth must gate dual-world bulk scans"
+        );
+        let terrain = include_str!("../../GameEngine/GameLogic/src/terrain.rs");
+        assert!(
+            terrain.contains("OBJECT_REGISTRY.is_empty()"),
+            "terrain dual-world walk must gate on empty registry"
+        );
     }
 
     #[test]
