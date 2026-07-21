@@ -11027,14 +11027,39 @@ mod tests {
         );
         let sys = include_str!("../../GameEngine/GameLogic/src/system/game_logic.rs");
         assert!(
-            sys.contains("dual-world factory empty")
-                || sys.contains("OBJECT_REGISTRY.is_empty()"),
+            sys.contains("dual-world factory empty") || sys.contains("OBJECT_REGISTRY.is_empty()"),
             "crate GameLogic update/rebuild must skip empty dual-world registry"
         );
         assert!(
             sys.contains("if !OBJECT_REGISTRY.is_empty()")
                 || sys.contains("if OBJECT_REGISTRY.is_empty()"),
             "system game_logic must gate dual-world bulk paths"
+        );
+    }
+
+    #[test]
+    fn ai_stealth_helpers_registry_empty() {
+        let ai = include_str!("../../GameEngine/GameLogic/src/ai/ai_player.rs");
+        assert!(
+            ai.contains("find_supply_center")
+                && ai.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
+            "AI player dual-world supply/hole scans must gate on empty registry"
+        );
+        let ap = include_str!("../../GameEngine/GameLogic/src/ai/async_player.rs");
+        assert!(
+            ap.matches("OBJECT_REGISTRY.is_empty()").count() >= 2,
+            "async AI snapshot scans must gate on empty registry"
+        );
+        let det = include_str!("../../GameEngine/GameLogic/src/stealth/detector.rs");
+        assert!(
+            det.contains("OBJECT_REGISTRY.is_empty()"),
+            "stealth detector must skip empty dual-world registry"
+        );
+        let h = include_str!("../../GameEngine/GameLogic/src/helpers.rs");
+        assert!(
+            h.contains("Main presentation owns drawable TOD")
+                || h.contains("OBJECT_REGISTRY.is_empty()"),
+            "helpers TOD/path residual must gate on empty registry"
         );
     }
 
