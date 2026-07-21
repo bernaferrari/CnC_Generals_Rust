@@ -67,6 +67,11 @@ pub fn drain() -> Vec<HostAiDecisionEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
+/// Non-destructive copy for tests / honesty probes.
+pub fn snapshot() -> Vec<HostAiDecisionEvent> {
+    LOG.with(|log| log.borrow().clone())
+}
+
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
 }
