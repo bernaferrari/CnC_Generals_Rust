@@ -15608,6 +15608,62 @@ mod tests {
     }
 
     #[test]
+    fn stop_attack_decision_authority_clears_via_writeback() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("StopAtk");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["Su", "Se"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Infantry);
+                t.add_kind_of(KindOf::Attackable);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let oid = logic
+            .create_object("Su", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("u");
+        let vid = logic
+            .create_object("Se", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("e");
+        // Seed host target as if previously engaged.
+        if let Some(o) = logic.get_objects_mut().get_mut(&oid) {
+            o.target = Some(vid);
+            o.status.attacking = true;
+        }
+        logic.stop_attack_decision_aware_for_test(oid);
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_STOP_ATTACK && e.host_object == oid
+            }),
+            "stop must log decision; got {events:?}"
+        );
+        // Host still has target until writeback.
+        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn fire_spawn_authority_defers_queue_until_shadow() {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_fire_spawn_log;
