@@ -774,7 +774,7 @@ impl Player {
         self.power_available -= refund.power;
         crate::game_logic::host_economy_log::record(
             self.id,
-            self.resources.supplies,
+            self.effective_supplies(),
             self.power_available,
         );
         true
@@ -18731,10 +18731,14 @@ impl GameLogic {
                     }
                 }
             }
-            // Shadow economy channel: absolute supplies + power after host tick residual.
+            // Shadow economy channel: effective supplies + power after host tick residual.
             crate::game_logic::host_economy_log::record(
                 player.id,
-                player.resources.supplies,
+                if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+                    player.effective_supplies()
+                } else {
+                    player.resources.supplies
+                },
                 player.power_available,
             );
         }
@@ -43775,17 +43779,19 @@ impl GameLogic {
         let ai_ids: Vec<u32> = self.ai_manager.ai_players.keys().copied().collect();
         for pid in ai_ids {
             if let Some(player) = self.players.get_mut(&pid) {
-                if player.resources.supplies < min_cash {
+                if player.effective_supplies() < min_cash {
+                    let need = min_cash.saturating_sub(player.effective_supplies());
                     log::info!(
                         "Topping up AI player {} cash {} -> {} after map rebind",
                         pid,
-                        player.resources.supplies,
+                        player.effective_supplies(),
                         min_cash
                     );
-                    player.resources.supplies = min_cash;
+                    // Economy authority: gain delta to absolute floor, not host poke.
+                    player.apply_supply_gain(need);
                     crate::game_logic::host_economy_log::record(
                         player.id,
-                        player.resources.supplies,
+                        player.effective_supplies(),
                         player.power_available,
                     );
                 }
@@ -46943,8 +46949,14 @@ impl GameLogic {
 
         if let Some(cost) = refund {
             if let Some(player) = self.get_player_mut_by_team(team) {
-                player.resources.supplies += cost.supplies;
+                // Economy authority: refund via pending delta + log (GameWorld last-writer).
+                player.apply_supply_gain(cost.supplies);
                 player.power_available -= cost.power;
+                crate::game_logic::host_economy_log::record(
+                    player.id,
+                    player.effective_supplies(),
+                    player.power_available,
+                );
             }
             return true;
         }
@@ -46975,12 +46987,11 @@ impl GameLogic {
 
         if cancelled_any {
             if let Some(player) = self.get_player_mut_by_team(team) {
-                player.resources.supplies =
-                    player.resources.supplies.saturating_add(refund.supplies);
+                player.apply_supply_gain(refund.supplies);
                 player.power_available -= refund.power;
                 crate::game_logic::host_economy_log::record(
                     player.id,
-                    player.resources.supplies,
+                    player.effective_supplies(),
                     player.power_available,
                 );
             }
