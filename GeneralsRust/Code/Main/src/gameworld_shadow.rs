@@ -18659,4 +18659,27 @@ mod tests {
             "presentation must freeze AttackTargeted from host_attack_log"
         );
     }
+
+    #[test]
+    fn select_hero_presentation_source() {
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("fn alive_selectable_friendly_hero_ids") && pf.contains("KindOf::Hero"),
+            "PresentationFrame must expose hero select helper from snapshot kind_of"
+        );
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng
+            .find("fn select_hero_units_hotkey")
+            .expect("select_hero_units_hotkey");
+        let body = &eng[i..eng.len().min(i + 1200)];
+        assert!(
+            body.contains("alive_selectable_friendly_hero_ids")
+                && body.contains("last_presentation_frame"),
+            "SELECT_HERO must prefer presentation hero ids when frame installed"
+        );
+        assert!(
+            body.contains("Boot residual only") || body.contains("is_hero()"),
+            "SELECT_HERO must keep live GameLogic boot residual"
+        );
+    }
 }
