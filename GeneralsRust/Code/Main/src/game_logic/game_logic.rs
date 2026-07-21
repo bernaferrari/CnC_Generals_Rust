@@ -6975,9 +6975,38 @@ impl GameLogic {
         // HijackerUpdate ride residual.
         self.tick_hijacker_updates();
 
-        // Apply all AI commands
+        // Apply all AI commands (or log-only when GameWorld owns decision apply).
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
         for command in ai_commands {
-            self.apply_ai_command(command);
+            if decision_auth {
+                // Record only — shadow applies SetAttackTarget/SetMoveTarget/SetAiState.
+                match &command {
+                    AICommand::AttackTarget {
+                        object_id,
+                        target_id,
+                    } => crate::game_logic::host_ai_decision_log::record_attack(
+                        *object_id, *target_id,
+                    ),
+                    AICommand::StopAttack { object_id } => {
+                        crate::game_logic::host_ai_decision_log::record_stop_attack(*object_id)
+                    }
+                    AICommand::MoveTo {
+                        object_id,
+                        position,
+                    } => crate::game_logic::host_ai_decision_log::record_move_to(
+                        *object_id, *position,
+                    ),
+                    AICommand::SetAIState { object_id, state } => {
+                        let ordinal =
+                            crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
+                        crate::game_logic::host_ai_decision_log::record_set_state(
+                            *object_id, ordinal,
+                        );
+                    }
+                }
+            } else {
+                self.apply_ai_command(command);
+            }
         }
 
         // Resolve command-driven support states (guard/repair/docking/garrison) after AI decisions.
