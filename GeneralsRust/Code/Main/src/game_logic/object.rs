@@ -6311,7 +6311,7 @@ impl Object {
             return;
         }
         // GameWorld HP authority: log absolute health; defer host mutate to writeback.
-        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_damage_authority_live() {
             crate::game_logic::host_heal_log::record(self.id, projected);
         } else {
             self.health.heal(amount);
@@ -9161,7 +9161,7 @@ impl Object {
         }
 
         // GameWorld residual authority: log absolute XP; defer host current mutate.
-        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_damage_authority_live() {
             crate::game_logic::host_experience_log::record(self.id, projected.max(0.0));
         } else {
             self.experience.current = projected;

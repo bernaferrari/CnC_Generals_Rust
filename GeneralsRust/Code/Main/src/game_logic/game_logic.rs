@@ -6117,7 +6117,7 @@ impl GameLogic {
                         obj.set_status_under_construction(false);
                         obj.clear_under_construction_model_conditions();
                         let full_hp = obj.health.maximum;
-                        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_damage_authority_live() {
                             // HP last-writer via heal channel + writeback.
                             crate::game_logic::host_heal_log::record(id, full_hp);
                         } else {
@@ -6136,7 +6136,7 @@ impl GameLogic {
                         completed_structures.push(id);
                     } else {
                         let build_hp = obj.health.maximum * (0.1 + 0.9 * projected);
-                        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                        if crate::gameworld_shadow::gameworld_damage_authority_live() {
                             crate::game_logic::host_heal_log::record(id, build_hp);
                         } else {
                             obj.health.current = build_hp;
@@ -7592,7 +7592,7 @@ impl GameLogic {
             if let Some(v) = self.objects.get_mut(&vehicle_id) {
                 // Damage authority: HP last-writer via damage log; destroy flag stays host.
                 let hp = v.health.current.max(1.0);
-                if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     crate::game_logic::host_damage_log::record(
                         vehicle_id,
                         hp,
@@ -14592,7 +14592,7 @@ impl GameLogic {
     /// Absolute HP write honoring damage authority (heal channel last-writer).
     fn set_health_absolute_authority_aware(&mut self, object_id: ObjectId, health: f32) {
         let hp = health.max(0.0);
-        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_damage_authority_live() {
             crate::game_logic::host_heal_log::record(object_id, hp);
             return;
         }
@@ -14605,7 +14605,7 @@ impl GameLogic {
     /// Absolute HP write while holding `&mut Object` (avoid re-borrow).
     fn write_object_health_authority_aware(obj: &mut crate::game_logic::Object, health: f32) {
         let hp = health.max(0.0);
-        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_damage_authority_live() {
             crate::game_logic::host_heal_log::record(obj.id, hp);
         } else {
             obj.health.current = hp.min(obj.health.maximum.max(hp));
@@ -14617,7 +14617,7 @@ impl GameLogic {
     /// Destroy flag stays host for process_destroy_list bookkeeping.
     fn mark_destroyed_authority_aware(&mut self, object_id: ObjectId, source: Option<ObjectId>) {
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
                 let hp = obj.health.current.max(1.0);
                 crate::game_logic::host_damage_log::record(object_id, hp, source, true);
             } else if obj.health.current > 0.0 {
@@ -14632,7 +14632,7 @@ impl GameLogic {
         obj: &mut crate::game_logic::Object,
         source: Option<ObjectId>,
     ) {
-        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let hp = obj.health.current.max(1.0);
             crate::game_logic::host_damage_log::record(obj.id, hp, source, true);
         } else if obj.health.current > 0.0 {
@@ -14676,7 +14676,7 @@ impl GameLogic {
         // are marked so shadow zeroes spawn damage (no dual-tick double-dip).
         // Ballistic projectile-owned residual HP (no hitscan) remains deferred until
         // dual-tick tests drive shadow materialize+resolve after host combat.
-        if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_fire_spawn_authority_live() {
             let (speed, splash, homing, dtype, attack_range, min_attack_range) = match weapon {
                 Some(w) => {
                     let speed = if w.projectile_speed <= 0.0 {
@@ -26980,7 +26980,7 @@ impl GameLogic {
                 // Under damage authority take_damage does not zero host HP; project kill for
                 // mark_object_for_destruction when lethal residual is logged.
                 if !destroyed
-                    && crate::gameworld_shadow::gameworld_damage_authority_enabled()
+                    && crate::gameworld_shadow::gameworld_damage_authority_live()
                     && damage >= target.health.current
                 {
                     destroyed = true;
@@ -36125,7 +36125,7 @@ impl GameLogic {
                 chute.clear_eject_parachuting();
                 if chute.is_alive() {
                     let hp = chute.health.current.max(1.0);
-                    if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
                         crate::game_logic::host_damage_log::record(id, hp, None, true);
                     } else {
                         chute.health.current = 0.0;
@@ -38582,7 +38582,7 @@ impl GameLogic {
             if let Some(chute) = self.objects.get_mut(&pilot_id) {
                 chute.clear_eject_parachuting();
                 let hp = chute.health.current.max(1.0);
-                if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     crate::game_logic::host_damage_log::record(pilot_id, hp, None, true);
                 } else {
                     chute.health.current = 0.0;
@@ -57665,7 +57665,7 @@ mod tests {
     }
 
     fn test_observed_damage_to(target: ObjectId, hp_before: f32, hp_after: f32) -> f32 {
-        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_damage_authority_live() {
             crate::game_logic::host_damage_log::snapshot()
                 .into_iter()
                 .filter(|e| e.target == target)
@@ -60783,7 +60783,7 @@ mod tests {
         }
 
         let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
-        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_damage_authority_live() {
             // HP last-write via damage log; host HP stays until GameWorld writeback.
             let dmg_events = crate::game_logic::host_damage_log::snapshot();
             let dealt: f32 = dmg_events
@@ -84929,7 +84929,7 @@ mod tests {
         logic.tick_airfield_parking_heal();
         let hp_after = logic.objects.get(&jet_id).unwrap().health.current;
         let expected = parking_place_heal_per_frame(PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC);
-        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+        if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let heals = crate::game_logic::host_heal_log::snapshot();
             let logged = heals
                 .iter()
