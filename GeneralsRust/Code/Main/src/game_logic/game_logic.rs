@@ -14769,13 +14769,14 @@ impl GameLogic {
     /// invoke full [`Object::attack_target`] (avoids takeoff/force-attack side effects).
     /// Set AI state, honoring AI decision authority (log-only when GameWorld applies).
     fn set_ai_state_decision_aware(&mut self, unit_id: ObjectId, state: AIState) {
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, ordinal);
-            return;
-        }
+        // Host applies immediately so residual FSM/combat sees the new state
+        // same-frame. Decision authority still logs for GameWorld last-write.
+        let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_ai_state(state);
+        }
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, ordinal);
         }
     }
 
@@ -14785,15 +14786,17 @@ impl GameLogic {
     }
 
     fn apply_engagement_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2); // Attacking
-            return;
-        }
+        // Host engagement is same-frame so residual auto-fire / continue-after-kill
+        // can shoot without waiting for shadow writeback.
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.target = Some(target_id);
             u.set_ai_state(AIState::Attacking);
             u.set_status_attacking(true);
+        }
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+            // Attacking
         }
     }
 
@@ -14807,13 +14810,15 @@ impl GameLogic {
     }
 
     fn engage_target_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
-            return;
-        }
+        // Full host attack_target residual (weapon arming / force-attack clear).
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_force_attack(false);
             obj.attack_target(target_id);
+        }
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+            // Attacking
         }
     }
 
@@ -25709,8 +25714,17 @@ impl GameLogic {
                 unit.set_status_moving(false);
             }
             // GoAggressiveOnExit residual: attack designated target.
-            // Under AI decision authority, log-only for GameWorld writeback.
-            self.engage_target_decision_aware(occ_id, target_id);
+            // apply_engagement sets host target even without a weapon template so
+            // unload residual is same-frame under decision authority.
+            self.apply_engagement_decision_aware(occ_id, target_id);
+            // Belt-and-suspenders: ensure host target sticks after unload residual
+            // (attack_target may no-op without weapon; engagement helper should set it).
+            if let Some(unit) = self.objects.get_mut(&occ_id) {
+                if unit.target != Some(target_id) {
+                    unit.target = Some(target_id);
+                    unit.set_status_attacking(true);
+                }
+            }
             ordered = ordered.saturating_add(1);
             self.troop_crawler.record_deploy_attack_order();
             self.troop_crawler.record_unload();
@@ -44330,10 +44344,10 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     obj.stop_moving();
                     obj.stop_attack();
+                    obj.set_ai_state(AIState::Idle);
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
-                    } else {
-                        obj.set_ai_state(AIState::Idle);
+                        crate::game_logic::host_ai_decision_log::record_stop_attack(object_id);
                     }
                 }
             }
