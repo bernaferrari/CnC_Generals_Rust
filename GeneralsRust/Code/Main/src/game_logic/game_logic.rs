@@ -28627,7 +28627,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -28677,7 +28678,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -33863,7 +33865,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -39400,7 +39403,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -39567,7 +39571,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -39916,7 +39921,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -40983,7 +40989,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -41112,7 +41119,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -41421,7 +41429,8 @@ impl GameLogic {
                         continue;
                     }
                     // BodyModule last_damage_source residual for cash bounty killer.
-                    let destroyed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let destroyed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     objects_hit += 1;
                     if destroyed {
@@ -42929,7 +42938,8 @@ impl GameLogic {
                     }
                     // BodyModule last_damage_source residual for cash bounty killer
                     // (superweapon blast path — same residual as combat fire).
-                    let destroyed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let destroyed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     objects_hit += 1;
                     if destroyed {
@@ -43086,7 +43096,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -43137,7 +43148,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -43188,7 +43200,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -43251,7 +43264,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -43347,7 +43361,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -43975,7 +43990,7 @@ impl GameLogic {
                     continue;
                 }
                 let dmg = plan.shockwave_damage;
-                let killed = target.take_damage_from(dmg, Some(plan.source_object));
+                let killed = target.take_damage_from_immediate(dmg, Some(plan.source_object));
                 shockwave_hits = shockwave_hits.saturating_add(1);
                 shockwave_damage_total += dmg;
                 if killed {
