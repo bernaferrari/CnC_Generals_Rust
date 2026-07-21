@@ -25401,6 +25401,27 @@ impl GameLogic {
             if let Some(w) = attacker.weapon.as_mut() {
                 w.last_fire_time = current_time;
             }
+            // AI attack authority: residual fire-intent for GameWorld last-writer.
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                let (dmg, rng) = attacker
+                    .weapon
+                    .as_ref()
+                    .map(|w| (w.damage, w.range))
+                    .unwrap_or((0.0, 0.0));
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let next_count = attacker.fire_intent_count.saturating_add(1);
+                crate::game_logic::host_fire_intent_log::record(
+                    attacker.id,
+                    target_id.0,
+                    0,
+                    dmg,
+                    rng,
+                    current_time,
+                    frame,
+                    next_count,
+                );
+                attacker.fire_intent_count = next_count;
+            }
             // Mood ownership residual: keep mood flag only when fire engages the
             // same mood-acquired target; otherwise fire owns acquisition (clear flag).
             if attacker.turret_mood_target && attacker.target != Some(target_id) {
@@ -25652,6 +25673,36 @@ impl GameLogic {
                 }
             } else if let Some(w) = attacker.weapon.as_mut() {
                 w.last_fire_time = current_time;
+            }
+            // AI attack authority: residual fire-intent for GameWorld last-writer.
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                let (dmg, rng) = if slot == 1 {
+                    attacker
+                        .secondary_weapon
+                        .as_ref()
+                        .or(attacker.weapon.as_ref())
+                        .map(|w| (w.damage, w.range))
+                        .unwrap_or((0.0, 0.0))
+                } else {
+                    attacker
+                        .weapon
+                        .as_ref()
+                        .map(|w| (w.damage, w.range))
+                        .unwrap_or((0.0, 0.0))
+                };
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let next_count = attacker.fire_intent_count.saturating_add(1);
+                crate::game_logic::host_fire_intent_log::record(
+                    attacker.id,
+                    target_id.0,
+                    slot,
+                    dmg,
+                    rng,
+                    current_time,
+                    frame,
+                    next_count,
+                );
+                attacker.fire_intent_count = next_count;
             }
             // Track engagement for UI / subsequent frames without requiring
             // a player AttackObject. Structures stay immobile (no chase).
@@ -26016,6 +26067,27 @@ impl GameLogic {
                 // Assist residual marks engagement; keeps primary on clip-reload honesty.
                 if let Some(w) = asst.weapon.as_mut() {
                     w.last_fire_time = frame as f32 * LOGIC_FRAME_TIMESTEP;
+                }
+                // AI attack authority: residual fire-intent for GameWorld last-writer.
+                if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                    let (dmg, rng) = asst
+                        .weapon
+                        .as_ref()
+                        .map(|w| (w.damage, w.range))
+                        .unwrap_or((0.0, 0.0));
+                    let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                    let next_count = asst.fire_intent_count.saturating_add(1);
+                    crate::game_logic::host_fire_intent_log::record(
+                        asst.id,
+                        clip.victim_id.0,
+                        0,
+                        dmg,
+                        rng,
+                        frame as f32 * LOGIC_FRAME_TIMESTEP,
+                        frame,
+                        next_count,
+                    );
+                    asst.fire_intent_count = next_count;
                 }
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
                     crate::game_logic::host_ai_decision_log::record_attack(
@@ -33310,6 +33382,27 @@ impl GameLogic {
             if let Some(w) = attacker.weapon.as_mut() {
                 w.last_fire_time = current_time;
             }
+            // AI attack authority: residual fire-intent for GameWorld last-writer.
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                let (dmg, rng) = attacker
+                    .weapon
+                    .as_ref()
+                    .map(|w| (w.damage, w.range))
+                    .unwrap_or((0.0, 0.0));
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let next_count = attacker.fire_intent_count.saturating_add(1);
+                crate::game_logic::host_fire_intent_log::record(
+                    attacker.id,
+                    target_id.0,
+                    0,
+                    dmg,
+                    rng,
+                    current_time,
+                    frame,
+                    next_count,
+                );
+                attacker.fire_intent_count = next_count;
+            }
             if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
                 crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(sentry_id, 2);
@@ -33430,6 +33523,27 @@ impl GameLogic {
         if let Some(attacker) = self.objects.get_mut(&hellfire_id) {
             if let Some(w) = attacker.weapon.as_mut() {
                 w.last_fire_time = current_time;
+            }
+            // AI attack authority: residual fire-intent for GameWorld last-writer.
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                let (dmg, rng) = attacker
+                    .weapon
+                    .as_ref()
+                    .map(|w| (w.damage, w.range))
+                    .unwrap_or((0.0, 0.0));
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let next_count = attacker.fire_intent_count.saturating_add(1);
+                crate::game_logic::host_fire_intent_log::record(
+                    attacker.id,
+                    target_id.0,
+                    0,
+                    dmg,
+                    rng,
+                    current_time,
+                    frame,
+                    next_count,
+                );
+                attacker.fire_intent_count = next_count;
             }
             if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
                 crate::game_logic::host_ai_decision_log::record_attack(hellfire_id, target_id);
@@ -33956,6 +34070,27 @@ impl GameLogic {
             if let Some(w) = attacker.weapon.as_mut() {
                 w.last_fire_time = current_time;
             }
+            // AI attack authority: residual fire-intent for GameWorld last-writer.
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                let (dmg, rng) = attacker
+                    .weapon
+                    .as_ref()
+                    .map(|w| (w.damage, w.range))
+                    .unwrap_or((0.0, 0.0));
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let next_count = attacker.fire_intent_count.saturating_add(1);
+                crate::game_logic::host_fire_intent_log::record(
+                    attacker.id,
+                    target_id.0,
+                    0,
+                    dmg,
+                    rng,
+                    current_time,
+                    frame,
+                    next_count,
+                );
+                attacker.fire_intent_count = next_count;
+            }
             if destroyed {
                 attacker.gain_experience(kill_xp);
             }
@@ -34040,6 +34175,27 @@ impl GameLogic {
         if let Some(attacker) = self.objects.get_mut(&garrisoned_id) {
             if let Some(w) = attacker.weapon.as_mut() {
                 w.last_fire_time = current_time;
+            }
+            // AI attack authority: residual fire-intent for GameWorld last-writer.
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                let (dmg, rng) = attacker
+                    .weapon
+                    .as_ref()
+                    .map(|w| (w.damage, w.range))
+                    .unwrap_or((0.0, 0.0));
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let next_count = attacker.fire_intent_count.saturating_add(1);
+                crate::game_logic::host_fire_intent_log::record(
+                    attacker.id,
+                    target_id.0,
+                    0,
+                    dmg,
+                    rng,
+                    current_time,
+                    frame,
+                    next_count,
+                );
+                attacker.fire_intent_count = next_count;
             }
             if destroyed {
                 attacker.gain_experience(kill_xp);
