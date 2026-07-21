@@ -185,6 +185,8 @@ pub struct ControlBar {
     /// Structure inventory residual from PresentationFrame.
     presentation_max_garrison: usize,
     presentation_garrisoned_count: usize,
+    /// Under-construction residual from PresentationFrame.
+    presentation_under_construction: bool,
     displayed_construct_percent: f32,
     displayed_ocl_timer_seconds: u32,
     border_colors: CommandBarBorderColors,
@@ -304,6 +306,7 @@ impl ControlBar {
             presentation_command_set_names: Vec::new(),
             presentation_max_garrison: 0,
             presentation_garrisoned_count: 0,
+            presentation_under_construction: false,
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
             border_colors: CommandBarBorderColors::default(),
@@ -540,12 +543,22 @@ impl ControlBar {
         };
 
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            // Presentation-only selection residual: keep Command context so
-            // Main-fed portrait/queue stay visible without dual-world registry.
-            if self.portrait_state.is_visible {
+            // Presentation-only selection residual (host path, no dual-world registry).
+            if self.presentation_under_construction {
+                context.current_state = ControlBarState::UnderConstruction;
+            } else if self.presentation_max_garrison > 0
+                && self.presentation_primary_command_set.is_empty()
+            {
+                context.current_state = ControlBarState::StructureInventory;
+            } else if self.portrait_state.is_visible
+                || !self.presentation_primary_command_set.is_empty()
+            {
                 context.current_state = ControlBarState::Command;
             } else {
                 context.current_state = ControlBarState::None;
+            }
+            if context.current_state != ControlBarState::None {
+                self.rebuild_command_buttons(&mut context)?;
             }
             let mut guard = self
                 .context
@@ -2810,6 +2823,7 @@ impl ControlBar {
     ) {
         self.presentation_max_garrison = max_garrison;
         self.presentation_garrisoned_count = garrisoned_count;
+        self.presentation_under_construction = under_construction;
         if let Ok(mut context) = self.context.write() {
             context.last_recorded_inventory_count = garrisoned_count as u32;
             if under_construction {
