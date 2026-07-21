@@ -19189,6 +19189,19 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Strategy Center mood-target residual (nearest enemy in vision).
+        {
+            let name = "tick_strategy_center_turret_mood_target";
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 12000)];
+            assert!(
+                body.contains("pick_nearest_residual_target_xz")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual XZ acquire for non-Passive mood"
+            );
+        }
         // Dozer bored service residual + battle-drone master repair.
         for name in [
             "find_dozer_bored_repair_target",

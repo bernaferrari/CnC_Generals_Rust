@@ -35492,30 +35492,56 @@ impl GameLogic {
                     }
                 }
             } else {
-                for (oid, other) in self.objects.iter() {
-                    if *oid == cid {
-                        continue;
-                    }
-                    let op = other.get_position();
-                    let dx = op.x - fire_pos.x;
-                    let dz = op.z - fire_pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    let is_air = other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target;
-                    if !strategy_center_mood_target_enemy_legal_with_vision(
-                        other.is_alive(),
-                        other.team == team,
-                        other.team == Team::Neutral,
-                        other.status.under_construction,
-                        is_air,
-                        dist,
-                        vision_range,
-                    ) {
-                        continue;
-                    }
-                    if best.map(|(_, bd, _, _)| dist < bd).unwrap_or(true) {
-                        best = Some((*oid, dist, op.x, op.z));
-                    }
-                }
+                // Pure residual acquire: nearest legal enemy in mood vision (XZ).
+                let candidates: Vec<_> = self
+                    .objects
+                    .iter()
+                    .map(|(&oid, other)| {
+                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                            id: oid,
+                            team: other.team,
+                            position: other.get_position(),
+                            is_alive: other.is_alive(),
+                            is_neutral: other.team == Team::Neutral,
+                            under_construction: other.status.under_construction,
+                            combat_kind: true,
+                            effectively_stealthed: other.is_effectively_stealthed(),
+                            is_air: other.is_kind_of(KindOf::Aircraft)
+                                || other.status.airborne_target,
+                            eject_invulnerable: other.is_eject_invulnerable(),
+                        }
+                    })
+                    .collect();
+                best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                    Some(cid),
+                    (fire_pos.x, fire_pos.z),
+                    candidates,
+                    vision_range,
+                    |c| {
+                        let dist = {
+                            let dx = c.position.x - fire_pos.x;
+                            let dz = c.position.z - fire_pos.z;
+                            (dx * dx + dz * dz).sqrt()
+                        };
+                        strategy_center_mood_target_enemy_legal_with_vision(
+                            c.is_alive,
+                            c.team == team,
+                            c.is_neutral,
+                            c.under_construction,
+                            c.is_air,
+                            dist,
+                            vision_range,
+                        )
+                    },
+                )
+                .map(|(id, dist, _)| {
+                    let p = self
+                        .objects
+                        .get(&id)
+                        .map(|o| o.get_position())
+                        .unwrap_or(fire_pos);
+                    (id, dist, p.x, p.z)
+                });
             }
             if let Some((tid, _, tx, tz)) = best {
                 let (aim_a, aim_p) = strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
@@ -59915,7 +59941,12 @@ mod tests {
                 sc.turret_mood_target,
                 "idle mood-target residual must flag m_targetWasSetByIdleMood"
             );
-            assert_eq!(sc.target, Some(enemy_id));
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                // AttackTarget last-write via decision log; host target stays unset.
+                assert!(sc.target.is_none());
+            } else {
+                assert_eq!(sc.target, Some(enemy_id));
+            }
             assert!(
                 (sc.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
                 "mood-target residual aims FirePitch, got {}",
@@ -60068,7 +60099,11 @@ mod tests {
                 sc.turret_mood_target,
                 "Passive WaitForAttack residual must retaliate vs last damage source"
             );
-            assert_eq!(sc.target, Some(enemy_id));
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                assert!(sc.target.is_none());
+            } else {
+                assert_eq!(sc.target, Some(enemy_id));
+            }
             assert!(
                 (sc.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
                 "passive retaliate aims FirePitch, got {}",
@@ -60450,10 +60485,24 @@ mod tests {
         }
 
         let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
-        assert!(
-            enemy_hp_after < enemy_hp_before - 50.0,
-            "in-range enemy must take StrategyCenterGun residual damage, before={enemy_hp_before} after={enemy_hp_after}"
-        );
+        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+            // HP last-write via damage log; host HP stays until GameWorld writeback.
+            let dmg_events = crate::game_logic::host_damage_log::snapshot();
+            let dealt: f32 = dmg_events
+                .iter()
+                .filter(|e| e.target == enemy_id)
+                .map(|e| e.amount)
+                .sum();
+            assert!(
+                dealt > 50.0,
+                "in-range enemy must log StrategyCenterGun residual damage under damage authority, dealt={dealt}"
+            );
+        } else {
+            assert!(
+                enemy_hp_after < enemy_hp_before - 50.0,
+                "in-range enemy must take StrategyCenterGun residual damage, before={enemy_hp_before} after={enemy_hp_after}"
+            );
+        }
 
         // Close enemy may take splash if within 25 of impact (impact is on far enemy at x=150).
         // At x=20 vs impact x=150 → no splash. Must remain undamaged by min-range gate.

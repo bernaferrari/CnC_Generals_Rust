@@ -46,6 +46,10 @@ pub fn record(target: ObjectId, amount: f32, source: Option<ObjectId>, destroyed
 }
 
 /// Drain all events since last drain (order preserved).
+pub fn snapshot() -> Vec<HostDamageEvent> {
+    LOG.with(|log| log.borrow().clone())
+}
+
 pub fn drain() -> Vec<HostDamageEvent> {
     let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
     // Keep last non-empty batch for PresentationFrame after shadow session.
