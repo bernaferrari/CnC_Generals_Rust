@@ -6071,6 +6071,8 @@ impl Object {
                 has_secondary_weapon,
                 secondary_weapon_damage,
                 secondary_weapon_range,
+                leech_range_active_primary: self.leech_range_active_primary,
+                leech_range_active_secondary: self.leech_range_active_secondary,
             },
         );
     }
@@ -7829,15 +7831,19 @@ impl Object {
         }
         if slot == 1 {
             self.leech_range_active_secondary = true;
+            self.record_host_weapon_stats();
         } else {
             self.leech_range_active_primary = true;
+            self.record_host_weapon_stats();
         }
     }
 
     /// C++ Object::clearLeechRangeModeForAllWeapons residual.
     pub fn clear_leech_range_mode_for_all_weapons(&mut self) {
         self.leech_range_active_primary = false;
+        self.record_host_weapon_stats();
         self.leech_range_active_secondary = false;
+        self.record_host_weapon_stats();
     }
 
     pub fn stop_attack(&mut self) {

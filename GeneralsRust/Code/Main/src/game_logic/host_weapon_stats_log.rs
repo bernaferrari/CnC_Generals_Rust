@@ -23,6 +23,8 @@ pub struct HostWeaponStatsEvent {
     pub has_secondary_weapon: bool,
     pub secondary_weapon_damage: f32,
     pub secondary_weapon_range: f32,
+    pub leech_range_active_primary: bool,
+    pub leech_range_active_secondary: bool,
 }
 
 thread_local! {
