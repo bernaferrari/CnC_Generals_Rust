@@ -10854,6 +10854,27 @@ mod tests {
     }
 
     #[test]
+    fn construction_sole_tick_host_skips_advance() {
+        let gl = include_str!("game_logic/game_logic.rs");
+        assert!(
+            gl.contains("gameworld_construction_sole_tick_enabled()")
+                && gl.contains("effective_rate"),
+            "host construction must gate advance on sole-tick and log rate"
+        );
+        let log = include_str!("game_logic/host_construction_progress_log.rs");
+        assert!(
+            log.contains("effective_rate: f32"),
+            "construction progress log must carry effective_rate"
+        );
+        let sw = include_str!("gameworld_shadow.rs");
+        assert!(
+            sw.contains("fn tick_construction_progress")
+                && sw.contains("tick_construction_progress("),
+            "shadow session must sole-tick construction"
+        );
+    }
+
+    #[test]
     fn train_unit_prefers_presentation_team() {
         let eng = include_str!("cnc_game_engine.rs");
         let i = eng.find("train_unit\" =>").expect("train_unit");
@@ -10904,8 +10925,7 @@ mod tests {
         let j = gc.find("fn load_post_process").expect("load_post");
         let w2 = &gc[j..gc.len().min(j + 1600)];
         assert!(
-            w2.contains("OBJECT_REGISTRY.is_empty()")
-                && w2.contains("Host path: registry empty"),
+            w2.contains("OBJECT_REGISTRY.is_empty()") && w2.contains("Host path: registry empty"),
             "load_post_process host path must skip dual-world drawable scan"
         );
     }

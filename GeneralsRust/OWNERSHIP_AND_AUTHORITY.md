@@ -1445,3 +1445,5 @@ Under GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY (default on), GameWorld ticks prod
 Production sole-tick applies host `power_factor` residual (energy shortfall clamp) via progress log.
 
 Host skips production progress advance only when `gameworld_production_sole_tick_enabled()` (authority + shadow session); shadow-off falls back to host `update_production`.
+
+Under CONSTRUCTION_AUTHORITY+shadow, GameWorld sole-ticks construction_percent via logged effective_rate (dozers×power×1/build_time); host completes at 1.0 after writeback. Sell deconstruction remains host-advanced.

@@ -6091,20 +6091,25 @@ impl GameLogic {
                         self.construction_model_condition_updates.saturating_add(1);
 
                     let power_factor = team_power_factor.get(&build_team).copied().unwrap_or(1.0);
-                    let base_rate = 1.0 / obj.thing.template.build_time;
+                    let base_rate = 1.0 / obj.thing.template.build_time.max(0.01);
                     let effective_rate = base_rate * dozer_count as f32 * power_factor;
-                    let projected = (obj.construction_percent + effective_rate * dt).min(1.0);
-                    // Always accumulate host construction progress.
-                    // Prior construction-authority path froze percent and recomputed
-                    // `projected = percent + rate*dt` each frame, so build_time > dt
-                    // never reached 1.0 without a shadow writeback session (golden /
-                    // headless map path stalled USA_Barracks at uc=true forever).
-                    // Shadow writeback remains last-writer after dual-session ticks.
-                    obj.construction_percent = projected;
+                    // Under CONSTRUCTION_AUTHORITY + shadow, GameWorld sole-ticks percent
+                    // using effective_rate; host only completes when writeback hits 1.0.
+                    // Prior freeze without rate residual stalled builds — rate is logged.
+                    let sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
+                    let projected = if sole {
+                        obj.construction_percent
+                    } else {
+                        (obj.construction_percent + effective_rate * dt).min(1.0)
+                    };
+                    if !sole {
+                        obj.construction_percent = projected;
+                    }
                     crate::game_logic::host_construction_progress_log::record(
                         id,
                         projected,
                         obj.status.under_construction,
+                        effective_rate,
                     );
 
                     if projected >= 1.0 {
@@ -6119,7 +6124,9 @@ impl GameLogic {
                             obj.health.current = full_hp;
                             crate::game_logic::host_heal_log::record(id, obj.health.current);
                         }
-                        crate::game_logic::host_construction_progress_log::record(id, 1.0, false);
+                        crate::game_logic::host_construction_progress_log::record(
+                            id, 1.0, false, 0.0,
+                        );
                         crate::game_logic::host_construction_log::record(
                             id,
                             obj.template_name.clone(),
@@ -49214,7 +49221,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ setConstructionPercent(99.9f) on 0..100 scale → host 0.999
             obj.construction_percent = 0.999;
-            crate::game_logic::host_construction_progress_log::record(object_id, 0.999, false);
+            crate::game_logic::host_construction_progress_log::record(object_id, 0.999, false, 0.0);
             obj.set_status_sold(true);
             obj.set_status_unselectable(true);
             obj.set_status_under_construction(false);
@@ -49293,7 +49300,7 @@ impl GameLogic {
                 let projected = previous - SELL_CONSTRUCTION_DECREMENT_RESIDUAL;
                 obj.construction_percent = projected;
                 crate::game_logic::host_construction_progress_log::record(
-                    entry.id, projected, false,
+                    entry.id, projected, false, 0.0,
                 );
                 // Cross from positive to <= 0 → MODELCONDITION_SOLD
                 if previous > 0.0 && projected <= 0.0 {
@@ -49763,7 +49770,7 @@ impl GameLogic {
             h.set_orientation(orient);
             h.set_status_under_construction(false);
             if crate::gameworld_shadow::gameworld_construction_authority_enabled() {
-                crate::game_logic::host_construction_progress_log::record(hole_id, 1.0, false);
+                crate::game_logic::host_construction_progress_log::record(hole_id, 1.0, false, 0.0);
             } else {
                 h.construction_percent = 1.0;
             }
@@ -49961,7 +49968,9 @@ impl GameLogic {
                 o.set_status_under_construction(true);
                 o.set_status_reconstructing(true);
                 if crate::gameworld_shadow::gameworld_construction_authority_enabled() {
-                    crate::game_logic::host_construction_progress_log::record(new_id, 0.0, true);
+                    crate::game_logic::host_construction_progress_log::record(
+                        new_id, 0.0, true, 0.0,
+                    );
                 } else {
                     o.construction_percent = 0.0;
                 }
