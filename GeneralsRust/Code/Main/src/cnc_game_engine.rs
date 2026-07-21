@@ -2672,6 +2672,7 @@ impl CnCGameEngine {
                     };
                     // Host residual: complete nearest under-construction barracks so a
                     // just-placed construct can produce without waiting full build time.
+                    let mut force_completed: Vec<crate::game_logic::ObjectId> = Vec::new();
                     {
                         let mut unfinished: Vec<crate::game_logic::ObjectId> = if let Some(frame) =
                             self.last_presentation_frame.as_ref()
@@ -2723,17 +2724,23 @@ impl CnCGameEngine {
                                 obj.construction_percent = 1.0;
                                 obj.status.under_construction = false;
                                 obj.health.current = obj.health.maximum;
+                                force_completed.push(id);
                             }
                         }
                     }
-                    // Prefer live barracks (just force-completed) over presentation roster —
-                    // presentation may point at a non-barracks producer that rejects infantry.
+                    // Prefer force-completed + presentation constructed producers.
+                    // Live full dual-scan is boot residual or fail-open when presentation
+                    // still marks force-completed barracks under_construction.
                     let producer = {
-                        let mut barracks = Vec::new();
-                        let mut any = Vec::new();
-                        for (&id, o) in self.game_logic.get_objects() {
+                        let mut barracks: Vec<crate::game_logic::ObjectId> = Vec::new();
+                        let mut any: Vec<crate::game_logic::ObjectId> = Vec::new();
+                        let classify_live = |id: crate::game_logic::ObjectId,
+                                             logic: &crate::game_logic::GameLogic,
+                                             team: crate::game_logic::Team|
+                         -> Option<(bool, crate::game_logic::ObjectId)> {
+                            let o = logic.get_object(id)?;
                             if o.team != team || !o.is_alive() || !o.is_constructed() {
-                                continue;
+                                return None;
                             }
                             let bd = o.building_data.as_ref();
                             let is_barracks = o.is_kind_of(crate::game_logic::KindOf::FSBarracks)
@@ -2751,13 +2758,84 @@ impl CnCGameEngine {
                                 || o.is_kind_of(crate::game_logic::KindOf::FSWarFactory)
                                 || o.is_kind_of(crate::game_logic::KindOf::FSAirfield);
                             if !is_producer {
-                                continue;
+                                return None;
                             }
-                            // Ensure building_data + Barracks type for can_produce(Infantry).
+                            Some((is_barracks, id))
+                        };
+                        let push = |is_barracks: bool,
+                                    id: crate::game_logic::ObjectId,
+                                    barracks: &mut Vec<crate::game_logic::ObjectId>,
+                                    any: &mut Vec<crate::game_logic::ObjectId>| {
                             if is_barracks {
-                                barracks.push(id);
-                            } else {
+                                if !barracks.contains(&id) {
+                                    barracks.push(id);
+                                }
+                            } else if !any.contains(&id) {
                                 any.push(id);
+                            }
+                        };
+                        // Just force-completed IDs are live-constructed this command.
+                        for id in force_completed.iter().copied() {
+                            if let Some((is_b, id)) = classify_live(id, &self.game_logic, team) {
+                                push(is_b, id, &mut barracks, &mut any);
+                            }
+                        }
+                        if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            for o in &frame.objects {
+                                if o.team != team || o.destroyed {
+                                    continue;
+                                }
+                                if o.under_construction && !force_completed.contains(&o.id) {
+                                    continue;
+                                }
+                                let is_barracks = o.building_type
+                                    == Some(
+                                        crate::presentation_frame::PresentationBuildingType::Barracks,
+                                    )
+                                    || o.template_name.to_ascii_lowercase().contains("barracks")
+                                    || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                        o,
+                                        crate::game_logic::KindOf::FSBarracks,
+                                    );
+                                let is_producer = o.can_produce
+                                    || is_barracks
+                                    || matches!(
+                                        o.building_type,
+                                        Some(
+                                            crate::presentation_frame::PresentationBuildingType::WarFactory
+                                                | crate::presentation_frame::PresentationBuildingType::Airfield
+                                                | crate::presentation_frame::PresentationBuildingType::Barracks
+                                        )
+                                    )
+                                    || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                        o,
+                                        crate::game_logic::KindOf::FSWarFactory,
+                                    )
+                                    || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                        o,
+                                        crate::game_logic::KindOf::FSAirfield,
+                                    );
+                                if !is_producer {
+                                    continue;
+                                }
+                                push(is_barracks, o.id, &mut barracks, &mut any);
+                            }
+                        } else {
+                            // Boot residual only.
+                            for &id in self.game_logic.get_objects().keys() {
+                                if let Some((is_b, id)) = classify_live(id, &self.game_logic, team)
+                                {
+                                    push(is_b, id, &mut barracks, &mut any);
+                                }
+                            }
+                        }
+                        // Fail-open live residual when presentation roster empty.
+                        if barracks.is_empty() && any.is_empty() {
+                            for &id in self.game_logic.get_objects().keys() {
+                                if let Some((is_b, id)) = classify_live(id, &self.game_logic, team)
+                                {
+                                    push(is_b, id, &mut barracks, &mut any);
+                                }
                             }
                         }
                         barracks.sort_by_key(|id| id.0);
