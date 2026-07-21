@@ -18160,4 +18160,49 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn command_attack_range_snap_movement_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for fn_name in [
+            "fn command_attack",
+            "fn try_return_to_base_rearm",
+            "fn try_runway_takeoff_from_airfield",
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains("gameworld_movement_authority_enabled"),
+                "{fn_name} must gate pose snaps under movement authority"
+            );
+        }
+        // command_attack must not always teleport into range when authority on.
+        let i = src.find("fn command_attack").unwrap();
+        let w = &src[i..i + 5000];
+        assert!(
+            w.contains("no range-snap teleport")
+                || w.contains("GameWorld\n                                // integrates")
+                || w.contains("assign_unit_attack_path"),
+            "command_attack must prefer path over snap under movement authority"
+        );
+    }
 }
