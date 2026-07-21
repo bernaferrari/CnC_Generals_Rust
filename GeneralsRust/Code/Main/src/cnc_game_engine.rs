@@ -2807,20 +2807,24 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "select_fail_not_ingame".into();
                 } else {
-                    let team = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.team);
+                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        Some(frame.local_team())
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                    };
                     let pick = team.and_then(|team| {
                         if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            // Presentation-owned mobile identity (no live dual-scan).
                             frame.first_mobile_friendly_id(team).or_else(|| {
-                                self.game_logic
-                                    .get_objects()
-                                    .iter()
-                                    .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
-                                    .map(|(id, _)| *id)
+                                frame
+                                    .alive_selectable_friendly_mobile_ids(team)
+                                    .into_iter()
+                                    .next()
                             })
                         } else {
+                            // Boot residual only.
                             self.game_logic
                                 .get_objects()
                                 .iter()
@@ -2865,10 +2869,13 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "attack_fail_not_ingame".into();
                 } else {
                     self.runtime_host_last_gameplay_cmd = "attack_begin".into();
-                    let team = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.team);
+                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        Some(frame.local_team())
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                    };
                     // Prefer combat-capable mobiles (select_all often arms structures/dozers).
                     if let Some(team) = team {
                         let mut attackers: Vec<_> = self
@@ -2876,26 +2883,43 @@ impl CnCGameEngine {
                             .iter()
                             .copied()
                             .filter(|id| {
-                                self.game_logic.get_object(*id).is_some_and(|o| {
-                                    o.team == team && o.is_alive() && o.can_attack()
-                                })
+                                if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                    frame.objects.iter().any(|o| {
+                                        o.id == *id
+                                            && o.team == team
+                                            && !o.destroyed
+                                            && o.has_weapon
+                                    })
+                                } else {
+                                    self.game_logic.get_object(*id).is_some_and(|o| {
+                                        o.team == team && o.is_alive() && o.can_attack()
+                                    })
+                                }
                             })
                             .collect();
                         if attackers.is_empty() {
-                            attackers = self
-                                .game_logic
-                                .get_objects()
-                                .iter()
-                                .filter(|(_, o)| {
-                                    o.team == team
-                                        && o.is_alive()
-                                        && o.can_attack()
-                                        && o.is_mobile()
-                                })
-                                .map(|(id, _)| *id)
-                                .collect();
-                            attackers.sort_by_key(|id| id.0);
-                            attackers.truncate(8);
+                            attackers = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                let mut ids = frame.alive_selectable_friendly_combat_ids(team);
+                                ids.truncate(8);
+                                ids
+                            } else {
+                                // Boot residual only.
+                                let mut ids: Vec<_> = self
+                                    .game_logic
+                                    .get_objects()
+                                    .iter()
+                                    .filter(|(_, o)| {
+                                        o.team == team
+                                            && o.is_alive()
+                                            && o.can_attack()
+                                            && o.is_mobile()
+                                    })
+                                    .map(|(id, _)| *id)
+                                    .collect();
+                                ids.sort_by_key(|id| id.0);
+                                ids.truncate(8);
+                                ids
+                            };
                         }
                         if !attackers.is_empty() {
                             self.selected_objects = attackers.clone();
@@ -3127,21 +3151,31 @@ impl CnCGameEngine {
                     let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     if self.selected_objects.is_empty() {
-                        // pick local mobile
-                        if let Some(team) = self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                        {
-                            if let Some((id, _)) = self
-                                .game_logic
-                                .get_objects()
-                                .iter()
-                                .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
-                            {
-                                self.selected_objects = vec![*id];
+                        // pick local mobile (presentation when available)
+                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            Some(frame.local_team())
+                        } else {
+                            self.game_logic
+                                .get_player(self.current_player_id)
+                                .map(|p| p.team)
+                        };
+                        if let Some(team) = team {
+                            let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame
+                                    .alive_selectable_friendly_mobile_ids(team)
+                                    .into_iter()
+                                    .next()
+                            } else {
                                 self.game_logic
-                                    .select_objects(self.current_player_id, vec![*id]);
+                                    .get_objects()
+                                    .iter()
+                                    .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+                                    .map(|(id, _)| *id)
+                            };
+                            if let Some(id) = id {
+                                self.selected_objects = vec![id];
+                                self.game_logic
+                                    .select_objects(self.current_player_id, vec![id]);
                             }
                         }
                     }
