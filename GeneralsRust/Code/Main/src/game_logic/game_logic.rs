@@ -26372,16 +26372,17 @@ impl GameLogic {
                 if let Some(target) = self.objects.get_mut(&target_id) {
                     impact_pos = target.get_position();
                     // Instant destroy residual for interceptable missiles.
-                    let _ = target.take_damage(target.health.current.max(damage));
+                    let _ = target
+                        .take_damage_from(target.health.current.max(damage), Some(carrier_id));
                     destroyed = !target.is_alive() || target.health.current <= 0.0;
                     if !destroyed {
                         // Force kill residual if armor residual blocked full clear.
-                        destroyed = target.take_damage(damage * 10.0);
+                        destroyed = target.take_damage_from(damage * 10.0, Some(carrier_id));
                     }
                 }
             } else if let Some(target) = self.objects.get_mut(&target_id) {
                 impact_pos = target.get_position();
-                destroyed = target.take_damage(damage);
+                destroyed = target.take_damage_from(damage, Some(carrier_id));
             }
 
             self.point_defense_next_ready_frame
@@ -26389,6 +26390,27 @@ impl GameLogic {
             intercepts_this_pass = intercepts_this_pass.saturating_add(1);
             self.point_defense_residual_intercepts =
                 self.point_defense_residual_intercepts.saturating_add(1);
+            // AI attack authority: PDL discharge records fire-intent for GameWorld last-writer.
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_enabled() {
+                if let Some(carrier) = self.objects.get_mut(&carrier_id) {
+                    let next_count = carrier.fire_intent_count.saturating_add(1);
+                    let sim_t = frame as f32 * LOGIC_FRAME_TIMESTEP;
+                    crate::game_logic::host_fire_intent_log::record(
+                        carrier_id,
+                        target_id.0,
+                        0,
+                        damage,
+                        fire_range,
+                        sim_t,
+                        frame,
+                        next_count,
+                    );
+                    carrier.fire_intent_count = next_count;
+                }
+            }
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_attack(carrier_id, target_id);
+            }
 
             if destroyed {
                 self.mark_object_for_destruction(target_id, Some(team));
@@ -28006,7 +28028,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, None);
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -28056,7 +28078,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, None);
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -33206,7 +33228,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, None);
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -38561,7 +38583,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, None);
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -38728,7 +38750,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, None);
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -39077,7 +39099,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, None);
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -40144,7 +40166,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, None);
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -40273,7 +40295,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from(hit.damage, None);
+                    let killed = target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -40419,7 +40441,7 @@ impl GameLogic {
                     if audio_pos.is_none() {
                         audio_pos = Some(target.get_position());
                     }
-                    let killed = target.take_damage_from(hit.damage, None);
+                    let killed = target.take_damage_from(hit.damage, Some(plan.mob_id));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -40445,11 +40467,21 @@ impl GameLogic {
 
             // Mark nexus as residual-attacking when it dealt damage (AI state residual).
             if had_hits {
+                let first_target = plan.hits.first().map(|h| h.target_id);
                 if let Some(mob) = self.objects.get_mut(&plan.mob_id) {
                     mob.set_status_attacking(true);
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        if let Some(tid) = first_target {
+                            crate::game_logic::host_ai_decision_log::record_attack(
+                                plan.mob_id,
+                                tid,
+                            );
+                        }
                         crate::game_logic::host_ai_decision_log::record_set_state(plan.mob_id, 2);
                     } else {
+                        if let Some(tid) = first_target {
+                            mob.target = Some(tid);
+                        }
                         mob.set_ai_state(AIState::Attacking);
                     }
                 }
