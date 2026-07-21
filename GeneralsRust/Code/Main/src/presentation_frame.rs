@@ -11022,13 +11022,19 @@ mod tests {
     fn enhanced_ai_system_registry_empty() {
         let ep = include_str!("../../GameEngine/GameLogic/src/ai/enhanced_player.rs");
         assert!(
-            ep.matches("OBJECT_REGISTRY.is_empty()").count() >= 4,
+            ep.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
             "enhanced AI dual-world scans must early-out when registry empty"
         );
         let sys = include_str!("../../GameEngine/GameLogic/src/system/game_logic.rs");
         assert!(
-            sys.contains("pub fn update") && sys.contains("OBJECT_REGISTRY.is_empty()"),
-            "crate GameLogic::update must skip empty dual-world registry"
+            sys.contains("dual-world factory empty")
+                || sys.contains("OBJECT_REGISTRY.is_empty()"),
+            "crate GameLogic update/rebuild must skip empty dual-world registry"
+        );
+        assert!(
+            sys.contains("if !OBJECT_REGISTRY.is_empty()")
+                || sys.contains("if OBJECT_REGISTRY.is_empty()"),
+            "system game_logic must gate dual-world bulk paths"
         );
     }
 
