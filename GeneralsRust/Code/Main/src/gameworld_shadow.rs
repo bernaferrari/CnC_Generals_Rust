@@ -17119,4 +17119,93 @@ mod tests {
             "completed structure must be mapped in shadow"
         );
     }
+
+    #[test]
+    fn dozer_construction_ai_state_decision_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for fn_name in [
+            "fn update_dozer_bored_repair",
+            "fn update_construction",
+            "fn update_rebuild_holes",
+            "fn try_auto_resume_construction_residual",
+            "fn process_destroy_list",
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains("gameworld_ai_decision_authority_enabled")
+                    || w.contains("set_ai_state_decision_aware")
+                    || w.contains("host_ai_decision_log::record_set_state")
+                    || w.contains("apply_engagement_decision_aware"),
+                "{fn_name} must honor AI decision authority"
+            );
+        }
+    }
+
+    #[test]
+    fn dozer_bored_repair_state_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DzAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("DzU") {
+            let mut t = ThingTemplate::new("DzU");
+            t.add_kind_of(KindOf::Vehicle);
+            t.add_kind_of(KindOf::Worker);
+            logic.templates.insert("DzU".into(), t);
+        }
+        let oid = logic
+            .create_object("DzU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        logic.set_ai_state_decision_aware_for_test(oid, AIState::Repairing);
+        let events = host_ai_decision_log::drain();
+        let ord = GameWorldShadow::host_ai_state_ordinal(&AIState::Repairing);
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
+                    && e.host_object == oid
+                    && e.ai_state_ordinal == ord
+            }),
+            "Repairing must be logged; got {events:?}"
+        );
+        assert_ne!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Repairing
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Repairing
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+    }
 }
