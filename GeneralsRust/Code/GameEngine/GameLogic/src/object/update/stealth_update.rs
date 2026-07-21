@@ -540,6 +540,10 @@ impl StealthUpdateController {
 
             // Find enemy units in range (C++ uses 500.0 range at line 896)
             const WAKEUP_RANGE: Real = 500.0;
+            // Host path: empty dual-world registry residual.
+            if OBJECT_REGISTRY.is_empty() {
+                return;
+            }
             let all_objects = OBJECT_REGISTRY.get_all_objects();
 
             for enemy_obj in all_objects {

@@ -1347,6 +1347,10 @@ impl TerrainLogic {
 
     fn is_point_on_wall_fallback(&self, pos: &Coord3D) -> bool {
         let cell_pad = PATHFIND_CELL_SIZE_F * 0.5;
+        // Host path: empty dual-world registry residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         for obj in OBJECT_REGISTRY.get_all_objects() {
             if let Ok(obj_guard) = obj.read() {
                 if !obj_guard.is_any_kind_of(&[KindOf::Barrier]) {

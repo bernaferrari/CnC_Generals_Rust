@@ -356,6 +356,10 @@ impl GrantStealthBehavior {
         // NOTE: Since we don't have PartitionManager fully integrated yet,
         // we'll use OBJECT_REGISTRY.get_all_objects() and filter manually
         // This is less efficient but functionally equivalent for now
+        // Host path: empty dual-world registry residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return;
+        }
         let all_objects = OBJECT_REGISTRY.get_all_objects();
 
         // C++ lines 143-145: For each object, grant stealth
