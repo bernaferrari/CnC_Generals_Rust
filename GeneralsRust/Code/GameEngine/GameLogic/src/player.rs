@@ -1582,6 +1582,10 @@ impl Player {
         ignore_under_construction: Bool,
         counts: &mut [Int],
     ) {
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            counts.fill(0);
+            return;
+        }
         counts.fill(0);
         let max_templates = templates.len().min(counts.len());
         if max_templates == 0 {
@@ -1619,6 +1623,9 @@ impl Player {
 
     /// Count player-owned structures, matching C++ Player::countBuildings.
     pub fn count_buildings(&self) -> Int {
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return 0;
+        }
         let mut count = 0;
         for &object_id in &self.owned_objects {
             let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
@@ -1641,6 +1648,9 @@ impl Player {
         required: KindOfMaskType,
         forbidden: KindOfMaskType,
     ) -> Int {
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return 0;
+        }
         let mut count = 0;
         for &object_id in &self.owned_objects {
             let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
@@ -2058,6 +2068,9 @@ impl Player {
     /// Check if player has any objects at all.
     /// C++ Reference: Player::hasAnyObjects()
     pub fn has_any_objects(&self) -> Bool {
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         for &object_id in &self.owned_objects {
             let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
             else {
@@ -2083,6 +2096,9 @@ impl Player {
     /// Check if player has any units (non-structure objects)
     /// C++ Reference: Player::hasAnyUnits() - checks for non-structure units
     pub fn has_any_units(&self) -> Bool {
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         for &object_id in &self.owned_objects {
             let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
             else {
@@ -2131,6 +2147,9 @@ impl Player {
     /// Check if player has any build facilities (structures that can produce units)
     /// C++ Reference: Player::hasAnyBuildFacility() - checks for buildings with production capability
     pub fn has_any_build_facility(&self) -> Bool {
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return false;
+        }
         for &object_id in &self.owned_objects {
             let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
             else {
@@ -3198,6 +3217,9 @@ impl Player {
     /// Force units to idle in place or resume supply trucking.
     /// Matches C++ Player::setUnitsShouldIdleOrResume.
     pub fn set_units_should_idle_or_resume(&mut self, idle: Bool, source: CommandSourceType) {
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return;
+        }
         for object_id in &self.owned_objects {
             let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(*object_id)
             else {
