@@ -4937,6 +4937,10 @@ impl ScriptCondition for BuiltByPlayerCondition {
         let object_type = get_str_param(parameters, "object_type")?;
 
         // Search all objects for matching type owned by player
+        // Host path: empty dual-world registry → no object residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(false);
+        }
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             if let Ok(obj) = obj_arc.read() {
                 if obj.is_effectively_dead() {
