@@ -6229,7 +6229,15 @@ impl GameLogic {
             }
             if let Some(building) = obj.building_data.as_mut() {
                 let pf = team_power_factor.get(&obj.team).copied().unwrap_or(1.0);
-                let completed_prod = building.update_production(dt, pf);
+                // Under PRODUCTION_AUTHORITY, GameWorld ticks queue progress;
+                // host only exits delay + completes when writeback already finished the head.
+                let completed_prod =
+                    if crate::gameworld_shadow::gameworld_production_authority_enabled() {
+                        building.tick_exit_delay(dt);
+                        building.try_complete_production()
+                    } else {
+                        building.update_production(dt, pf)
+                    };
                 // GameWorld production residual: snapshot queue progress each tick.
                 if !building.production_queue.is_empty() {
                     let items: Vec<crate::game_logic::host_production_progress_log::HostProductionQueueItem> =

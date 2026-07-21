@@ -10832,6 +10832,28 @@ mod tests {
     }
 
     #[test]
+    fn production_authority_host_skips_progress_advance() {
+        let gl = include_str!("game_logic/game_logic.rs");
+        assert!(
+            gl.contains("gameworld_production_authority_enabled()")
+                && gl.contains("try_complete_production()")
+                && gl.contains("tick_exit_delay(dt)"),
+            "host update_production under authority must exit-delay+complete only"
+        );
+        let b = include_str!("game_logic/buildings.rs");
+        assert!(
+            b.contains("fn advance_production_progress")
+                && b.contains("fn try_complete_production"),
+            "building production must split advance vs complete"
+        );
+        let sw = include_str!("gameworld_shadow.rs");
+        assert!(
+            sw.contains("fn tick_production_queues") && sw.contains("tick_production_queues("),
+            "shadow session must sole-tick production queues under authority"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation

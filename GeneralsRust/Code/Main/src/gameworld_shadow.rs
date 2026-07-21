@@ -1919,6 +1919,46 @@ impl GameWorldShadow {
     }
 
     /// Write shadow production queue + rally_point last-writer residual onto host buildings.
+
+    /// Under PRODUCTION_AUTHORITY: advance entity production queue progress by dt.
+    /// Host completes/spawns from writeback-finished heads next frame.
+    pub fn tick_production_queues(&mut self, dt: f32) -> usize {
+        if !gameworld_production_authority_enabled() {
+            return 0;
+        }
+        use gamelogic::world::entities::{EntityId, EntityProductionItem};
+        use gamelogic::world::WorldMutation;
+        let mut n = 0usize;
+        let mut updates: Vec<(EntityId, Vec<EntityProductionItem>)> = Vec::new();
+        for &eid in self.host_to_entity.values() {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            if ent.production_queue_items.is_empty() {
+                continue;
+            }
+            let mut items = ent.production_queue_items.clone();
+            let Some(head) = items.first_mut() else {
+                continue;
+            };
+            if head.progress + 1e-6 < head.total_time.max(0.0) {
+                // Power-factor residual: host still owns energy shortfall clamp via
+                // prior progress snapshots; tick uses dt as 1.0-power equivalent.
+                head.progress = (head.progress + dt).min(head.total_time.max(0.0));
+                n += 1;
+                updates.push((eid, items));
+            }
+        }
+        for (eid, items) in updates {
+            self.world
+                .queue_mutation(WorldMutation::SetProductionQueue { target: eid, items });
+        }
+        if n > 0 {
+            let _ = self.world.apply_pending_mutations();
+        }
+        n
+    }
+
     pub fn writeback_production_to_host(&self, logic: &mut GameLogic) -> usize {
         if !gameworld_production_authority_enabled() {
             return 0;
@@ -6797,6 +6837,9 @@ pub fn shadow_session_after_host_tick(
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let _prod_applied = shadow.apply_host_production_events(&production_events, logic);
     let _pp_applied = shadow.apply_host_production_progress_events(&production_progress_events);
+    // Sole progress tick under PRODUCTION_AUTHORITY (host skips advance).
+    let _prod_tick = shadow
+        .tick_production_queues(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
     let production_door_events = crate::game_logic::host_production_door_log::drain();
     let _pd_applied = shadow.apply_host_production_door_events(&production_door_events);
     let _construction_applied = shadow.apply_host_construction_events(&construction_events, logic);
