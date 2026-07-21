@@ -17955,7 +17955,7 @@ mod tests {
     }
 
     #[test]
-    fn start_sell_defers_construction_percent_under_authority() {
+    fn start_sell_sets_construction_percent_under_authority() {
         use crate::game_logic::host_construction_progress_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
@@ -17979,10 +17979,11 @@ mod tests {
             o.set_status_under_construction(false);
         }
         assert!(logic.start_sell_object(oid));
-        // Host percent deferred under construction authority.
+        // Host sell start always sets construction_percent=0.999 (and logs progress).
+        // Construction authority no longer freezes host percent (stalls multi-frame sell).
         assert!(
-            (logic.get_objects().get(&oid).unwrap().construction_percent - 1.0).abs() < 1e-5,
-            "host must keep pre-sell percent until writeback"
+            (logic.get_objects().get(&oid).unwrap().construction_percent - 0.999).abs() < 1e-4,
+            "host sell start must set 0.999 residual"
         );
         let evs = host_construction_progress_log::drain();
         assert!(

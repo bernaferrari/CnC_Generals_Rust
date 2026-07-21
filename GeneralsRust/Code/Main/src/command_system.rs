@@ -2772,7 +2772,7 @@ mod tests {
                 CommandResult::Success
             );
             assert_eq!(
-                game_logic.get_player(0).unwrap().resources.supplies,
+                game_logic.get_player(0).unwrap().effective_supplies(),
                 900,
                 "queued unit should charge before selling"
             );
@@ -2795,7 +2795,7 @@ mod tests {
             // C++ BuildAssistant::sellObject cancels production at sell start;
             // structure refund deposits when sell finishes (~90 frames).
             assert_eq!(
-                game_logic.get_player(0).unwrap().resources.supplies,
+                game_logic.get_player(0).unwrap().effective_supplies(),
                 1_000,
                 "sell start should refund queued production immediately"
             );
@@ -2829,7 +2829,7 @@ mod tests {
                 "sell finish should destroy structure"
             );
             assert_eq!(
-                game_logic.get_player(0).unwrap().resources.supplies,
+                game_logic.get_player(0).unwrap().effective_supplies(),
                 1_500,
                 "selling should refund both the structure sell value and queued production"
             );
@@ -2900,9 +2900,9 @@ mod tests {
                 "sell finish should destroy structure"
             );
             assert_eq!(
-                game_logic.get_player(0).unwrap().resources.supplies,
+                game_logic.get_player(0).unwrap().effective_supplies(),
                 250,
-                "sell refund should use GlobalData SellPercentage"
+                "sell refund should use GlobalData SellPercentage (effective under economy auth)"
             );
         });
     }

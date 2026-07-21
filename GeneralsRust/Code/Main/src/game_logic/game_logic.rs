@@ -48893,7 +48893,16 @@ impl GameLogic {
             // C++ clearScriptStatus(OBJECT_STATUS_SCRIPT_UNSELLABLE) residual.
         }
         self.clear_target_decision_aware(object_id);
-        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+        // Capture must clear host AI/orders immediately (observable residual).
+        // Under AI_DECISION_AUTHORITY also log for GameWorld last-write channel.
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.set_ai_state(AIState::Idle);
+        }
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            let ordinal =
+                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Idle);
+            crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
+        }
         // C++ ScoreKeeper::addObjectCaptured residual for new owner.
         if let Some(p) = self.get_player_mut_by_team(new_team) {
             p.record_object_captured();
@@ -49195,11 +49204,8 @@ impl GameLogic {
         self.on_selling_container_residual(object_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ setConstructionPercent(99.9f) on 0..100 scale → host 0.999
-            if crate::gameworld_shadow::gameworld_construction_authority_enabled() {
-                crate::game_logic::host_construction_progress_log::record(object_id, 0.999, false);
-            } else {
-                obj.construction_percent = 0.999;
-            }
+            obj.construction_percent = 0.999;
+            crate::game_logic::host_construction_progress_log::record(object_id, 0.999, false);
             obj.set_status_sold(true);
             obj.set_status_unselectable(true);
             obj.set_status_under_construction(false);
@@ -49273,21 +49279,19 @@ impl GameLogic {
             let elapsed = frame.saturating_sub(entry.sell_frame);
             if elapsed >= FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL {
                 let previous = obj.construction_percent;
-                let projected = (previous - SELL_CONSTRUCTION_DECREMENT_RESIDUAL).max(-0.01);
-                if crate::gameworld_shadow::gameworld_construction_authority_enabled() {
-                    crate::game_logic::host_construction_progress_log::record(
-                        entry.id,
-                        projected.max(0.0),
-                        false,
-                    );
-                } else {
-                    obj.construction_percent = projected;
-                }
+                // Allow percent to fall through SELL_FINISH (-0.5); do not floor at -0.01
+                // (that made finish unreachable and stalled multi-frame sell forever).
+                let projected = previous - SELL_CONSTRUCTION_DECREMENT_RESIDUAL;
+                obj.construction_percent = projected;
+                crate::game_logic::host_construction_progress_log::record(
+                    entry.id,
+                    projected.max(0.0),
+                    false,
+                );
                 // Cross from positive to <= 0 → MODELCONDITION_SOLD
                 if previous > 0.0 && projected <= 0.0 {
                     obj.apply_sold_model_condition();
                 }
-                // Finish gate uses projected so authority path does not stall mid-sell.
                 if projected <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
                     finished.push(entry.id);
                 } else {
@@ -91256,7 +91260,7 @@ mod tests {
             .get_players()
             .values()
             .find(|p| p.team == Team::USA)
-            .map(|p| p.resources.supplies)
+            .map(|p| p.effective_supplies())
             .unwrap_or(0);
         assert!(money >= 1400, "expected refund applied, money={money}");
         let _ = sold_model_bit; // keep import used if assert path skips
