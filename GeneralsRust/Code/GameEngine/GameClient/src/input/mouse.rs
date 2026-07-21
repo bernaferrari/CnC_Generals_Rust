@@ -754,6 +754,11 @@ impl Mouse {
         true
     }
 
+    /// Scroll residual from Main OS wheel without crossing winit version boundaries.
+    pub fn handle_scroll_lines(&mut self, dy: f32) -> bool {
+        self.handle_scroll(MouseScrollDelta::LineDelta(0.0, dy))
+    }
+
     /// Get current mouse state
     pub fn state(&self) -> &MouseState {
         &self.state
