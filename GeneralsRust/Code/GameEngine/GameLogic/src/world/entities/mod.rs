@@ -438,6 +438,26 @@ pub struct Entity {
     pub move_away_from_id: Option<u32>,
     /// Host Object::requested_victim_id residual.
     pub requested_victim_id: Option<u32>,
+    /// Host AI request residual `requested_destination`.
+    pub requested_destination: Option<[f32; 3]>,
+    /// Host AI request residual `prev_victim_pos`.
+    pub prev_victim_pos: Option<[f32; 3]>,
+    /// Host AI request residual `crate_created_host`.
+    pub crate_created_host: u32,
+    /// Host AI request residual `guard_retaliate_victim_host`.
+    pub guard_retaliate_victim_host: u32,
+    /// Host AI request residual `guard_retaliate_anchor`.
+    pub guard_retaliate_anchor: Option<[f32; 3]>,
+    /// Host AI request residual `disguise_pending_template`.
+    pub disguise_pending_template: String,
+    /// Host AI request residual `disguise_pending_team_ordinal`.
+    pub disguise_pending_team_ordinal: u8,
+    /// Host AI request residual `weapon_crate_upgrade`.
+    pub weapon_crate_upgrade: u8,
+    /// Host AI request residual `armor_crate_upgrade`.
+    pub armor_crate_upgrade: u8,
+    /// Host AI request residual `selection_flash_remaining`.
+    pub selection_flash_remaining: u32,
     /// Host Object::shock_stun_frames residual.
     pub shock_stun_frames: u32,
     /// Host Object::shock_yaw_rate residual.
@@ -928,6 +948,16 @@ impl EntityStore {
             is_blocked: false,
             move_away_from_id: None,
             requested_victim_id: None,
+            requested_destination: None,
+            prev_victim_pos: None,
+            crate_created_host: 0,
+            guard_retaliate_victim_host: 0,
+            guard_retaliate_anchor: None,
+            disguise_pending_template: String::new(),
+            disguise_pending_team_ordinal: 255,
+            weapon_crate_upgrade: 0,
+            armor_crate_upgrade: 0,
+            selection_flash_remaining: 0,
             shock_stun_frames: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
