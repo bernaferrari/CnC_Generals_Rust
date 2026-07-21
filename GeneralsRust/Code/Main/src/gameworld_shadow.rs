@@ -18790,4 +18790,48 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn cycle_stop_presentation_source() {
+        let pf = include_str!("presentation_frame.rs");
+        for name in [
+            "alive_selectable_friendly_damaged_unit_ids",
+            "alive_selectable_friendly_damaged_structure_ids",
+            "alive_selectable_friendly_busy_producer_ids",
+            "alive_selectable_friendly_ready_special_power_ids",
+            "alive_friendly_stoppable_ids",
+        ] {
+            assert!(
+                pf.contains(&format!("fn {name}")),
+                "PresentationFrame must expose {name}"
+            );
+        }
+        let eng = include_str!("cnc_game_engine.rs");
+        for (fn_name, call) in [
+            (
+                "cycle_damaged_unit_selection",
+                "alive_selectable_friendly_damaged_unit_ids",
+            ),
+            (
+                "cycle_damaged_structure_selection",
+                "alive_selectable_friendly_damaged_structure_ids",
+            ),
+            (
+                "cycle_busy_producer_selection",
+                "alive_selectable_friendly_busy_producer_ids",
+            ),
+            (
+                "cycle_ready_special_power_structure",
+                "alive_selectable_friendly_ready_special_power_ids",
+            ),
+            ("stop_all_friendly_units", "alive_friendly_stoppable_ids"),
+        ] {
+            let at = eng.find(&format!("fn {fn_name}")).expect(fn_name);
+            let body = &eng[at..eng.len().min(at + 2200)];
+            assert!(
+                body.contains(call),
+                "{fn_name} must prefer presentation {call}"
+            );
+        }
+    }
 }
