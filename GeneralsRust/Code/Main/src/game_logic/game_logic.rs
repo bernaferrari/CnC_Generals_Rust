@@ -34479,29 +34479,42 @@ impl GameLogic {
         let damage = weapon.damage;
         let fire_pos = container.get_position();
 
-        let mut best: Option<(ObjectId, f32)> = None;
-        for (id, obj) in &self.objects {
-            if *id == passenger_id || *id == cid {
-                continue;
-            }
-            if !obj.is_alive() || obj.team == team || obj.team == Team::Neutral {
-                continue;
-            }
-            if !obj.is_kind_of(KindOf::Attackable)
-                && !obj.is_kind_of(KindOf::Structure)
-                && !obj.is_kind_of(KindOf::Infantry)
-                && !obj.is_kind_of(KindOf::Vehicle)
-                && !obj.is_kind_of(KindOf::Aircraft)
-            {
-                continue;
-            }
-            let dist = fire_pos.distance(obj.get_position());
-            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
-                best = Some((*id, dist));
-            }
-        }
+        // Pure residual acquire query (fire decision choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .filter(|(&id, _)| id != passenger_id && id != cid)
+            .map(|(&id, obj)| {
+                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
+                    obj.is_kind_of(KindOf::Attackable),
+                    obj.is_kind_of(KindOf::Structure),
+                    obj.is_kind_of(KindOf::Infantry),
+                    obj.is_kind_of(KindOf::Vehicle),
+                    obj.is_kind_of(KindOf::Aircraft),
+                );
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id,
+                    team: obj.team,
+                    position: obj.get_position(),
+                    is_alive: obj.is_alive(),
+                    is_neutral: obj.team == Team::Neutral,
+                    under_construction: obj.status.under_construction,
+                    combat_kind,
+                    effectively_stealthed: obj.is_effectively_stealthed(),
+                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                }
+            })
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            passenger_id,
+            team,
+            fire_pos,
+            candidates,
+            |_| range,
+            |c| c.is_alive && c.team != team && !c.is_neutral && c.combat_kind,
+        );
 
-        let Some((target_id, _)) = best else {
+        let Some((target_id, _, _)) = best else {
             return;
         };
 
@@ -34597,29 +34610,42 @@ impl GameLogic {
             .and_then(|cid| self.objects.get(&cid).map(|c| c.get_position()))
             .unwrap_or_else(|| attacker.get_position());
 
-        let mut best: Option<(ObjectId, f32)> = None;
-        for (id, obj) in &self.objects {
-            if *id == garrisoned_id || Some(*id) == container_id {
-                continue;
-            }
-            if !obj.is_alive() || obj.team == team || obj.team == Team::Neutral {
-                continue;
-            }
-            if !obj.is_kind_of(KindOf::Attackable)
-                && !obj.is_kind_of(KindOf::Structure)
-                && !obj.is_kind_of(KindOf::Infantry)
-                && !obj.is_kind_of(KindOf::Vehicle)
-                && !obj.is_kind_of(KindOf::Aircraft)
-            {
-                continue;
-            }
-            let dist = fire_pos.distance(obj.get_position());
-            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
-                best = Some((*id, dist));
-            }
-        }
+        // Pure residual acquire query (fire decision choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .filter(|(&id, _)| id != garrisoned_id && Some(id) != container_id)
+            .map(|(&id, obj)| {
+                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
+                    obj.is_kind_of(KindOf::Attackable),
+                    obj.is_kind_of(KindOf::Structure),
+                    obj.is_kind_of(KindOf::Infantry),
+                    obj.is_kind_of(KindOf::Vehicle),
+                    obj.is_kind_of(KindOf::Aircraft),
+                );
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id,
+                    team: obj.team,
+                    position: obj.get_position(),
+                    is_alive: obj.is_alive(),
+                    is_neutral: obj.team == Team::Neutral,
+                    under_construction: obj.status.under_construction,
+                    combat_kind,
+                    effectively_stealthed: obj.is_effectively_stealthed(),
+                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                }
+            })
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            garrisoned_id,
+            team,
+            fire_pos,
+            candidates,
+            |_| range,
+            |c| c.is_alive && c.team != team && !c.is_neutral && c.combat_kind,
+        );
 
-        let Some((target_id, _)) = best else {
+        let Some((target_id, _, _)) = best else {
             return;
         };
 
