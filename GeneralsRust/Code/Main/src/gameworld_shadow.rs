@@ -276,6 +276,8 @@ pub struct GameWorldShadow {
     max_entities: usize,
     /// Host player id → dense GameWorld PlayerId
     host_player_to_gw: HashMap<u32, PlayerId>,
+    /// Last host energy shortfall residual per producer host id (sole-tick).
+    production_power_factor_by_host: HashMap<u32, f32>,
 }
 
 impl GameWorldShadow {
@@ -286,6 +288,7 @@ impl GameWorldShadow {
             entity_to_host: HashMap::new(),
             max_entities: max_entities.max(1),
             host_player_to_gw: HashMap::new(),
+            production_power_factor_by_host: HashMap::new(),
         }
     }
 
@@ -1930,7 +1933,13 @@ impl GameWorldShadow {
         use gamelogic::world::WorldMutation;
         let mut n = 0usize;
         let mut updates: Vec<(EntityId, Vec<EntityProductionItem>)> = Vec::new();
-        for &eid in self.host_to_entity.values() {
+        // Snapshot host ids for power lookup without double-borrow.
+        let host_ids: Vec<(u32, EntityId)> = self
+            .host_to_entity
+            .iter()
+            .map(|(&hid, &eid)| (hid, eid))
+            .collect();
+        for (hid, eid) in host_ids {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
@@ -1942,9 +1951,13 @@ impl GameWorldShadow {
                 continue;
             };
             if head.progress + 1e-6 < head.total_time.max(0.0) {
-                // Power-factor residual: host still owns energy shortfall clamp via
-                // prior progress snapshots; tick uses dt as 1.0-power equivalent.
-                head.progress = (head.progress + dt).min(head.total_time.max(0.0));
+                let pf = self
+                    .production_power_factor_by_host
+                    .get(&hid)
+                    .copied()
+                    .unwrap_or(1.0)
+                    .max(0.01);
+                head.progress = (head.progress + dt * pf).min(head.total_time.max(0.0));
                 n += 1;
                 updates.push((eid, items));
             }
@@ -2795,6 +2808,8 @@ impl GameWorldShadow {
             let Some(&eid) = self.host_to_entity.get(&ev.producer.0) else {
                 continue;
             };
+            self.production_power_factor_by_host
+                .insert(ev.producer.0, ev.power_factor.max(0.01));
             let items: Vec<EntityProductionItem> = ev
                 .items
                 .iter()
@@ -13825,6 +13840,7 @@ mod tests {
                 is_upgrade: false,
             }],
             1.25,
+            1.0,
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
