@@ -17935,4 +17935,85 @@ mod tests {
             None => std::env::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
         }
     }
+
+    #[test]
+    fn sell_and_rebuild_construction_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for fn_name in [
+            "fn update_construction",
+            "fn start_sell_object",
+            "fn update_sell_list",
+            "fn update_rebuild_holes",
+            "fn maybe_spawn_rebuild_hole",
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains("gameworld_construction_authority_enabled")
+                    || w.contains("host_construction_progress_log::record"),
+                "{fn_name} must honor construction authority for percent mutations"
+            );
+        }
+    }
+
+    #[test]
+    fn start_sell_defers_construction_percent_under_authority() {
+        use crate::game_logic::host_construction_progress_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+        host_construction_progress_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SellPct");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("SellPad") {
+            let mut t = ThingTemplate::new("SellPad");
+            t.add_kind_of(KindOf::Structure);
+            t.set_health(500.0);
+            logic.templates.insert("SellPad".into(), t);
+        }
+        let oid = logic
+            .create_object("SellPad", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).unwrap();
+            o.construction_percent = 1.0;
+            o.set_status_under_construction(false);
+        }
+        assert!(logic.start_sell_object(oid));
+        // Host percent deferred under construction authority.
+        assert!(
+            (logic.get_objects().get(&oid).unwrap().construction_percent - 1.0).abs() < 1e-5,
+            "host must keep pre-sell percent until writeback"
+        );
+        let evs = host_construction_progress_log::drain();
+        assert!(
+            evs.iter()
+                .any(|e| e.object == oid && (e.percent - 0.999).abs() < 1e-4),
+            "sell start must log 0.999 progress; got {evs:?}"
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        }
+    }
 }
