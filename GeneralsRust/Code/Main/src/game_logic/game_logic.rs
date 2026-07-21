@@ -6259,6 +6259,7 @@ impl GameLogic {
                         id,
                         items,
                         building.exit_delay_remaining,
+                        pf,
                     );
                 }
                 if let Some((completed, kind)) = completed_prod {

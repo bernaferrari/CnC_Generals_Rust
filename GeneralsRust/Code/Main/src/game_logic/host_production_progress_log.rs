@@ -19,18 +19,26 @@ pub struct HostProductionProgressEvent {
     pub items: Vec<HostProductionQueueItem>,
     /// C++ QueueProductionExitUpdate residual (seconds).
     pub exit_delay_remaining: f32,
+    /// Host energy shortfall clamp residual (1.0 = full power).
+    pub power_factor: f32,
 }
 
 thread_local! {
     static LOG: RefCell<Vec<HostProductionProgressEvent>> = RefCell::new(Vec::new());
 }
 
-pub fn record(producer: ObjectId, items: Vec<HostProductionQueueItem>, exit_delay_remaining: f32) {
+pub fn record(
+    producer: ObjectId,
+    items: Vec<HostProductionQueueItem>,
+    exit_delay_remaining: f32,
+    power_factor: f32,
+) {
     LOG.with(|log| {
         log.borrow_mut().push(HostProductionProgressEvent {
             producer,
             items,
             exit_delay_remaining: exit_delay_remaining.max(0.0),
+            power_factor: power_factor.max(0.01),
         });
     });
 }

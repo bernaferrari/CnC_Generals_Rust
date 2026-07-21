@@ -2751,10 +2751,14 @@ impl CnCGameEngine {
                         .get("template")
                         .cloned()
                         .unwrap_or_else(|| "AmericaInfantryRanger".to_string());
-                    let team = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.team);
+                    // Prefer presentation local team residual (no live player roster).
+                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        Some(frame.local_team())
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                    };
                     let Some(team) = team else {
                         self.runtime_host_last_gameplay_cmd = "train_fail_no_player".into();
                         return;
