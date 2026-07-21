@@ -5826,11 +5826,11 @@ impl PresentationFrame {
         }
     }
 
-    /// Queue presentation gameplay events into host audio residual (next-frame process).
+    /// Collect presentation→audio requests (no GameLogic borrow).
     /// Fail-closed: not Miles/device spatial parity — event names only for dispatch tables.
-    pub fn apply_events_to_audio(&self, logic: &mut GameLogic) -> usize {
+    pub fn collect_audio_events(&self) -> Vec<crate::game_logic::AudioEventRequest> {
         use crate::game_logic::AudioEventRequest;
-        let mut n = 0usize;
+        let mut out = Vec::new();
         for ev in &self.events {
             let mapped: Option<(&str, Option<crate::game_logic::ObjectId>)> = match ev {
                 PresentationEvent::ObjectDestroyed { id, .. } => Some(("UnitDie", Some(*id))),
@@ -5876,8 +5876,51 @@ impl PresentationFrame {
             if let Some(id) = obj {
                 req = req.with_object(id);
             }
+            out.push(req);
+        }
+        out
+    }
+
+    /// Dispatch presentation audio directly to the audio subsystem.
+    /// Fail-closed boundary: does **not** mutate GameLogic mid-frame.
+    pub fn dispatch_audio_events_direct(&self) -> usize {
+        let events = self.collect_audio_events();
+        let n = events.len();
+        for event in events {
+            if let Some(obj_id) = event.object_id {
+                if let Some(pos) = event.position {
+                    log::trace!(
+                        "🔊 Presentation audio: {} at {:?} from object {}",
+                        event.event_type,
+                        pos,
+                        obj_id
+                    );
+                } else {
+                    log::trace!(
+                        "🔊 Presentation audio: {} from object {}",
+                        event.event_type,
+                        obj_id
+                    );
+                }
+            } else if let Some(pos) = event.position {
+                log::trace!("🔊 Presentation audio: {} at {:?}", event.event_type, pos);
+            } else {
+                log::trace!("🔊 Presentation audio: {}", event.event_type);
+            }
+            let _ = crate::subsystem_manager::with_subsystem_mut::<
+                crate::subsystem_manager::AudioManagerSubsystem,
+                _,
+            >(|audio| audio.queue_event(event.clone()));
+        }
+        n
+    }
+
+    /// Legacy dual-write residual (tests may still call). Prefer `dispatch_audio_events_direct`.
+    pub fn apply_events_to_audio(&self, logic: &mut GameLogic) -> usize {
+        let events = self.collect_audio_events();
+        let n = events.len();
+        for req in events {
             logic.queue_audio_event(req);
-            n += 1;
         }
         n
     }
