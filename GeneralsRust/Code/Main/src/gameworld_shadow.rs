@@ -16912,21 +16912,20 @@ mod tests {
 
     #[test]
     fn update_combat_defers_engagement_under_decision_authority() {
-        // Source honesty: combat aim/pitch/pre-attack residual must not host-mutate
-        // target/ai_state when AI decision authority is on.
+        // Source honesty: combat aim/pitch/pre-attack sets host engagement immediately
+        // and still logs under AI decision authority for GameWorld last-write.
         let src = include_str!("game_logic/game_logic.rs");
         let i = src.find("fn update_combat").expect("update_combat");
-        // Bound to a reasonable window of the fire path.
         let w = &src[i..i + 120_000.min(src.len() - i)];
         assert!(
             w.contains("gameworld_ai_decision_authority") && w.contains("turn_toward_position"),
-            "update_combat aim residual must gate engagement under decision authority"
+            "update_combat aim residual must reference decision authority"
         );
-        // Ensure the pre-attack blocked path is gated too.
         assert!(
             w.matches("pre_attack_ready_at").count() >= 1
-                && w.contains("!crate::gameworld_shadow::gameworld_ai_decision_authority_live()"),
-            "pre-attack engagement residual must be authority-gated"
+                && w.contains("host_ai_decision_log::record_attack")
+                && !w.contains("!crate::gameworld_shadow::gameworld_ai_decision_authority_live()"),
+            "pre-attack engagement must host-apply and log (not inverted !live gate)"
         );
     }
 
@@ -17767,7 +17766,11 @@ mod tests {
             }),
             "assign_unit_path must log Moving; got {events:?}"
         );
-        assert_eq!(logic.get_objects().get(&oid).unwrap().ai_state, AIState::Moving, "host Moving immediate");
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Moving,
+            "host Moving immediate"
+        );
         assert!(
             logic.get_objects().get(&oid).unwrap().status.moving
                 || logic
@@ -17945,7 +17948,11 @@ mod tests {
             }),
             "waypoint must log Moving; got {events:?}"
         );
-        assert_eq!(logic.get_objects().get(&oid).unwrap().ai_state, AIState::Moving, "host Moving immediate");
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Moving,
+            "host Moving immediate"
+        );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
