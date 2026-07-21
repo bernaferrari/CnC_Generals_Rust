@@ -41266,7 +41266,7 @@ impl GameLogic {
                     if audio_pos.is_none() {
                         audio_pos = Some(target.get_position());
                     }
-                    let killed = target.take_damage_from(hit.damage, Some(plan.mob_id));
+                    let killed = target.take_damage_from_immediate(hit.damage, Some(plan.mob_id));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -47643,7 +47643,7 @@ impl GameLogic {
                 }
                 damage_dealt += hit.damage.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from(hit.damage, Some(source_id)) {
+                if victim.take_damage_from_immediate(hit.damage, Some(source_id)) {
                     destroy_ids.push((hit.target_id, source_team));
                 }
             }
@@ -47705,7 +47705,7 @@ impl GameLogic {
                 }
                 damage_dealt += hit.damage.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from(hit.damage, Some(source_id)) {
+                if victim.take_damage_from_immediate(hit.damage, Some(source_id)) {
                     destroy_ids.push((hit.target_id, source_team));
                 }
             }
