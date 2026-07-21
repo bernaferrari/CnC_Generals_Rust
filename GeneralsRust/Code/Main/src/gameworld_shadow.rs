@@ -218,6 +218,11 @@ pub fn gameworld_construction_authority_enabled() -> bool {
     }
 }
 
+/// Host skips construction percent advance only when authority AND shadow session run.
+pub fn gameworld_construction_sole_tick_enabled() -> bool {
+    gameworld_construction_authority_enabled() && gameworld_shadow_enabled()
+}
+
 /// When enabled (default), GameWorld shadow is last-writer for production queue
 /// identity (items/progress/rally/exit delay) via host progress logs + writeback.
 /// Host still *executes* production ticks (spawn completion residual); shadow owns
@@ -283,6 +288,8 @@ pub struct GameWorldShadow {
     host_player_to_gw: HashMap<u32, PlayerId>,
     /// Last host energy shortfall residual per producer host id (sole-tick).
     production_power_factor_by_host: HashMap<u32, f32>,
+    /// Last host construction effective_rate residual per host object id.
+    construction_rate_by_host: HashMap<u32, f32>,
 }
 
 impl GameWorldShadow {
@@ -294,6 +301,7 @@ impl GameWorldShadow {
             max_entities: max_entities.max(1),
             host_player_to_gw: HashMap::new(),
             production_power_factor_by_host: HashMap::new(),
+            construction_rate_by_host: HashMap::new(),
         }
     }
 
@@ -2364,6 +2372,71 @@ impl GameWorldShadow {
     }
 
     /// Write shadow construction/status residual last-writer onto host objects.
+
+    /// Under CONSTRUCTION_AUTHORITY: advance entity construction_percent by rate*dt.
+    /// Host completes when writeback reaches 1.0 (or sell finish).
+    pub fn tick_construction_progress(&mut self, dt: f32) -> usize {
+        if !gameworld_construction_sole_tick_enabled() {
+            return 0;
+        }
+        use gamelogic::world::WorldMutation;
+        let mut n = 0usize;
+        let mut updates: Vec<(gamelogic::world::entities::EntityId, f32, bool)> = Vec::new();
+        let host_ids: Vec<(u32, gamelogic::world::entities::EntityId)> = self
+            .host_to_entity
+            .iter()
+            .map(|(&hid, &eid)| (hid, eid))
+            .collect();
+        for (hid, eid) in host_ids {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            if !ent.under_construction && ent.construction_percent >= 0.0 {
+                // Sell path uses under_construction false with decreasing percent — still tick if rate < 0
+                let rate = self
+                    .construction_rate_by_host
+                    .get(&hid)
+                    .copied()
+                    .unwrap_or(0.0);
+                if rate >= 0.0 {
+                    continue;
+                }
+            }
+            let rate = self
+                .construction_rate_by_host
+                .get(&hid)
+                .copied()
+                .unwrap_or(0.0);
+            if rate.abs() < 1e-12 {
+                continue;
+            }
+            let mut pct = ent.construction_percent;
+            let uc = ent.under_construction;
+            if rate > 0.0 && uc {
+                pct = (pct + rate * dt).min(1.0);
+            } else if rate < 0.0 {
+                pct = (pct + rate * dt).max(-1.0);
+            } else {
+                continue;
+            }
+            if (pct - ent.construction_percent).abs() > 1e-8 {
+                n += 1;
+                updates.push((eid, pct, uc));
+            }
+        }
+        for (eid, pct, uc) in updates {
+            self.world.queue_mutation(WorldMutation::SetConstruction {
+                target: eid,
+                percent: pct,
+                under_construction: uc,
+            });
+        }
+        if n > 0 {
+            let _ = self.world.apply_pending_mutations();
+        }
+        n
+    }
+
     pub fn writeback_construction_to_host(&self, logic: &mut GameLogic) -> usize {
         // Construction/sell/rebuild residual only.
         // Combat status, AI state, contain, supplies, veterancy, and special-power
@@ -3497,6 +3570,8 @@ impl GameWorldShadow {
     ) -> usize {
         let mut n = 0usize;
         for ev in events {
+            self.construction_rate_by_host
+                .insert(ev.object.0, ev.effective_rate);
             if self.queue_set_construction_for_host(ev.object, ev.percent, ev.under_construction) {
                 n += 1;
             }
@@ -6865,6 +6940,8 @@ pub fn shadow_session_after_host_tick(
     let _construction_applied = shadow.apply_host_construction_events(&construction_events, logic);
     let _construction_progress_applied =
         shadow.apply_host_construction_progress_events(&construction_progress_events);
+    let _construction_tick = shadow
+        .tick_construction_progress(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
     let _sp_applied = shadow.apply_host_special_power_events(&special_power_events);
     // Host owns SP countdown execution; events update GameWorld for presentation.
     // Writeback is available for explicit tests / authority peels — not every tick.
@@ -8256,6 +8333,57 @@ mod tests {
     }
 
     #[test]
+    fn construction_authority_sole_ticks_percent() {
+        let prev_a = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
+        let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        assert!(gameworld_construction_sole_tick_enabled());
+        use crate::game_logic::host_construction_progress_log::{self};
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        {
+            let mut t = ThingTemplate::new("SoleTickBuild");
+            t.add_kind_of(KindOf::Structure);
+            t.build_time = 10.0;
+            logic.templates.insert("SoleTickBuild".into(), t);
+        }
+        let oid = logic
+            .create_object("SoleTickBuild", Team::USA, glam::Vec3::new(9.0, 0.0, 9.0))
+            .expect("id");
+        if let Some(o) = logic.get_object_mut(oid) {
+            o.construction_percent = 0.0;
+            o.set_status_under_construction(true);
+        }
+        host_construction_progress_log::record(oid, 0.0, true, 0.25);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let events = host_construction_progress_log::drain();
+        assert!(shadow.apply_host_construction_progress_events(&events) >= 1);
+        let n = shadow.tick_construction_progress(2.0);
+        assert!(n >= 1, "sole-tick must advance construction");
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        let ent = shadow.world().entity(eid).expect("ent");
+        // 0 + 0.25*2 = 0.5
+        assert!(
+            (ent.construction_percent - 0.5).abs() < 1e-4,
+            "got {}",
+            ent.construction_percent
+        );
+        assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+        let obj = logic.get_object(oid).expect("obj");
+        assert!((obj.construction_percent - 0.5).abs() < 1e-4);
+        match prev_a {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        }
+        match prev_s {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+    }
+
+    #[test]
     fn writeback_construction_percent_to_host() {
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -9242,7 +9370,7 @@ mod tests {
             o.set_status_under_construction(true);
         }
         host_construction_progress_log::clear();
-        host_construction_progress_log::record(id, 0.25, true);
+        host_construction_progress_log::record(id, 0.25, true, 0.0);
         let events = host_construction_progress_log::drain();
         assert_eq!(events.len(), 1);
 
@@ -9253,7 +9381,7 @@ mod tests {
             e.construction_percent = 0.0;
             e.under_construction = false;
         }
-        host_construction_progress_log::record(id, 0.25, true);
+        host_construction_progress_log::record(id, 0.25, true, 0.0);
         let events = host_construction_progress_log::drain();
         let n = shadow.apply_host_construction_progress_events(&events);
         assert!(n >= 1);
@@ -13802,7 +13930,7 @@ mod tests {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             let full = o.health.maximum;
             crate::game_logic::host_heal_log::record(oid, full);
-            crate::game_logic::host_construction_progress_log::record(oid, 1.0, false);
+            crate::game_logic::host_construction_progress_log::record(oid, 1.0, false, 0.0);
             o.construction_percent = 1.0;
             o.status.under_construction = false;
         }
@@ -13843,7 +13971,7 @@ mod tests {
         }
         host_construction_progress_log::clear();
         // One progress log as host construction tick would emit under authority.
-        host_construction_progress_log::record(oid, 0.6, true);
+        host_construction_progress_log::record(oid, 0.6, true, 0.0);
         assert!(
             (logic
                 .get_objects()
@@ -18358,7 +18486,7 @@ mod tests {
         );
 
         host_construction_progress_log::clear();
-        host_construction_progress_log::record(oid, host_pct, true);
+        host_construction_progress_log::record(oid, host_pct, true, 0.0);
         let events = host_construction_progress_log::drain();
         assert_eq!(events.len(), 1);
         assert!(
