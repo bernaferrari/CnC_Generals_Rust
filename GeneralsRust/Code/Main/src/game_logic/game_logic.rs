@@ -20536,6 +20536,13 @@ impl GameLogic {
                 template.primary_weapon.is_some() || template.primary_weapon_name.is_some();
             let mut object = Object::new(template, id, team);
             object.set_position(position);
+            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                crate::game_logic::host_move_log::record(
+                    id,
+                    Some([position.x, position.y, position.z]),
+                );
+                object.record_host_movement();
+            }
             let starts_under_construction = object.status.under_construction;
 
             // Primary weapon from template when defined; kind-based fallback only as last resort.
@@ -21407,6 +21414,13 @@ impl GameLogic {
             let id = self.allocate_object_id();
             let mut object = Object::new_under_construction(template, id, team);
             object.set_position(position);
+            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                crate::game_logic::host_move_log::record(
+                    id,
+                    Some([position.x, position.y, position.z]),
+                );
+                object.record_host_movement();
+            }
 
             self.objects.insert(id, object);
             self.inherit_team_ai_defaults(id);
@@ -43033,6 +43047,11 @@ impl GameLogic {
                         if p.y < 80.0 {
                             p.y = 120.0;
                             obj.set_position(p);
+                            crate::game_logic::host_ground_height_log::record(id, p.y, false);
+                            if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                                crate::game_logic::host_move_log::record(id, Some([p.x, p.y, p.z]));
+                                obj.record_host_movement();
+                            }
                         }
                         obj.apply_eject_parachuting();
                     }
@@ -48347,6 +48366,14 @@ impl GameLogic {
                         let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 12.0;
                         unit.stop_moving();
                         unit.set_position(pos + offset);
+                        if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                            let p = pos + offset;
+                            crate::game_logic::host_move_log::record(
+                                unit.id,
+                                Some([p.x, p.y, p.z]),
+                            );
+                            unit.record_host_movement();
+                        }
                         if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
                             crate::game_logic::host_ai_decision_log::record_stop_attack(uid);
                         } else {
@@ -48501,6 +48528,11 @@ impl GameLogic {
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                 unit.stop_moving();
                 unit.set_position(pos + offset);
+                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    let p = pos + offset;
+                    crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
+                    unit.record_host_movement();
+                }
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
                     crate::game_logic::host_ai_decision_log::record_stop_attack(uid);
                 } else {

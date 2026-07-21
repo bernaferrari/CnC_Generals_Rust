@@ -18372,4 +18372,32 @@ mod tests {
             "freefall residual must log ground height"
         );
     }
+
+    #[test]
+    fn create_object_spawn_pose_movement_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for (name, window) in [
+            ("create_object", 25000usize),
+            ("create_object_under_construction", 2000),
+            ("update_paradrops", 5000),
+            ("on_capture_tunnel_network_residual", 4000),
+            ("on_capture_kick_passengers", 4000),
+        ] {
+            let at = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[at..src.len().min(at + window)];
+            assert!(
+                body.contains("gameworld_movement_authority_enabled")
+                    && body.contains("host_move_log::record"),
+                "{name} must log move dest under movement authority"
+            );
+        }
+        let para = src.find("fn update_paradrops").expect("paradrops");
+        let body = &src[para..src.len().min(para + 5000)];
+        assert!(
+            body.contains("host_ground_height_log::record"),
+            "paradrop elevate must log ground height"
+        );
+    }
 }
