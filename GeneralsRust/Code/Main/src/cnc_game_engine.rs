@@ -2988,10 +2988,13 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "sell_fail_not_ingame".into();
                 } else {
-                    let team = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.team);
+                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        Some(frame.local_team())
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                    };
                     let Some(team) = team else {
                         self.runtime_host_last_gameplay_cmd = "sell_fail_no_player".into();
                         return;
@@ -3002,32 +3005,64 @@ impl CnCGameEngine {
                         .iter()
                         .copied()
                         .filter(|id| {
-                            self.game_logic
-                                .get_object(*id)
-                                .map(|o| {
+                            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame.objects.iter().any(|o| {
+                                    o.id == *id
+                                        && o.team == team
+                                        && !o.destroyed
+                                        && (crate::presentation_frame::PresentationFrame::object_has_kind(
+                                            o,
+                                            crate::game_logic::KindOf::Structure,
+                                        ) || o.object_type
+                                            == crate::presentation_frame::PresentationObjectType::Building)
+                                        && !crate::presentation_frame::PresentationFrame::object_has_kind(
+                                            o,
+                                            crate::game_logic::KindOf::CommandCenter,
+                                        )
+                                        && o.building_type
+                                            != Some(
+                                                crate::presentation_frame::PresentationBuildingType::CommandCenter,
+                                            )
+                                })
+                            } else {
+                                self.game_logic
+                                    .get_object(*id)
+                                    .map(|o| {
+                                        o.team == team
+                                            && o.is_alive()
+                                            && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                            && !o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
+                                    })
+                                    .unwrap_or(false)
+                            }
+                        })
+                        .collect();
+                    if targets.is_empty() {
+                        targets = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            // Newest id first (mirrors host reverse sort residual).
+                            frame
+                                .alive_sellable_friendly_structure_ids(team)
+                                .into_iter()
+                                .rev()
+                                .take(1)
+                                .collect()
+                        } else {
+                            // Boot residual only.
+                            let mut ids: Vec<_> = self
+                                .game_logic
+                                .get_objects()
+                                .iter()
+                                .filter(|(_, o)| {
                                     o.team == team
                                         && o.is_alive()
                                         && o.is_kind_of(crate::game_logic::KindOf::Structure)
                                         && !o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
                                 })
-                                .unwrap_or(false)
-                        })
-                        .collect();
-                    if targets.is_empty() {
-                        let mut ids: Vec<_> = self
-                            .game_logic
-                            .get_objects()
-                            .iter()
-                            .filter(|(_, o)| {
-                                o.team == team
-                                    && o.is_alive()
-                                    && o.is_kind_of(crate::game_logic::KindOf::Structure)
-                                    && !o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
-                            })
-                            .map(|(id, _)| *id)
-                            .collect();
-                        ids.sort_by_key(|id| id.0);
-                        targets = ids.into_iter().rev().take(1).collect();
+                                .map(|(id, _)| *id)
+                                .collect();
+                            ids.sort_by_key(|id| id.0);
+                            ids.into_iter().rev().take(1).collect()
+                        };
                     }
                     if targets.is_empty() {
                         self.runtime_host_last_gameplay_cmd = "sell_fail_no_structure".into();
