@@ -18425,4 +18425,47 @@ mod tests {
             "presentation audio path must not require GameLogic process_audio_events drain"
         );
     }
+
+    #[test]
+    fn presentation_audio_no_dual_sfx_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng
+            .find("self.apply_presentation_to_huds(&pres);")
+            .expect("hud apply");
+        let w = &eng[i..eng.len().min(i + 350)];
+        assert!(
+            !w.contains("play_presentation_event_sfx"),
+            "InGame path must not dual-play engine SFX after presentation audio dispatch"
+        );
+        let sfx = eng.find("fn play_presentation_event_sfx").expect("sfx fn");
+        let body = &eng[sfx..eng.len().min(sfx + 600)];
+        assert!(
+            body.contains("Retired dual-path")
+                || body.contains("no-op so engine SFX")
+                || body.contains("let _ = self;"),
+            "play_presentation_event_sfx must be retired no-op residual"
+        );
+    }
+
+    #[test]
+    fn presentation_shell_drains_client_audio_source() {
+        // GameClient lives outside Main crate; read by relative path from Main.
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        );
+        let gc = std::fs::read_to_string(path).expect("game_client.rs");
+        let i = gc
+            .find("fn update_presentation_shell")
+            .expect("update_presentation_shell");
+        let body = &gc[i..gc.len().min(i + 2500)];
+        assert!(
+            body.contains("update_audio"),
+            "presentation shell must drain client-internal audio queue"
+        );
+        assert!(
+            !body.contains("self.update_input()"),
+            "presentation shell must not claim OS input device poll"
+        );
+    }
 }

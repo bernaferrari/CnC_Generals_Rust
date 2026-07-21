@@ -3423,9 +3423,12 @@ impl GameClient {
             visual_delta * visual_speed as f32
         };
 
-        // Main owns OS input + audio tick (CncGameEngine event loop /
-        // process_audio_events). Presentation shell must not double-tick
-        // update_input / update_audio — device poll remains on full update().
+        // Main owns OS input (CncGameEngine event loop). Presentation shell must not
+        // double-tick update_input — device poll remains on full update().
+        // Client-internal audio request queue may drain here (no OS device poll).
+        // Presentation gameplay SFX is dispatched by Main via
+        // PresentationFrame::dispatch_audio_events_direct before this shell tick.
+        self.update_audio()?;
 
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
         // Eva residual runs via update_post_draw_ui (no dual OS input ownership).
