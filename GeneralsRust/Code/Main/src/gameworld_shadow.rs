@@ -3623,6 +3623,57 @@ impl GameWorldShadow {
         }
         n
     }
+    /// Last-write only shared SP cooldowns (does not touch cash/power).
+    pub fn writeback_shared_special_power_cooldowns_to_host(&self, logic: &mut GameLogic) -> usize {
+        use crate::command_system::SpecialPowerType;
+        let mut updated = 0usize;
+        for (&hid, &pid) in &self.host_player_to_gw {
+            let Some(pd) = self.world.player(pid) else {
+                continue;
+            };
+            let Some(player) = logic.get_player_mut(hid) else {
+                continue;
+            };
+            let mut next = std::collections::HashMap::new();
+            for (hk, hv) in player.shared_special_power_cooldowns.iter() {
+                let key = format!("{hk:?}");
+                if let Some((_, rem)) = pd
+                    .shared_special_power_cooldowns
+                    .iter()
+                    .find(|(k, _)| k == &key)
+                {
+                    next.insert(hk.clone(), *rem);
+                } else {
+                    next.insert(hk.clone(), *hv);
+                }
+            }
+            for (sk, srem) in &pd.shared_special_power_cooldowns {
+                let already = next.keys().any(|hk| format!("{hk:?}") == *sk);
+                if already {
+                    continue;
+                }
+                for c in [
+                    SpecialPowerType::Airstrike,
+                    SpecialPowerType::NuclearMissile,
+                    SpecialPowerType::IonCannon,
+                    SpecialPowerType::NapalmStrike,
+                    SpecialPowerType::Paradrop,
+                    SpecialPowerType::EmergencyRepair,
+                    SpecialPowerType::CarpetBomb,
+                ] {
+                    if format!("{c:?}") == *sk {
+                        next.insert(c, *srem);
+                        break;
+                    }
+                }
+            }
+            if next != player.shared_special_power_cooldowns {
+                player.shared_special_power_cooldowns = next;
+                updated += 1;
+            }
+        }
+        updated
+    }
 
     pub fn writeback_special_power_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
@@ -7084,8 +7135,7 @@ pub fn shadow_session_after_host_tick(
         game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL,
     );
     if gameworld_special_power_sole_tick_enabled() {
-        // Shared SP cds ride economy/player writeback residual.
-        let _ = shadow.writeback_economy_to_host(logic);
+        let _ = shadow.writeback_shared_special_power_cooldowns_to_host(logic);
     }
     let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
@@ -8606,7 +8656,7 @@ mod tests {
         );
         let n = shadow.tick_player_shared_special_power_cooldowns(2.0);
         assert!(n >= 1, "player shared SP must sole-tick");
-        let _ = shadow.writeback_economy_to_host(&mut logic);
+        let _ = shadow.writeback_shared_special_power_cooldowns_to_host(&mut logic);
         let p = logic.get_player(pid).expect("player");
         let rem = p
             .shared_special_power_cooldowns
@@ -10450,7 +10500,7 @@ mod tests {
                 *v = 3.0;
             }
         }
-        let _ = shadow.writeback_economy_to_host(&mut logic);
+        let _ = shadow.writeback_shared_special_power_cooldowns_to_host(&mut logic);
         let host = logic.get_player(pid).expect("h");
         assert!(
             (host
@@ -17591,6 +17641,10 @@ mod tests {
 
     #[test]
     fn special_power_tick_records_host_special_power_log() {
+        // Host-only advance residual: disable SP sole-tick authority for this probe.
+        let prev = std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "0");
+
         use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
         host_special_power_log::clear();
         let mut logic = GameLogic::new();
@@ -17620,6 +17674,11 @@ mod tests {
             "events {:?}",
             events
         );
+
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
+        }
     }
 
     #[test]
