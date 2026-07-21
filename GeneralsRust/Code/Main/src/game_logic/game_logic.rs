@@ -22045,18 +22045,22 @@ impl GameLogic {
         if let Some(player) = self.players.get(&player_id) {
             let selected = player.selected_objects.clone();
             for &object_id in &selected {
-                let (is_mobile, engine_id) = self
+                let is_mobile = self
                     .objects
                     .get(&object_id)
-                    .map(|obj| (obj.is_mobile(), obj.engine_object_id))
-                    .unwrap_or((false, None));
+                    .map(|obj| obj.is_mobile())
+                    .unwrap_or(false);
                 if !is_mobile {
                     continue;
                 }
 
-                // ObjectFactory bridge only when dual-world bridge is enabled.
+                // ObjectFactory bridge residual only when dual-world bridge is enabled.
                 if crate::gameworld_shadow::engine_object_bridge_enabled() {
-                    if let Some(eid) = engine_id {
+                    if let Some(eid) = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|o| o.engine_object_id)
+                    {
                         self.bridge_move_to_engine(eid, target_position);
                         continue;
                     }
@@ -22109,27 +22113,30 @@ impl GameLogic {
 
             let selected = player.selected_objects.clone();
             for &object_id in &selected {
-                let attack_info = self.objects.get(&object_id).and_then(|obj| {
-                    if !obj.can_attack() || obj.team == target_team {
-                        return None;
-                    }
+                let can = self
+                    .objects
+                    .get(&object_id)
+                    .is_some_and(|obj| obj.can_attack() && obj.team != target_team);
+                if !can {
+                    continue;
+                }
+
+                // ObjectFactory bridge residual only when dual-world bridge is enabled.
+                if crate::gameworld_shadow::engine_object_bridge_enabled() {
+                    let engine_id = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|o| o.engine_object_id);
                     let target_engine_id = self
                         .objects
                         .get(&target_id)
                         .and_then(|t| t.engine_object_id);
-                    Some((obj.engine_object_id, target_engine_id))
-                });
-
-                let Some((engine_id, target_engine_id)) = attack_info else {
-                    continue;
-                };
-
-                if crate::gameworld_shadow::engine_object_bridge_enabled() {
                     if let (Some(eid), Some(tid)) = (engine_id, target_engine_id) {
                         self.bridge_attack_to_engine(eid, tid);
                         continue;
                     }
                 }
+                // Host attack channel (default production path — host ObjectIds only).
                 if let Some(obj_mut) = self.objects.get_mut(&object_id) {
                     obj_mut.set_force_attack(false);
                     obj_mut.attack_target(target_id);
