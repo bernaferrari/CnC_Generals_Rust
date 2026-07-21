@@ -18318,7 +18318,7 @@ mod tests {
         );
     }
 
-        #[test]
+    #[test]
     fn residual_auto_fire_queues_fire_spawn_channel_source() {
         let src = include_str!("game_logic/game_logic.rs");
         assert!(
@@ -18366,8 +18366,7 @@ mod tests {
         );
         let apply_src = include_str!("gameworld_shadow.rs");
         assert!(
-            apply_src.contains("drain_residual_hitscans")
-                && apply_src.contains("ev.damage = 0.0"),
+            apply_src.contains("drain_residual_hitscans") && apply_src.contains("ev.damage = 0.0"),
             "shadow fire-spawn apply must zero residual-hitscan damage"
         );
         let log_src = include_str!("game_logic/host_fire_spawn_log.rs");
@@ -18377,7 +18376,6 @@ mod tests {
             "fire-spawn log must track residual hitscan pairs"
         );
     }
-
 
     #[test]
     fn payload_pose_movement_authority_source() {
@@ -19152,6 +19150,20 @@ mod tests {
                 && body.contains("gameworld_ai_decision_authority_enabled")
                 && body.contains("record_set_state"),
             "residual auto-fire must emit AI decision AttackTarget under AI_DECISION_AUTHORITY"
+        );
+    }
+
+    #[test]
+    fn residual_auto_fire_ai_decision_writeback_behavioral_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        assert!(
+            src.contains("fn residual_auto_fire_ai_decision_writeback_sets_host_target"),
+            "behavioral residual decision writeback test required"
+        );
+        assert!(
+            src.contains("apply_ai_decisions_as_world_mutations")
+                && src.contains("writeback_attack_targets_to_host"),
+            "behavioral test must exercise GameWorld decision apply + attack writeback"
         );
     }
 }
