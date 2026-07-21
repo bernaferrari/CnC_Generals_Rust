@@ -19189,6 +19189,19 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Patriot multi-assist residual (all legal assistants, nearest-first).
+        {
+            let name = "process_patriot_assist_request";
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 6000)];
+            assert!(
+                body.contains("filter_residual_targets_xz")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual multi-acquire filter"
+            );
+        }
         // Click-select nearest residual.
         {
             let name = "select_object_at_position";
