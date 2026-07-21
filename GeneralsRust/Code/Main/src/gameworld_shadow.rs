@@ -15968,6 +15968,29 @@ mod tests {
     }
 
     #[test]
+    fn update_combat_defers_engagement_under_decision_authority() {
+        // Source honesty: combat aim/pitch/pre-attack residual must not host-mutate
+        // target/ai_state when AI decision authority is on.
+        let src = include_str!("game_logic/game_logic.rs");
+        let i = src.find("fn update_combat").expect("update_combat");
+        // Bound to a reasonable window of the fire path.
+        let w = &src[i..i + 120_000.min(src.len() - i)];
+        assert!(
+            w.contains("gameworld_ai_decision_authority_enabled")
+                && w.contains("turn_toward_position"),
+            "update_combat aim residual must gate engagement under decision authority"
+        );
+        // Ensure the pre-attack blocked path is gated too.
+        assert!(
+            w.matches("pre_attack_ready_at").count() >= 1
+                && w.contains(
+                    "!crate::gameworld_shadow::gameworld_ai_decision_authority_enabled()"
+                ),
+            "pre-attack engagement residual must be authority-gated"
+        );
+    }
+
+    #[test]
     fn mood_auto_acquire_logs_decision_under_authority() {
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
