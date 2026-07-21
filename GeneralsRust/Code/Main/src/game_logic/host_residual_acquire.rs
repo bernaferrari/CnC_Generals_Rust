@@ -75,6 +75,38 @@ pub fn residual_combat_kind(
 /// Nearest legal service target (heal pad / repair pad / unfinished structure).
 /// Unlike combat acquire, does **not** auto-skip stealthed candidates — callers
 /// encode pad/structure legality only.
+/// Nearest residual target by XZ distance from an impact/origin point.
+/// Used by splash / impact residual (gattling) where height is ignored.
+/// `exclude` skips the firing source when present. No automatic enemy-team filter —
+/// legality is entirely `is_legal`.
+pub fn pick_nearest_residual_target_xz(
+    exclude: Option<ObjectId>,
+    origin_xz: (f32, f32),
+    candidates: impl IntoIterator<Item = ResidualAcquireCandidate>,
+    max_range: f32,
+    is_legal: impl Fn(&ResidualAcquireCandidate) -> bool,
+) -> Option<(ObjectId, f32, bool)> {
+    let mut best: Option<(ObjectId, f32, bool)> = None;
+    for c in candidates {
+        if exclude == Some(c.id) {
+            continue;
+        }
+        if !c.is_alive || !is_legal(&c) {
+            continue;
+        }
+        let dx = origin_xz.0 - c.position.x;
+        let dz = origin_xz.1 - c.position.z;
+        let dist = (dx * dx + dz * dz).sqrt();
+        if dist > max_range {
+            continue;
+        }
+        if best.map(|(_, d, _)| dist < d).unwrap_or(true) {
+            best = Some((c.id, dist, c.is_air));
+        }
+    }
+    best
+}
+
 pub fn pick_nearest_residual_service_target(
     self_id: ObjectId,
     origin: Vec3,
@@ -294,5 +326,19 @@ mod tests {
         assert_eq!(best.map(|(id, _, _)| id), Some(ObjectId(3)));
         assert_eq!(player_rej, 1);
         assert_eq!(collide_rej, 1);
+    }
+
+    #[test]
+    fn xz_picks_nearest_in_radius() {
+        let origin = (0.0_f32, 0.0_f32);
+        let cands = [
+            cand(1, Team::GLA, Vec3::new(10.0, 50.0, 0.0), false), // 3D far Y ignored
+            cand(2, Team::GLA, Vec3::new(5.0, 0.0, 0.0), false),
+            cand(3, Team::GLA, Vec3::new(20.0, 0.0, 0.0), false), // out of 12
+        ];
+        let pick = pick_nearest_residual_target_xz(Some(ObjectId(99)), origin, cands, 12.0, |c| {
+            c.combat_kind
+        });
+        assert_eq!(pick.map(|(id, _, _)| id), Some(ObjectId(2)));
     }
 }

@@ -19189,6 +19189,21 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Impact/splash residual (XZ nearest-in-radius).
+        for name in [
+            "apply_overlord_gattling_residual_at",
+            "apply_gattling_tank_residual_at",
+        ] {
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 5000)];
+            assert!(
+                body.contains("pick_nearest_residual_target_xz")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual XZ acquire query"
+            );
+        }
         for name in [
             "try_auto_find_healing_residual",
             "try_auto_find_repair_residual",
