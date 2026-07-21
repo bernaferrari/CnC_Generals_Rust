@@ -21,6 +21,7 @@ pub struct HostLocomotorEvent {
     pub loco_appearance_ordinal: u8,
     pub loco_behavior_z_ordinal: u8,
     pub min_turn_speed: f32,
+    pub physics_turning_ordinal: i8,
 }
 
 thread_local! {
@@ -44,6 +45,7 @@ pub fn record(
     loco_appearance_ordinal: u8,
     loco_behavior_z_ordinal: u8,
     min_turn_speed: f32,
+    physics_turning_ordinal: i8,
 ) {
     LOG.with(|log| {
         log.borrow_mut().push(HostLocomotorEvent {
@@ -63,6 +65,7 @@ pub fn record(
             loco_appearance_ordinal,
             loco_behavior_z_ordinal,
             min_turn_speed,
+            physics_turning_ordinal,
         });
     });
 }

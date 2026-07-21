@@ -595,6 +595,7 @@ impl GameWorldShadow {
                     e.loco_appearance_ordinal = obj.loco_appearance.to_ordinal();
                     e.loco_behavior_z_ordinal = obj.loco_behavior_z.to_ordinal();
                     e.min_turn_speed = obj.min_turn_speed;
+                    e.physics_turning_ordinal = obj.physics_turning.to_ordinal();
                     e.is_blocked_and_stuck = obj.is_blocked_and_stuck;
                     e.is_braking = obj.is_braking;
                     e.is_safe_path = obj.is_safe_path;
@@ -4424,6 +4425,7 @@ impl GameWorldShadow {
                     loco_appearance_ordinal: ev.loco_appearance_ordinal,
                     loco_behavior_z_ordinal: ev.loco_behavior_z_ordinal,
                     min_turn_speed: ev.min_turn_speed,
+                    physics_turning_ordinal: ev.physics_turning_ordinal,
                 });
             n += 1;
         }
@@ -5206,7 +5208,8 @@ impl GameWorldShadow {
                     > f32::EPSILON
                 || obj.loco_appearance.to_ordinal() != ent.loco_appearance_ordinal
                 || obj.loco_behavior_z.to_ordinal() != ent.loco_behavior_z_ordinal
-                || (obj.min_turn_speed - ent.min_turn_speed).abs() > f32::EPSILON;
+                || (obj.min_turn_speed - ent.min_turn_speed).abs() > f32::EPSILON
+                || obj.physics_turning.to_ordinal() != ent.physics_turning_ordinal;
             if !changed {
                 continue;
             }
@@ -5227,6 +5230,8 @@ impl GameWorldShadow {
             obj.loco_behavior_z =
                 crate::game_logic::LocomotorBehaviorZ::from_ordinal(ent.loco_behavior_z_ordinal);
             obj.min_turn_speed = ent.min_turn_speed;
+            obj.physics_turning =
+                crate::game_logic::PhysicsTurningType::from_ordinal(ent.physics_turning_ordinal);
             updated += 1;
         }
         updated
@@ -14458,6 +14463,7 @@ mod tests {
             o.loco_appearance = LocomotorAppearance::Wings;
             o.loco_behavior_z = LocomotorBehaviorZ::AbsoluteHeight;
             o.min_turn_speed = 5.5;
+            o.physics_turning = crate::game_logic::PhysicsTurningType::TurnPositive;
         }
         host_locomotor_log::record(
             oid,
@@ -14476,6 +14482,7 @@ mod tests {
             LocomotorAppearance::Wings.to_ordinal(),
             LocomotorBehaviorZ::AbsoluteHeight.to_ordinal(),
             5.5,
+            crate::game_logic::PhysicsTurningType::TurnPositive.to_ordinal(),
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -14496,6 +14503,7 @@ mod tests {
             LocomotorBehaviorZ::AbsoluteHeight.to_ordinal()
         );
         assert!((e.min_turn_speed - 5.5).abs() < 1e-5);
+        assert_eq!(e.physics_turning_ordinal, 1);
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.is_approach_path = false;
@@ -14512,6 +14520,10 @@ mod tests {
         assert_eq!(o.loco_appearance, LocomotorAppearance::Wings);
         assert!((o.loco_preferred_height - 40.0).abs() < 1e-5);
         assert!((o.min_turn_speed - 5.5).abs() < 1e-5);
+        assert_eq!(
+            o.physics_turning,
+            crate::game_logic::PhysicsTurningType::TurnPositive
+        );
     }
 
     #[test]
