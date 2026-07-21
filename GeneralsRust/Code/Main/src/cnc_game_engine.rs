@@ -2936,18 +2936,9 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd = "attack_fail_no_selection".into();
                     } else if let Some(team) = team {
                         let enemy = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            frame.first_enemy_attackable_id(team).or_else(|| {
-                                self.game_logic
-                                    .get_objects()
-                                    .iter()
-                                    .find(|(_, o)| {
-                                        o.team != team
-                                            && o.is_alive()
-                                            && o.is_kind_of(KindOf::Attackable)
-                                    })
-                                    .map(|(id, _)| *id)
-                            })
+                            frame.first_enemy_force_attack_id(team)
                         } else {
+                            // Boot residual only.
                             self.game_logic
                                 .get_objects()
                                 .iter()
@@ -3902,27 +3893,35 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd =
                             "force_attack_object_fail_no_selection".into();
                     } else {
-                        let team = self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team);
-                        let enemy = self
-                            .game_logic
-                            .get_objects()
-                            .iter()
-                            .find(|(_, o)| {
-                                Some(o.team) != team
-                                    && o.is_alive()
-                                    && !o.is_kind_of(crate::game_logic::KindOf::Structure)
-                            })
-                            .or_else(|| {
-                                self.game_logic
-                                    .get_objects()
-                                    .iter()
-                                    .find(|(_, o)| Some(o.team) != team && o.is_alive())
-                            });
-                        if let Some((eid, _)) = enemy {
-                            let target_id = *eid;
+                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            Some(frame.local_team())
+                        } else {
+                            self.game_logic
+                                .get_player(self.current_player_id)
+                                .map(|p| p.team)
+                        };
+                        let target_id = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            team.and_then(|t| frame.first_enemy_force_attack_id(t))
+                        } else {
+                            // Boot residual only.
+                            let enemy = self
+                                .game_logic
+                                .get_objects()
+                                .iter()
+                                .find(|(_, o)| {
+                                    Some(o.team) != team
+                                        && o.is_alive()
+                                        && !o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                })
+                                .or_else(|| {
+                                    self.game_logic
+                                        .get_objects()
+                                        .iter()
+                                        .find(|(_, o)| Some(o.team) != team && o.is_alive())
+                                });
+                            enemy.map(|(eid, _)| *eid)
+                        };
+                        if let Some(target_id) = target_id {
                             self.game_logic
                                 .queue_command(crate::command_system::GameCommand {
                                     command_type:
