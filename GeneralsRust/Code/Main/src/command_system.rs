@@ -2396,7 +2396,9 @@ mod tests {
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0);
         let mut infantry = Object::new(infantry_template, ObjectId(1), Team::USA);
-        let _ = infantry.take_damage(25.0);
+        // Damage authority freezes mid-frame HP on take_damage; set current directly
+        // so is_damaged() is observable without a shadow writeback session.
+        infantry.health.current = (infantry.health.maximum - 25.0).max(1.0);
         game_logic.add_object(infantry);
 
         let mut heal_pad_template = ThingTemplate::new("TestHealPad");
@@ -2450,7 +2452,9 @@ mod tests {
             .add_kind_of(KindOf::Selectable)
             .set_health(250.0);
         let mut vehicle = Object::new(vehicle_template, ObjectId(10), Team::USA);
-        let _ = vehicle.take_damage(30.0);
+        // Damage authority freezes mid-frame HP on take_damage; set current directly
+        // so is_damaged() is observable without a shadow writeback session.
+        vehicle.health.current = (vehicle.health.maximum - 30.0).max(1.0);
         game_logic.add_object(vehicle);
 
         let mut repair_pad_template = ThingTemplate::new("TestRepairPad");
@@ -2579,7 +2583,7 @@ mod tests {
 
         let player_after_first = game_logic.get_player(0).expect("player should exist");
         assert_eq!(
-            player_after_first.resources.supplies, 4200,
+            player_after_first.effective_supplies(), 4200,
             "upgrade cost should be charged once per team, not per selected unit (retail SupplyLines=800)"
         );
         assert!(player_after_first
@@ -2655,7 +2659,7 @@ mod tests {
         );
 
         let player = game_logic.get_player(0).expect("player should exist");
-        assert_eq!(player.resources.supplies, 5000);
+        assert_eq!(player.effective_supplies(), 5000);
         assert!(player.queued_upgrades.is_empty());
     }
 
@@ -2706,7 +2710,8 @@ mod tests {
 
         let player = game_logic.get_player(0).expect("player should exist");
         assert_eq!(
-            player.resources.supplies, 3000,
+            player.effective_supplies(),
+            3000,
             "science purchase must not spend supplies residual"
         );
         assert_eq!(
@@ -2953,7 +2958,7 @@ mod tests {
             "cancelled construction should be destroyed"
         );
         assert_eq!(
-            game_logic.get_player(0).unwrap().resources.supplies,
+            game_logic.get_player(0).unwrap().effective_supplies(),
             1_000,
             "C++ dozer cancel refunds the full build cost"
         );
@@ -3008,7 +3013,7 @@ mod tests {
             "enemy cancel command must not destroy the target"
         );
         assert_eq!(
-            game_logic.get_player(2).unwrap().resources.supplies,
+            game_logic.get_player(2).unwrap().effective_supplies(),
             0,
             "enemy cancel command must not refund the issuing player"
         );
@@ -3342,7 +3347,7 @@ mod tests {
         }
         let money_before = logic
             .get_player(0)
-            .map(|p| p.resources.supplies)
+            .map(|p| p.effective_supplies())
             .unwrap_or(0);
         logic.queue_command(GameCommand {
             command_type: CommandType::QueueUpgrade {
@@ -3357,7 +3362,7 @@ mod tests {
         logic.process_commands();
         let money_after = logic
             .get_player(0)
-            .map(|p| p.resources.supplies)
+            .map(|p| p.effective_supplies())
             .unwrap_or(0);
         assert_eq!(
             money_before, money_after,
@@ -3415,7 +3420,7 @@ mod tests {
             .unwrap_or(false));
         let money_after_queue = logic
             .get_player(0)
-            .map(|p| p.resources.supplies)
+            .map(|p| p.effective_supplies())
             .unwrap_or(0);
 
         // Empty name CancelUpgrade → head residual.
@@ -3446,7 +3451,7 @@ mod tests {
         assert!(q_empty, "building PRODUCTION_UPGRADE head removed");
         let money_after = logic
             .get_player(0)
-            .map(|p| p.resources.supplies)
+            .map(|p| p.effective_supplies())
             .unwrap_or(0);
         assert!(
             money_after > money_after_queue,
@@ -3504,7 +3509,8 @@ mod tests {
 
         let player_after_cancel = game_logic.get_player(0).expect("player should exist");
         assert_eq!(
-            player_after_cancel.resources.supplies, 3000,
+            player_after_cancel.effective_supplies(),
+            3000,
             "cancel should refund the queued upgrade cost"
         );
         assert!(!player_after_cancel
@@ -3552,7 +3558,8 @@ mod tests {
         );
         let player_after = game_logic.get_player(0).expect("player should exist");
         assert_eq!(
-            player_after.resources.supplies, 3000,
+            player_after.effective_supplies(),
+            3000,
             "non-producing units must not charge upgrade resources"
         );
         assert!(player_after.queued_upgrades.is_empty());

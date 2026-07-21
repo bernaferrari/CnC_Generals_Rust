@@ -268,7 +268,7 @@ pub fn run_medium_ai_after_load_map(frames: u32) -> AiLoadMapActivityResult {
 
     let cash_before = logic
         .get_player(1)
-        .map(|p| p.resources.supplies)
+        .map(|p| p.effective_supplies())
         .unwrap_or(0);
 
     let map_loaded = if let Some(ref path) = map_path {
@@ -284,7 +284,7 @@ pub fn run_medium_ai_after_load_map(frames: u32) -> AiLoadMapActivityResult {
 
     let cash_after_load = logic
         .get_player(1)
-        .map(|p| p.resources.supplies)
+        .map(|p| p.effective_supplies())
         .unwrap_or(0);
     // Cash must survive preserve, or be topped up from empty by rebind residual.
     let cash_ok = cash_after_load >= 1_000
@@ -492,7 +492,7 @@ mod tests {
         assert!(
             logic
                 .get_player(1)
-                .map(|p| p.resources.supplies)
+                .map(|p| p.effective_supplies())
                 .unwrap_or(0)
                 >= 10_000
         );
@@ -546,7 +546,7 @@ mod tests {
         }
         logic.rebind_host_ai_after_map_load();
         assert_eq!(
-            logic.get_player(1).map(|p| p.resources.supplies),
+            logic.get_player(1).map(|p| p.effective_supplies()),
             Some(10_000),
             "empty AI cash must be topped up after rebind"
         );
