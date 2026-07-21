@@ -19166,4 +19166,30 @@ mod tests {
             "behavioral test must exercise GameWorld decision apply + attack writeback"
         );
     }
+
+    #[test]
+    fn residual_acquire_query_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for name in [
+            "try_base_defense_residual_fire",
+            "try_sentry_drone_residual_fire",
+            "try_hellfire_drone_residual_fire",
+        ] {
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 5000)];
+            assert!(
+                body.contains("pick_nearest_residual_target")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual acquire query"
+            );
+        }
+        let helper = include_str!("game_logic/host_residual_acquire.rs");
+        assert!(
+            helper.contains("fn pick_nearest_residual_target")
+                && helper.contains("Pure residual auto-fire target acquisition"),
+            "host_residual_acquire helper required"
+        );
+    }
 }
