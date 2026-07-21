@@ -7677,6 +7677,11 @@ impl GameLogic {
         }
     }
 
+    #[cfg(test)]
+    pub fn tick_mood_auto_acquire_for_test(&mut self, object_ids: &[ObjectId]) {
+        self.tick_mood_auto_acquire(object_ids);
+    }
+
     /// C++ AIUpdateInterface::getMoodMatrixActionAdjustment residual.
     ///
     /// Uses `ai_attitude` on the object (-2 Sleep .. +2 Aggressive).
@@ -9185,8 +9190,11 @@ impl GameLogic {
             return None;
         }
         let victim = self.get_next_mood_target(unit_id, true, true, is_player_controlled)?;
-        // Enter attack SM.
-        if self.attack_state_enter(unit_id, victim) == AttackMachineResult::Continue {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            // Log-only apply path: shadow SetAttackTarget + SetAiState is last-writer.
+            crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim);
+            Some(victim)
+        } else if self.attack_state_enter(unit_id, victim) == AttackMachineResult::Continue {
             Some(victim)
         } else {
             None
