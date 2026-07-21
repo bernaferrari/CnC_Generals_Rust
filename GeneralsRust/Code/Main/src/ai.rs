@@ -1148,16 +1148,10 @@ impl AIPlayer {
                     .map(|(id, _)| *id)
             });
 
-            let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
             for &unit_id in &attack_units {
                 if let Some(focus) = focus_enemy {
-                    if decision_auth {
-                        // Log-only: GameWorld apply/writeback is last-writer for targets.
-                        crate::game_logic::host_ai_decision_log::record_attack(unit_id, focus);
-                    } else if let Some(unit) = game_logic.find_object_mut(unit_id) {
-                        // set_target logs host_attack_log for shadow session.
-                        unit.set_target(Some(focus));
-                    }
+                    // Host-immediate engagement + decision log (GameWorld last-write).
+                    game_logic.apply_engagement_decision_aware_for_ai(unit_id, focus);
                 }
                 // Pathfind toward enemy base like player AttackMove — bare move_to
                 // straight-lined through buildings and stranded AI armies.
@@ -1169,19 +1163,17 @@ impl AIPlayer {
                     continue;
                 }
                 if game_logic.assign_unit_path(unit_id, enemy_base, &[]) {
-                    if decision_auth {
-                        // AttackMoving residual after path assign (ordinal 3).
-                        crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 3);
-                    } else if let Some(unit) = game_logic.find_object_mut(unit_id) {
-                        unit.ai_state = AIState::AttackMoving;
-                    }
-                } else if decision_auth {
-                    crate::game_logic::host_ai_decision_log::record_move_to(unit_id, enemy_base);
-                    crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 3);
+                    game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
                 } else if let Some(unit) = game_logic.find_object_mut(unit_id) {
                     // Fallback residual when A* fails (blocked goal).
                     unit.move_to(enemy_base);
-                    unit.ai_state = AIState::AttackMoving;
+                    drop(unit);
+                    game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                        crate::game_logic::host_ai_decision_log::record_move_to(
+                            unit_id, enemy_base,
+                        );
+                    }
                 }
             }
 
@@ -1859,7 +1851,7 @@ mod cpp_parity_tests {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
-        // Default AI_DECISION_AUTHORITY is on: launch_attack logs decisions only.
+        // Default AI_DECISION_AUTHORITY is on: launch_attack engages host + logs decisions.
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
         host_attack_log::clear();
@@ -1910,8 +1902,8 @@ mod cpp_parity_tests {
             .get(&usa_unit)
             .expect("usa unit after launch");
         assert!(
-            unit.target.is_none(),
-            "under AI decision authority host target stays unset until writeback"
+            unit.target.is_some(),
+            "under AI decision authority host target engages immediately"
         );
         assert!(
             decisions.iter().any(|e| {
