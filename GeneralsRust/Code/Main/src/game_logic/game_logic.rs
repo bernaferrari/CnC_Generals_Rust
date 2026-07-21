@@ -9543,9 +9543,7 @@ impl GameLogic {
         }
         for id in stop {
             self.attack_state_exit(id);
-            if let Some(u) = self.objects.get_mut(&id) {
-                u.stop_attack();
-            }
+            self.stop_attack_decision_aware(id);
         }
     }
 
@@ -11099,9 +11097,7 @@ impl GameLogic {
         ) {
             return;
         }
-        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-            attacker.stop_attack();
-        }
+        self.stop_attack_decision_aware(attacker_id);
     }
 
     /// Ensure runway slot vector sized for airfield (HasRunways residual).
@@ -11695,16 +11691,12 @@ impl GameLogic {
                     .map(|target| (target.is_alive(), target.get_position()));
 
                 let Some((target_alive, target_position)) = target_status else {
-                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                        attacker.stop_attack();
-                    }
+                    self.stop_attack_decision_aware(attacker_id);
                     continue;
                 };
 
                 if !target_alive {
-                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                        attacker.stop_attack();
-                    }
+                    self.stop_attack_decision_aware(attacker_id);
                     continue;
                 }
 
@@ -11732,9 +11724,7 @@ impl GameLogic {
                 };
 
                 if target_stealthed_hidden {
-                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                        attacker.stop_attack();
-                    }
+                    self.stop_attack_decision_aware(attacker_id);
                     continue;
                 }
 
@@ -13017,7 +13007,7 @@ impl GameLogic {
                                             attacker.gain_experience(xp);
                                         }
                                         if destroyed {
-                                            attacker.stop_attack();
+                                            self.stop_attack_decision_aware(attacker_id);
                                         }
                                     }
                                 } else if kill_garrisoned_hit {
@@ -14161,6 +14151,24 @@ impl GameLogic {
     ///
     /// Player command paths should call [`Object::attack_target`] directly so orders
     /// apply same-frame without waiting for shadow writeback.
+    /// Clear engagement, honoring AI decision authority (log-only when GameWorld applies).
+    ///
+    /// Player `command_stop` should call [`Object::stop_attack`] directly for same-frame UX.
+    fn stop_attack_decision_aware(&mut self, unit_id: ObjectId) {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
+            return;
+        }
+        if let Some(obj) = self.objects.get_mut(&unit_id) {
+            obj.stop_attack();
+        }
+    }
+
+    #[cfg(test)]
+    pub fn stop_attack_decision_aware_for_test(&mut self, unit_id: ObjectId) {
+        self.stop_attack_decision_aware(unit_id);
+    }
+
     fn engage_target_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
         if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
@@ -14194,9 +14202,7 @@ impl GameLogic {
             }
             AICommand::StopAttack { object_id } => {
                 crate::game_logic::host_ai_decision_log::record_stop_attack(object_id);
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    obj.stop_attack();
-                }
+                self.stop_attack_decision_aware(object_id);
             }
             AICommand::MoveTo {
                 object_id,
@@ -16297,9 +16303,7 @@ impl GameLogic {
                 // do not stop_attack merely for distance (that aborted chases).
                 if let Some(target) = self.objects.get(&target_id) {
                     if !target.is_alive() {
-                        if let Some(attacker) = self.objects.get_mut(&object_id) {
-                            attacker.stop_attack();
-                        }
+                        self.stop_attack_decision_aware(object_id);
                     } else if let Some(attacker) = self.objects.get(&object_id) {
                         if attacker.can_target(target) {
                             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -16318,9 +16322,7 @@ impl GameLogic {
                     }
                 } else {
                     // Target no longer exists
-                    if let Some(attacker) = self.objects.get_mut(&object_id) {
-                        attacker.stop_attack();
-                    }
+                    self.stop_attack_decision_aware(object_id);
                 }
             }
         }
@@ -22002,10 +22004,16 @@ impl GameLogic {
                 // C++ parity: clear stale target references from all other objects.
                 // When an object is destroyed, anything targeting it should stop.
                 let destroyed_id = event.id;
+                let clear_ids: Vec<ObjectId> = self
+                    .objects
+                    .iter()
+                    .filter(|(_, o)| o.target == Some(destroyed_id))
+                    .map(|(id, _)| *id)
+                    .collect();
+                for cid in clear_ids {
+                    self.stop_attack_decision_aware(cid);
+                }
                 for (_, other_obj) in self.objects.iter_mut() {
-                    if other_obj.target == Some(destroyed_id) {
-                        other_obj.stop_attack();
-                    }
                     if other_obj.guard_target == Some(destroyed_id) {
                         other_obj.guard_target = None;
                         if other_obj.ai_state == AIState::GuardingObject {
@@ -25240,7 +25248,7 @@ impl GameLogic {
             attacker.set_status_attacking(true);
             if destroyed {
                 attacker.gain_experience(kill_xp);
-                attacker.stop_attack();
+                self.stop_attack_decision_aware(defense_id);
             }
         }
 
@@ -25595,8 +25603,11 @@ impl GameLogic {
                 asst.set_status_attacking(true);
                 if destroyed {
                     asst.gain_experience(kill_xp);
-                    asst.stop_attack();
                 }
+            }
+            if destroyed {
+                // Clear engagement via decision authority (log-only when GW applies).
+                self.stop_attack_decision_aware(clip.assistant_id);
             }
 
             let _ = self.combat_particles.spawn_weapon_fire_fx(
@@ -32872,7 +32883,7 @@ impl GameLogic {
             }
             if destroyed {
                 attacker.gain_experience(kill_xp);
-                attacker.stop_attack();
+                self.stop_attack_decision_aware(sentry_id);
             }
         }
 
@@ -32987,7 +32998,7 @@ impl GameLogic {
             }
             if destroyed {
                 attacker.gain_experience(kill_xp);
-                attacker.stop_attack();
+                self.stop_attack_decision_aware(hellfire_id);
             }
         }
 
