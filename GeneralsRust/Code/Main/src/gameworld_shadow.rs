@@ -9562,7 +9562,7 @@ mod tests {
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
             e.ai_state_ordinal = 10; // GuardingObject
         }
-        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&id).expect("o").ai_state,
             AIState::GuardingObject
@@ -16597,7 +16597,7 @@ mod tests {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().ai_state,
             AIState::Gathering
@@ -16664,17 +16664,20 @@ mod tests {
             }),
             "assault deploy must log AttackTarget; ordered={ordered} events={events:?}"
         );
-        // Occupant host target deferred when authority on.
-        if let Some(o) = logic.get_objects().get(&occ) {
-            assert!(
-                o.target.is_none(),
-                "occupant host target deferred under decision authority"
-            );
-        }
+        // Host engagement should stick same-frame for unload residual.
+        let host_engaged = logic
+            .get_objects()
+            .iter()
+            .any(|(id, o)| *id != enemy && o.target == Some(enemy));
+        assert!(
+            host_engaged,
+            "assault deploy must set host target same-frame; ordered={ordered} occ_target={:?}",
+            logic.get_objects().get(&occ).map(|o| o.target)
+        );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         // Writeback should land on whoever logged AttackTarget (occ if ordered, else engagetest).
         let hit = logic
             .get_objects()
@@ -16749,16 +16752,17 @@ mod tests {
             }),
             "laser guided must log AttackTarget; got {events:?}"
         );
-        assert!(
-            logic.get_objects().get(&mid).unwrap().target.is_none(),
-            "host target deferred under decision authority"
+        assert_eq!(
+            logic.get_objects().get(&mid).unwrap().target,
+            Some(eid),
+            "host target applies immediately under decision authority"
         );
         // Weapon slot still host-applied.
         assert_eq!(logic.get_objects().get(&mid).unwrap().active_weapon_slot, 1);
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         assert_eq!(logic.get_objects().get(&mid).unwrap().target, Some(eid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17132,11 +17136,11 @@ mod tests {
             }),
             "guard engage must log decision; got {events:?}"
         );
-        assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
+        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid), "host engage immediate");
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17781,7 +17785,7 @@ mod tests {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().ai_state,
             AIState::Moving
@@ -17944,7 +17948,7 @@ mod tests {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().ai_state,
             AIState::Moving
@@ -17994,7 +17998,7 @@ mod tests {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().ai_state,
             AIState::Gathering
@@ -18512,14 +18516,15 @@ mod tests {
             }),
             "Repairing must be logged; got {events:?}"
         );
-        assert_ne!(
+        assert_eq!(
             logic.get_objects().get(&oid).unwrap().ai_state,
-            AIState::Repairing
+            AIState::Repairing,
+            "host AI state applies immediately"
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().ai_state,
             AIState::Repairing
@@ -18605,14 +18610,15 @@ mod tests {
             }),
             "Docked must be logged; got {events:?}"
         );
-        assert_ne!(
+        assert_eq!(
             logic.get_objects().get(&oid).unwrap().ai_state,
-            AIState::Docked
+            AIState::Docked,
+            "host AI state applies immediately"
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_ai_state_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().ai_state,
             AIState::Docked
