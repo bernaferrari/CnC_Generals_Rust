@@ -18927,4 +18927,33 @@ mod tests {
             "presentation helpers required"
         );
     }
+
+    #[test]
+    fn runtime_host_empty_pick_batch_presentation_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let checks = [
+            ("scatter", "alive_selectable_friendly_mobile_ids"),
+            (
+                "return_to_supply",
+                "alive_selectable_friendly_harvester_ids",
+            ),
+            ("set_rally", "alive_upgrade_producer_structure_ids"),
+            ("cancel_queue", "alive_upgrade_producer_structure_ids"),
+            ("overcharge", "PowerPlant"),
+            ("create_formation", "alive_selectable_friendly_mobile_ids"),
+            (
+                "double_click_select",
+                "alive_selectable_friendly_mobile_ids",
+            ),
+            ("attackmove", "alive_selectable_friendly_mobile_ids"),
+        ];
+        for (cmd, helper) in checks {
+            let i = eng.find(cmd).unwrap_or_else(|| panic!("missing {cmd}"));
+            let body = &eng[i..eng.len().min(i + 2800)];
+            assert!(
+                body.contains(helper),
+                "{cmd} empty pick must prefer presentation helper {helper}"
+            );
+        }
+    }
 }

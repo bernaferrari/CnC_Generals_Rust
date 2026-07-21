@@ -3255,20 +3255,31 @@ impl CnCGameEngine {
                     let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(100.0);
                     if self.selected_objects.is_empty() {
-                        if let Some(team) = self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                        {
-                            if let Some((id, _)) = self
-                                .game_logic
-                                .get_objects()
-                                .iter()
-                                .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
-                            {
-                                self.selected_objects = vec![*id];
+                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            Some(frame.local_team())
+                        } else {
+                            self.game_logic
+                                .get_player(self.current_player_id)
+                                .map(|p| p.team)
+                        };
+                        if let Some(team) = team {
+                            let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame
+                                    .alive_selectable_friendly_mobile_ids(team)
+                                    .into_iter()
+                                    .next()
+                            } else {
+                                // Boot residual only.
                                 self.game_logic
-                                    .select_objects(self.current_player_id, vec![*id]);
+                                    .get_objects()
+                                    .iter()
+                                    .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+                                    .map(|(id, _)| *id)
+                            };
+                            if let Some(id) = id {
+                                self.selected_objects = vec![id];
+                                self.game_logic
+                                    .select_objects(self.current_player_id, vec![id]);
                             }
                         }
                     }
@@ -3289,20 +3300,32 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "scatter_fail_not_ingame".into();
                 } else {
                     if self.selected_objects.is_empty() {
-                        if let Some(team) = self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                        {
-                            let mut ids: Vec<_> = self
-                                .game_logic
-                                .get_objects()
-                                .iter()
-                                .filter(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
-                                .map(|(id, _)| *id)
-                                .collect();
-                            ids.sort_by_key(|id| id.0);
-                            ids.truncate(8);
+                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            Some(frame.local_team())
+                        } else {
+                            self.game_logic
+                                .get_player(self.current_player_id)
+                                .map(|p| p.team)
+                        };
+                        if let Some(team) = team {
+                            let mut ids = if let Some(frame) = self.last_presentation_frame.as_ref()
+                            {
+                                frame.alive_selectable_friendly_mobile_ids(team)
+                            } else {
+                                // Boot residual only.
+                                let mut ids: Vec<_> = self
+                                    .game_logic
+                                    .get_objects()
+                                    .iter()
+                                    .filter(|(_, o)| {
+                                        o.team == team && o.is_alive() && o.is_mobile()
+                                    })
+                                    .map(|(id, _)| *id)
+                                    .collect();
+                                ids.sort_by_key(|id| id.0);
+                                ids
+                            };
+                            ids.truncate(12);
                             if !ids.is_empty() {
                                 self.selected_objects = ids.clone();
                                 self.game_logic.select_objects(self.current_player_id, ids);
@@ -3361,33 +3384,53 @@ impl CnCGameEngine {
                 } else {
                     // Formation is a mobile-unit residual. Drop structures/dozer-only
                     // selections that select_all can leave armed after construct.
-                    let team = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.team);
+                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        Some(frame.local_team())
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                    };
                     let mut mobile_sel: Vec<_> = self
                         .selected_objects
                         .iter()
                         .copied()
                         .filter(|id| {
-                            self.game_logic
-                                .get_object(*id)
-                                .map(|o| o.is_alive() && o.is_mobile())
-                                .unwrap_or(false)
+                            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame
+                                    .objects
+                                    .iter()
+                                    .any(|o| o.id == *id && !o.destroyed && o.is_mobile)
+                            } else {
+                                self.game_logic
+                                    .get_object(*id)
+                                    .map(|o| o.is_alive() && o.is_mobile())
+                                    .unwrap_or(false)
+                            }
                         })
                         .collect();
                     if mobile_sel.len() < 2 {
                         if let Some(team) = team {
-                            let mut ids: Vec<_> = self
-                                .game_logic
-                                .get_objects()
-                                .iter()
-                                .filter(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
-                                .map(|(id, _)| *id)
-                                .collect();
-                            ids.sort_by_key(|id| id.0);
-                            ids.truncate(6);
-                            mobile_sel = ids;
+                            mobile_sel = if let Some(frame) = self.last_presentation_frame.as_ref()
+                            {
+                                let mut ids = frame.alive_selectable_friendly_mobile_ids(team);
+                                ids.truncate(8);
+                                ids
+                            } else {
+                                // Boot residual only.
+                                let mut ids: Vec<_> = self
+                                    .game_logic
+                                    .get_objects()
+                                    .iter()
+                                    .filter(|(_, o)| {
+                                        o.team == team && o.is_alive() && o.is_mobile()
+                                    })
+                                    .map(|(id, _)| *id)
+                                    .collect();
+                                ids.sort_by_key(|id| id.0);
+                                ids.truncate(8);
+                                ids
+                            };
                         }
                     }
                     if mobile_sel.len() < 2 {
@@ -3422,30 +3465,43 @@ impl CnCGameEngine {
                 } else {
                     // Prefer harvester-like selection; else any mobile.
                     if self.selected_objects.is_empty() {
-                        if let Some(team) = self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                        {
-                            let mut ids: Vec<_> = self
-                                .game_logic
-                                .get_objects()
-                                .iter()
-                                .filter(|(_, o)| {
-                                    o.team == team
-                                        && o.is_alive()
-                                        && (o.template_name.to_ascii_lowercase().contains("supply")
-                                            || o.template_name
+                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            Some(frame.local_team())
+                        } else {
+                            self.game_logic
+                                .get_player(self.current_player_id)
+                                .map(|p| p.team)
+                        };
+                        if let Some(team) = team {
+                            let mut ids = if let Some(frame) = self.last_presentation_frame.as_ref()
+                            {
+                                frame.alive_selectable_friendly_harvester_ids(team)
+                            } else {
+                                // Boot residual only.
+                                let mut ids: Vec<_> = self
+                                    .game_logic
+                                    .get_objects()
+                                    .iter()
+                                    .filter(|(_, o)| {
+                                        o.team == team
+                                            && o.is_alive()
+                                            && (o
+                                                .template_name
                                                 .to_ascii_lowercase()
-                                                .contains("worker")
-                                            || o.template_name
-                                                .to_ascii_lowercase()
-                                                .contains("dozer")
-                                            || o.is_kind_of(crate::game_logic::KindOf::Worker))
-                                })
-                                .map(|(id, _)| *id)
-                                .collect();
-                            ids.sort_by_key(|id| id.0);
+                                                .contains("supply")
+                                                || o.template_name
+                                                    .to_ascii_lowercase()
+                                                    .contains("worker")
+                                                || o.template_name
+                                                    .to_ascii_lowercase()
+                                                    .contains("dozer")
+                                                || o.is_kind_of(crate::game_logic::KindOf::Worker))
+                                    })
+                                    .map(|(id, _)| *id)
+                                    .collect();
+                                ids.sort_by_key(|id| id.0);
+                                ids
+                            };
                             if ids.is_empty() {
                                 self.ensure_host_mobile_selection();
                             } else {
@@ -3543,22 +3599,36 @@ impl CnCGameEngine {
                     let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(80.0);
                     // Prefer selected structure producer.
                     if self.selected_objects.is_empty() {
-                        if let Some(team) = self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                        {
-                            if let Some((id, _)) =
-                                self.game_logic.get_objects().iter().find(|(_, o)| {
-                                    o.team == team
-                                        && o.is_alive()
-                                        && o.is_constructed()
-                                        && o.is_kind_of(crate::game_logic::KindOf::Structure)
-                                })
-                            {
-                                self.selected_objects = vec![*id];
+                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            Some(frame.local_team())
+                        } else {
+                            self.game_logic
+                                .get_player(self.current_player_id)
+                                .map(|p| p.team)
+                        };
+                        if let Some(team) = team {
+                            let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame
+                                    .alive_upgrade_producer_structure_ids(team)
+                                    .into_iter()
+                                    .next()
+                            } else {
+                                // Boot residual only.
                                 self.game_logic
-                                    .select_objects(self.current_player_id, vec![*id]);
+                                    .get_objects()
+                                    .iter()
+                                    .find(|(_, o)| {
+                                        o.team == team
+                                            && o.is_alive()
+                                            && o.is_constructed()
+                                            && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                    })
+                                    .map(|(id, _)| *id)
+                            };
+                            if let Some(id) = id {
+                                self.selected_objects = vec![id];
+                                self.game_logic
+                                    .select_objects(self.current_player_id, vec![id]);
                             }
                         }
                     }
@@ -3674,21 +3744,55 @@ impl CnCGameEngine {
                 } else {
                     // Prefer power plant selection.
                     if self.selected_objects.is_empty() {
-                        if let Some(team) = self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                        {
-                            if let Some((id, _)) =
-                                self.game_logic.get_objects().iter().find(|(_, o)| {
-                                    o.team == team
-                                        && o.is_alive()
-                                        && o.template_name.to_ascii_lowercase().contains("power")
-                                })
-                            {
-                                self.selected_objects = vec![*id];
+                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            Some(frame.local_team())
+                        } else {
+                            self.game_logic
+                                .get_player(self.current_player_id)
+                                .map(|p| p.team)
+                        };
+                        if let Some(team) = team {
+                            let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame
+                                    .objects
+                                    .iter()
+                                    .filter(|o| {
+                                        o.team == team
+                                            && !o.destroyed
+                                            && (o.template_name.to_ascii_lowercase().contains("power")
+                                                || o.building_type
+                                                    == Some(
+                                                        crate::presentation_frame::PresentationBuildingType::PowerPlant,
+                                                    )
+                                                || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                                    o,
+                                                    crate::game_logic::KindOf::PowerPlant,
+                                                )
+                                                || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                                    o,
+                                                    crate::game_logic::KindOf::FSPower,
+                                                ))
+                                    })
+                                    .map(|o| o.id)
+                                    .next()
+                            } else {
+                                // Boot residual only.
                                 self.game_logic
-                                    .select_objects(self.current_player_id, vec![*id]);
+                                    .get_objects()
+                                    .iter()
+                                    .find(|(_, o)| {
+                                        o.team == team
+                                            && o.is_alive()
+                                            && o.template_name
+                                                .to_ascii_lowercase()
+                                                .contains("power")
+                                    })
+                                    .map(|(id, _)| *id)
+                            };
+                            if let Some(id) = id {
+                                self.selected_objects = vec![id];
+                                self.game_logic
+                                    .select_objects(self.current_player_id, vec![id]);
                             }
                         }
                     }
@@ -4081,17 +4185,25 @@ impl CnCGameEngine {
                                 .and_then(|p| p.selected_objects.first().copied())
                         })
                         .or_else(|| {
-                            let team = self
-                                .game_logic
-                                .get_player(self.current_player_id)
-                                .map(|p| p.team)?;
-                            self.game_logic.get_objects().iter().find_map(|(id, o)| {
-                                if o.team == team && o.is_alive() && o.is_mobile() {
-                                    Some(*id)
-                                } else {
-                                    None
-                                }
-                            })
+                            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame
+                                    .alive_selectable_friendly_mobile_ids(frame.local_team())
+                                    .into_iter()
+                                    .next()
+                            } else {
+                                // Boot residual only.
+                                let team = self
+                                    .game_logic
+                                    .get_player(self.current_player_id)
+                                    .map(|p| p.team)?;
+                                self.game_logic.get_objects().iter().find_map(|(id, o)| {
+                                    if o.team == team && o.is_alive() && o.is_mobile() {
+                                        Some(*id)
+                                    } else {
+                                        None
+                                    }
+                                })
+                            }
                         });
                     if let Some(seed) = seed {
                         self.select_similar_units(seed);
@@ -4232,22 +4344,36 @@ impl CnCGameEngine {
                 } else {
                     // Prefer structure selection with a production queue.
                     if self.selected_objects.is_empty() {
-                        if let Some(team) = self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                        {
-                            if let Some((id, _)) =
-                                self.game_logic.get_objects().iter().find(|(_, o)| {
-                                    o.team == team
-                                        && o.is_alive()
-                                        && o.is_constructed()
-                                        && o.is_kind_of(crate::game_logic::KindOf::Structure)
-                                })
-                            {
-                                self.selected_objects = vec![*id];
+                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            Some(frame.local_team())
+                        } else {
+                            self.game_logic
+                                .get_player(self.current_player_id)
+                                .map(|p| p.team)
+                        };
+                        if let Some(team) = team {
+                            let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame
+                                    .alive_upgrade_producer_structure_ids(team)
+                                    .into_iter()
+                                    .next()
+                            } else {
+                                // Boot residual only.
                                 self.game_logic
-                                    .select_objects(self.current_player_id, vec![*id]);
+                                    .get_objects()
+                                    .iter()
+                                    .find(|(_, o)| {
+                                        o.team == team
+                                            && o.is_alive()
+                                            && o.is_constructed()
+                                            && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                    })
+                                    .map(|(id, _)| *id)
+                            };
+                            if let Some(id) = id {
+                                self.selected_objects = vec![id];
+                                self.game_logic
+                                    .select_objects(self.current_player_id, vec![id]);
                             }
                         }
                     }
