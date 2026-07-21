@@ -677,6 +677,8 @@ impl AsyncAiPlayer {
         }
 
         let now = Instant::now();
+        // Host path: dual-world factory empty — no enemy residual scan.
+        if !OBJECT_REGISTRY.is_empty() {
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj_guard) = obj_arc.read() else { continue };
             if obj_guard.is_destroyed() {
@@ -716,10 +718,13 @@ impl AsyncAiPlayer {
                 movement_pattern,
             });
         }
+        }
 
         let enemy_positions: Vec<Coord3D> = known_enemies.values().map(|info| info.position).collect();
 
         let mut resource_sites = Vec::new();
+        // Host path: dual-world factory empty — no resource residual.
+        if !OBJECT_REGISTRY.is_empty() {
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj_guard) = obj_arc.read() else { continue };
             if !(obj_guard.is_kind_of(KindOf::ResourceNode)
@@ -756,6 +761,7 @@ impl AsyncAiPlayer {
                 safety_level,
             });
         }
+        }
 
         let mut strategic_points = Vec::new();
         for site in &resource_sites {
@@ -782,7 +788,12 @@ impl AsyncAiPlayer {
             });
         }
 
-        let total_objects = OBJECT_REGISTRY.get_all_objects().len().max(1) as f32;
+        // Host path: empty dual-world registry → map_control from owned count only.
+        let total_objects = if OBJECT_REGISTRY.is_empty() {
+            owned_objects.len().max(1) as f32
+        } else {
+            OBJECT_REGISTRY.get_all_objects().len().max(1) as f32
+        };
         let map_control = owned_objects.len() as f32 / total_objects;
 
         let new_snapshot = GameStateSnapshot {

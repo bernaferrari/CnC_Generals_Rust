@@ -811,30 +811,36 @@ impl AISkirmishPlayer {
                 info.set_object_timestamp(current_frame + 1);
 
                 // Walk all objects for KINDOF_REBUILD_HOLE (C++ getFirstObject loop).
-                for candidate_arc in OBJECT_REGISTRY.get_all_objects() {
-                    let Ok(candidate_guard) = candidate_arc.read() else {
-                        continue;
-                    };
-                    if !candidate_guard.is_kind_of(KindOf::RebuildHole) {
-                        continue;
-                    }
-                    let candidate_id = candidate_guard.get_id();
-                    // Find RebuildHoleBehaviorInterface::getSpawnerID.
-                    let mut matched_hole = false;
-                    for behavior in candidate_guard.get_behavior_modules() {
-                        if let Ok(mut bg) = behavior.lock() {
-                            if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
-                                if rhbi.get_spawner_id() == prior_id {
-                                    matched_hole = true;
+                // Host path: empty dual-world registry → no rebuild-hole residual.
+                if !OBJECT_REGISTRY.is_empty() {
+                    for candidate_arc in OBJECT_REGISTRY.get_all_objects() {
+                        let Ok(candidate_guard) = candidate_arc.read() else {
+                            continue;
+                        };
+                        if !candidate_guard.is_kind_of(KindOf::RebuildHole) {
+                            continue;
+                        }
+                        let candidate_id = candidate_guard.get_id();
+                        // Find RebuildHoleBehaviorInterface::getSpawnerID.
+                        let mut matched_hole = false;
+                        for behavior in candidate_guard.get_behavior_modules() {
+                            if let Ok(mut bg) = behavior.lock() {
+                                if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
+                                    if rhbi.get_spawner_id() == prior_id {
+                                        matched_hole = true;
+                                    }
+                                    break;
                                 }
-                                break;
                             }
                         }
-                    }
-                    if matched_hole {
-                        info.set_object_id(candidate_id);
-                        log::debug!("AI Found hole to rebuild {}", cur_plan.get_name().as_str());
-                        break;
+                        if matched_hole {
+                            info.set_object_id(candidate_id);
+                            log::debug!(
+                                "AI Found hole to rebuild {}",
+                                cur_plan.get_name().as_str()
+                            );
+                            break;
+                        }
                     }
                 }
             }

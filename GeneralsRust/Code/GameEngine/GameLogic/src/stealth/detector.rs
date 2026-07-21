@@ -142,6 +142,10 @@ impl StealthDetectorController {
         let mut newly_detected = Vec::new();
 
         // Scan all objects in range
+        // Host path: dual-world factory empty — no stealth residual to detect.
+        if OBJECT_REGISTRY.is_empty() {
+            return;
+        }
         let all_objects = OBJECT_REGISTRY.get_all_objects();
 
         for obj_ref in all_objects {
