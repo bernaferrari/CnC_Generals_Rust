@@ -418,6 +418,8 @@ pub struct Entity {
     pub loco_behavior_z_ordinal: u8,
     /// Host locomotor residual `min_turn_speed`.
     pub min_turn_speed: f32,
+    /// Host PhysicsTurningType residual (-1/0/1 as i8).
+    pub physics_turning_ordinal: i8,
     /// Host Object::is_blocked_and_stuck residual.
     pub is_blocked_and_stuck: bool,
     /// Host Object::is_braking residual.
@@ -956,6 +958,7 @@ impl EntityStore {
             loco_appearance_ordinal: 0,
             loco_behavior_z_ordinal: 0,
             min_turn_speed: 0.0,
+            physics_turning_ordinal: 0,
             is_blocked_and_stuck: false,
             is_braking: false,
             is_safe_path: false,

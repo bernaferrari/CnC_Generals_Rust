@@ -630,6 +630,7 @@ pub enum WorldMutation {
         loco_appearance_ordinal: u8,
         loco_behavior_z_ordinal: u8,
         min_turn_speed: f32,
+        physics_turning_ordinal: i8,
     },
     /// Host bounce/land/collision residual pack.
     SetBounceLand {
@@ -1375,6 +1376,7 @@ impl GameWorld {
                     loco_appearance_ordinal,
                     loco_behavior_z_ordinal,
                     min_turn_speed,
+                    physics_turning_ordinal,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.is_approach_path = is_approach_path;
@@ -1392,6 +1394,7 @@ impl GameWorld {
                         e.loco_appearance_ordinal = loco_appearance_ordinal;
                         e.loco_behavior_z_ordinal = loco_behavior_z_ordinal;
                         e.min_turn_speed = min_turn_speed;
+                        e.physics_turning_ordinal = physics_turning_ordinal;
                         applied += 1;
                     }
                 }

@@ -172,6 +172,23 @@ pub enum PhysicsTurningType {
     TurnPositive = 1,
 }
 
+impl PhysicsTurningType {
+    pub fn to_ordinal(self) -> i8 {
+        match self {
+            PhysicsTurningType::TurnNegative => -1,
+            PhysicsTurningType::TurnNone => 0,
+            PhysicsTurningType::TurnPositive => 1,
+        }
+    }
+    pub fn from_ordinal(v: i8) -> Self {
+        match v {
+            -1 => PhysicsTurningType::TurnNegative,
+            1 => PhysicsTurningType::TurnPositive,
+            _ => PhysicsTurningType::TurnNone,
+        }
+    }
+}
+
 /// C++ LocomotorBehaviorZ residual (subset).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[repr(u8)]
@@ -3986,6 +4003,7 @@ impl Object {
             let dz = goal.z - turn_pos.z;
             if dx.abs() < 0.1 && dz.abs() < 0.1 {
                 self.physics_turning = PhysicsTurningType::TurnNone;
+                self.record_host_locomotor();
                 return (PhysicsTurningType::TurnNone, 0.0);
             }
             (dx, dz, Some(turn_pos))
@@ -3994,6 +4012,7 @@ impl Object {
             let dz = goal.z - us.z;
             if dx * dx + dz * dz < 1.0e-8 {
                 self.physics_turning = PhysicsTurningType::TurnNone;
+                self.record_host_locomotor();
                 return (PhysicsTurningType::TurnNone, 0.0);
             }
             (dx, dz, None)
@@ -4025,6 +4044,7 @@ impl Object {
         }
         self.set_orientation(angle + amount);
         self.physics_turning = turning;
+        self.record_host_locomotor();
         (turning, rel)
     }
 
@@ -4150,6 +4170,7 @@ impl Object {
         }
         self.is_braking = false;
         self.physics_turning = PhysicsTurningType::TurnNone;
+        self.record_host_locomotor();
 
         // Appearance-specific maintain residual.
         match self.loco_appearance {
@@ -9432,6 +9453,7 @@ impl Object {
             self.loco_appearance.to_ordinal(),
             self.loco_behavior_z.to_ordinal(),
             self.min_turn_speed,
+            self.physics_turning.to_ordinal(),
         );
     }
 
