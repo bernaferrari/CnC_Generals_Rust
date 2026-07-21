@@ -19290,4 +19290,30 @@ mod tests {
             "attack priority sync must default to host ObjectId keys"
         );
     }
+
+    #[test]
+    fn command_move_attack_host_object_id_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        let i = src.find("fn command_move").expect("command_move");
+        let body = &src[i..src.len().min(i + 1600)];
+        assert!(
+            body.contains("Host pathfinding / move channel (default production path)")
+                && body.contains("engine_object_bridge_enabled")
+                && body.contains("move_object_with_pathfinding"),
+            "command_move must default to host pathfinding; bridge residual only"
+        );
+        // Host path must not require engine_object_id for mobility check.
+        assert!(
+            body.contains("obj.is_mobile()") && !body.contains("is_mobile(), obj.engine_object_id"),
+            "command_move mobility check must not couple to engine_object_id"
+        );
+        let i = src.find("fn command_attack").expect("command_attack");
+        let body = &src[i..src.len().min(i + 2000)];
+        assert!(
+            body.contains("Host attack channel (default production path")
+                && body.contains("attack_target(target_id)")
+                && body.contains("engine_object_bridge_enabled"),
+            "command_attack must default to host ObjectId attack_target"
+        );
+    }
 }
