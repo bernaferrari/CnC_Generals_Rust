@@ -18277,4 +18277,21 @@ mod tests {
             "hijacker airborne put must log ground/move under authority"
         );
     }
+
+    #[test]
+    fn execute_packs_presentation_particle_systems_source() {
+        let rp = include_str!("graphics/render_pipeline.rs");
+        let i = rp.find("pub fn execute").expect("execute");
+        let body = &rp[i..rp.len().min(i + 4000)];
+        assert!(
+            body.contains("pack_presentation_particle_systems")
+                && body.contains("debug_last_particle_systems_packed"),
+            "execute must pack presentation particle systems without live GameLogic"
+        );
+        let mod_src = include_str!("graphics/mod.rs");
+        assert!(
+            mod_src.contains("particle_system_upload"),
+            "graphics mod must export particle_system_upload"
+        );
+    }
 }
