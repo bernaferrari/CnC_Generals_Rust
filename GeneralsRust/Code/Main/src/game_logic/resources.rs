@@ -109,22 +109,40 @@ impl ResourceManager {
         position: Vec3,
         objects: &HashMap<ObjectId, Object>,
     ) -> Option<ObjectId> {
-        let mut nearest_id = None;
-        let mut nearest_distance = f32::INFINITY;
-
-        for (&source_id, source) in &self.supply_sources {
-            if source.can_accept_gatherer() {
-                if let Some(source_obj) = objects.get(&source_id) {
-                    let distance = position.distance(source_obj.get_position());
-                    if distance < nearest_distance {
-                        nearest_distance = distance;
-                        nearest_id = Some(source_id);
-                    }
+        // Pure residual acquire: nearest supply source that can accept a gatherer (3D).
+        let candidates: Vec<_> = self
+            .supply_sources
+            .iter()
+            .filter_map(|(&source_id, source)| {
+                if !source.can_accept_gatherer() {
+                    return None;
                 }
-            }
-        }
-
-        nearest_id
+                let source_obj = objects.get(&source_id)?;
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: source_id,
+                        team: source_obj.team,
+                        position: source_obj.get_position(),
+                        is_alive: source_obj.is_alive(),
+                        is_neutral: source_obj.team == crate::game_logic::Team::Neutral,
+                        under_construction: source_obj.status.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            ObjectId(u32::MAX),
+            crate::game_logic::Team::Neutral,
+            position,
+            candidates,
+            |_| f32::MAX,
+            |_| true,
+        )
+        .map(|(id, _, _)| id)
     }
 
     pub fn assign_gatherer(&mut self, gatherer_id: ObjectId, source_id: ObjectId) -> bool {

@@ -10186,24 +10186,46 @@ impl CnCGameEngine {
                 }
             }
         } else {
-            for (&id, obj) in self.game_logic.get_objects() {
-                if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                    continue;
-                }
-                let n = obj.template_name.to_ascii_lowercase();
-                if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
-                    continue;
-                }
-                let pos = obj.get_position();
-                let d = (pos.x - location.x).hypot(pos.z - location.z);
-                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                    best = Some((id, d));
-                }
-            }
+            // Boot residual only — pure residual acquire (XZ).
+            let cands: Vec<_> = self
+                .game_logic
+                .get_objects()
+                .iter()
+                .filter_map(|(&id, obj)| {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        return None;
+                    }
+                    let n = obj.template_name.to_ascii_lowercase();
+                    if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
+                        return None;
+                    }
+                    Some(
+                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                            id,
+                            team: obj.team,
+                            position: obj.get_position(),
+                            is_alive: true,
+                            is_neutral: false,
+                            under_construction: obj.status.under_construction,
+                            combat_kind: true,
+                            effectively_stealthed: false,
+                            is_air: false,
+                            eject_invulnerable: false,
+                        },
+                    )
+                })
+                .collect();
+            best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                None,
+                (location.x, location.z),
+                cands,
+                f32::MAX,
+                |_| true,
+            )
+            .map(|(id, dist, _)| (id, dist));
         }
         best.map(|(id, _)| id)
     }
-
     fn is_wall_structure_template(template_name: &str) -> bool {
         let n = template_name.to_ascii_lowercase();
         n.contains("wall")
