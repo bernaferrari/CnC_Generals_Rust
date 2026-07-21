@@ -9053,7 +9053,8 @@ impl CnCGameEngine {
                 }
             } else if let Some(player) = self.game_logic.get_player(self.current_player_id) {
                 // Boot residual only — presentation path above owns InGame HUD resources.
-                let money = player.resources.supplies as i32;
+                // Use effective_supplies so economy-authority pending deltas are visible.
+                let money = player.effective_supplies() as i32;
                 let power = player.power_available;
                 let max_power = player.power_produced.max(0);
                 self.game_hud.update_resources(money, power, max_power);

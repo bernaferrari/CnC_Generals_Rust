@@ -13493,7 +13493,13 @@ mod tests {
             let p = logic.get_players_mut().get_mut(&pid).unwrap();
             let before = p.resources.supplies;
             p.credit_supplies(123);
-            assert_eq!(p.resources.supplies, before.saturating_add(123));
+            // Economy authority parks gains in pending_supply_delta.
+            assert_eq!(p.effective_supplies(), before.saturating_add(123));
+            if crate::gameworld_shadow::gameworld_economy_authority_enabled() {
+                assert_eq!(p.resources.supplies, before);
+            } else {
+                assert_eq!(p.resources.supplies, before.saturating_add(123));
+            }
         }
         let ev = crate::game_logic::host_economy_log::drain();
         assert!(

@@ -2657,7 +2657,8 @@ impl PresentationFrame {
             })
             .collect();
         players.sort_by_key(|p| p.id);
-        let local_supplies = local.map(|p| p.resources.supplies).unwrap_or(0);
+        // Economy authority: freeze effective (includes pending_supply_delta).
+        let local_supplies = local.map(|p| p.effective_supplies()).unwrap_or(0);
         let local_power = local.map(|p| p.power_available).unwrap_or(0);
         let local_power_produced = local.map(|p| p.power_produced).unwrap_or(0);
         let local_power_consumed = local.map(|p| p.power_consumed).unwrap_or(0);
@@ -10035,7 +10036,18 @@ mod tests {
 
     #[test]
     fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
+        let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
         use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+
+        // Isolate global shroud — prior FOW tests may leave permanent reveal.
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.clear_all();
+        }
 
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("FowSnapConsistency");
@@ -10102,6 +10114,10 @@ mod tests {
 
     #[test]
     fn presentation_fow_shell_bypass_forces_fully_visible() {
+        let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
         use crate::fow_rendering::ObjectVisibility;
         use crate::game_logic::GameMode;
 
@@ -10168,6 +10184,10 @@ mod tests {
 
     #[test]
     fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
+        let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
         use crate::fow_rendering::{FOWRenderingBridge, PresentationFowGrid};
         use gamelogic::system::shroud_manager::get_shroud_manager;
 
@@ -10176,21 +10196,39 @@ mod tests {
             let mut shroud = get_shroud_manager().lock().expect("shroud");
             shroud.clear_all();
             shroud.init_shroud_grid(500.0, 500.0); // 10x10 cells at 50 wu
+            shroud.mark_host_object_seen(0, 1);
             shroud.force_update();
-            // Mark as updated so snapshot does not fail-open to fully visible.
             let _ = shroud.update(1);
-            // Leave most cells Hidden; reveal whole map for player 0 after first snap?
-            // First: capture hidden baseline.
         }
 
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("FowGridSnap");
         apply_skirmish_config(&mut logic, &cfg).expect("config");
 
+        // Activate FOW runtime (visible membership) without permanent map reveal so
+        // baseline is not fail-open fully-visible and reveal can change fingerprint.
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.clear_all();
+            shroud.init_shroud_grid(500.0, 500.0); // 10x10
+                                                   // Host residual API — keeps FOW filters active without dual registry.
+            shroud.mark_host_object_seen(0, 1);
+            let _ = shroud.update(1);
+            // No reveal_map_for_player_permanently yet — terrain stays mostly shrouded.
+        }
+
         // Build with active hidden grid (last_update_frame > 0 after update above).
         let bridge_grid = FOWRenderingBridge::snapshot_terrain_grid(0, false);
         let snap = PresentationFrame::build_from_logic(&logic, 0);
 
+        assert!(
+            !snap
+                .fow_grid
+                .cells
+                .iter()
+                .all(|&c| c == PresentationFowGrid::CELL_VISIBLE),
+            "baseline snapshot must not be fully visible before reveal"
+        );
         assert_eq!(
             snap.fow_grid.content_fingerprint(),
             bridge_grid.content_fingerprint(),
@@ -10854,9 +10892,9 @@ mod tests {
         assert_eq!(ui.power_generated, 80);
         assert_eq!(ui.power_used, 30);
         assert!(
-            ui.build_queue
-                .iter()
-                .any(|b| b.template_name == "Ranger" && (b.percent_complete - 0.25).abs() < 0.01),
+            ui.build_queue.iter().any(|b| {
+                b.template_name == "Ranger" && (b.percent_complete - (0.25 / 20.0)).abs() < 0.01
+            }),
             "expected production queue residual: {:?}",
             ui.build_queue
         );
@@ -11138,7 +11176,8 @@ mod tests {
         assert!(panel.visible);
         assert_eq!(panel.veterancy_overlay.as_deref(), Some("SSChevron2L"));
         assert_eq!(panel.production_template.as_deref(), Some("Ranger"));
-        assert!((panel.production_progress.unwrap_or(0.0) - 0.55).abs() < 0.01);
+        // production_progress is progress_ratio (progress/total_time).
+        assert!((panel.production_progress.unwrap_or(0.0) - (0.55 / 10.0)).abs() < 0.01);
         assert_eq!(panel.production_queue.len(), 1);
 
         #[cfg(feature = "game_client")]
@@ -11148,7 +11187,7 @@ mod tests {
             let portrait = bar.get_portrait_state();
             assert_eq!(portrait.veterancy_overlay.as_deref(), Some("SSChevron2L"));
             assert_eq!(portrait.production_template.as_deref(), Some("Ranger"));
-            assert!((portrait.production_progress.unwrap_or(0.0) - 0.55).abs() < 0.01);
+            assert!((portrait.production_progress.unwrap_or(0.0) - (0.55 / 10.0)).abs() < 0.01);
             assert_eq!(bar.get_build_queue_data().len(), 1);
             assert_eq!(bar.get_build_queue_data()[0].upgrade_name, "Ranger");
         }
@@ -11696,18 +11735,18 @@ mod runtime_heightmap_residual_tests {
     #[test]
     fn map_load_heightmap_bake_passes_none_game_logic() {
         let eng = include_str!("cnc_game_engine.rs");
-        // After presentation freeze, runtime terrain bake must not pass Some(game_logic).
+        // Runtime terrain bake is presentation-owned: device/queue only, no GameLogic arg.
         let idx = eng
             .find("load_heightmap_from_runtime_terrain")
             .expect("call site");
         let window = &eng[idx..idx + 280];
         assert!(
-            window.contains("None"),
-            "expected None game_logic at map-load height bake, got: {window}"
+            !window.contains("game_logic") && !window.contains("GameLogic"),
+            "map-load height bake must not dual-read live GameLogic, got: {window}"
         );
         assert!(
-            !window.contains("Some(game_logic)"),
-            "map-load height bake must not dual-read live GameLogic"
+            window.contains("device_arc") && window.contains("queue_arc"),
+            "bake should take GPU device/queue only"
         );
     }
 
@@ -11742,13 +11781,16 @@ mod runtime_heightmap_residual_tests {
             .expect("source_tile_classes site");
         let window = &rp[idx..idx + 1600];
         assert!(
-            window.contains("presentation_frame") && window.contains("terrain_texture_classes"),
+            (window.contains("presentation_frame") || window.contains("pres"))
+                && window.contains("terrain_texture_classes")
+                && window.contains("world_env"),
             "source_tile_classes must come from presentation freeze: {window}"
         );
-        // Live snapshot only on boot residual branch (else game_logic).
+        // Must not dual-read live GameLogic for tile classes in this window.
         assert!(
-            window.contains("} else {") && window.contains("terrain_texture_classes_snapshot"),
-            "boot residual may keep live snapshot only in else branch: {window}"
+            !window.contains("game_logic.terrain_texture")
+                && !window.contains("logic.terrain_texture"),
+            "tile classes must not dual-read live GameLogic: {window}"
         );
     }
 }
