@@ -826,23 +826,43 @@ impl<'a> CommandExecutor<'a> {
         let unit = self.game_logic.get_object(unit_id)?;
         let unit_pos = unit.get_position();
         let unit_team = unit.team;
-        let mut best_id: Option<ObjectId> = None;
-        let mut best_dist = f32::MAX;
-
-        for (&obj_id, obj) in self.game_logic.get_objects() {
-            if obj.team != unit_team || !obj.is_alive() || !obj.can_contain() {
-                continue;
-            }
-            if !obj.has_capacity_for(1) {
-                continue;
-            }
-            let dist = obj.get_position().distance(unit_pos);
-            if dist < best_dist {
-                best_dist = dist;
-                best_id = Some(obj_id);
-            }
-        }
-        best_id
+        // Pure residual acquire: nearest friendly container with capacity (3D).
+        let candidates: Vec<_> = self
+            .game_logic
+            .get_objects()
+            .iter()
+            .filter_map(|(&obj_id, obj)| {
+                if obj.team != unit_team || !obj.is_alive() || !obj.can_contain() {
+                    return None;
+                }
+                if !obj.has_capacity_for(1) {
+                    return None;
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: obj_id,
+                        team: obj.team,
+                        position: obj.get_position(),
+                        is_alive: true,
+                        is_neutral: false,
+                        under_construction: obj.status.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            unit_id,
+            unit_team,
+            unit_pos,
+            candidates,
+            |_| f32::MAX,
+            |_| true,
+        )
+        .map(|(id, _, _)| id)
     }
 
     // === Construction Commands ===
@@ -1942,17 +1962,41 @@ impl<'a> CommandExecutor<'a> {
             let team = unit.team;
             let pos = unit.get_position();
             // Nearest friendly airfield residual.
-            let mut best: Option<(ObjectId, f32)> = None;
-            for (&id, obj) in self.game_logic.get_objects() {
-                if !crate::game_logic::GameLogic::is_friendly_airfield(obj, team) {
-                    continue;
-                }
-                let d = pos.distance(obj.get_position());
-                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                    best = Some((id, d));
-                }
-            }
-            let Some((airfield_id, _)) = best else {
+            // Pure residual acquire: nearest friendly airfield (3D).
+            let af_cands: Vec<_> = self
+                .game_logic
+                .get_objects()
+                .iter()
+                .filter_map(|(&id, obj)| {
+                    if !crate::game_logic::GameLogic::is_friendly_airfield(obj, team) {
+                        return None;
+                    }
+                    Some(
+                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                            id,
+                            team: obj.team,
+                            position: obj.get_position(),
+                            is_alive: obj.is_alive(),
+                            is_neutral: false,
+                            under_construction: obj.status.under_construction,
+                            combat_kind: true,
+                            effectively_stealthed: false,
+                            is_air: false,
+                            eject_invulnerable: false,
+                        },
+                    )
+                })
+                .collect();
+            let Some((airfield_id, _, _)) =
+                crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+                    unit_id,
+                    team,
+                    pos,
+                    af_cands,
+                    |_| f32::MAX,
+                    |_| true,
+                )
+            else {
                 continue;
             };
             if self.execute_dock(&[unit_id], airfield_id) == CommandResult::Success {
@@ -1988,27 +2032,50 @@ impl<'a> CommandExecutor<'a> {
             if !is_collector {
                 continue;
             }
-            // Nearest friendly supply center residual.
-            let mut best: Option<(ObjectId, f32)> = None;
-            for (&id, obj) in self.game_logic.get_objects() {
-                if obj.team != team || !obj.is_alive() || obj.status.under_construction {
-                    continue;
-                }
-                let on = obj.template_name.to_ascii_lowercase();
-                let is_sc = obj.is_kind_of(crate::game_logic::KindOf::SupplyCenter)
-                    || obj.is_kind_of(crate::game_logic::KindOf::FSSupplyCenter)
-                    || on.contains("supplycenter")
-                    || on.contains("supply_center")
-                    || on.contains("dropzone");
-                if !is_sc {
-                    continue;
-                }
-                let d = pos.distance(obj.get_position());
-                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                    best = Some((id, d));
-                }
-            }
-            let Some((sc_id, _)) = best else {
+            // Pure residual acquire: nearest friendly supply center (3D).
+            let sc_cands: Vec<_> = self
+                .game_logic
+                .get_objects()
+                .iter()
+                .filter_map(|(&id, obj)| {
+                    if obj.team != team || !obj.is_alive() || obj.status.under_construction {
+                        return None;
+                    }
+                    let on = obj.template_name.to_ascii_lowercase();
+                    let is_sc = obj.is_kind_of(crate::game_logic::KindOf::SupplyCenter)
+                        || obj.is_kind_of(crate::game_logic::KindOf::FSSupplyCenter)
+                        || on.contains("supplycenter")
+                        || on.contains("supply_center")
+                        || on.contains("dropzone");
+                    if !is_sc {
+                        return None;
+                    }
+                    Some(
+                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                            id,
+                            team: obj.team,
+                            position: obj.get_position(),
+                            is_alive: true,
+                            is_neutral: false,
+                            under_construction: false,
+                            combat_kind: true,
+                            effectively_stealthed: false,
+                            is_air: false,
+                            eject_invulnerable: false,
+                        },
+                    )
+                })
+                .collect();
+            let Some((sc_id, _, _)) =
+                crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+                    unit_id,
+                    team,
+                    pos,
+                    sc_cands,
+                    |_| f32::MAX,
+                    |_| true,
+                )
+            else {
                 continue;
             };
             let sc_pos = self
@@ -2052,33 +2119,51 @@ impl<'a> CommandExecutor<'a> {
             let team = unit.team;
             let pos = unit.get_position();
             let scan = DOZER_MINE_CLEAR_SCAN_RANGE.max(80.0);
-            let scan2 = scan * scan;
-            let mut best: Option<(ObjectId, f32, Vec3)> = None;
-            for (&id, obj) in self.game_logic.get_objects() {
-                if !obj.is_alive() || obj.mine_data.is_none() {
-                    continue;
-                }
-                if obj.team == team {
-                    continue;
-                }
-                let mpos = obj.get_position();
-                let dx = pos.x - mpos.x;
-                let dz = pos.z - mpos.z;
-                let d2 = dx * dx + dz * dz;
-                if d2 > scan2 {
-                    continue;
-                }
-                if best.map(|(_, bd, _)| d2 < bd).unwrap_or(true) {
-                    best = Some((id, d2, mpos));
-                }
-            }
-            let Some((mine_id, _, mine_pos)) = best else {
+            // Pure residual acquire: nearest enemy mine in clear scan range (XZ).
+            let mine_cands: Vec<_> = self
+                .game_logic
+                .get_objects()
+                .iter()
+                .filter_map(|(&id, obj)| {
+                    if !obj.is_alive() || obj.mine_data.is_none() || obj.team == team {
+                        return None;
+                    }
+                    Some(
+                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                            id,
+                            team: obj.team,
+                            position: obj.get_position(),
+                            is_alive: true,
+                            is_neutral: obj.team == crate::game_logic::Team::Neutral,
+                            under_construction: false,
+                            combat_kind: true,
+                            effectively_stealthed: false,
+                            is_air: false,
+                            eject_invulnerable: false,
+                        },
+                    )
+                })
+                .collect();
+            let Some((mine_id, _, _)) =
+                crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                    Some(unit_id),
+                    (pos.x, pos.z),
+                    mine_cands,
+                    scan,
+                    |_| true,
+                )
+            else {
                 continue;
             };
+            let mpos = self
+                .game_logic
+                .get_object(mine_id)
+                .map(|o| o.get_position())
+                .unwrap_or(pos);
             if let Some(u) = self.game_logic.get_object_mut(unit_id) {
                 u.set_target(Some(mine_id));
             }
-            if self.path_to_goal_with_state(unit_id, mine_pos, AIState::Moving) {
+            if self.path_to_goal_with_state(unit_id, mpos, AIState::Moving) {
                 any = true;
             }
         }
