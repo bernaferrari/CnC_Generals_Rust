@@ -18503,4 +18503,23 @@ mod tests {
             "InGame presentation path must not dual-call SFX"
         );
     }
+
+    #[test]
+    fn play_sound_effect_direct_audio_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng.find("fn play_sound_effect").expect("play_sound_effect");
+        let body = &eng[i..eng.len().min(i + 2200)];
+        assert!(
+            body.contains("AudioManagerSubsystem")
+                && body.contains("last_presentation_frame.is_some()"),
+            "play_sound_effect must dispatch UI SFX via AudioManager when frame installed"
+        );
+        assert!(
+            !body.contains(
+                "self.game_logic
+                .queue_audio_event"
+            ) && !body.contains("self.game_logic.process_audio_events()"),
+            "play_sound_effect must not dual-write GameLogic audio queue on presentation path"
+        );
+    }
 }
