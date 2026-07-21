@@ -19514,28 +19514,30 @@ fn stop_and_guard_hotkeys_residual() {
 fn retail_selection_and_scatter_hotkeys_residual() {
     let src = include_str!("cnc_game_engine.rs");
     assert!(
-        src.contains("eq_ignore_ascii_case(\"x\") && !ctrl_down")
+        (src.contains("eq_ignore_ascii_case(\"x\") && !ctrl_down")
+            || (src.contains("eq_ignore_ascii_case(\"x\")")
+                && src.contains("Retail CommandMap SCATTER KEY_X residual")))
             && src.contains("issue_named_command_from_ui(\"Command_Scatter\")"),
         "X must issue Command_Scatter residual"
     );
     assert!(
-        src.contains("eq_ignore_ascii_case(\"q\") && !ctrl_down")
+        src.contains("Retail CommandMap SELECT_ALL KEY_Q residual")
             && src.contains("select_all_friendly_units"),
         "Q must SELECT_ALL residual"
     );
     assert!(
-        src.contains("eq_ignore_ascii_case(\"e\") && !ctrl_down")
+        src.contains("Retail CommandMap SELECT_MATCHING_UNITS KEY_E residual")
             && src.contains("select_matching_units_hotkey"),
         "E must SELECT_MATCHING_UNITS residual"
     );
     assert!(
-        src.contains("eq_ignore_ascii_case(\"w\") && !ctrl_down")
+        src.contains("Retail CommandMap SELECT_ALL_AIRCRAFT KEY_W residual")
             && src.contains("select_all_friendly_aircraft"),
         "W must SELECT_ALL_AIRCRAFT residual"
     );
 
     assert!(
-        src.contains("eq_ignore_ascii_case(\"h\") && !ctrl_down")
+        src.contains("Retail CommandMap VIEW_COMMAND_CENTER KEY_H residual")
             && src.contains("issue_named_command_from_ui(\"Command_ViewCommandCenter\")"),
         "H must VIEW_COMMAND_CENTER residual"
     );
