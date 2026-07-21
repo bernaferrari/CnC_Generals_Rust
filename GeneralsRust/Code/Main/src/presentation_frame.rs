@@ -10776,7 +10776,7 @@ mod tests {
         );
         assert!(
             gc.contains("Host/presentation path: shroud comes from PresentationFrame")
-                && gc.contains("OBJECT_REGISTRY.get_all_objects().is_empty()"),
+                && gc.contains("OBJECT_REGISTRY.is_empty()"),
             "update_drawables must skip registry shroud bind on host path"
         );
         assert!(
