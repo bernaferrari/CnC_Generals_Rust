@@ -1623,7 +1623,7 @@ pub struct GameLogic {
     map_loaded: bool,
 
     /// Combat system for parallel projectile processing
-    combat_system: CombatSystem,
+    pub(crate) combat_system: CombatSystem,
 
     /// Pathfinding system for parallel path computation
     pathfinding_system: PathfindingSystem,
@@ -5727,15 +5727,25 @@ impl GameLogic {
         // Instead, process diversion inside apply_projectile_countermeasures_pass
         // after projectiles update (combat still applies damage; we heal-back
         // diverted hits is wrong). Prefer combat-level hook:
-        let projectile_hits = self.combat_system.update_projectiles_with_countermeasures(
-            dt,
-            &mut self.objects,
-            Some(&mut self.countermeasures),
-            self.frame,
-        );
-        crate::game_logic::host_projectile_log::record_snapshot(
-            self.combat_system.projectiles_snapshot(),
-        );
+        let projectile_hits = if crate::gameworld_shadow::gameworld_projectile_authority_enabled() {
+            // Snapshot pre-step flight state for GameWorld integrate authority.
+            crate::game_logic::host_projectile_log::record_snapshot(
+                self.combat_system.projectiles_snapshot(),
+            );
+            // Defer integrate+hits to shadow_session (GW step + writeback + hits).
+            Vec::new()
+        } else {
+            let hits = self.combat_system.update_projectiles_with_countermeasures(
+                dt,
+                &mut self.objects,
+                Some(&mut self.countermeasures),
+                self.frame,
+            );
+            crate::game_logic::host_projectile_log::record_snapshot(
+                self.combat_system.projectiles_snapshot(),
+            );
+            hits
+        };
         self.drain_historic_bonus_firestorms();
 
         if !projectile_hits.is_empty() {
@@ -6816,6 +6826,18 @@ impl GameLogic {
 
     /// Update AI behavior for all objects
     /// Enhanced with AI decision system for intelligent behavior
+
+    /// Hit-only projectile pass after GameWorld flight integrate writeback.
+    pub(crate) fn resolve_projectiles_hits_only(&mut self) -> Vec<ObjectId> {
+        self.combat_system.refresh_homing_aims(&self.objects);
+        self.combat_system.update_projectiles_with_countermeasures(
+            0.0,
+            &mut self.objects,
+            Some(&mut self.countermeasures),
+            self.frame,
+        )
+    }
+
     fn update_ai(&mut self, object_ids: &[ObjectId], dt: f32) {
         use crate::ai_decisions::*;
 

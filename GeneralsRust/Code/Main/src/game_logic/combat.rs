@@ -447,6 +447,11 @@ impl CombatSystem {
         self.projectiles.get_mut(&id)
     }
 
+    /// Remove one projectile by id (GameWorld projectile-authority writeback).
+    pub fn remove_projectile(&mut self, id: ObjectId) -> bool {
+        self.projectiles.remove(&id).is_some()
+    }
+
     /// Fire a projectile from one object to another
     pub fn fire_projectile(
         &mut self,
@@ -558,6 +563,48 @@ impl CombatSystem {
         objects: &mut HashMap<ObjectId, Object>,
     ) -> Vec<ObjectId> {
         self.update_projectiles_with_countermeasures(dt, objects, None, 0)
+    }
+
+    /// Flight integrate only (lifetime + pose). Hit detection is separate.
+    pub fn integrate_projectiles_only(&mut self, dt: f32) -> usize {
+        let dt = if dt.is_finite() && dt > 0.0 {
+            dt
+        } else {
+            1.0 / 30.0
+        };
+        let ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
+        let mut stepped = 0usize;
+        let mut remove = Vec::new();
+        for id in ids {
+            let Some(p) = self.projectiles.get_mut(&id) else {
+                continue;
+            };
+            if !p.update(dt) {
+                remove.push(id);
+            } else {
+                stepped += 1;
+            }
+        }
+        for id in remove {
+            self.projectiles.remove(&id);
+        }
+        stepped
+    }
+
+    /// Refresh homing aim points from live object positions.
+    pub fn refresh_homing_aims(&mut self, objects: &HashMap<ObjectId, Object>) {
+        for p in self.projectiles.values_mut() {
+            if !p.is_homing {
+                continue;
+            }
+            if let Some(tid) = p.target_id {
+                if let Some(tgt) = objects.get(&tid) {
+                    if tgt.is_alive() {
+                        p.target_position = tgt.get_position();
+                    }
+                }
+            }
+        }
     }
 
     /// Projectile step with optional America Countermeasures diversion residual.

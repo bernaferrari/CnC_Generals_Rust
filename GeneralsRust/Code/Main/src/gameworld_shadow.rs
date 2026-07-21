@@ -152,6 +152,23 @@ pub fn gameworld_ai_attack_authority_enabled() -> bool {
     }
 }
 
+/// When enabled (default), GameWorld steps projectile flight residual and
+/// last-writes pose/lifetime into host CombatSystem before hit resolution.
+/// Host still owns spawn/fire and hit/damage application.
+/// Env: `GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY=0|false` off; unset/`1` = **on**.
+pub fn gameworld_projectile_authority_enabled() -> bool {
+    match std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => true,
+    }
+}
+
 /// When enabled, host construction percent is last-written from GameWorld after
 /// progress logs (host still computes projected percent for completion side effects).
 /// Env: `GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
@@ -3815,6 +3832,62 @@ impl GameWorldShadow {
         n
     }
 
+    /// Last-write host CombatSystem projectile pose/lifetime from GameWorld residual.
+    pub fn writeback_projectiles_to_host(&self, logic: &mut GameLogic) -> usize {
+        if !gameworld_projectile_authority_enabled() {
+            return 0;
+        }
+        let mut updated = 0usize;
+        let gw_ids: std::collections::HashSet<u32> =
+            self.world.projectiles().keys().copied().collect();
+        let to_remove: Vec<crate::game_logic::ObjectId> = logic
+            .combat_system
+            .get_projectiles()
+            .keys()
+            .copied()
+            .filter(|id| !gw_ids.contains(&id.0))
+            .collect();
+        for id in to_remove {
+            if logic.combat_system.remove_projectile(id) {
+                updated += 1;
+            }
+        }
+        for (hid, res) in self.world.projectiles() {
+            let Some(p) = logic
+                .combat_system
+                .projectile_mut(crate::game_logic::ObjectId(*hid))
+            else {
+                continue;
+            };
+            let np = glam::Vec3::new(res.position[0], res.position[1], res.position[2]);
+            let nv = glam::Vec3::new(res.velocity[0], res.velocity[1], res.velocity[2]);
+            let nt = glam::Vec3::new(
+                res.target_position[0],
+                res.target_position[1],
+                res.target_position[2],
+            );
+            let changed = (p.position - np).length_squared() > 1e-10
+                || (p.velocity - nv).length_squared() > 1e-10
+                || (p.target_position - nt).length_squared() > 1e-10
+                || (p.lifetime - res.lifetime).abs() > f32::EPSILON
+                || (p.speed - res.speed).abs() > f32::EPSILON
+                || p.is_homing != res.is_homing;
+            if !changed {
+                continue;
+            }
+            p.position = np;
+            p.velocity = nv;
+            p.target_position = nt;
+            p.lifetime = res.lifetime;
+            p.max_lifetime = res.max_lifetime;
+            p.speed = res.speed;
+            p.is_homing = res.is_homing;
+            p.damage = res.damage;
+            updated += 1;
+        }
+        updated
+    }
+
     pub fn apply_host_guard_events(
         &mut self,
         events: &[crate::game_logic::host_guard_log::HostGuardEvent],
@@ -6531,6 +6604,31 @@ pub fn shadow_session_after_host_tick(
     let _fi_applied = shadow.apply_host_fire_intent_events(&fire_intent_events);
     let projectile_events = crate::game_logic::host_projectile_log::drain();
     let _proj_applied = shadow.apply_host_projectile_events(&projectile_events);
+    if gameworld_projectile_authority_enabled() {
+        let dt = 1.0_f32 / 30.0;
+        // Host object poses for homing refresh.
+        let stepped = {
+            let logic_ref = &*logic;
+            shadow.world.step_projectiles(dt, |hid| {
+                logic_ref.get_objects().get(&ObjectId(hid)).map(|o| {
+                    let p = o.get_position();
+                    [p.x, p.y, p.z]
+                })
+            })
+        };
+        let _ = stepped;
+        let _pw = shadow.writeback_projectiles_to_host(logic);
+        // Hit resolution at GameWorld-integrated poses (dt=0 keeps pose stable).
+        let hits = logic.resolve_projectiles_hits_only();
+        let _ = hits;
+        crate::game_logic::host_projectile_log::record_snapshot(
+            logic.combat_system.projectiles_snapshot(),
+        );
+        // Re-apply post-hit residual so GW drops destroyed projectiles.
+        let _ =
+            shadow.apply_host_projectile_events(&crate::game_logic::host_projectile_log::drain());
+    }
+
     let _guard_applied = shadow.apply_host_guard_events(&guard_events);
     let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
     let ai_mood_events = crate::game_logic::host_ai_mood_log::drain();
@@ -14987,6 +15085,81 @@ mod tests {
         );
         assert!(shadow.apply_host_projectile_events(&host_projectile_log::drain()) >= 1);
         assert!(shadow.world().projectile(501).is_none());
+    }
+
+    #[test]
+    fn projectile_authority_steps_flight_and_writeback() {
+        use crate::game_logic::host_projectile_log;
+        let prev = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
+        assert!(gameworld_projectile_authority_enabled());
+        host_projectile_log::clear();
+        let mut logic = GameLogic::new();
+        // Seed one ballistic projectile on host combat system.
+        {
+            use crate::game_logic::combat::DamageType;
+            use crate::game_logic::Weapon;
+            let mut w = Weapon {
+                damage: 10.0,
+                range: 500.0,
+                ..Weapon::default()
+            };
+            w.projectile_speed = 100.0;
+            let id = logic.combat_system.fire_projectile(
+                glam::Vec3::new(0.0, 0.0, 0.0),
+                glam::Vec3::new(100.0, 0.0, 0.0),
+                &w,
+                ObjectId(1),
+                None,
+                100.0,
+            );
+            assert_eq!(
+                id.0,
+                logic
+                    .combat_system
+                    .get_projectiles()
+                    .keys()
+                    .next()
+                    .unwrap()
+                    .0
+            );
+        }
+        host_projectile_log::record_snapshot(logic.combat_system.projectiles_snapshot());
+        let mut shadow = GameWorldShadow::new(64);
+        assert!(shadow.apply_host_projectile_events(&host_projectile_log::drain()) >= 1);
+        let before = shadow
+            .world()
+            .projectiles()
+            .values()
+            .next()
+            .unwrap()
+            .position[0];
+        let stepped = shadow.world.step_projectiles(1.0 / 30.0, |_| None);
+        assert!(stepped >= 1);
+        let after = shadow
+            .world()
+            .projectiles()
+            .values()
+            .next()
+            .unwrap()
+            .position[0];
+        assert!(
+            after > before,
+            "projectile should advance along +X (before={before} after={after})"
+        );
+        let n = shadow.writeback_projectiles_to_host(&mut logic);
+        assert!(n >= 1);
+        let p = logic
+            .combat_system
+            .get_projectiles()
+            .values()
+            .next()
+            .unwrap();
+        assert!((p.position.x - after).abs() < 1e-4);
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
+        }
     }
 
     #[test]
