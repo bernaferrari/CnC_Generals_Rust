@@ -1062,6 +1062,12 @@ impl CombatSystem {
 
 #[cfg(test)]
 mod tests {
+    /// CombatSystem unit tests apply damage without a GameWorld shadow session,
+    /// so host HP must mutate directly (opt out of damage authority last-writer).
+    fn ensure_unit_test_direct_damage() {
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+    }
+
     use super::*;
     use crate::game_logic::{KindOf, Object, Team, ThingTemplate, Weapon};
     use glam::Vec3;
@@ -1087,6 +1093,8 @@ mod tests {
 
     #[test]
     fn projectile_hits_intervening_structure() {
+        ensure_unit_test_direct_damage();
+
         let mut objects = HashMap::new();
         let atk = ObjectId(1);
         let wall = ObjectId(2);
@@ -1170,6 +1178,8 @@ mod tests {
 
     #[test]
     fn projectile_reaches_target_without_wall() {
+        ensure_unit_test_direct_damage();
+
         let mut objects = HashMap::new();
         let atk = ObjectId(10);
         let tgt = ObjectId(11);
@@ -1226,6 +1236,8 @@ mod tests {
 
     #[test]
     fn projectile_splash_damages_nearby() {
+        ensure_unit_test_direct_damage();
+
         let mut objects = HashMap::new();
         let atk = ObjectId(20);
         let tgt = ObjectId(21);
@@ -1354,6 +1366,8 @@ mod tests {
 
     #[test]
     fn homing_projectile_tracks_moving_target() {
+        ensure_unit_test_direct_damage();
+
         let mut objects = HashMap::new();
         let atk = ObjectId(40);
         let tgt = ObjectId(41);
@@ -1723,6 +1737,8 @@ mod tests {
 
     #[test]
     fn projectile_collides_mask_gates_structure_intercept() {
+        ensure_unit_test_direct_damage();
+
         let mut objects = HashMap::new();
         let atk = ObjectId(70);
         let wall = ObjectId(71);
