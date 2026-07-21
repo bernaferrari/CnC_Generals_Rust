@@ -10742,6 +10742,25 @@ mod tests {
     }
 
     #[test]
+    fn game_client_update_for_rendering_host_path_without_registry() {
+        let gc = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
+        assert!(
+            gc.contains("Host/presentation path: no dual-world OBJECT_REGISTRY")
+                && gc.contains("update_drawables_local(visual_delta)"),
+            "update_for_rendering must local-tick drawables when OBJECT_REGISTRY is empty"
+        );
+        assert!(
+            gc.contains("Host/presentation path: shroud comes from PresentationFrame")
+                && gc.contains("OBJECT_REGISTRY.get_all_objects().is_empty()"),
+            "update_drawables must skip registry shroud bind on host path"
+        );
+        assert!(
+            gc.contains("does not populate the registry") || gc.contains("becomes a no-op there"),
+            "iterate_objects_with_drawables must document host residual no-op"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
