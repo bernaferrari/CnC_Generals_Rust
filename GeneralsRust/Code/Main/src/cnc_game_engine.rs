@@ -104,6 +104,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ui_command_path_prefers_presentation_object_identity() {
+        let eng = include_str!("cnc_game_engine.rs");
+        for token in [
+            "fn presentation_ro",
+            "fn ui_object_alive",
+            "fn ui_object_is_dozer",
+            "fn ui_object_can_produce",
+            "fn ui_production_queue_head",
+            "fn ui_selected_ids",
+        ] {
+            assert!(
+                eng.contains(token),
+                "missing UI presentation helper {token}"
+            );
+        }
+        // Producer fail-open live scan only when no presentation frame.
+        assert!(
+            eng.contains("last_presentation_frame.is_none()"),
+            "producer fail-open must gate on missing presentation frame"
+        );
+        // Dozer/producer filters use presentation-first helpers.
+        assert!(
+            eng.contains("self.ui_object_is_dozer(id)")
+                && eng.contains("self.ui_object_can_produce(id)")
+                && eng.contains("self.ui_production_queue_head(id)"),
+            "UI command filters must call presentation-first helpers"
+        );
+    }
+
     fn presentation_path_ticks_drawables_like_cpp() {
         let src = include_str!("cnc_game_engine.rs");
         // Build token from pieces so this test source does not self-match.
@@ -2829,9 +2859,13 @@ impl CnCGameEngine {
                                 }
                             }
                         }
-                        // Fail-open live residual when presentation roster empty.
-                        if barracks.is_empty() && any.is_empty() {
-                            // Fail-open live residual when presentation roster empty.
+                        // Fail-open live residual only when no presentation frame is installed
+                        // (boot). When a frame exists, presentation roster is authoritative —
+                        // do not dual-scan live GameLogic producers.
+                        if barracks.is_empty()
+                            && any.is_empty()
+                            && self.last_presentation_frame.is_none()
+                        {
                             for &id in self.game_logic.get_objects().keys() {
                                 if let Some((is_b, id)) = classify_live(id, &self.game_logic, team)
                                 {
@@ -10258,6 +10292,118 @@ impl CnCGameEngine {
             || n.contains("chainlink")
     }
 
+    /// Presentation-owned object identity for UI/command residual (InGame).
+    /// Live GameLogic is boot residual only when no frame is installed.
+    #[inline]
+    fn presentation_ro(
+        &self,
+        id: crate::game_logic::ObjectId,
+    ) -> Option<&crate::presentation_frame::RenderableObject> {
+        self.last_presentation_frame
+            .as_ref()?
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+    }
+
+    #[inline]
+    fn ui_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
+        if let Some(o) = self.presentation_ro(id) {
+            return !o.destroyed && o.health_current > 0.0;
+        }
+        self.game_logic.get_object(id).is_some_and(|o| o.is_alive())
+    }
+
+    #[inline]
+    fn ui_object_is_dozer(&self, id: crate::game_logic::ObjectId) -> bool {
+        if let Some(o) = self.presentation_ro(id) {
+            if o.destroyed || o.health_current <= 0.0 {
+                return false;
+            }
+            let n = o.template_name.to_ascii_lowercase();
+            return n.contains("dozer")
+                || n.contains("worker")
+                || n.contains("crane")
+                || crate::presentation_frame::PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::Worker,
+                );
+        }
+        self.game_logic.get_object(id).is_some_and(|o| {
+            o.is_alive()
+                && (o.is_dozer
+                    || o.template_name.to_ascii_lowercase().contains("dozer")
+                    || o.template_name.to_ascii_lowercase().contains("worker")
+                    || o.template_name.to_ascii_lowercase().contains("crane"))
+        })
+    }
+
+    #[inline]
+    fn ui_object_can_produce(&self, id: crate::game_logic::ObjectId) -> bool {
+        if let Some(o) = self.presentation_ro(id) {
+            return o.can_produce
+                && !o.destroyed
+                && !o.under_construction
+                && o.health_current > 0.0;
+        }
+        self.game_logic
+            .get_object(id)
+            .is_some_and(|o| o.is_alive() && o.is_constructed() && o.building_data.is_some())
+    }
+
+    #[inline]
+    fn ui_object_under_construction(&self, id: crate::game_logic::ObjectId) -> bool {
+        if let Some(o) = self.presentation_ro(id) {
+            return o.under_construction && !o.destroyed && o.health_current > 0.0;
+        }
+        self.game_logic
+            .get_object(id)
+            .is_some_and(|o| o.is_alive() && o.status.under_construction && !o.status.sold)
+    }
+
+    #[inline]
+    fn ui_production_queue_head(&self, id: crate::game_logic::ObjectId) -> Option<String> {
+        if let Some(o) = self.presentation_ro(id) {
+            return o.production_queue.first().map(|p| p.template_name.clone());
+        }
+        self.game_logic.get_object(id).and_then(|o| {
+            o.building_data.as_ref().and_then(|b| {
+                b.production_queue
+                    .first()
+                    .map(|item| item.template_name.clone())
+            })
+        })
+    }
+
+    #[inline]
+    fn ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
+        // Prefer engine selection residual, then player selection, then presentation.
+        if !self.selected_objects.is_empty() {
+            return self.selected_objects.clone();
+        }
+        if let Some(sel) = self
+            .game_logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+        {
+            if !sel.is_empty() {
+                return sel;
+            }
+        }
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            if !frame.selected.is_empty() {
+                return frame.selected.clone();
+            }
+            return frame
+                .objects
+                .iter()
+                .filter(|o| o.selected && !o.destroyed)
+                .map(|o| o.id)
+                .collect();
+        }
+        Vec::new()
+    }
+
     fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
         use crate::game_logic::host_production_buildable_command_residual::{
             lbc_help_message_residual, LBC_OK,
@@ -10290,15 +10436,7 @@ impl CnCGameEngine {
         if selected.is_empty() {
             selected = self.selected_objects.clone();
         }
-        let is_dozer = |id: crate::game_logic::ObjectId| {
-            self.game_logic.get_object(id).is_some_and(|o| {
-                if !o.is_alive() {
-                    return false;
-                }
-                let n = o.template_name.to_ascii_lowercase();
-                n.contains("dozer") || n.contains("worker") || n.contains("crane")
-            })
-        };
+        let is_dozer = |id: crate::game_logic::ObjectId| self.ui_object_is_dozer(id);
         let dozers: Vec<_> = selected
             .iter()
             .copied()
@@ -10404,14 +10542,7 @@ impl CnCGameEngine {
         let builders: Vec<_> = selected
             .iter()
             .copied()
-            .filter(|&id| {
-                self.game_logic.get_object(id).is_some_and(|o| {
-                    o.is_alive()
-                        && (o.is_dozer
-                            || o.template_name.to_ascii_lowercase().contains("dozer")
-                            || o.template_name.to_ascii_lowercase().contains("worker"))
-                })
-            })
+            .filter(|&id| self.ui_object_is_dozer(id))
             .collect();
         let units = if builders.is_empty() {
             selected
@@ -10459,13 +10590,7 @@ impl CnCGameEngine {
         }
         let mut any = false;
         for id in selected {
-            let head_name = self.game_logic.get_object(id).and_then(|o| {
-                o.building_data.as_ref().and_then(|b| {
-                    b.production_queue
-                        .first()
-                        .map(|item| item.template_name.clone())
-                })
-            });
+            let head_name = self.ui_production_queue_head(id);
             let Some(template_name) = head_name else {
                 continue;
             };
@@ -10506,13 +10631,7 @@ impl CnCGameEngine {
         for id in selected {
             // Drain queue head repeatedly residual.
             loop {
-                let head_name = self.game_logic.get_object(id).and_then(|o| {
-                    o.building_data.as_ref().and_then(|b| {
-                        b.production_queue
-                            .first()
-                            .map(|item| item.template_name.clone())
-                    })
-                });
+                let head_name = self.ui_production_queue_head(id);
                 let Some(template_name) = head_name else {
                     break;
                 };
@@ -10555,11 +10674,7 @@ impl CnCGameEngine {
         let producers: Vec<_> = selected
             .iter()
             .copied()
-            .filter(|&id| {
-                self.game_logic.get_object(id).is_some_and(|o| {
-                    o.is_alive() && o.is_constructed() && o.building_data.is_some()
-                })
-            })
+            .filter(|&id| self.ui_object_can_produce(id))
             .collect();
         let targets = if producers.is_empty() {
             selected
@@ -10593,16 +10708,14 @@ impl CnCGameEngine {
         if template_name.trim().is_empty() || quantity == 0 {
             return;
         }
-        let logic = &mut self.game_logic;
-        let player_id = logic
-            .get_player(0)
+        let player_id = self
+            .game_logic
+            .get_player(self.current_player_id)
             .map(|p| p.id)
-            .or_else(|| logic.get_players().keys().copied().min())
+            .or_else(|| self.game_logic.get_player(0).map(|p| p.id))
+            .or_else(|| self.game_logic.get_players().keys().copied().min())
             .unwrap_or(0);
-        let selected = logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_default();
+        let selected = self.ui_selected_ids(player_id);
         if selected.is_empty() {
             log::debug!(
                 "QueueUnitProduction ignored — no selection for '{}'",
@@ -10610,34 +10723,30 @@ impl CnCGameEngine {
             );
             return;
         }
-        // Prefer constructed producers in selection residual.
+        // Prefer constructed producers in selection residual (presentation-first).
         let producers: Vec<_> = selected
             .iter()
             .copied()
-            .filter(|&id| {
-                logic.get_object(id).is_some_and(|o| {
-                    o.is_alive() && o.is_constructed() && o.building_data.is_some()
-                })
-            })
+            .filter(|&id| self.ui_object_can_produce(id))
             .collect();
         let units = if producers.is_empty() {
             selected
         } else {
             producers
         };
-        logic.queue_command(crate::command_system::GameCommand {
-            command_type: crate::command_system::CommandType::QueueUnitCreate {
-                template_name: template_name.to_string(),
-                quantity,
-            },
-            player_id,
-            command_id: 0,
-            timestamp: std::time::SystemTime::now(),
-            selected_units: units,
-            modifier_keys: crate::command_system::ModifierKeys::default(),
-        });
-        // Same-frame residual so production advances without waiting for AI drain.
-        logic.process_commands();
+        self.game_logic
+            .queue_command(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::QueueUnitCreate {
+                    template_name: template_name.to_string(),
+                    quantity,
+                },
+                player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: units,
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+        self.game_logic.process_commands();
     }
 
     /// C++ ControlBar named command button residual (Upgrade/Cancel/Stop/…).
@@ -10923,11 +11032,10 @@ impl CnCGameEngine {
             }
             crate::command_system::CommandType::ResumeConstruction { target_id } => {
                 // Prefer unfinished structure in selection residual.
-                let unfinished = selected.iter().copied().find(|&id| {
-                    self.game_logic.get_object(id).is_some_and(|o| {
-                        o.is_alive() && o.status.under_construction && !o.status.sold
-                    })
-                });
+                let unfinished = selected
+                    .iter()
+                    .copied()
+                    .find(|&id| self.ui_object_under_construction(id));
                 if let Some(id) = unfinished.or_else(|| selected.first().copied()) {
                     *target_id = id;
                 }
