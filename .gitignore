@@ -31,3 +31,4 @@ Thumbs.db
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+.beads/dolt-config.log

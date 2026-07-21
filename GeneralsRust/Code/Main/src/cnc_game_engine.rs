@@ -134,6 +134,14 @@ mod tests {
                 && eng.contains("self.ui_production_queue_head(id)"),
             "UI command filters must call presentation-first helpers"
         );
+        // Force-completed producer pick prefers presentation roster when installed.
+        assert!(
+            eng.contains("Force-completed IDs: prefer presentation identity")
+                || eng.contains("force_completed")
+                    && eng.contains("can_produce")
+                    && eng.contains("or_else(|| classify_live"),
+            "force-completed producer pick must prefer presentation before live classify"
+        );
     }
 
     #[test]
@@ -2826,9 +2834,59 @@ impl CnCGameEngine {
                                 any.push(id);
                             }
                         };
-                        // Just force-completed IDs are live-constructed this command.
+                        // Force-completed IDs: prefer presentation identity when installed
+                        // (same-frame completion may not yet be in the frozen roster — then
+                        // fall back to live classify).
                         for id in force_completed.iter().copied() {
-                            if let Some((is_b, id)) = classify_live(id, &self.game_logic, team) {
+                            let classified = if let Some(frame) =
+                                self.last_presentation_frame.as_ref()
+                            {
+                                frame.objects.iter().find_map(|o| {
+                                    if o.id != id || o.destroyed || o.team != team {
+                                        return None;
+                                    }
+                                    if o.under_construction {
+                                        return None;
+                                    }
+                                    let is_barracks = o.building_type
+                                        == Some(
+                                            crate::presentation_frame::PresentationBuildingType::Barracks,
+                                        )
+                                        || o.template_name
+                                            .to_ascii_lowercase()
+                                            .contains("barracks")
+                                        || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                            o,
+                                            crate::game_logic::KindOf::FSBarracks,
+                                        );
+                                    let is_producer = o.can_produce
+                                        || is_barracks
+                                        || matches!(
+                                            o.building_type,
+                                            Some(
+                                                crate::presentation_frame::PresentationBuildingType::WarFactory
+                                                    | crate::presentation_frame::PresentationBuildingType::Airfield
+                                                    | crate::presentation_frame::PresentationBuildingType::Barracks
+                                            )
+                                        )
+                                        || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                            o,
+                                            crate::game_logic::KindOf::FSWarFactory,
+                                        )
+                                        || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                            o,
+                                            crate::game_logic::KindOf::FSAirfield,
+                                        );
+                                    if !is_producer {
+                                        return None;
+                                    }
+                                    Some((is_barracks, id))
+                                })
+                                .or_else(|| classify_live(id, &self.game_logic, team))
+                            } else {
+                                classify_live(id, &self.game_logic, team)
+                            };
+                            if let Some((is_b, id)) = classified {
                                 push(is_b, id, &mut barracks, &mut any);
                             }
                         }
