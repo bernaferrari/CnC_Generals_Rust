@@ -6170,9 +6170,16 @@ impl GameLogic {
                     && obj.target == Some(completed_id)
                     && obj.is_alive()
                 {
+                    let oid = obj.id;
                     obj.set_target(None);
                     obj.stop_moving();
-                    obj.set_ai_state(AIState::Idle);
+                    // Collect for decision-aware Idle after borrow ends.
+                    // (set below via second pass if needed — apply inline with free log)
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        crate::game_logic::host_ai_decision_log::record_set_state(oid, 0);
+                    } else {
+                        obj.set_ai_state(AIState::Idle);
+                    }
                 }
             }
             if let Some(team) = self.objects.get(&completed_id).map(|o| o.team) {
@@ -22087,7 +22094,14 @@ impl GameLogic {
                             unit.set_position(eject_origin + offset);
                             unit.set_target(None);
                             unit.set_contained_by(None);
-                            unit.set_ai_state(AIState::Idle);
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                                crate::game_logic::host_ai_decision_log::record_set_state(
+                                    contained_id,
+                                    0,
+                                );
+                            } else {
+                                unit.set_ai_state(AIState::Idle);
+                            }
                             unit.set_status_moving(false);
                             unit.set_status_attacking(false);
                         }
@@ -22352,13 +22366,21 @@ impl GameLogic {
                 for cid in clear_ids {
                     self.stop_attack_decision_aware(cid);
                 }
-                for (_, other_obj) in self.objects.iter_mut() {
+                let mut guard_idle: Vec<ObjectId> = Vec::new();
+                for (oid, other_obj) in self.objects.iter_mut() {
                     if other_obj.guard_target == Some(destroyed_id) {
                         other_obj.guard_target = None;
                         if other_obj.ai_state == AIState::GuardingObject {
-                            other_obj.set_ai_state(AIState::Idle);
+                            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                                guard_idle.push(*oid);
+                            } else {
+                                other_obj.set_ai_state(AIState::Idle);
+                            }
                         }
                     }
+                }
+                for gid in guard_idle {
+                    crate::game_logic::host_ai_decision_log::record_set_state(gid, 0);
                 }
             }
         }
@@ -38252,10 +38274,11 @@ impl GameLogic {
             return;
         };
         if let Some(obj) = self.objects.get_mut(&unit_id) {
+            // Construction target association stays host.
             obj.set_target(Some(tid));
             obj.target_location = None;
-            obj.set_ai_state(AIState::Constructing);
         }
+        self.set_ai_state_decision_aware(unit_id, AIState::Constructing);
         self.path_approach_with_state(unit_id, tpos, AIState::Constructing);
     }
 
@@ -48310,11 +48333,12 @@ impl GameLogic {
 
             if let Some(target_id) = self.find_dozer_bored_repair_target(id) {
                 if let Some(obj) = self.objects.get_mut(&id) {
+                    // Repair target is non-combat host association (not AttackTarget).
                     obj.target = Some(target_id);
-                    obj.set_ai_state(AIState::Repairing);
                     obj.set_actively_constructing(true);
                     obj.idle_since_frame = 0;
                 }
+                self.set_ai_state_decision_aware(id, AIState::Repairing);
                 self.dozer_bored_repair_events = self.dozer_bored_repair_events.saturating_add(1);
                 continue;
             }
@@ -48327,11 +48351,10 @@ impl GameLogic {
                     .map(|m| m.get_position())
                     .unwrap_or(glam::Vec3::ZERO);
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.target = Some(mine_id);
-                    obj.set_ai_state(AIState::Attacking);
-                    obj.set_status_attacking(true);
                     obj.idle_since_frame = 0;
                 }
+                // Combat engagement via decision authority; path_approach logs Attacking too.
+                self.apply_engagement_decision_aware(id, mine_id);
                 // Approach residual — attack resolution happens in combat update.
                 self.path_approach_with_state(id, mine_pos, AIState::Attacking);
                 self.dozer_bored_mine_clear_events =
@@ -48664,8 +48687,8 @@ impl GameLogic {
             if let Some(w) = self.objects.get_mut(&worker_id) {
                 w.set_status_unselectable(true);
                 w.set_status_masked(false);
-                w.set_ai_state(AIState::Constructing);
             }
+            self.set_ai_state_decision_aware(worker_id, AIState::Constructing);
             self.rebuild_hole_workers = self.rebuild_hole_workers.saturating_add(1);
 
             // Spawn reconstructing building (C++ ai->construct residual).
@@ -48684,10 +48707,11 @@ impl GameLogic {
                 o.producer_id = Some(hole_id);
             }
             if let Some(w) = self.objects.get_mut(&worker_id) {
+                // Construction target association stays host (not combat AttackTarget).
                 w.target = Some(new_id);
-                w.set_ai_state(AIState::Constructing);
                 w.set_actively_constructing(true);
             }
+            self.set_ai_state_decision_aware(worker_id, AIState::Constructing);
             if let Some(h) = self.objects.get_mut(&hole_id) {
                 h.rebuild_worker_id = Some(worker_id);
                 h.rebuild_reconstructing_id = Some(new_id);
