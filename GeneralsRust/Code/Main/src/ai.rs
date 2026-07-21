@@ -1148,7 +1148,7 @@ impl AIPlayer {
                     .map(|(id, _)| *id)
             });
 
-            let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
+            let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
             for &unit_id in &attack_units {
                 if let Some(focus) = focus_enemy {
                     if decision_auth {
