@@ -85751,12 +85751,40 @@ mod tests {
             o.set_ai_state(AIState::Idle);
             o.idle_since_frame = 1;
         }
+        crate::game_logic::host_ai_decision_log::clear();
         logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
         logic.update_dozer_bored_repair();
         let d = logic.get_object(did).expect("d");
-        assert_eq!(d.ai_state, AIState::Attacking);
-        assert_eq!(d.target, Some(mid));
         assert!(logic.honesty_dozer_bored_mine_clear_ok());
+        // Mine-clear engagement is decision-authority last-write (default on):
+        // AttackTarget + SetAIState(Attacking) logged; host target/ai_state not mutated.
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            assert_eq!(d.target, None);
+            assert_eq!(d.ai_state, AIState::Idle);
+            let events = crate::game_logic::host_ai_decision_log::snapshot();
+            let attacking = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                &AIState::Attacking,
+            );
+            assert!(
+                events.iter().any(|e| {
+                    e.host_object == did
+                        && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_ATTACK
+                        && e.target_host == mid.0
+                }),
+                "dozer bored mine-clear must log AttackTarget under decision authority"
+            );
+            assert!(
+                events.iter().any(|e| {
+                    e.host_object == did
+                        && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
+                        && e.ai_state_ordinal == attacking
+                }),
+                "dozer bored mine-clear must log SetAIState(Attacking) under decision authority"
+            );
+        } else {
+            assert_eq!(d.target, Some(mid));
+            assert_eq!(d.ai_state, AIState::Attacking);
+        }
     }
 
     #[test]
@@ -85807,12 +85835,32 @@ mod tests {
         logic.update_dozer_bored_repair();
         assert_eq!(logic.get_object(did).unwrap().ai_state, AIState::Idle);
         // After bored time (150f).
+        crate::game_logic::host_ai_decision_log::clear();
         logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
         logic.update_dozer_bored_repair();
         let d = logic.get_object(did).expect("d");
-        assert_eq!(d.ai_state, AIState::Repairing);
+        // Host residual association still stores the repair target.
         assert_eq!(d.target, Some(sid));
         assert!(logic.honesty_dozer_bored_repair_ok());
+        // AI state last-write under AI_DECISION_AUTHORITY (default): host ai_state stays
+        // Idle; SetAIState(Repairing) is logged for GameWorld writeback.
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            assert_eq!(d.ai_state, AIState::Idle);
+            let events = crate::game_logic::host_ai_decision_log::snapshot();
+            let repairing = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                &AIState::Repairing,
+            );
+            assert!(
+                events.iter().any(|e| {
+                    e.host_object == did
+                        && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
+                        && e.ai_state_ordinal == repairing
+                }),
+                "dozer bored repair must log SetAIState(Repairing) under decision authority"
+            );
+        } else {
+            assert_eq!(d.ai_state, AIState::Repairing);
+        }
     }
 
     #[test]
