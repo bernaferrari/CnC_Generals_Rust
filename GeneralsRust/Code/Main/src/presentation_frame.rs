@@ -10891,6 +10891,25 @@ mod tests {
     }
 
     #[test]
+    fn iterate_objects_with_drawables_empty_registry() {
+        let gc = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
+        let i = gc
+            .find("fn iterate_objects_with_drawables")
+            .expect("iterate");
+        let window = &gc[i..gc.len().min(i + 700)];
+        assert!(
+            window.contains("OBJECT_REGISTRY.is_empty()") && window.contains("return Ok(())"),
+            "iterate_objects_with_drawables must early-out on empty registry"
+        );
+        let j = gc.find("fn load_post_process").expect("load_post");
+        let w2 = &gc[j..gc.len().min(j + 900)];
+        assert!(
+            w2.contains("OBJECT_REGISTRY.is_empty()") && w2.contains("set_drawable_id_counter"),
+            "load_post_process host path must skip dual-world drawable scan"
+        );
+    }
+
+    #[test]
     fn production_progress_log_carries_power_factor() {
         let log = include_str!("game_logic/host_production_progress_log.rs");
         assert!(
