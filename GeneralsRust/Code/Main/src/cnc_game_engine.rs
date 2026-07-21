@@ -7658,6 +7658,11 @@ impl CnCGameEngine {
             WindowEvent::MouseInput { state, button, .. } => {
                 let x = self.mouse_position.0 as i32;
                 let y = self.mouse_position.1 as i32;
+                #[cfg(feature = "game_client")]
+                {
+                    let pressed = matches!(state, ElementState::Pressed);
+                    self.inject_game_client_mouse_button(*button, pressed);
+                }
                 let route_mouse_to_legacy_ui =
                     matches!(self.current_state, GameState::InGame | GameState::Paused);
                 if route_mouse_to_legacy_ui {
@@ -7713,6 +7718,8 @@ impl CnCGameEngine {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_position = (position.x as f32, position.y as f32);
+                #[cfg(feature = "game_client")]
+                self.inject_game_client_mouse_move(position.x as f32, position.y as f32);
                 if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.update_mouse_world_position();
                     self.ui_manager
@@ -15976,6 +15983,9 @@ impl CnCGameEngine {
             MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 100.0,
         };
 
+        #[cfg(feature = "game_client")]
+        self.inject_game_client_mouse_scroll(delta_y);
+
         // C++ place-building rotate residual: wheel turns ghost while placement armed.
         if self.pending_structure_placement.is_some() {
             let step = delta_y * std::f32::consts::FRAC_PI_4; // 45 deg per notch
@@ -16446,6 +16456,40 @@ impl CnCGameEngine {
                 }
             }
         }
+    }
+
+    /// Feed Main-owned OS mouse state into GameClient Mouse device residual.
+    /// Main still owns command translation; this keeps client device state honest
+    /// for presentation-shell UI without dual OS event ownership.
+    #[cfg(feature = "game_client")]
+    fn inject_game_client_mouse_move(&self, x: f32, y: f32) {
+        game_client::input::mouse::with_mouse(|mouse| {
+            let _ = mouse.handle_mouse_move(x, y);
+        });
+    }
+
+    #[cfg(feature = "game_client")]
+    fn inject_game_client_mouse_button(&self, button: MouseButton, pressed: bool) {
+        use game_client::input::mouse::MouseButton as GcMouseButton;
+        use std::time::Instant;
+        let gc_btn = match button {
+            MouseButton::Left => GcMouseButton::Left,
+            MouseButton::Right => GcMouseButton::Right,
+            MouseButton::Middle => GcMouseButton::Middle,
+            MouseButton::Back => GcMouseButton::Other(3),
+            MouseButton::Forward => GcMouseButton::Other(4),
+            MouseButton::Other(n) => GcMouseButton::Other(n as u16),
+        };
+        game_client::input::mouse::with_mouse(|mouse| {
+            let _ = mouse.handle_mouse_button(gc_btn, pressed, Instant::now());
+        });
+    }
+
+    #[cfg(feature = "game_client")]
+    fn inject_game_client_mouse_scroll(&self, delta_y: f32) {
+        game_client::input::mouse::with_mouse(|mouse| {
+            let _ = mouse.handle_scroll_lines(delta_y);
+        });
     }
 
     fn update_mouse_world_position(&mut self) {
