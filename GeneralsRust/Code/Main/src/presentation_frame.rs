@@ -10866,6 +10866,16 @@ mod tests {
     }
 
     #[test]
+    fn status_sample_prefers_presentation() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("Prefer presentation residual for status sample")
+                && eng.contains("frame.objects.iter().find"),
+            "runtime status sample must prefer presentation objects"
+        );
+    }
+
+    #[test]
     fn production_progress_log_carries_power_factor() {
         let log = include_str!("game_logic/host_production_progress_log.rs");
         assert!(

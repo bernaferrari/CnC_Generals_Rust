@@ -2267,12 +2267,27 @@ impl CnCGameEngine {
                         .unwrap_or_else(|| "-".to_string())
                 } else {
                     // Boot residual only.
-                    let team = self
+                    // Prefer presentation residual for status sample (no live walk).
+                    let mut sample = "-".to_string();
+                    if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        let team = frame.local_team();
+                        if let Some(o) = frame
+                            .objects
+                            .iter()
+                            .find(|o| o.team == team && !o.destroyed)
+                        {
+                            let pos = o.position;
+                            sample = format!(
+                                "{:.1},{:.1},{:.1}:{}",
+                                pos.x, pos.y, pos.z, o.template_name
+                            );
+                        }
+                    } else if let Some(team) = self
                         .game_logic
                         .get_player(self.current_player_id)
-                        .map(|p| p.team);
-                    let mut sample = "-".to_string();
-                    if let Some(team) = team {
+                        .map(|p| p.team)
+                    {
+                        // Boot residual only.
                         for obj in self.game_logic.get_objects().values() {
                             if obj.team == team && obj.is_alive() {
                                 let pos = obj.get_position();

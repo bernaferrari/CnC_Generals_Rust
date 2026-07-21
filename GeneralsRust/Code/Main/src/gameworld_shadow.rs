@@ -8195,6 +8195,62 @@ mod tests {
     }
 
     #[test]
+    fn production_authority_sole_ticks_queue_progress() {
+        let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+        assert!(gameworld_production_authority_enabled());
+        use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        {
+            let mut t = ThingTemplate::new("SoleTickFact");
+            t.add_kind_of(KindOf::Structure);
+            t.add_kind_of(KindOf::FSBarracks);
+            logic.templates.insert("SoleTickFact".into(), t);
+        }
+        let oid = logic
+            .create_object("SoleTickFact", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
+            .expect("id");
+        host_production_progress_log::record(
+            oid,
+            vec![HostProductionQueueItem {
+                template_name: "Ranger".into(),
+                progress: 0.0,
+                total_time: 10.0,
+                cost_supplies: 100,
+                is_upgrade: false,
+            }],
+            0.0,
+            0.5, // half power
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let events = host_production_progress_log::drain();
+        assert_eq!(shadow.apply_host_production_progress_events(&events), 1);
+        let n = shadow.tick_production_queues(2.0);
+        assert!(n >= 1, "sole-tick must advance at least one queue");
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        let ent = shadow.world().entity(eid).expect("ent");
+        let head = ent.production_queue_items.first().expect("head");
+        // dt*pf = 2.0 * 0.5 = 1.0
+        assert!(
+            (head.progress - 1.0).abs() < 1e-4,
+            "expected progress 1.0 under half power, got {}",
+            head.progress
+        );
+        let wb = shadow.writeback_production_to_host(&mut logic);
+        assert!(wb >= 1);
+        let obj = logic.get_object(oid).expect("obj");
+        let b = obj.building_data.as_ref().expect("bd");
+        let hp = b.production_queue.first().expect("hq");
+        assert!((hp.progress - 1.0).abs() < 1e-4);
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn writeback_construction_percent_to_host() {
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
