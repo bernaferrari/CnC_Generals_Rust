@@ -15552,6 +15552,85 @@ mod tests {
     }
 
     #[test]
+    fn assign_unit_attack_path_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AtkPath");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["ApU", "ApE"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Infantry);
+                t.add_kind_of(KindOf::Attackable);
+                t.set_health(100.0);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let uid = logic
+            .create_object("ApU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("u");
+        let vid = logic
+            .create_object("ApE", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+            .expect("e");
+        if let Some(o) = logic.get_objects_mut().get_mut(&uid) {
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 25.0,
+                ..Weapon::default()
+            });
+        }
+        let tpos = glam::Vec3::new(80.0, 0.0, 0.0);
+        let ok = logic.assign_unit_attack_path_for_test(uid, Some(vid), tpos);
+        assert!(ok, "attack path should assign");
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_ATTACK
+                    && e.host_object == uid
+                    && e.target_host == vid.0
+            }),
+            "must log AttackTarget; got {events:?}"
+        );
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
+                    && e.host_object == uid
+                    && e.ai_state_ordinal == 2
+            }),
+            "must log Attacking state; got {events:?}"
+        );
+        let host = logic.get_objects().get(&uid).unwrap();
+        assert!(
+            host.target.is_none(),
+            "host target deferred under decision authority"
+        );
+        // Path still on host for movement residual.
+        assert!(
+            !host.movement.path.is_empty() || host.movement.target_position.is_some(),
+            "path must still be assigned on host"
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert_eq!(logic.get_objects().get(&uid).unwrap().target, Some(vid));
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn mood_auto_acquire_logs_decision_under_authority() {
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};

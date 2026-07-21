@@ -4058,31 +4058,47 @@ impl GameLogic {
                 }
             }
         }
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
         if let Some(full_path) = path {
             if full_path.len() >= 2 {
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    // Path integrate stays host (movement authority peels separately).
                     unit.movement.path = full_path;
                     unit.record_host_movement();
                     unit.movement.current_path_index = 1;
                     unit.record_host_movement();
                     unit.movement.target_position = Some(unit.movement.path[1]);
                     unit.set_status_moving(true);
-                    unit.set_ai_state(AIState::Attacking);
-                    unit.set_status_attacking(true);
-                    if let Some(tid) = target_id {
-                        unit.target = Some(tid);
+                    if !decision_auth {
+                        unit.set_ai_state(AIState::Attacking);
+                        unit.set_status_attacking(true);
+                        if let Some(tid) = target_id {
+                            unit.target = Some(tid);
+                        }
                     }
                     crate::game_logic::host_move_log::record(
                         unit_id,
                         Some([target_pos.x, target_pos.y, target_pos.z]),
                     );
                 }
+                if decision_auth {
+                    if let Some(tid) = target_id {
+                        crate::game_logic::host_ai_decision_log::record_attack(unit_id, tid);
+                    }
+                    // Attacking ordinal = 2
+                    crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+                }
                 return true;
             }
         }
         // Fallback: path to target footprint (prior residual).
         if self.assign_unit_path(unit_id, target_pos, &[]) {
-            if let Some(unit) = self.objects.get_mut(&unit_id) {
+            if decision_auth {
+                if let Some(tid) = target_id {
+                    crate::game_logic::host_ai_decision_log::record_attack(unit_id, tid);
+                }
+                crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+            } else if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.set_ai_state(AIState::Attacking);
                 unit.set_status_attacking(true);
                 if let Some(tid) = target_id {
@@ -4092,6 +4108,16 @@ impl GameLogic {
             return true;
         }
         false
+    }
+
+    #[cfg(test)]
+    pub fn assign_unit_attack_path_for_test(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: Option<ObjectId>,
+        target_pos: Vec3,
+    ) -> bool {
+        self.assign_unit_attack_path(unit_id, target_id, target_pos)
     }
 
     /// C++ TerrainLogic/PartitionManager isClearLineOfSightTerrain residual.
