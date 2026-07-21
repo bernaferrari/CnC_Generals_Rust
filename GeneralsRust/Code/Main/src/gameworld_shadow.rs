@@ -19189,6 +19189,23 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Dozer bored service residual + battle-drone master repair.
+        for name in [
+            "find_dozer_bored_repair_target",
+            "find_dozer_bored_mine_target",
+            "update_battle_drone_repair_residual",
+        ] {
+            let i = src
+                .find(&format!("fn {name}"))
+                .or_else(|| src.find(&format!("pub fn {name}")))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 4000)];
+            assert!(
+                body.contains("pick_nearest_residual_target_xz")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} must use pure residual XZ acquire query"
+            );
+        }
         // Point-defense laser intercept residual (priority bands).
         {
             let name = "update_point_defense_intercept";
