@@ -15411,6 +15411,70 @@ mod tests {
     }
 
     #[test]
+    fn mood_auto_acquire_logs_decision_under_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MoodAcq");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("MaU") {
+            let mut t = ThingTemplate::new("MaU");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("MaU".into(), t);
+        }
+        let oid = logic
+            .create_object("MaU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        let vid = logic
+            .create_object("MaU", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("v");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.auto_acquire_when_idle = true;
+            o.ai_state = crate::game_logic::AIState::Idle;
+            o.target = None;
+            // Give a weapon so can_attack is true.
+            o.weapon = Some(crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..crate::game_logic::Weapon::default()
+            });
+        }
+        // Drive one mood tick.
+        logic.tick_mood_auto_acquire_for_test(&[oid]);
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_ATTACK
+                    && e.host_object == oid
+                    && e.target_host == vid.0
+            }),
+            "mood acquire must log AttackTarget decision under authority; got {events:?}"
+        );
+        // Host target still unset until shadow writeback.
+        assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn fire_spawn_authority_defers_queue_until_shadow() {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_fire_spawn_log;
