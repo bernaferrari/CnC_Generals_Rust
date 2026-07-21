@@ -8664,7 +8664,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 let max = o.health.maximum;
                 if o.health.current < max {
-                    o.health.current = max;
+                    Self::write_object_health_authority_aware(o, max);
                     n += 1;
                 }
             }
@@ -14433,6 +14433,30 @@ impl GameLogic {
         }
     }
 
+    /// Absolute HP write honoring damage authority (heal channel last-writer).
+    fn set_health_absolute_authority_aware(&mut self, object_id: ObjectId, health: f32) {
+        let hp = health.max(0.0);
+        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+            crate::game_logic::host_heal_log::record(object_id, hp);
+            return;
+        }
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.health.current = hp.min(obj.health.maximum.max(hp));
+            crate::game_logic::host_heal_log::record(object_id, obj.health.current);
+        }
+    }
+
+    /// Absolute HP write while holding `&mut Object` (avoid re-borrow).
+    fn write_object_health_authority_aware(obj: &mut crate::game_logic::Object, health: f32) {
+        let hp = health.max(0.0);
+        if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+            crate::game_logic::host_heal_log::record(obj.id, hp);
+        } else {
+            obj.health.current = hp.min(obj.health.maximum.max(hp));
+            crate::game_logic::host_heal_log::record(obj.id, obj.health.current);
+        }
+    }
+
     #[cfg(test)]
     pub fn stop_attack_decision_aware_for_test(&mut self, unit_id: ObjectId) {
         self.stop_attack_decision_aware(unit_id);
@@ -17385,7 +17409,8 @@ impl GameLogic {
             obj.max_health = (obj.max_health + add).max(1.0);
             obj.record_host_max_health();
             obj.health.maximum = (obj.health.maximum + add).max(1.0);
-            obj.health.current = (obj.health.current + add).min(obj.health.maximum);
+            let new_hp = (obj.health.current + add).min(obj.health.maximum);
+            Self::write_object_health_authority_aware(obj, new_hp);
             n = n.saturating_add(1);
         }
         for p in self.players.values_mut() {
@@ -17476,7 +17501,8 @@ impl GameLogic {
             obj.max_health = (obj.max_health + add).max(1.0);
             obj.record_host_max_health();
             obj.health.maximum = (obj.health.maximum + add).max(1.0);
-            obj.health.current = (obj.health.current + add).min(obj.health.maximum);
+            let new_hp = (obj.health.current + add).min(obj.health.maximum);
+            Self::write_object_health_authority_aware(obj, new_hp);
             n = n.saturating_add(1);
         }
         for p in self.players.values_mut() {
@@ -17518,7 +17544,7 @@ impl GameLogic {
             apply_mig_aircraft_armor_health(&mut max_h, &mut cur, &mut maximum);
             obj.max_health = max_h;
             obj.record_host_max_health();
-            obj.health.current = cur;
+            Self::write_object_health_authority_aware(obj, cur);
             obj.health.maximum = maximum;
             n = n.saturating_add(1);
         }
@@ -18317,7 +18343,7 @@ impl GameLogic {
             apply_composite_armor_health(&mut max_h, &mut cur, &mut maximum);
             obj.max_health = max_h;
             obj.record_host_max_health();
-            obj.health.current = cur;
+            Self::write_object_health_authority_aware(obj, cur);
             obj.health.maximum = maximum;
             crate::game_logic::host_heal_log::record(obj.id, obj.health.current);
             obj.apply_upgrade_tag(upgrade_name);
@@ -30656,7 +30682,8 @@ impl GameLogic {
             if let Some(master) = self.objects.get_mut(&mid) {
                 let before = master.health.current;
                 let max_hp = master.health.maximum;
-                master.health.current = (before + heal).min(max_hp);
+                let new_hp = (before + heal).min(max_hp);
+                Self::write_object_health_authority_aware(master, new_hp);
                 let gained = master.health.current - before;
                 if gained > 0.0 {
                     crate::game_logic::host_heal_log::record(mid, master.health.current);
@@ -35614,8 +35641,10 @@ impl GameLogic {
                         center.max_health /=
                             STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR.max(0.01);
                         center.health.maximum = center.max_health;
-                        center.health.current =
-                            (center.max_health * ratio).clamp(0.0, center.max_health);
+                        {
+                            let new_hp = (center.max_health * ratio).clamp(0.0, center.max_health);
+                            Self::write_object_health_authority_aware(center, new_hp);
+                        }
                     }
                     HostBattlePlan::SearchAndDestroy => {
                         center.detection_range = 0.0;
@@ -35783,8 +35812,11 @@ impl GameLogic {
                             };
                             center.max_health *= STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR;
                             center.health.maximum = center.max_health;
-                            center.health.current =
-                                (center.max_health * ratio).clamp(0.0, center.max_health);
+                            {
+                                let new_hp =
+                                    (center.max_health * ratio).clamp(0.0, center.max_health);
+                                Self::write_object_health_authority_aware(center, new_hp);
+                            }
                             building_bonus = true;
                         }
                         HostBattlePlan::SearchAndDestroy => {
@@ -39721,8 +39753,8 @@ impl GameLogic {
         let spawn_ok = spawned_id.is_some();
         if let Some(id) = spawned_id {
             if let Some(obj) = self.get_object_mut(id) {
-                obj.health.current = SPY_DRONE_MAX_HEALTH;
                 obj.health.maximum = SPY_DRONE_MAX_HEALTH;
+                Self::write_object_health_authority_aware(obj, SPY_DRONE_MAX_HEALTH);
                 // Innate stealth residual (StealthUpdate InnateStealth=Yes).
                 obj.set_status_stealthed(true);
                 obj.innate_stealth = true;
@@ -48895,7 +48927,7 @@ impl GameLogic {
             } else {
                 h.construction_percent = 1.0;
             }
-            h.health.current = REBUILD_HOLE_MAX_HEALTH_RESIDUAL;
+            Self::write_object_health_authority_aware(h, REBUILD_HOLE_MAX_HEALTH_RESIDUAL);
             h.health.maximum = REBUILD_HOLE_MAX_HEALTH_RESIDUAL;
             h.is_rebuild_hole = true;
             h.rebuild_template_name = Some(template_name);
