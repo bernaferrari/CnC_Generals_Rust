@@ -312,6 +312,12 @@ impl SelectionTranslator {
             return self.drawable_registry.values().cloned().collect();
         }
 
+        // Host/presentation path: prefer drawable_registry above; empty factory
+        // registry means no dual-world selectable residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Vec::new();
+        }
+
         let local_player_index = player_list()
             .read()
             .ok()
