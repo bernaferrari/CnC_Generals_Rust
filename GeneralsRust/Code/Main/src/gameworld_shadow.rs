@@ -19189,6 +19189,21 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // CommandExecutor residual nearest picks.
+        {
+            let src = include_str!("command_executor.rs");
+            assert!(
+                src.contains("fn find_nearest_garrison_target")
+                    && src.contains("is_friendly_airfield")
+                    && src.contains("DOZER_MINE_CLEAR_SCAN_RANGE"),
+                "command_executor missing residual nearest markers"
+            );
+            let picks = src.matches("pick_nearest_residual_target").count();
+            assert!(
+                picks >= 3 && src.contains("pick_nearest_residual_target_xz"),
+                "command_executor must use pure residual acquire helpers (picks={picks})"
+            );
+        }
         // Patriot multi-assist residual (all legal assistants, nearest-first).
         {
             let name = "process_patriot_assist_request";
