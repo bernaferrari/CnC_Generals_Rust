@@ -11019,6 +11019,20 @@ mod tests {
     }
 
     #[test]
+    fn enhanced_ai_system_registry_empty() {
+        let ep = include_str!("../../GameEngine/GameLogic/src/ai/enhanced_player.rs");
+        assert!(
+            ep.matches("OBJECT_REGISTRY.is_empty()").count() >= 4,
+            "enhanced AI dual-world scans must early-out when registry empty"
+        );
+        let sys = include_str!("../../GameEngine/GameLogic/src/system/game_logic.rs");
+        assert!(
+            sys.contains("pub fn update") && sys.contains("OBJECT_REGISTRY.is_empty()"),
+            "crate GameLogic::update must skip empty dual-world registry"
+        );
+    }
+
+    #[test]
     fn production_progress_log_carries_power_factor() {
         let log = include_str!("game_logic/host_production_progress_log.rs");
         assert!(

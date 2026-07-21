@@ -1244,6 +1244,10 @@ impl PartitionManager {
     }
 
     pub fn update(&mut self) -> Result<(), GameLogicError> {
+        // Host path: dual-world factory empty — nothing to step here.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(());
+        }
         let objects = OBJECT_REGISTRY.get_all_objects();
         let mut seen = HashSet::with_capacity(objects.len());
 
@@ -1305,6 +1309,9 @@ impl PartitionManager {
         self.grid.clear();
         self.object_cells.clear();
         self.object_positions.clear();
+        if OBJECT_REGISTRY.is_empty() {
+            return;
+        }
 
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             if let Ok(obj) = obj_arc.read() {
@@ -2953,35 +2960,37 @@ impl GameLogic {
         physics_world.resolve_all(self)?;
         self.physics_world = physics_world;
 
-        let _ = with_collision_system_mut(|system| {
-            for obj_arc in OBJECT_REGISTRY.get_all_objects() {
-                let Ok(obj) = obj_arc.read() else {
-                    continue;
-                };
-                let id = obj.get_id();
-                let pos = obj.get_position();
-                let geom = map_collision_geometry(
-                    &obj.get_geometry_info(),
-                    obj.get_template_geometry_type(),
-                );
-                if system
-                    .update_object_position(
-                        id,
-                        crate::object::collide::Coord3D::new(pos.x, pos.y, pos.z),
-                    )
-                    .is_err()
-                {
-                    let _ = system.register_object(
-                        id,
-                        crate::object::collide::Coord3D::new(pos.x, pos.y, pos.z),
-                        geom,
-                        None,
+        if !OBJECT_REGISTRY.is_empty() {
+            let _ = with_collision_system_mut(|system| {
+                for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+                    let Ok(obj) = obj_arc.read() else {
+                        continue;
+                    };
+                    let id = obj.get_id();
+                    let pos = obj.get_position();
+                    let geom = map_collision_geometry(
+                        &obj.get_geometry_info(),
+                        obj.get_template_geometry_type(),
                     );
+                    if system
+                        .update_object_position(
+                            id,
+                            crate::object::collide::Coord3D::new(pos.x, pos.y, pos.z),
+                        )
+                        .is_err()
+                    {
+                        let _ = system.register_object(
+                            id,
+                            crate::object::collide::Coord3D::new(pos.x, pos.y, pos.z),
+                            geom,
+                            None,
+                        );
+                    }
                 }
-            }
-            let _ = system.process_collisions();
-            Ok::<(), crate::object::collide::CollisionError>(())
-        });
+                let _ = system.process_collisions();
+                Ok::<(), crate::object::collide::CollisionError>(())
+            });
+        }
 
         // Update physics engine (terrain-aware simulation)
         if let Ok(mut physics) = crate::physics::get_physics_engine().write() {
