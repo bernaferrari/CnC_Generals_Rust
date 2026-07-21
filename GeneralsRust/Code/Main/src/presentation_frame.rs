@@ -10711,12 +10711,39 @@ mod tests {
         let i = src
             .find(marker)
             .expect("snap_camera presentation start_hint marker");
-        let window = &src[i..src.len().min(i + 900)];
+        let window = &src[i..src.len().min(i + 1600)];
         assert!(
-            window.contains("is_structure") && window.contains("unwrap_or(self.camera_target)"),
+            window.contains("o.is_structure")
+                && window.contains("last_presentation_frame.as_ref()"),
             "snap_camera start_hint must seed from presentation structures"
         );
-        let else_at = window.find("} else {").unwrap_or(window.len());
+        assert!(
+            window.contains("camera_target"),
+            "start_hint falls back to camera_target when no structures"
+        );
+        // Live team_base_position only in the no-frame else branch / boot residual comment.
+        assert!(
+            window.contains("team_base_position(team)"),
+            "boot residual may still call live team_base_position without presentation"
+        );
+        // The presentation if-let body ends before the else that owns team_base_position.
+        let live_call = window
+            .find("team_base_position(team)")
+            .expect("live team_base_position call");
+        let pres_if = window
+            .find("if let Some(frame) = self.last_presentation_frame.as_ref()")
+            .expect("presentation if");
+        assert!(
+            live_call > pres_if,
+            "live team_base_position must come after presentation if-let, not before"
+        );
+        // Ensure comment documents boot residual.
+        assert!(
+            window.contains("boot residual only") || window.contains("Boot residual only")
+                || window.contains("no presentation frame"),
+            "must document live team_base_position as boot residual"
+        );
+    } else {").unwrap_or(window.len());
         let presentation_branch = &window[..else_at];
         assert!(
             !presentation_branch.contains("team_base_position"),
