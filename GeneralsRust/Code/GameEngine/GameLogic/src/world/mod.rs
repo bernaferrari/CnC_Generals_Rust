@@ -961,6 +961,8 @@ pub enum WorldMutation {
         has_secondary_weapon: bool,
         secondary_weapon_damage: f32,
         secondary_weapon_range: f32,
+        leech_range_active_primary: bool,
+        leech_range_active_secondary: bool,
     },
     /// Host Movement velocity/path residual.
     SetMovement {
@@ -2123,6 +2125,8 @@ impl GameWorld {
                     has_secondary_weapon,
                     secondary_weapon_damage,
                     secondary_weapon_range,
+                    leech_range_active_primary,
+                    leech_range_active_secondary,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.has_weapon = has_weapon;
@@ -2140,6 +2144,8 @@ impl GameWorld {
                         e.has_secondary_weapon = has_secondary_weapon;
                         e.secondary_weapon_damage = secondary_weapon_damage;
                         e.secondary_weapon_range = secondary_weapon_range;
+                        e.leech_range_active_primary = leech_range_active_primary;
+                        e.leech_range_active_secondary = leech_range_active_secondary;
                         applied += 1;
                     }
                 }

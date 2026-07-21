@@ -4153,6 +4153,8 @@ impl GameWorldShadow {
                     has_secondary_weapon: ev.has_secondary_weapon,
                     secondary_weapon_damage: ev.secondary_weapon_damage,
                     secondary_weapon_range: ev.secondary_weapon_range,
+                    leech_range_active_primary: ev.leech_range_active_primary,
+                    leech_range_active_secondary: ev.leech_range_active_secondary,
                 });
             n += 1;
         }
@@ -5310,6 +5312,13 @@ impl GameWorldShadow {
                     w.range = ent.secondary_weapon_range;
                     changed = true;
                 }
+            }
+            if obj.leech_range_active_primary != ent.leech_range_active_primary
+                || obj.leech_range_active_secondary != ent.leech_range_active_secondary
+            {
+                obj.leech_range_active_primary = ent.leech_range_active_primary;
+                obj.leech_range_active_secondary = ent.leech_range_active_secondary;
+                changed = true;
             }
             if changed {
                 updated += 1;
@@ -13311,6 +13320,9 @@ mod tests {
             has_secondary_weapon: false,
             secondary_weapon_damage: 0.0,
             secondary_weapon_range: 0.0,
+
+            leech_range_active_primary: false,
+            leech_range_active_secondary: false,
         });
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -13375,6 +13387,9 @@ mod tests {
             has_secondary_weapon: false,
             secondary_weapon_damage: 0.0,
             secondary_weapon_range: 0.0,
+
+            leech_range_active_primary: false,
+            leech_range_active_secondary: false,
         });
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -14645,6 +14660,48 @@ mod tests {
         assert_eq!(o.hive_slave_respawn_frame, 250);
         assert_eq!(o.next_detection_scan_frame, 33);
         assert_eq!(o.hijacker_eject_pos, Some(glam::Vec3::new(3.0, 1.0, 4.0)));
+    }
+
+    #[test]
+    fn leech_range_channel_via_set_weapon_stats() {
+        use crate::game_logic::host_weapon_stats_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_weapon_stats_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("Leech");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("LchU") {
+            let mut t = ThingTemplate::new("LchU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("LchU".into(), t);
+        }
+        let oid = logic
+            .create_object("LchU", Team::USA, glam::Vec3::new(210.0, 0.0, 210.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.leech_range_active_primary = true;
+            o.leech_range_active_secondary = true;
+            o.record_host_weapon_stats();
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        let events = host_weapon_stats_log::drain();
+        assert!(!events.is_empty());
+        assert!(shadow.apply_host_weapon_stats_events(&events) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert!(e.leech_range_active_primary);
+        assert!(e.leech_range_active_secondary);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.leech_range_active_primary = false;
+            o.leech_range_active_secondary = false;
+        }
+        assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert!(o.leech_range_active_primary);
+        assert!(o.leech_range_active_secondary);
     }
 
     #[test]
