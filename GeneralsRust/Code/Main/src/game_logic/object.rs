@@ -823,6 +823,27 @@ pub struct Object {
     /// C++ Weapon::m_leechWeaponRangeActive residual (secondary).
     #[serde(default)]
     pub leech_range_active_secondary: bool,
+    /// Host residual: last successful fire_at victim (host object id, 0 = none).
+    #[serde(default)]
+    pub last_fire_victim_host: u32,
+    /// Host residual: weapon slot used on last successful fire_at.
+    #[serde(default)]
+    pub last_fire_slot: u8,
+    /// Host residual: damage snapshot on last successful fire_at.
+    #[serde(default)]
+    pub last_fire_damage: f32,
+    /// Host residual: range snapshot on last successful fire_at.
+    #[serde(default)]
+    pub last_fire_range: f32,
+    /// Host residual: sim time of last successful fire_at.
+    #[serde(default)]
+    pub last_fire_sim_time: f32,
+    /// Host residual: logic frame of last successful fire_at.
+    #[serde(default)]
+    pub last_fire_frame: u32,
+    /// Host residual: cumulative successful fire_at discharges this match.
+    #[serde(default)]
+    pub fire_intent_count: u32,
 
     /// Stored guard radius for pathing/AI persistence
     pub guard_radius: f32,
@@ -1521,6 +1542,13 @@ impl Object {
             consecutive_shots_at_target: 0,
             leech_range_active_primary: false,
             leech_range_active_secondary: false,
+            last_fire_victim_host: 0,
+            last_fire_slot: 0,
+            last_fire_damage: 0.0,
+            last_fire_range: 0.0,
+            last_fire_sim_time: 0.0,
+            last_fire_frame: 0,
+            fire_intent_count: 0,
             guard_radius: 0.0,
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -1808,6 +1836,13 @@ impl Object {
             consecutive_shots_at_target: 0,
             leech_range_active_primary: false,
             leech_range_active_secondary: false,
+            last_fire_victim_host: 0,
+            last_fire_slot: 0,
+            last_fire_damage: 0.0,
+            last_fire_range: 0.0,
+            last_fire_sim_time: 0.0,
+            last_fire_frame: 0,
+            fire_intent_count: 0,
             guard_radius: 0.0,
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -7756,6 +7791,20 @@ impl Object {
             // C++ fireWeaponTemplate LeechRange activate residual.
             self.activate_leech_range_for_slot(slot);
             self.record_shot_at_target(target_id);
+            {
+                let (dmg, rng) = self
+                    .weapon_slot(slot)
+                    .map(|w| (w.damage, w.range))
+                    .unwrap_or((0.0, 0.0));
+                self.last_fire_victim_host = target_id.0;
+                self.last_fire_slot = slot;
+                self.last_fire_damage = dmg;
+                self.last_fire_range = rng;
+                self.last_fire_sim_time = current_time;
+                // frame filled by GameLogic caller when available; keep prior if 0.
+                self.fire_intent_count = self.fire_intent_count.saturating_add(1);
+                self.record_host_fire_intent();
+            }
 
             // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
             // firing breaks stealth (default host residual).
@@ -9454,6 +9503,19 @@ impl Object {
             self.loco_behavior_z.to_ordinal(),
             self.min_turn_speed,
             self.physics_turning.to_ordinal(),
+        );
+    }
+
+    pub fn record_host_fire_intent(&self) {
+        crate::game_logic::host_fire_intent_log::record(
+            self.id,
+            self.last_fire_victim_host,
+            self.last_fire_slot,
+            self.last_fire_damage,
+            self.last_fire_range,
+            self.last_fire_sim_time,
+            self.last_fire_frame,
+            self.fire_intent_count,
         );
     }
 

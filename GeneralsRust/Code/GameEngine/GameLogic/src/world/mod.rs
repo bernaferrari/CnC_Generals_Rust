@@ -965,6 +965,17 @@ pub enum WorldMutation {
         leech_range_active_primary: bool,
         leech_range_active_secondary: bool,
     },
+    /// Host combat fire-intent residual (successful fire_at discharge).
+    SetFireIntent {
+        target: EntityId,
+        last_fire_victim_host: u32,
+        last_fire_slot: u8,
+        last_fire_damage: f32,
+        last_fire_range: f32,
+        last_fire_sim_time: f32,
+        last_fire_frame: u32,
+        fire_intent_count: u32,
+    },
     /// Host Movement velocity/path residual.
     SetMovement {
         target: EntityId,
@@ -2149,6 +2160,27 @@ impl GameWorld {
                         e.secondary_weapon_range = secondary_weapon_range;
                         e.leech_range_active_primary = leech_range_active_primary;
                         e.leech_range_active_secondary = leech_range_active_secondary;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetFireIntent {
+                    target,
+                    last_fire_victim_host,
+                    last_fire_slot,
+                    last_fire_damage,
+                    last_fire_range,
+                    last_fire_sim_time,
+                    last_fire_frame,
+                    fire_intent_count,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.last_fire_victim_host = last_fire_victim_host;
+                        e.last_fire_slot = last_fire_slot;
+                        e.last_fire_damage = last_fire_damage;
+                        e.last_fire_range = last_fire_range;
+                        e.last_fire_sim_time = last_fire_sim_time;
+                        e.last_fire_frame = last_fire_frame;
+                        e.fire_intent_count = fire_intent_count;
                         applied += 1;
                     }
                 }

@@ -12,6 +12,7 @@ pub mod host_combat_attack_log;
 pub mod host_create_crate_die;
 pub mod host_damage_log;
 pub mod host_death_type_log;
+pub mod host_fire_intent_log;
 pub mod host_guard_log;
 pub mod host_heal_log;
 pub mod host_hijacker_log;

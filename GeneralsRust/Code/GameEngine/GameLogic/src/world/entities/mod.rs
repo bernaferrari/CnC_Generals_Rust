@@ -302,6 +302,20 @@ pub struct Entity {
     pub weapon_reload_time: f32,
     /// Host Weapon::last_fire_time residual (seconds, sim clock).
     pub weapon_last_fire_time: f32,
+    /// Host combat fire-intent residual `last_fire_victim_host`.
+    pub last_fire_victim_host: u32,
+    /// Host combat fire-intent residual `last_fire_slot`.
+    pub last_fire_slot: u8,
+    /// Host combat fire-intent residual `last_fire_damage`.
+    pub last_fire_damage: f32,
+    /// Host combat fire-intent residual `last_fire_range`.
+    pub last_fire_range: f32,
+    /// Host combat fire-intent residual `last_fire_sim_time`.
+    pub last_fire_sim_time: f32,
+    /// Host combat fire-intent residual `last_fire_frame`.
+    pub last_fire_frame: u32,
+    /// Host combat fire-intent residual `fire_intent_count`.
+    pub fire_intent_count: u32,
     /// Host Weapon::clip_size residual (0 = unlimited).
     pub weapon_clip_size: u32,
     /// Host Weapon::clip_reload_time residual (seconds; 0 = use reload_time).
@@ -900,6 +914,13 @@ impl EntityStore {
 
             weapon_reload_time: 0.0,
             weapon_last_fire_time: 0.0,
+            last_fire_victim_host: 0,
+            last_fire_slot: 0,
+            last_fire_damage: 0.0,
+            last_fire_range: 0.0,
+            last_fire_sim_time: 0.0,
+            last_fire_frame: 0,
+            fire_intent_count: 0,
             weapon_clip_size: 0,
             weapon_clip_reload_time: 0.0,
             weapon_ammo: u32::MAX,
