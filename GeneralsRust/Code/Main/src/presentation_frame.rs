@@ -4053,6 +4053,58 @@ impl PresentationFrame {
         ids
     }
 
+    /// Runtime-host residual: constructed friendly structures that can queue upgrades.
+    pub fn alive_upgrade_producer_structure_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        use crate::game_logic::KindOf;
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && !o.under_construction
+                    && (Self::object_has_kind(o, KindOf::Structure)
+                        || o.object_type == PresentationObjectType::Building
+                        || o.can_produce
+                        || o.building_type.is_some())
+            })
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
+    }
+
+    /// Runtime-host residual: friendly dozers/workers that can construct.
+    pub fn alive_construct_builder_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        use crate::game_logic::KindOf;
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                if o.team != player_team || o.destroyed {
+                    return false;
+                }
+                if Self::object_has_kind(o, KindOf::Worker) {
+                    return true;
+                }
+                let name = o.template_name.to_ascii_lowercase();
+                name.contains("dozer")
+                    || name.contains("worker")
+                    || name.contains("crane")
+                    || name.contains("construction")
+            })
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
+    }
+
     pub fn alive_selectable_friendly_moving_ids(
         &self,
         player_team: crate::game_logic::Team,

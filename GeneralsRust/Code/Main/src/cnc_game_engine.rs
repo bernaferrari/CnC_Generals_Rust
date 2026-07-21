@@ -3084,10 +3084,13 @@ impl CnCGameEngine {
                         .or_else(|| args.get("upgrade"))
                         .cloned()
                         .unwrap_or_else(|| "UpgradeAmericaRangerCaptureBuilding".to_string());
-                    let team = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.team);
+                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        Some(frame.local_team())
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                    };
                     let Some(team) = team else {
                         self.runtime_host_last_gameplay_cmd = "upgrade_fail_no_player".into();
                         return;
@@ -3101,32 +3104,53 @@ impl CnCGameEngine {
                         .iter()
                         .copied()
                         .filter(|id| {
-                            self.game_logic
-                                .get_object(*id)
-                                .map(|o| {
+                            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame.objects.iter().any(|o| {
+                                    o.id == *id
+                                        && o.team == team
+                                        && !o.destroyed
+                                        && !o.under_construction
+                                        && (crate::presentation_frame::PresentationFrame::object_has_kind(
+                                            o,
+                                            crate::game_logic::KindOf::Structure,
+                                        ) || o.object_type
+                                            == crate::presentation_frame::PresentationObjectType::Building
+                                            || o.can_produce
+                                            || o.building_type.is_some())
+                                })
+                            } else {
+                                self.game_logic
+                                    .get_object(*id)
+                                    .map(|o| {
+                                        o.team == team
+                                            && o.is_alive()
+                                            && o.is_constructed()
+                                            && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                    })
+                                    .unwrap_or(false)
+                            }
+                        })
+                        .collect();
+                    if producers.is_empty() {
+                        producers = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            frame.alive_upgrade_producer_structure_ids(team)
+                        } else {
+                            // Boot residual only.
+                            let mut ids: Vec<_> = self
+                                .game_logic
+                                .get_objects()
+                                .iter()
+                                .filter(|(_, o)| {
                                     o.team == team
                                         && o.is_alive()
                                         && o.is_constructed()
                                         && o.is_kind_of(crate::game_logic::KindOf::Structure)
                                 })
-                                .unwrap_or(false)
-                        })
-                        .collect();
-                    if producers.is_empty() {
-                        let mut ids: Vec<_> = self
-                            .game_logic
-                            .get_objects()
-                            .iter()
-                            .filter(|(_, o)| {
-                                o.team == team
-                                    && o.is_alive()
-                                    && o.is_constructed()
-                                    && o.is_kind_of(crate::game_logic::KindOf::Structure)
-                            })
-                            .map(|(id, _)| *id)
-                            .collect();
-                        ids.sort_by_key(|id| id.0);
-                        producers = ids;
+                                .map(|(id, _)| *id)
+                                .collect();
+                            ids.sort_by_key(|id| id.0);
+                            ids
+                        };
                     }
                     let candidates = [
                         requested.as_str(),
@@ -4307,10 +4331,13 @@ impl CnCGameEngine {
                         .find(|n| self.game_logic.templates.contains_key(**n))
                         .map(|s| (*s).to_string())
                         .unwrap_or(requested);
-                    let team = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.team);
+                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        Some(frame.local_team())
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.team)
+                    };
                     let Some(team) = team else {
                         self.runtime_host_last_gameplay_cmd = "construct_fail_no_player".into();
                         return;
@@ -4321,29 +4348,45 @@ impl CnCGameEngine {
                         .iter()
                         .copied()
                         .filter(|id| {
-                            self.game_logic
-                                .get_object(*id)
-                                .map(|o| o.team == team && o.is_alive() && o.can_construct())
-                                .unwrap_or(false)
+                            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                frame.alive_construct_builder_ids(team).contains(id)
+                            } else {
+                                self.game_logic
+                                    .get_object(*id)
+                                    .map(|o| o.team == team && o.is_alive() && o.can_construct())
+                                    .unwrap_or(false)
+                            }
                         })
                         .collect();
                     if builders.is_empty() {
-                        builders = self
-                            .game_logic
-                            .get_objects()
-                            .iter()
-                            .filter(|(_, o)| {
-                                o.team == team
-                                    && o.is_alive()
-                                    && (o.can_construct()
-                                        || o.is_kind_of(crate::game_logic::KindOf::Worker)
-                                        || o.template_name.to_ascii_lowercase().contains("dozer")
-                                        || o.template_name.to_ascii_lowercase().contains("worker")
-                                        || o.template_name.to_ascii_lowercase().contains("crane"))
-                            })
-                            .map(|(id, _)| *id)
-                            .collect();
-                        builders.sort_by_key(|id| id.0);
+                        builders = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            frame.alive_construct_builder_ids(team)
+                        } else {
+                            // Boot residual only.
+                            let mut ids: Vec<_> = self
+                                .game_logic
+                                .get_objects()
+                                .iter()
+                                .filter(|(_, o)| {
+                                    o.team == team
+                                        && o.is_alive()
+                                        && (o.can_construct()
+                                            || o.is_kind_of(crate::game_logic::KindOf::Worker)
+                                            || o.template_name
+                                                .to_ascii_lowercase()
+                                                .contains("dozer")
+                                            || o.template_name
+                                                .to_ascii_lowercase()
+                                                .contains("worker")
+                                            || o.template_name
+                                                .to_ascii_lowercase()
+                                                .contains("crane"))
+                                })
+                                .map(|(id, _)| *id)
+                                .collect();
+                            ids.sort_by_key(|id| id.0);
+                            ids
+                        };
                     }
                     // Host residual: if map has no dozer yet, spawn USA_Dozer/GoldenDozer at CC.
                     if builders.is_empty() {
