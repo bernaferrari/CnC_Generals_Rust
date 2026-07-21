@@ -15903,6 +15903,71 @@ mod tests {
     }
 
     #[test]
+    fn transfer_attack_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("XferAtk");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["XaA", "XaFrom", "XaTo"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Infantry);
+                t.add_kind_of(KindOf::Attackable);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let attacker = logic
+            .create_object("XaA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        let from = logic
+            .create_object("XaFrom", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("from");
+        let to = logic
+            .create_object("XaTo", Team::GLA, glam::Vec3::new(12.0, 0.0, 0.0))
+            .expect("to");
+        // Seed host engagement on destroyed/old victim.
+        if let Some(o) = logic.get_objects_mut().get_mut(&attacker) {
+            o.target = Some(from);
+            o.status.attacking = true;
+        }
+        let n = logic.transfer_attack_for_test(from, to);
+        assert!(n >= 1, "should transfer at least one engagement");
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_ATTACK
+                    && e.host_object == attacker
+                    && e.target_host == to.0
+            }),
+            "transfer_attack must log AttackTarget retarget; got {events:?}"
+        );
+        // Host still points at old victim until writeback.
+        assert_eq!(
+            logic.get_objects().get(&attacker).unwrap().target,
+            Some(from)
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert_eq!(logic.get_objects().get(&attacker).unwrap().target, Some(to));
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn mood_auto_acquire_logs_decision_under_authority() {
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
