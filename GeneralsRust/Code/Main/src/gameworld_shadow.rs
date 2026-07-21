@@ -15526,6 +15526,88 @@ mod tests {
     }
 
     #[test]
+    fn faction_ai_launch_attack_decision_authority_writeback() {
+        use crate::ai::{AIDifficulty, AIPlayer};
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("FacAtk");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for (name, team, x) in [("FacU", Team::USA, 0.0f32), ("FacE", Team::GLA, 80.0)] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.set_health(100.0);
+                t.add_kind_of(KindOf::Infantry);
+                t.add_kind_of(KindOf::Attackable);
+                logic.templates.insert(name.into(), t);
+            }
+            let _ = logic.create_object(name, team, glam::Vec3::new(x, 0.0, 0.0));
+        }
+        let usa_id = logic
+            .get_players()
+            .iter()
+            .find(|(_, p)| p.team == Team::USA)
+            .map(|(id, _)| *id)
+            .unwrap_or(0);
+        let gla_id = logic
+            .get_players()
+            .iter()
+            .find(|(_, p)| p.team == Team::GLA)
+            .map(|(id, _)| *id);
+        let enemy = logic
+            .get_objects()
+            .iter()
+            .find(|(_, o)| o.team == Team::GLA)
+            .map(|(id, _)| *id)
+            .expect("enemy");
+        let usa_unit = logic
+            .get_objects()
+            .iter()
+            .find(|(_, o)| o.team == Team::USA)
+            .map(|(id, _)| *id)
+            .expect("usa");
+        if let Some(o) = logic.get_objects_mut().get_mut(&usa_unit) {
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                ..Weapon::default()
+            });
+        }
+        let mut ai = AIPlayer::new(usa_id, Team::USA, AIDifficulty::Medium);
+        ai.enemy_player_id = gla_id;
+        ai.is_active = true;
+        ai.launch_attack(&mut logic, 1000.0);
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == host_ai_decision_log::AI_DECISION_ATTACK),
+            "expected AttackTarget decision: {events:?}"
+        );
+        assert!(logic.get_objects().get(&usa_unit).unwrap().target.is_none());
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&usa_unit).unwrap().target,
+            Some(enemy)
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn fire_spawn_authority_defers_queue_until_shadow() {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_fire_spawn_log;
