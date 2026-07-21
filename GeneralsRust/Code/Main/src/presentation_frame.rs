@@ -3849,6 +3849,28 @@ impl PresentationFrame {
             .map(|o| o.id)
     }
 
+    /// Runtime-host residual: prefer non-structure enemy, else any attackable enemy.
+    pub fn first_enemy_force_attack_id(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::KindOf;
+        use crate::unit_control::UnitControlSystem;
+        let mobile = self.objects.iter().find(|o| {
+            o.team != player_team
+                && UnitControlSystem::presentation_is_attackable(o)
+                && !Self::object_has_kind(o, KindOf::Structure)
+                && o.object_type != PresentationObjectType::Building
+        });
+        mobile
+            .or_else(|| {
+                self.objects.iter().find(|o| {
+                    o.team != player_team && UnitControlSystem::presentation_is_attackable(o)
+                })
+            })
+            .map(|o| o.id)
+    }
+
     /// Runtime-host residual: count of alive mobile friendlies.
     pub fn count_mobile_friendlies(&self, player_team: crate::game_logic::Team) -> u32 {
         self.objects
