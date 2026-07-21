@@ -6102,7 +6102,9 @@ impl GameLogic {
                     );
 
                     if projected >= 1.0 {
-                        obj.construction_percent = 1.0;
+                        if !crate::gameworld_shadow::gameworld_construction_authority_enabled() {
+                            obj.construction_percent = 1.0;
+                        }
                         obj.set_status_under_construction(false);
                         obj.clear_under_construction_model_conditions();
                         let full_hp = obj.health.maximum;
@@ -48349,7 +48351,11 @@ impl GameLogic {
         self.on_selling_container_residual(object_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ setConstructionPercent(99.9f) on 0..100 scale → host 0.999
-            obj.construction_percent = 0.999;
+            if crate::gameworld_shadow::gameworld_construction_authority_enabled() {
+                crate::game_logic::host_construction_progress_log::record(object_id, 0.999, false);
+            } else {
+                obj.construction_percent = 0.999;
+            }
             obj.set_status_sold(true);
             obj.set_status_unselectable(true);
             obj.set_status_under_construction(false);
@@ -48423,13 +48429,27 @@ impl GameLogic {
             let elapsed = frame.saturating_sub(entry.sell_frame);
             if elapsed >= FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL {
                 let previous = obj.construction_percent;
-                obj.construction_percent -= SELL_CONSTRUCTION_DECREMENT_RESIDUAL;
+                let projected = (previous - SELL_CONSTRUCTION_DECREMENT_RESIDUAL).max(-0.01);
+                if crate::gameworld_shadow::gameworld_construction_authority_enabled() {
+                    crate::game_logic::host_construction_progress_log::record(
+                        entry.id,
+                        projected.max(0.0),
+                        false,
+                    );
+                } else {
+                    obj.construction_percent = projected;
+                }
                 // Cross from positive to <= 0 → MODELCONDITION_SOLD
-                if previous > 0.0 && obj.construction_percent <= 0.0 {
+                if previous > 0.0 && projected <= 0.0 {
                     obj.apply_sold_model_condition();
                 }
-            }
-            if obj.construction_percent <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
+                // Finish gate uses projected so authority path does not stall mid-sell.
+                if projected <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
+                    finished.push(entry.id);
+                } else {
+                    still.push(entry);
+                }
+            } else if obj.construction_percent <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
                 finished.push(entry.id);
             } else {
                 still.push(entry);
@@ -48870,7 +48890,11 @@ impl GameLogic {
         if let Some(h) = self.objects.get_mut(&hole_id) {
             h.set_orientation(orient);
             h.set_status_under_construction(false);
-            h.construction_percent = 1.0;
+            if crate::gameworld_shadow::gameworld_construction_authority_enabled() {
+                crate::game_logic::host_construction_progress_log::record(hole_id, 1.0, false);
+            } else {
+                h.construction_percent = 1.0;
+            }
             h.health.current = REBUILD_HOLE_MAX_HEALTH_RESIDUAL;
             h.health.maximum = REBUILD_HOLE_MAX_HEALTH_RESIDUAL;
             h.is_rebuild_hole = true;
@@ -49064,7 +49088,11 @@ impl GameLogic {
                 o.set_orientation(orient);
                 o.set_status_under_construction(true);
                 o.set_status_reconstructing(true);
-                o.construction_percent = 0.0;
+                if crate::gameworld_shadow::gameworld_construction_authority_enabled() {
+                    crate::game_logic::host_construction_progress_log::record(new_id, 0.0, true);
+                } else {
+                    o.construction_percent = 0.0;
+                }
                 o.set_under_construction_model_conditions(true);
                 o.health.current = (o.health.maximum * 0.1).max(1.0);
                 // C++ setProducer(hole) residual.
