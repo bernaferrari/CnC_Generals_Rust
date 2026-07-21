@@ -19189,6 +19189,19 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Mine clearer nearest residual inside update_mines_and_demo_traps.
+        {
+            let name = "update_mines_and_demo_traps";
+            let i = src
+                .find(&format!("fn {name}"))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let body = &src[i..src.len().min(i + 7000)];
+            assert!(
+                body.contains("pick_nearest_residual_target_xz")
+                    && body.contains("ResidualAcquireCandidate"),
+                "{name} clearer scan must use pure residual XZ acquire"
+            );
+        }
         // Continue-attack chain + repulsor nearest residual.
         for name in ["try_continue_attack_after_kill", "find_closest_repulsor"] {
             let i = src
