@@ -10609,6 +10609,24 @@ mod tests {
     }
 
     #[test]
+    fn structure_inventory_prefers_presentation_residual() {
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        let si = include_str!(
+            "../../GameEngine/GameClient/src/gui/control_bar/control_bar_structure_inventory.rs"
+        );
+        assert!(
+            cb.contains("presentation_max_garrison")
+                && cb.contains("presentation_garrisoned_count")
+                && cb.contains("append_structure_inventory_commands_with_presentation"),
+            "ControlBar must feed structure inventory from presentation residual"
+        );
+        assert!(
+            si.contains("Host presentation residual") && si.contains("presentation_max_garrison"),
+            "structure inventory must work without OBJECT_REGISTRY contain modules"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
