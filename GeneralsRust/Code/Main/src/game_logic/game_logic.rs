@@ -8288,7 +8288,7 @@ impl GameLogic {
     /// - enemy able-to-attack structure, OR  
     /// - enemy able-to-attack non-structure (C++ filter residual simplified)
     /// Fail-closed vs full PartitionManager filters / stealth reject.
-    pub fn find_closest_repulsor(&self, unit_id: ObjectId, range: f32) -> Option<(ObjectId, f32)> {
+    fn find_closest_repulsor(&self, unit_id: ObjectId, range: f32) -> Option<(ObjectId, f32)> {
         if !self.enable_repulsors {
             return None;
         }
@@ -8298,51 +8298,58 @@ impl GameLogic {
         }
         let my_pos = me.get_position();
         let my_team = me.team;
-        let range_sq = range.max(0.0) * range.max(0.0);
-        let mut best: Option<(ObjectId, f32)> = None;
-        for (oid, other) in &self.objects {
-            if *oid == unit_id {
-                continue;
-            }
-            if !other.is_alive() {
-                // Dead enemies can still be flagged repulsor via ActiveBody residual;
-                // only accept explicit repulsor status when dead.
-                if !other.status.repulsor {
-                    continue;
+        // Pure residual acquire: nearest repulsor in range (XZ).
+        // Dead units only count when explicitly flagged repulsor (ActiveBody residual).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .filter_map(|(&oid, other)| {
+                if oid == unit_id {
+                    return None;
                 }
-            }
-            // Stealth residual: stealthed + not detected + not disguised → reject
-            if other.status.stealthed && !other.status.detected && !other.status.disguised {
-                continue;
-            }
-            let is_flag_repulsor = other.status.repulsor;
-            let is_enemy = other.team != my_team
-                && other.team != crate::game_logic::Team::Neutral
-                && my_team != crate::game_logic::Team::Neutral;
-            let enemy_attacker = is_enemy && other.can_attack();
-            // C++ PartitionFilterRepulsor: flag OR (enemy attackers; structures only if can attack)
-            let allow = if is_flag_repulsor {
-                true
-            } else if other.is_kind_of(crate::game_logic::KindOf::Structure) {
-                enemy_attacker
-            } else {
-                enemy_attacker
-            };
-            if !allow {
-                continue;
-            }
-            let op = other.get_position();
-            let dx = op.x - my_pos.x;
-            let dz = op.z - my_pos.z;
-            let d2 = dx * dx + dz * dz;
-            if d2 > range_sq {
-                continue;
-            }
-            if best.map(|(_, bd)| d2 < bd).unwrap_or(true) {
-                best = Some((*oid, d2));
-            }
-        }
-        best.map(|(id, d2)| (id, d2.sqrt()))
+                let alive = other.is_alive();
+                if !alive && !other.status.repulsor {
+                    return None;
+                }
+                // Stealth residual: stealthed + not detected + not disguised → reject
+                if other.status.stealthed && !other.status.detected && !other.status.disguised {
+                    return None;
+                }
+                let is_flag_repulsor = other.status.repulsor;
+                let is_enemy = other.team != my_team
+                    && other.team != Team::Neutral
+                    && my_team != Team::Neutral;
+                let enemy_attacker = is_enemy && other.can_attack();
+                // C++ PartitionFilterRepulsor: flag OR (enemy attackers; structures only if can attack)
+                let allow = is_flag_repulsor || enemy_attacker;
+                if !allow {
+                    return None;
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: oid,
+                        team: other.team,
+                        position: other.get_position(),
+                        // Keep dead flagged-repulsors eligible for distance pick.
+                        is_alive: true,
+                        is_neutral: other.team == Team::Neutral,
+                        under_construction: other.status.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target,
+                        eject_invulnerable: false,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+            Some(unit_id),
+            (my_pos.x, my_pos.z),
+            candidates,
+            range.max(0.0),
+            |_| true,
+        )
+        .map(|(id, dist, _)| (id, dist))
     }
 
     /// C++ AIIdleState repulsor branch + AIMoveAwayFromRepulsors residual.
@@ -11278,30 +11285,42 @@ impl GameLogic {
         if continue_range <= 0.0 {
             return false;
         }
-        let range_sq = continue_range * continue_range;
-        let mut best: Option<(ObjectId, f32)> = None;
-        for (&id, obj) in &self.objects {
-            if id == attacker_id || id == dead_victim_id {
-                continue;
-            }
-            if !obj.is_alive() {
-                continue;
-            }
-            if obj.team != victim_team {
-                continue;
-            }
-            let pos = obj.get_position();
-            let dx = pos.x - original_victim_pos.x;
-            let dz = pos.z - original_victim_pos.z;
-            let d2 = dx * dx + dz * dz;
-            if d2 > range_sq {
-                continue;
-            }
-            if best.map(|(_, bd)| d2 < bd).unwrap_or(true) {
-                best = Some((id, d2));
-            }
-        }
-        let Some((next_id, _)) = best else {
+        // Pure residual acquire: nearest same-team victim near kill position (XZ).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if id == attacker_id || id == dead_victim_id || !obj.is_alive() {
+                    return None;
+                }
+                if obj.team != victim_team {
+                    return None;
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id,
+                        team: obj.team,
+                        position: obj.get_position(),
+                        is_alive: true,
+                        is_neutral: obj.team == Team::Neutral,
+                        under_construction: obj.status.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: obj.is_effectively_stealthed(),
+                        is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                        eject_invulnerable: obj.is_eject_invulnerable(),
+                    },
+                )
+            })
+            .collect();
+        let Some((next_id, _, _)) =
+            crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                Some(attacker_id),
+                (original_victim_pos.x, original_victim_pos.z),
+                candidates,
+                continue_range,
+                |_| true,
+            )
+        else {
             return false;
         };
         // Continue-attack residual: under AI decision authority, log AttackTarget
@@ -97285,10 +97304,31 @@ mod tests {
         if let Some(o) = logic.objects.get_mut(&mine1) {
             o.health.current = 0.0;
         }
+        crate::game_logic::host_ai_decision_log::clear();
         assert!(logic.try_continue_attack_after_kill(atk, mine1, pos, 100.0, team,));
-        let next = logic.objects.get(&atk).and_then(|a| a.target);
-        assert_eq!(next, Some(mine2), "must chain to nearer same-team mine");
+        // Under AI_DECISION_AUTHORITY (default), continue-attack logs AttackTarget and
+        // leaves host target untouched for GameWorld writeback.
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            let events = crate::game_logic::host_ai_decision_log::snapshot();
+            assert!(
+                events.iter().any(|e| {
+                    e.host_object == atk
+                        && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_ATTACK
+                        && e.target_host == mine2.0
+                }),
+                "continue-attack must log AttackTarget(mine2) under decision authority"
+            );
+            // Host target remains the prior engagement (writeback owns the swap).
+            assert_eq!(
+                logic.objects.get(&atk).and_then(|a| a.target),
+                Some(mine1)
+            );
+        } else {
+            let next = logic.objects.get(&atk).and_then(|a| a.target);
+            assert_eq!(next, Some(mine2), "must chain to nearer same-team mine");
+        }
         // Outside range: no continue.
+        crate::game_logic::host_ai_decision_log::clear();
         if let Some(o) = logic.objects.get_mut(&atk) {
             o.target = None;
             o.stop_attack();
@@ -97309,6 +97349,10 @@ mod tests {
         assert!(
             logic.objects.get(&atk).and_then(|a| a.target).is_none(),
             "far mine outside range must not be acquired"
+        );
+        assert!(
+            crate::game_logic::host_ai_decision_log::snapshot().is_empty(),
+            "out-of-range continue must not log AttackTarget"
         );
         // continue_or_stop stops when nothing in range
         logic.continue_or_stop_after_kill(
