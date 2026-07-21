@@ -697,6 +697,10 @@ impl EnhancedAiPlayer {
         let mut damaged_penalty = 0.0f32;
         let mut perimeter_score = 0.0f32;
 
+        // Host path: dual-world factory empty residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return 0.0;
+        }
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
@@ -876,6 +880,10 @@ impl EnhancedAiPlayer {
         let mut health_factor = 0.0f32;
         let mut owned_count = 0.0f32;
 
+        // Host path: dual-world factory empty residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return 0.0;
+        }
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
@@ -1025,6 +1033,10 @@ impl EnhancedAiPlayer {
         };
         let min_dist_sq = 200.0 * 200.0;
         let mut candidates = Vec::new();
+        // Host path: dual-world factory empty residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(());
+        }
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
