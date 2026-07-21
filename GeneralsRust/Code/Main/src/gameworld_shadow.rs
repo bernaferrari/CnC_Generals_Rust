@@ -511,6 +511,13 @@ impl GameWorldShadow {
                         e.weapon_reload_time = w.reload_time;
                         e.weapon_last_fire_time =
                             obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+                        e.last_fire_victim_host = obj.last_fire_victim_host;
+                        e.last_fire_slot = obj.last_fire_slot;
+                        e.last_fire_damage = obj.last_fire_damage;
+                        e.last_fire_range = obj.last_fire_range;
+                        e.last_fire_sim_time = obj.last_fire_sim_time;
+                        e.last_fire_frame = obj.last_fire_frame;
+                        e.fire_intent_count = obj.fire_intent_count;
                         e.weapon_ammo = w.ammo.unwrap_or(u32::MAX);
                         e.weapon_can_target_air = w.can_target_air;
                         e.weapon_can_target_ground = w.can_target_ground;
@@ -3731,6 +3738,34 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_fire_intent_events(
+        &mut self,
+        events: &[crate::game_logic::host_fire_intent_log::HostFireIntentEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetFireIntent {
+                    target: eid,
+                    last_fire_victim_host: ev.last_fire_victim_host,
+                    last_fire_slot: ev.last_fire_slot,
+                    last_fire_damage: ev.last_fire_damage,
+                    last_fire_range: ev.last_fire_range,
+                    last_fire_sim_time: ev.last_fire_sim_time,
+                    last_fire_frame: ev.last_fire_frame,
+                    fire_intent_count: ev.fire_intent_count,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_guard_events(
         &mut self,
         events: &[crate::game_logic::host_guard_log::HostGuardEvent],
@@ -5745,6 +5780,37 @@ impl GameWorldShadow {
         updated
     }
 
+    pub fn writeback_fire_intent_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let changed = obj.last_fire_victim_host != ent.last_fire_victim_host
+                || obj.last_fire_slot != ent.last_fire_slot
+                || (obj.last_fire_damage - ent.last_fire_damage).abs() > f32::EPSILON
+                || (obj.last_fire_range - ent.last_fire_range).abs() > f32::EPSILON
+                || (obj.last_fire_sim_time - ent.last_fire_sim_time).abs() > f32::EPSILON
+                || obj.last_fire_frame != ent.last_fire_frame
+                || obj.fire_intent_count != ent.fire_intent_count;
+            if !changed {
+                continue;
+            }
+            obj.last_fire_victim_host = ent.last_fire_victim_host;
+            obj.last_fire_slot = ent.last_fire_slot;
+            obj.last_fire_damage = ent.last_fire_damage;
+            obj.last_fire_range = ent.last_fire_range;
+            obj.last_fire_sim_time = ent.last_fire_sim_time;
+            obj.last_fire_frame = ent.last_fire_frame;
+            obj.fire_intent_count = ent.fire_intent_count;
+            updated += 1;
+        }
+        updated
+    }
+
     pub fn writeback_detector_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -6387,6 +6453,8 @@ pub fn shadow_session_after_host_tick(
     let _cf_applied = shadow.apply_host_continuous_fire_events(&continuous_fire_events);
     let combat_attack_events = crate::game_logic::host_combat_attack_log::drain();
     let _ca_applied = shadow.apply_host_combat_attack_events(&combat_attack_events);
+    let fire_intent_events = crate::game_logic::host_fire_intent_log::drain();
+    let _fi_applied = shadow.apply_host_fire_intent_events(&fire_intent_events);
     let _guard_applied = shadow.apply_host_guard_events(&guard_events);
     let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
     let ai_mood_events = crate::game_logic::host_ai_mood_log::drain();
@@ -6473,6 +6541,7 @@ pub fn shadow_session_after_host_tick(
     // Attack-target channel is always bidirectional once session is live: shadow mutations
     // (and host bulk resync above) settle, then writeback keeps host Object::target aligned.
     let _atk_wb = shadow.writeback_attack_targets_to_host(logic);
+    let _ = shadow.writeback_fire_intent_to_host(logic);
     let _move_wb = shadow.writeback_move_targets_to_host(logic);
     // Pose last-writer after all SetTransform mutations this session.
     // Mid-frame movement authority: integrate AFTER command channels, BEFORE pose writeback.
@@ -6535,6 +6604,7 @@ pub fn shadow_session_after_host_tick(
         let _tur_wb = shadow.writeback_turret_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        let _ = shadow.writeback_fire_intent_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
@@ -6542,6 +6612,7 @@ pub fn shadow_session_after_host_tick(
         let _det_wb = shadow.writeback_detector_to_host(logic);
         let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        let _ = shadow.writeback_fire_intent_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
@@ -6558,6 +6629,7 @@ pub fn shadow_session_after_host_tick(
         let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        let _ = shadow.writeback_fire_intent_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
@@ -6567,10 +6639,12 @@ pub fn shadow_session_after_host_tick(
         let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
+        let _ = shadow.writeback_fire_intent_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
+        let _ = shadow.writeback_fire_intent_to_host(logic);
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
@@ -10335,6 +10409,7 @@ mod tests {
             e.secondary_weapon_range = 80.0;
         }
         assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         let w = o.weapon.as_ref().expect("w");
         assert!((w.damage - 33.0).abs() < 1e-5);
@@ -10412,6 +10487,7 @@ mod tests {
         assert!(shadow.writeback_vision_camo_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -10638,6 +10714,7 @@ mod tests {
         assert!(shadow.writeback_stealth_flags_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -11030,6 +11107,7 @@ mod tests {
             .expect("id");
         host_continuous_fire_log::clear();
         crate::game_logic::host_combat_attack_log::clear();
+        crate::game_logic::host_fire_intent_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.continuous_fire_level = 2;
@@ -11076,6 +11154,7 @@ mod tests {
         }
         assert!(shadow.writeback_continuous_fire_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -11278,6 +11357,7 @@ mod tests {
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -12426,12 +12506,14 @@ mod tests {
         assert!(shadow.queue_set_attack_target_for_host(a, Some(b)));
         let _ = shadow.apply_pending();
         let n = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         assert!(n >= 1, "expected host target writeback");
         assert_eq!(logic.get_objects().get(&a).unwrap().target, Some(b));
         // Clear via shadow mutation + writeback
         assert!(shadow.queue_set_attack_target_for_host(a, None));
         let _ = shadow.apply_pending();
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         assert_eq!(logic.get_objects().get(&a).unwrap().target, None);
     }
 
@@ -13347,6 +13429,7 @@ mod tests {
         }
         if logic.get_objects().get(&oid).unwrap().weapon.is_some() {
             assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
+            let _ = shadow.writeback_fire_intent_to_host(&mut logic);
             let t = logic
                 .get_objects()
                 .get(&oid)
@@ -14274,6 +14357,7 @@ mod tests {
         assert!(shadow.writeback_turret_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -14335,6 +14419,7 @@ mod tests {
         }
         assert!(shadow.writeback_stealth_delay_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -14417,6 +14502,7 @@ mod tests {
             o.maintain_pos_valid = false;
         }
         assert!(shadow.writeback_combat_attack_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -14711,9 +14797,66 @@ mod tests {
             o.leech_range_active_secondary = false;
         }
         assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.leech_range_active_primary);
         assert!(o.leech_range_active_secondary);
+    }
+
+    #[test]
+    fn fire_intent_channel_via_set_fire_intent() {
+        use crate::game_logic::host_fire_intent_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_fire_intent_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("FireInt");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("FiU") {
+            let mut t = ThingTemplate::new("FiU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("FiU".into(), t);
+        }
+        let oid = logic
+            .create_object("FiU", Team::USA, glam::Vec3::new(220.0, 0.0, 220.0))
+            .expect("id");
+        let victim = logic
+            .create_object("FiU", Team::China, glam::Vec3::new(240.0, 0.0, 220.0))
+            .expect("v");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.last_fire_victim_host = victim.0;
+            o.last_fire_slot = 1;
+            o.last_fire_damage = 42.0;
+            o.last_fire_range = 150.0;
+            o.last_fire_sim_time = 9.5;
+            o.last_fire_frame = 285;
+            o.fire_intent_count = 3;
+        }
+        host_fire_intent_log::record(oid, victim.0, 1, 42.0, 150.0, 9.5, 285, 3);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_fire_intent_events(&host_fire_intent_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.last_fire_victim_host, victim.0);
+        assert_eq!(e.last_fire_slot, 1);
+        assert!((e.last_fire_damage - 42.0).abs() < 1e-5);
+        assert!((e.last_fire_range - 150.0).abs() < 1e-5);
+        assert!((e.last_fire_sim_time - 9.5).abs() < 1e-5);
+        assert_eq!(e.last_fire_frame, 285);
+        assert_eq!(e.fire_intent_count, 3);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.last_fire_victim_host = 0;
+            o.fire_intent_count = 0;
+            o.last_fire_damage = 0.0;
+        }
+        assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.last_fire_victim_host, victim.0);
+        assert_eq!(o.fire_intent_count, 3);
+        assert!((o.last_fire_damage - 42.0).abs() < 1e-5);
+        assert_eq!(o.last_fire_slot, 1);
     }
 
     #[test]
