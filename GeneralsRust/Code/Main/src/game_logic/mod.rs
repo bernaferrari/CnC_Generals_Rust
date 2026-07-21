@@ -641,7 +641,8 @@ pub use host_render_terrain_residual::{
     honesty_shadow_residual_deepen_pack_wave93, honesty_terrain_texture_residual_pack_wave93,
 };
 pub use host_residual_acquire::{
-    pick_nearest_residual_target, residual_combat_kind, ResidualAcquireCandidate,
+    pick_nearest_residual_service_target, pick_nearest_residual_target, residual_combat_kind,
+    ResidualAcquireCandidate,
 };
 pub use host_rng_residual::{
     client_stream_structure_scatter, exercise_host_rng_residual, logic_stream_error_radius_offset,

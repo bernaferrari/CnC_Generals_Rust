@@ -15089,6 +15089,7 @@ impl GameLogic {
                         support_target_alive,
                         support_target_under_construction,
                         support_building_type,
+                        support_template_name,
                     )) = self.objects.get(&support_target_id).map(|target| {
                         (
                             target.get_position(),
@@ -15100,6 +15101,7 @@ impl GameLogic {
                                 .as_ref()
                                 .map(|b| b.building_type)
                                 .unwrap_or(BuildingType::CommandCenter),
+                            target.template_name.clone(),
                         )
                     })
                     else {
@@ -15139,8 +15141,13 @@ impl GameLogic {
                                 }
                             }
                             AIState::SeekingHealing => {
-                                obj.is_kind_of(KindOf::Infantry)
-                                    && support_building_type == BuildingType::HealPad
+                                let name = support_template_name.to_ascii_lowercase();
+                                let is_heal_pad = support_building_type
+                                    == BuildingType::HealPad
+                                    || name.contains("hospital")
+                                    || name.contains("heal")
+                                    || name.contains("medic");
+                                obj.is_kind_of(KindOf::Infantry) && is_heal_pad
                             }
                             _ => false,
                         })
@@ -38375,39 +38382,51 @@ impl GameLogic {
         let (unit_pos, unit_team, is_pilot) = snapshot;
 
         // Nearest HealPad residual (C++ KINDOF_HEAL_PAD; host name/BuildingType residual).
-        let mut best: Option<(ObjectId, f32, Vec3)> = None;
-        for (hid, pad) in &self.objects {
-            if *hid == unit_id || !pad.is_alive() {
-                continue;
-            }
-            // Fail-closed: only own/ally heal pads (retail filter is kind-only; host
-            // avoids enemy hospital residual until relationship matrix is claimed).
-            if pad.team != unit_team && pad.team != Team::Neutral {
-                continue;
-            }
-            let under_construction =
-                pad.status.under_construction || pad.construction_percent + 0.001 < 1.0;
-            if under_construction {
-                continue;
-            }
-            let is_heal_pad = pad
-                .building_data
-                .as_ref()
-                .map(|b| b.building_type == BuildingType::HealPad)
-                .unwrap_or_else(|| {
-                    let lower = pad.template_name.to_ascii_lowercase();
-                    lower.contains("hospital") || lower.contains("heal") || lower.contains("medic")
-                });
-            let ppos = pad.get_position();
-            let dist = ((unit_pos.x - ppos.x).powi(2) + (unit_pos.z - ppos.z).powi(2)).sqrt();
-            let in_range = dist <= AUTO_FIND_HEALING_SCAN_RANGE;
-            if !is_auto_find_healing_target(is_heal_pad, true, in_range) {
-                continue;
-            }
-            if best.map(|(_, d, _)| dist < d).unwrap_or(true) {
-                best = Some((*hid, dist, ppos));
-            }
-        }
+        // Pure residual service-target acquire (heal pad choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .map(|(&hid, pad)| {
+                let under_construction =
+                    pad.status.under_construction || pad.construction_percent + 0.001 < 1.0;
+                let is_heal_pad = pad
+                    .building_data
+                    .as_ref()
+                    .map(|b| b.building_type == BuildingType::HealPad)
+                    .unwrap_or_else(|| {
+                        let lower = pad.template_name.to_ascii_lowercase();
+                        lower.contains("hospital")
+                            || lower.contains("heal")
+                            || lower.contains("medic")
+                    });
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id: hid,
+                    team: pad.team,
+                    position: pad.get_position(),
+                    is_alive: pad.is_alive(),
+                    is_neutral: pad.team == Team::Neutral,
+                    under_construction,
+                    // Reuse combat_kind as service-match residual for heal pads.
+                    combat_kind: is_heal_pad,
+                    effectively_stealthed: false,
+                    is_air: false,
+                }
+            })
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_service_target(
+            unit_id,
+            unit_pos,
+            candidates,
+            AUTO_FIND_HEALING_SCAN_RANGE,
+            |c| {
+                // Fail-closed: only own/ally/neutral heal pads.
+                let team_ok = c.team == unit_team || c.is_neutral;
+                !c.under_construction
+                    && c.is_alive
+                    && team_ok
+                    && is_auto_find_healing_target(c.combat_kind, true, true)
+            },
+        );
 
         let Some((pad_id, _, pad_pos)) = best else {
             return;
@@ -38946,46 +38965,50 @@ impl GameLogic {
         };
         let (unit_pos, unit_team) = snapshot;
 
-        let mut best: Option<(ObjectId, f32, Vec3)> = None;
         const SCAN_RANGE: f32 = 400.0;
-        for (&pid, pad) in &self.objects {
-            if pid == unit_id || !pad.is_alive() || !pad.is_constructed() {
-                continue;
-            }
-            if pad.team != unit_team {
-                continue;
-            }
-            if pad.status.under_construction || pad.status.sold {
-                continue;
-            }
-            let name = pad.template_name.to_ascii_lowercase();
-            let is_pad = pad
-                .building_data
-                .as_ref()
-                .map(|b| {
-                    matches!(
-                        b.building_type,
-                        BuildingType::RepairPad | BuildingType::WarFactory | BuildingType::Airfield
-                    )
-                })
-                .unwrap_or(false)
-                || name.contains("repair")
-                || name.contains("warfactory")
-                || name.contains("war_factory")
-                || name.contains("airfield")
-                || name.contains("air_field");
-            if !is_pad {
-                continue;
-            }
-            let p = pad.get_position();
-            let d = unit_pos.distance(p);
-            if d > SCAN_RANGE {
-                continue;
-            }
-            if best.map(|(_, bd, _)| d < bd).unwrap_or(true) {
-                best = Some((pid, d, p));
-            }
-        }
+        // Pure residual service-target acquire (repair pad choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .map(|(&pid, pad)| {
+                let name = pad.template_name.to_ascii_lowercase();
+                let is_pad = pad
+                    .building_data
+                    .as_ref()
+                    .map(|b| {
+                        matches!(
+                            b.building_type,
+                            BuildingType::RepairPad
+                                | BuildingType::WarFactory
+                                | BuildingType::Airfield
+                        )
+                    })
+                    .unwrap_or(false)
+                    || name.contains("repair")
+                    || name.contains("warfactory")
+                    || name.contains("war_factory")
+                    || name.contains("airfield")
+                    || name.contains("air_field");
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id: pid,
+                    team: pad.team,
+                    position: pad.get_position(),
+                    is_alive: pad.is_alive() && pad.is_constructed(),
+                    is_neutral: pad.team == Team::Neutral,
+                    under_construction: pad.status.under_construction || pad.status.sold,
+                    combat_kind: is_pad,
+                    effectively_stealthed: false,
+                    is_air: false,
+                }
+            })
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_service_target(
+            unit_id,
+            unit_pos,
+            candidates,
+            SCAN_RANGE,
+            |c| c.is_alive && c.team == unit_team && !c.under_construction && c.combat_kind,
+        );
         let Some((pad_id, _, pad_pos)) = best else {
             return;
         };
@@ -39029,26 +39052,31 @@ impl GameLogic {
         };
         let (unit_pos, unit_team) = snapshot;
         const SCAN: f32 = 350.0;
-        let mut best: Option<(ObjectId, f32, Vec3)> = None;
-        for (&sid, st) in &self.objects {
-            if sid == unit_id || !st.is_alive() {
-                continue;
-            }
-            if st.team != unit_team || !st.status.under_construction {
-                continue;
-            }
-            if !st.is_kind_of(KindOf::Structure) {
-                continue;
-            }
-            let p = st.get_position();
-            let d = unit_pos.distance(p);
-            if d > SCAN {
-                continue;
-            }
-            if best.map(|(_, bd, _)| d < bd).unwrap_or(true) {
-                best = Some((sid, d, p));
-            }
-        }
+        // Pure residual service-target acquire (unfinished structure choice phase).
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .map(
+                |(&sid, st)| crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id: sid,
+                    team: st.team,
+                    position: st.get_position(),
+                    is_alive: st.is_alive(),
+                    is_neutral: st.team == Team::Neutral,
+                    under_construction: st.status.under_construction,
+                    combat_kind: st.is_kind_of(KindOf::Structure),
+                    effectively_stealthed: false,
+                    is_air: false,
+                },
+            )
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_service_target(
+            unit_id,
+            unit_pos,
+            candidates,
+            SCAN,
+            |c| c.is_alive && c.team == unit_team && c.under_construction && c.combat_kind,
+        );
         let Some((tid, _, tpos)) = best else {
             return;
         };
@@ -50676,6 +50704,7 @@ struct ShroudVisibilitySnapshot {
 
 #[cfg(test)]
 mod tests {
+    static HEAL_RESIDUAL_TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     use super::*;
 
@@ -53364,6 +53393,16 @@ mod tests {
     /// Residual: HealPad GetHealed recovers infantry HP and records heal-pad honesty.
     #[test]
     fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
+        let _env_guard = HEAL_RESIDUAL_TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
+        // Host-state residual honesty without shadow writeback.
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+
         let mut game_logic = GameLogic::new();
         ensure_test_infantry_template(&mut game_logic);
         ensure_test_heal_pad_template(&mut game_logic);
@@ -53423,6 +53462,15 @@ mod tests {
         );
         assert!(game_logic.honesty_heal_pad_ok());
         assert!(game_logic.honesty_heal_ok());
+
+        match prev_dec {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_dmg {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
     }
 
     #[test]
@@ -58654,6 +58702,16 @@ mod tests {
     /// AI-only idle; human skips. Fail-closed: AlwaysHeal busy-interrupt path.
     #[test]
     fn pilot_auto_find_healing_hospital_path_residual() {
+        let _env_guard = HEAL_RESIDUAL_TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
+        // Host-state residual honesty without shadow writeback.
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+
         use crate::game_logic::host_usa_pilot::{
             AUTO_FIND_HEALING_NEVER_HEAL, AUTO_FIND_HEALING_SCAN_FRAMES,
         };
@@ -58804,6 +58862,15 @@ mod tests {
             AIState::Idle,
             "human injured pilot residual stays Idle without GetHealed command"
         );
+
+        match prev_dec {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_dmg {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
     }
 
     /// Residual: AutoFindHealingUpdate non-pilot USA infantry hospital path.
@@ -58813,6 +58880,16 @@ mod tests {
     /// Fail-closed: AlwaysHeal busy-interrupt still not claimed; China/GLA skip.
     #[test]
     fn usa_infantry_auto_find_healing_hospital_path_residual() {
+        let _env_guard = HEAL_RESIDUAL_TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
+        // Host-state residual honesty without shadow writeback.
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+
         use crate::game_logic::host_usa_pilot::{
             is_auto_find_healing_template, AUTO_FIND_HEALING_SCAN_FRAMES,
         };
@@ -58925,6 +59002,15 @@ mod tests {
             china_logic.find_object(cred).unwrap().ai_state,
             AIState::Idle
         );
+
+        match prev_dec {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_dmg {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
     }
 
     /// Residual: EjectPilotDie air OCL parachute when significantly above terrain.
