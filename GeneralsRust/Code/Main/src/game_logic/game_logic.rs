@@ -7658,43 +7658,57 @@ impl GameLogic {
         if !new_alive {
             return 0;
         }
+        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_enabled();
         let mut transferred = 0usize;
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         for id in ids {
             if id == from_id || id == to_id {
                 continue;
             }
-            let Some(u) = self.objects.get_mut(&id) else {
-                continue;
+            // Snapshot engagement before mut borrow.
+            let (had_target, had_turret) = {
+                let Some(u) = self.objects.get(&id) else {
+                    continue;
+                };
+                (
+                    u.target == Some(from_id),
+                    u.turret_target_id == Some(from_id),
+                )
             };
-            let mut did = false;
-            if u.target == Some(from_id) {
-                u.target = Some(to_id);
-                did = true;
+            if !had_target && !had_turret {
+                continue;
             }
-            if u.turret_target_id == Some(from_id) {
-                u.turret_target_id = Some(to_id);
-                u.turret_force_attacking = true;
-                if matches!(
-                    u.turret_substate,
-                    crate::game_logic::object::TurretSubState::Idle
-                        | crate::game_logic::object::TurretSubState::Hold
-                        | crate::game_logic::object::TurretSubState::Recenter
-                ) {
-                    u.turret_substate = crate::game_logic::object::TurretSubState::Aim;
+            if had_target {
+                if decision_auth {
+                    // Log retarget; GameWorld apply/writeback is last-writer.
+                    crate::game_logic::host_ai_decision_log::record_attack(id, to_id);
+                } else if let Some(u) = self.objects.get_mut(&id) {
+                    u.target = Some(to_id);
                 }
-                did = true;
             }
-            // Nested attack SM victim residual.
-            if u.ai_state == AIState::Attacking && u.target == Some(to_id) {
-                // already updated target above
-                did = true;
+            if had_turret {
+                // Turret aim residual stays host (not AI decision channel).
+                if let Some(u) = self.objects.get_mut(&id) {
+                    u.turret_target_id = Some(to_id);
+                    u.turret_force_attacking = true;
+                    if matches!(
+                        u.turret_substate,
+                        crate::game_logic::object::TurretSubState::Idle
+                            | crate::game_logic::object::TurretSubState::Hold
+                            | crate::game_logic::object::TurretSubState::Recenter
+                    ) {
+                        u.turret_substate = crate::game_logic::object::TurretSubState::Aim;
+                    }
+                }
             }
-            if did {
-                transferred += 1;
-            }
+            transferred += 1;
         }
         transferred
+    }
+
+    #[cfg(test)]
+    pub fn transfer_attack_for_test(&mut self, from_id: ObjectId, to_id: ObjectId) -> usize {
+        self.transfer_attack(from_id, to_id)
     }
 
     /// Drive mood auto-acquire for idle units (AI + player AutoAcquireEnemiesWhenIdle).
