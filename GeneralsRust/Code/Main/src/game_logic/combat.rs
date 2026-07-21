@@ -310,9 +310,7 @@ pub struct PendingProjectile {
 pub fn queue_projectile(pending: PendingProjectile) {
     // Defer only when a live shadow session will drain host_fire_spawn_log.
     // Host-only (shadow off) must enqueue immediately or combat never spawns shots.
-    if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled()
-        && crate::gameworld_shadow::gameworld_shadow_enabled()
-    {
+    if crate::gameworld_shadow::gameworld_fire_spawn_authority_live() {
         crate::game_logic::host_fire_spawn_log::record(pending);
         return;
     }

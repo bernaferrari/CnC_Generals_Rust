@@ -104,6 +104,12 @@ pub fn gameworld_damage_authority_enabled() -> bool {
     }
 }
 
+/// Damage HP defer only while shadow can writeback (alias of enabled&&shadow).
+#[inline]
+pub fn gameworld_damage_authority_live() -> bool {
+    gameworld_damage_authority_enabled() && gameworld_shadow_enabled()
+}
+
 /// Economy last-writer (player supplies/power). Unset = **on**; `0|false` off.
 pub fn gameworld_economy_authority_enabled() -> bool {
     match std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY") {
@@ -142,6 +148,12 @@ pub fn gameworld_movement_authority_enabled() -> bool {
     }
 }
 
+/// Movement last-writer only while shadow can step/writeback poses.
+#[inline]
+pub fn gameworld_movement_authority_live() -> bool {
+    gameworld_movement_authority_enabled() && gameworld_shadow_enabled()
+}
+
 /// When enabled (default), GameWorld SetAttackTarget + SetFireIntent writeback is the
 /// last-writer for host attack target / fire-intent residual after each shadow session.
 /// Host still *decides* and discharges weapons; opt out with `=0|false`.
@@ -157,6 +169,12 @@ pub fn gameworld_ai_attack_authority_enabled() -> bool {
         }
         Err(_) => true,
     }
+}
+
+/// AI attack/fire-intent channel only while shadow can writeback.
+#[inline]
+pub fn gameworld_ai_attack_authority_live() -> bool {
+    gameworld_ai_attack_authority_enabled() && gameworld_shadow_enabled()
 }
 
 /// When enabled (default), GameWorld steps projectile flight residual and
@@ -176,6 +194,12 @@ pub fn gameworld_projectile_authority_enabled() -> bool {
     }
 }
 
+/// Projectile integrate defer only while shadow session steps flight.
+#[inline]
+pub fn gameworld_projectile_authority_live() -> bool {
+    gameworld_projectile_authority_enabled() && gameworld_shadow_enabled()
+}
+
 /// When enabled (default), host `update_ai` only *records* AICommand decisions;
 /// GameWorld applies attack/move/state mutations and writeback is last-writer.
 /// Combat runs before AI in the host tick, so deferred apply is next-frame parity.
@@ -193,6 +217,12 @@ pub fn gameworld_ai_decision_authority_enabled() -> bool {
     }
 }
 
+/// AI decision last-writer only while shadow can apply/writeback decisions.
+#[inline]
+pub fn gameworld_ai_decision_authority_live() -> bool {
+    gameworld_ai_decision_authority_enabled() && gameworld_shadow_enabled()
+}
+
 /// When enabled (default), `queue_projectile` only logs fire-spawns; shadow
 /// applies them into host CombatSystem before projectile integrate authority.
 /// Env: `GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY=0|false` off; unset/`1` = **on**.
@@ -207,6 +237,12 @@ pub fn gameworld_fire_spawn_authority_enabled() -> bool {
         }
         Err(_) => true,
     }
+}
+
+/// Fire-spawn defer only while shadow can drain spawn log.
+#[inline]
+pub fn gameworld_fire_spawn_authority_live() -> bool {
+    gameworld_fire_spawn_authority_enabled() && gameworld_shadow_enabled()
 }
 
 /// When enabled, host construction percent is last-written from GameWorld after
@@ -16094,9 +16130,12 @@ mod tests {
 
     #[test]
     fn projectile_authority_steps_flight_and_writeback() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_projectile_log;
         let prev = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         assert!(gameworld_projectile_authority_enabled());
         host_projectile_log::clear();
         let mut logic = GameLogic::new();
@@ -16213,10 +16252,13 @@ mod tests {
 
     #[test]
     fn ai_decision_authority_applies_attack_via_gameworld() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         assert!(gameworld_ai_decision_authority_enabled());
         // Attack writeback must also be on for last-write.
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
@@ -16259,11 +16301,14 @@ mod tests {
 
     #[test]
     fn apply_ai_command_defers_host_attack_under_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::game_logic::AICommand;
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -16331,10 +16376,13 @@ mod tests {
 
     #[test]
     fn continue_attack_after_kill_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -16400,10 +16448,13 @@ mod tests {
 
     #[test]
     fn assign_unit_attack_path_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -16479,10 +16530,13 @@ mod tests {
 
     #[test]
     fn path_approach_with_state_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("PathSt");
@@ -16531,10 +16585,13 @@ mod tests {
 
     #[test]
     fn troop_crawler_assault_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -16611,10 +16668,13 @@ mod tests {
 
     #[test]
     fn missile_defender_laser_guided_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -16687,10 +16747,13 @@ mod tests {
 
     #[test]
     fn private_attack_object_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -16751,10 +16814,13 @@ mod tests {
 
     #[test]
     fn transfer_attack_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -16823,16 +16889,13 @@ mod tests {
         // Bound to a reasonable window of the fire path.
         let w = &src[i..i + 120_000.min(src.len() - i)];
         assert!(
-            w.contains("gameworld_ai_decision_authority_enabled")
-                && w.contains("turn_toward_position"),
+            w.contains("gameworld_ai_decision_authority") && w.contains("turn_toward_position"),
             "update_combat aim residual must gate engagement under decision authority"
         );
         // Ensure the pre-attack blocked path is gated too.
         assert!(
             w.matches("pre_attack_ready_at").count() >= 1
-                && w.contains(
-                    "!crate::gameworld_shadow::gameworld_ai_decision_authority_enabled()"
-                ),
+                && w.contains("!crate::gameworld_shadow::gameworld_ai_decision_authority_live()"),
             "pre-attack engagement residual must be authority-gated"
         );
     }
@@ -16876,7 +16939,7 @@ mod tests {
             };
             let w = &src[i..=end];
             assert!(
-                w.contains("gameworld_ai_decision_authority_enabled")
+                w.contains("gameworld_ai_decision_authority")
                     || w.contains("host_ai_decision_log::record_attack"),
                 "{fn_name} must honor AI decision authority for engagement"
             );
@@ -16885,10 +16948,13 @@ mod tests {
 
     #[test]
     fn apply_engagement_decision_aware_writeback() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -16937,10 +17003,13 @@ mod tests {
 
     #[test]
     fn mood_auto_acquire_logs_decision_under_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -17001,10 +17070,13 @@ mod tests {
 
     #[test]
     fn support_guard_engage_uses_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -17052,11 +17124,15 @@ mod tests {
 
     #[test]
     fn faction_ai_launch_attack_decision_authority_writeback() {
+        let _env_guard = authority_env_lock();
+
         use crate::ai::{AIDifficulty, AIPlayer};
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -17134,10 +17210,13 @@ mod tests {
 
     #[test]
     fn stop_attack_decision_authority_clears_via_writeback() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -17324,12 +17403,87 @@ mod tests {
     }
 
     #[test]
+    fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
+        let _env_guard = authority_env_lock();
+        let prev_d = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+        assert!(gameworld_ai_decision_authority_enabled());
+        assert!(!gameworld_ai_decision_authority_live());
+        crate::game_logic::host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AiDecNoShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "AiUnit", 100.0);
+        if let Some(t) = logic.templates.get_mut("AiUnit") {
+            t.add_kind_of(KindOf::Infantry);
+        }
+        let id = logic
+            .create_object("AiUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("unit");
+        if let Some(o) = logic.get_objects_mut().get_mut(&id) {
+            o.thing.template.add_kind_of(KindOf::Infantry);
+            o.movement.max_speed = 30.0;
+        }
+        assert!(
+            logic.assign_unit_path(id, Vec3::new(50.0, 0.0, 0.0), &[]),
+            "assign_unit_path"
+        );
+        let st = logic.get_objects().get(&id).unwrap().ai_state.clone();
+        assert!(
+            matches!(st, crate::game_logic::AIState::Moving),
+            "host-only must set Moving immediately under AI_DECISION_AUTH, got {st:?}"
+        );
+        assert!(
+            crate::game_logic::host_ai_decision_log::drain().is_empty(),
+            "must not defer decisions when shadow is off"
+        );
+        match prev_d {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_s {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+    }
+
+    #[test]
+    fn projectile_authority_steps_host_when_shadow_disabled() {
+        let _env_guard = authority_env_lock();
+        let prev_p = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
+        let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+        assert!(gameworld_projectile_authority_enabled());
+        assert!(!gameworld_projectile_authority_live());
+        // Source must contain live gate so host update_projectiles is not skipped.
+        let src = include_str!("game_logic/game_logic.rs");
+        assert!(
+            src.contains("gameworld_projectile_authority_live()"),
+            "host combat must gate projectile defer on live shadow"
+        );
+        match prev_p {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
+        }
+        match prev_s {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+    }
+
+    #[test]
     fn ai_attack_authority_gates_fire_intent_writeback() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_fire_intent_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         host_fire_intent_log::clear();
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "0");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         assert!(!gameworld_ai_attack_authority_enabled());
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("AiAtkAuth");
@@ -17364,11 +17518,14 @@ mod tests {
 
     #[test]
     fn fire_at_records_fire_intent_residual() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_fire_intent_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         // Default path: authority on — log intent, host last_fire_* deferred to writeback.
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_fire_intent_log::clear();
         crate::game_logic::host_historic_bonus::set_logic_frame(77);
         let mut logic = GameLogic::new();
@@ -17444,10 +17601,14 @@ mod tests {
 
     #[test]
     fn assign_unit_path_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("PathMv");
@@ -17515,10 +17676,14 @@ mod tests {
 
     #[test]
     fn private_idle_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
@@ -17613,7 +17778,7 @@ mod tests {
             };
             let w = &src[i..=end];
             assert!(
-                w.contains("gameworld_ai_decision_authority_enabled")
+                w.contains("gameworld_ai_decision_authority")
                     || w.contains("host_ai_decision_log::record_set_state"),
                 "{fn_name} must honor AI decision authority for AI state"
             );
@@ -17622,10 +17787,13 @@ mod tests {
 
     #[test]
     fn append_unit_waypoint_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("WpAuth");
@@ -17671,10 +17839,13 @@ mod tests {
 
     #[test]
     fn set_ai_state_decision_aware_writeback() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("StateAw");
@@ -18181,7 +18352,7 @@ mod tests {
             };
             let w = &src[i..=end];
             assert!(
-                w.contains("gameworld_ai_decision_authority_enabled")
+                w.contains("gameworld_ai_decision_authority")
                     || w.contains("set_ai_state_decision_aware")
                     || w.contains("host_ai_decision_log::record_set_state")
                     || w.contains("apply_engagement_decision_aware"),
@@ -18192,10 +18363,13 @@ mod tests {
 
     #[test]
     fn dozer_bored_repair_state_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("DzAuth");
@@ -18271,7 +18445,7 @@ mod tests {
             };
             let w = &src[i..=end];
             assert!(
-                w.contains("gameworld_ai_decision_authority_enabled")
+                w.contains("gameworld_ai_decision_authority")
                     || w.contains("set_ai_state_decision_aware")
                     || w.contains("host_ai_decision_log::record_set_state")
                     || w.contains("host_ai_decision_log::record_attack"),
@@ -18282,10 +18456,14 @@ mod tests {
 
     #[test]
     fn hijacker_docked_state_decision_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("HjAuth");
@@ -18369,7 +18547,7 @@ mod tests {
             };
             let w = &src[i..=end];
             assert!(
-                w.contains("gameworld_ai_decision_authority_enabled")
+                w.contains("gameworld_ai_decision_authority")
                     || w.contains("set_ai_state_decision_aware")
                     || w.contains("host_ai_decision_log::record_set_state")
                     || w.contains("host_ai_decision_log::record_attack"),
@@ -18413,7 +18591,7 @@ mod tests {
             let w = &src[i..=end];
             assert!(
                 w.contains("host_fire_intent_log::record")
-                    && w.contains("gameworld_ai_attack_authority_enabled"),
+                    && w.contains("gameworld_ai_attack_authority"),
                 "{fn_name} must record fire-intent under AI attack authority"
             );
         }
@@ -18421,7 +18599,7 @@ mod tests {
         let i = obj.find("fn fire_at_ex").expect("fire_at_ex");
         let w = &obj[i..i + 8000];
         assert!(
-            w.contains("gameworld_ai_decision_authority_enabled") && w.contains("record_set_state"),
+            w.contains("gameworld_ai_decision_authority") && w.contains("record_set_state"),
             "fire_at_ex pre-attack must honor AI decision authority"
         );
     }
@@ -18556,11 +18734,14 @@ mod tests {
 
     #[test]
     fn private_stop_decision_authority_clears_via_writeback() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
         let mut logic = GameLogic::new();
@@ -18712,12 +18893,11 @@ mod tests {
         let pdl = &src[pdl_i..=pdl_end];
         assert!(
             pdl.contains("host_fire_intent_log::record")
-                && pdl.contains("gameworld_ai_attack_authority_enabled"),
+                && pdl.contains("gameworld_ai_attack_authority"),
             "PDL must record fire-intent under AI attack authority"
         );
         assert!(
-            pdl.contains("record_attack")
-                && pdl.contains("gameworld_ai_decision_authority_enabled"),
+            pdl.contains("record_attack") && pdl.contains("gameworld_ai_decision_authority"),
             "PDL must log Attack under AI decision authority"
         );
     }
@@ -19792,8 +19972,7 @@ mod tests {
             let at = src.find(&format!("fn {name}")).expect(name);
             let b = &src[at..src.len().min(at + 9000)];
             assert!(
-                b.contains("record_attack")
-                    && b.contains("gameworld_ai_decision_authority_enabled"),
+                b.contains("record_attack") && b.contains("gameworld_ai_decision_authority"),
                 "{name} must log attack decision under AI decision authority"
             );
         }
@@ -20259,7 +20438,7 @@ mod tests {
         let body = &helper[i..helper.len().min(i + 2000)];
         assert!(
             body.contains("host_ai_decision_log::record_attack")
-                && body.contains("gameworld_ai_decision_authority_enabled")
+                && body.contains("gameworld_ai_decision_authority")
                 && body.contains("record_set_state"),
             "residual auto-fire must emit AI decision AttackTarget under AI_DECISION_AUTHORITY"
         );
