@@ -736,6 +736,13 @@ impl GameWorldShadow {
                     e.is_detector = obj.is_detector;
                     e.detection_range = obj.detection_range;
                     e.detection_rate_frames = obj.detection_rate_frames;
+                    e.hijack_vehicle_host = obj.hijack_vehicle_id.map(|id| id.0).unwrap_or(0);
+                    e.hijacker_in_vehicle = obj.hijacker_in_vehicle;
+                    e.hijacker_update_active = obj.hijacker_update_active;
+                    e.hijacker_was_airborne = obj.hijacker_was_airborne;
+                    e.hijacker_eject_pos = obj.hijacker_eject_pos.map(|p| [p.x, p.y, p.z]);
+                    e.hive_slave_respawn_frame = obj.hive_slave_respawn_frame;
+                    e.next_detection_scan_frame = obj.next_detection_scan_frame;
                     e.stealth_breaks_on_attack = obj.stealth_breaks_on_attack;
                     e.stealth_breaks_on_move = obj.stealth_breaks_on_move;
                     e.innate_stealth = obj.innate_stealth;
@@ -3918,6 +3925,34 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_hijacker_events(
+        &mut self,
+        events: &[crate::game_logic::host_hijacker_log::HostHijackerEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetHijacker {
+                    target: eid,
+                    hijack_vehicle_host: ev.hijack_vehicle_host,
+                    hijacker_in_vehicle: ev.hijacker_in_vehicle,
+                    hijacker_update_active: ev.hijacker_update_active,
+                    hijacker_was_airborne: ev.hijacker_was_airborne,
+                    hijacker_eject_pos: ev.hijacker_eject_pos,
+                    hive_slave_respawn_frame: ev.hive_slave_respawn_frame,
+                    next_detection_scan_frame: ev.next_detection_scan_frame,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_stealth_flags_events(
         &mut self,
         events: &[crate::game_logic::host_stealth_flags_log::HostStealthFlagsEvent],
@@ -5464,6 +5499,45 @@ impl GameWorldShadow {
         updated
     }
 
+    pub fn writeback_hijacker_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let host_vehicle = obj.hijack_vehicle_id.map(|id| id.0).unwrap_or(0);
+            let host_eject = obj.hijacker_eject_pos.map(|p| [p.x, p.y, p.z]);
+            let changed = host_vehicle != ent.hijack_vehicle_host
+                || obj.hijacker_in_vehicle != ent.hijacker_in_vehicle
+                || obj.hijacker_update_active != ent.hijacker_update_active
+                || obj.hijacker_was_airborne != ent.hijacker_was_airborne
+                || host_eject != ent.hijacker_eject_pos
+                || obj.hive_slave_respawn_frame != ent.hive_slave_respawn_frame
+                || obj.next_detection_scan_frame != ent.next_detection_scan_frame;
+            if !changed {
+                continue;
+            }
+            obj.hijack_vehicle_id = if ent.hijack_vehicle_host == 0 {
+                None
+            } else {
+                Some(ObjectId(ent.hijack_vehicle_host))
+            };
+            obj.hijacker_in_vehicle = ent.hijacker_in_vehicle;
+            obj.hijacker_update_active = ent.hijacker_update_active;
+            obj.hijacker_was_airborne = ent.hijacker_was_airborne;
+            obj.hijacker_eject_pos = ent
+                .hijacker_eject_pos
+                .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+            obj.hive_slave_respawn_frame = ent.hive_slave_respawn_frame;
+            obj.next_detection_scan_frame = ent.next_detection_scan_frame;
+            updated += 1;
+        }
+        updated
+    }
+
     pub fn writeback_contain_capacity_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -6309,6 +6383,8 @@ pub fn shadow_session_after_host_tick(
     let _oc_applied = shadow.apply_host_overcharge_events(&overcharge_events);
     let _cap_applied = shadow.apply_host_contain_capacity_events(&contain_capacity_events);
     let _hive_applied = shadow.apply_host_hive_events(&hive_events);
+    let hijack_events = crate::game_logic::host_hijacker_log::drain();
+    let _hj_applied = shadow.apply_host_hijacker_events(&hijack_events);
     let _stf_applied = shadow.apply_host_stealth_flags_events(&stealth_flags_events);
     let stealth_delay_events = crate::game_logic::host_stealth_delay_log::drain();
     let _sd_applied = shadow.apply_host_stealth_delay_events(&stealth_delay_events);
@@ -6400,9 +6476,11 @@ pub fn shadow_session_after_host_tick(
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
+        let _ = shadow.writeback_hijacker_to_host(logic);
         let _ = shadow.writeback_physics_motive_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
+        let _ = shadow.writeback_hijacker_to_host(logic);
         let _ = shadow.writeback_bounce_land_to_host(logic);
         let _move_tgt_wb = shadow.writeback_move_targets_to_host(logic);
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
@@ -6415,8 +6493,10 @@ pub fn shadow_session_after_host_tick(
     let _ = shadow.writeback_shock_stun_to_host(logic);
     let _ = shadow.writeback_rebuild_producer_to_host(logic);
     let _ = shadow.writeback_sole_healing_to_host(logic);
+    let _ = shadow.writeback_hijacker_to_host(logic);
     let _ = shadow.writeback_ai_mood_to_host(logic);
     let _ = shadow.writeback_ai_request_to_host(logic);
+    let _ = shadow.writeback_hijacker_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     let mut writebacks = 0usize;
@@ -6443,25 +6523,30 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_combat_attack_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
+        let _ = shadow.writeback_hijacker_to_host(logic);
         let _tloc_wb = shadow.writeback_target_location_to_host(logic);
         let _det_wb = shadow.writeback_detector_to_host(logic);
         let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
+        let _ = shadow.writeback_hijacker_to_host(logic);
         let _guard_wb = shadow.writeback_guard_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
+        let _ = shadow.writeback_hijacker_to_host(logic);
         let _ai_st_wb = shadow.writeback_ai_state_to_host(logic);
         let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
         let _wset_wb = shadow.writeback_weapon_set_to_host(logic);
         let _oc_wb = shadow.writeback_overcharge_to_host(logic);
         let _cap_wb = shadow.writeback_contain_capacity_to_host(logic);
         let _hive_wb = shadow.writeback_hive_to_host(logic);
+        let _ = shadow.writeback_hijacker_to_host(logic);
         let _stf_wb = shadow.writeback_stealth_flags_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
+        let _ = shadow.writeback_hijacker_to_host(logic);
         let _ol_wb = shadow.writeback_overlord_to_host(logic);
         let _cs_wb = shadow.writeback_command_set_to_host(logic);
         let _dg_wb = shadow.writeback_disguise_to_host(logic);
@@ -6470,13 +6555,16 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_combat_attack_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
+        let _ = shadow.writeback_hijacker_to_host(logic);
         let _ws_wb = shadow.writeback_weapon_stats_to_host(logic);
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
+        let _ = shadow.writeback_hijacker_to_host(logic);
         let _ = shadow.writeback_physics_motive_to_host(logic);
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
+        let _ = shadow.writeback_hijacker_to_host(logic);
         let _ = shadow.writeback_bounce_land_to_host(logic);
         let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
         let _mc_wb = shadow.writeback_model_condition_to_host(logic);
@@ -7531,8 +7619,10 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         assert!(n >= 1, "writeback must touch building");
         let obj = logic.get_objects().get(&id).expect("o");
         let bd = obj.building_data.as_ref().expect("bd");
@@ -8701,8 +8791,10 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         assert!(wb >= 1);
         let o = logic.get_objects().get(&barracks).expect("b");
         let q = &o.building_data.as_ref().expect("bd").production_queue;
@@ -10100,9 +10192,11 @@ mod tests {
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.movement.velocity.x - 3.0).abs() < 1e-5);
@@ -10306,6 +10400,7 @@ mod tests {
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.vision_spied_mask, 0b101);
         assert!((o.camo_friendly_opacity - 0.35).abs() < 1e-5);
@@ -10531,6 +10626,7 @@ mod tests {
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!(o.innate_stealth && o.stealth_breaks_on_attack && !o.stealth_breaks_on_move);
         assert!(o.is_tunnel_network && o.passengers_allowed_to_fire);
@@ -10553,6 +10649,7 @@ mod tests {
             .create_object("HiveU", Team::GLA, glam::Vec3::new(19.0, 0.0, 19.0))
             .expect("id");
         host_hive_log::clear();
+        crate::game_logic::host_hijacker_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
             o.hive_slave_count = 3;
@@ -10593,6 +10690,7 @@ mod tests {
             e.hive_slave_hp = 55.0;
         }
         assert!(shadow.writeback_hive_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.hive_slave_count, 3);
         assert!((o.hive_slave_hp - 55.0).abs() < 1e-3);
@@ -10894,6 +10992,7 @@ mod tests {
         }
         assert!(shadow.writeback_guard_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         let p = o.guard_position.expect("host gp");
         assert!((p.x - 3.0).abs() < 1e-3 && (p.z - 5.0).abs() < 1e-3);
@@ -10965,6 +11064,7 @@ mod tests {
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.continuous_fire_level, 2);
         assert_eq!(o.continuous_fire_consecutive, 9);
@@ -11166,6 +11266,7 @@ mod tests {
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).expect("o");
         assert!((o.turret_angle_deg - 33.0).abs() < 1e-3);
         assert!((o.turret_pitch_deg - 12.0).abs() < 1e-3);
@@ -13108,8 +13209,10 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let d = logic
             .get_objects()
             .get(&oid)
@@ -13162,8 +13265,10 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().body_damage_state,
             HostBodyDamageType::ReallyDamaged
@@ -13376,9 +13481,11 @@ mod tests {
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         assert!(
             logic.get_objects().get(&oid).unwrap().waiting_for_path,
@@ -13457,9 +13564,11 @@ mod tests {
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.locomotor_surfaces, 0b101);
@@ -13518,8 +13627,10 @@ mod tests {
         assert!(shadow.writeback_shock_stun_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.shock_stun_frames, 30);
         assert!((o.shock_yaw_rate - 0.5).abs() < 1e-5);
@@ -13596,9 +13707,11 @@ mod tests {
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_physics_motive_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.cur_max_blocked_speed - 3.5).abs() < 1e-5);
@@ -13682,8 +13795,10 @@ mod tests {
         }
         assert!(shadow.writeback_rebuild_producer_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&hole).unwrap();
         assert!(o.is_rebuild_hole);
         assert_eq!(o.rebuild_template_name.as_deref(), Some("BldA"));
@@ -13735,8 +13850,10 @@ mod tests {
             o.sole_healing_benefactor_expiration_frame = 0;
         }
         assert!(shadow.writeback_sole_healing_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&tgt).unwrap();
         assert_eq!(o.sole_healing_benefactor, Some(dozer));
         assert_eq!(o.sole_healing_benefactor_expiration_frame, 900);
@@ -13784,6 +13901,7 @@ mod tests {
         }
         assert!(shadow.writeback_ai_mood_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.idle_since_frame, 120);
         assert_eq!(o.mood_attack_check_rate, 45);
@@ -13829,6 +13947,7 @@ mod tests {
         }
         assert!(shadow.writeback_guard_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.guard_radius - 175.0).abs() < 1e-3);
         assert!(o.guard_position.is_some());
@@ -13963,6 +14082,7 @@ mod tests {
         assert!(shadow.writeback_physics_motive_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_bounce_land_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.motive_frames_remaining, 12);
@@ -14136,6 +14256,7 @@ mod tests {
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!((o.turret_angle_deg - 45.0).abs() < 1e-5);
         assert!((o.turret_turn_rate_rad - 0.05).abs() < 1e-5);
@@ -14196,6 +14317,7 @@ mod tests {
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.stealth_delay_pending);
         assert_eq!(o.stealth_allowed_frame, 300);
@@ -14277,6 +14399,7 @@ mod tests {
         assert!(shadow.writeback_combat_attack_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.pre_attack_target, Some(tgt));
         assert_eq!(o.attack_substate, AttackSubState::FireWeapon);
@@ -14367,6 +14490,7 @@ mod tests {
         }
         assert!(shadow.writeback_locomotor_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.is_approach_path);
         assert!(o.moving_backwards);
@@ -14447,6 +14571,7 @@ mod tests {
             o.selection_flash_remaining = 0;
         }
         assert!(shadow.writeback_ai_request_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.requested_victim_id, Some(victim));
         assert_eq!(o.disguise_pending_template.as_deref(), Some("FakeTank"));
@@ -14454,6 +14579,72 @@ mod tests {
         assert_eq!(o.weapon_crate_upgrade, 2);
         assert_eq!(o.selection_flash_remaining, 15);
         assert_eq!(o.crate_created, Some(ObjectId(99)));
+    }
+
+    #[test]
+    fn hijacker_channel_via_set_hijacker() {
+        use crate::game_logic::host_hijacker_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        host_hijacker_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("Hijack");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("HjU") {
+            let mut t = ThingTemplate::new("HjU");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("HjU".into(), t);
+        }
+        let oid = logic
+            .create_object("HjU", Team::USA, glam::Vec3::new(180.0, 0.0, 180.0))
+            .expect("id");
+        let vehicle = logic
+            .create_object("HjU", Team::China, glam::Vec3::new(190.0, 0.0, 180.0))
+            .expect("v");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.hijack_vehicle_id = Some(vehicle);
+            o.hijacker_in_vehicle = true;
+            o.hijacker_update_active = true;
+            o.hijacker_was_airborne = true;
+            o.hijacker_eject_pos = Some(glam::Vec3::new(3.0, 1.0, 4.0));
+            o.hive_slave_respawn_frame = 250;
+            o.next_detection_scan_frame = 33;
+        }
+        host_hijacker_log::record(
+            oid,
+            vehicle.0,
+            true,
+            true,
+            true,
+            Some([3.0, 1.0, 4.0]),
+            250,
+            33,
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
+        assert!(shadow.apply_host_hijacker_events(&host_hijacker_log::drain()) >= 1);
+        let e = shadow.world().entity(eid).unwrap();
+        assert_eq!(e.hijack_vehicle_host, vehicle.0);
+        assert!(e.hijacker_in_vehicle);
+        assert!(e.hijacker_update_active);
+        assert!(e.hijacker_was_airborne);
+        assert_eq!(e.hijacker_eject_pos, Some([3.0, 1.0, 4.0]));
+        assert_eq!(e.hive_slave_respawn_frame, 250);
+        assert_eq!(e.next_detection_scan_frame, 33);
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("o");
+            o.hijack_vehicle_id = None;
+            o.hijacker_in_vehicle = false;
+            o.hive_slave_respawn_frame = 0;
+        }
+        assert!(shadow.writeback_hijacker_to_host(&mut logic) >= 1);
+        let o = logic.get_objects().get(&oid).unwrap();
+        assert_eq!(o.hijack_vehicle_id, Some(vehicle));
+        assert!(o.hijacker_in_vehicle);
+        assert_eq!(o.hive_slave_respawn_frame, 250);
+        assert_eq!(o.next_detection_scan_frame, 33);
+        assert_eq!(o.hijacker_eject_pos, Some(glam::Vec3::new(3.0, 1.0, 4.0)));
     }
 
     #[test]
@@ -14496,8 +14687,10 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         assert_eq!(
             logic.get_objects().get(&oid).unwrap().status.death_type,
             HostDeathType::Burned
@@ -14544,8 +14737,10 @@ mod tests {
         let _ = shadow.writeback_shock_stun_to_host(&mut logic);
         let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
+        let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.radar_active);
         assert_eq!(o.radar_extend_done_frame, 120);
