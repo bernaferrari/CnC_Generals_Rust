@@ -14514,27 +14514,34 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            let attacking = obj.status.attacking
-                || obj.target.is_some()
-                || matches!(
-                    obj.ai_state,
-                    crate::game_logic::AIState::Attacking
-                        | crate::game_logic::AIState::AttackingGround
-                        | crate::game_logic::AIState::Patrolling
-                );
-            if attacking {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_attacking_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    let attacking = obj.status.attacking
+                        || obj.target.is_some()
+                        || matches!(
+                            obj.ai_state,
+                            crate::game_logic::AIState::Attacking
+                                | crate::game_logic::AIState::AttackingGround
+                                | crate::game_logic::AIState::Patrolling
+                        );
+                    if attacking {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No attacking units";
             self.game_hud.push_info_message(msg);
@@ -14631,32 +14638,39 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            let moving = obj.status.moving
-                || obj.movement.target_position.is_some()
-                || !obj.movement.path.is_empty()
-                || matches!(
-                    obj.ai_state,
-                    crate::game_logic::AIState::Moving
-                        | crate::game_logic::AIState::Gathering
-                        | crate::game_logic::AIState::ReturningResources
-                        | crate::game_logic::AIState::Entering
-                        | crate::game_logic::AIState::Docking
-                        | crate::game_logic::AIState::Attacking
-                        | crate::game_logic::AIState::Patrolling
-                );
-            if moving {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_moving_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    let moving = obj.status.moving
+                        || obj.movement.target_position.is_some()
+                        || !obj.movement.path.is_empty()
+                        || matches!(
+                            obj.ai_state,
+                            crate::game_logic::AIState::Moving
+                                | crate::game_logic::AIState::Gathering
+                                | crate::game_logic::AIState::ReturningResources
+                                | crate::game_logic::AIState::Entering
+                                | crate::game_logic::AIState::Docking
+                                | crate::game_logic::AIState::Attacking
+                                | crate::game_logic::AIState::Patrolling
+                        );
+                    if moving {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No moving units";
             self.game_hud.push_info_message(msg);
@@ -14903,16 +14917,23 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if obj.is_effectively_stealthed() {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_stealthed_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if obj.is_effectively_stealthed() {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No stealthed units";
             self.game_hud.push_info_message(msg);
@@ -14938,22 +14959,29 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            if matches!(
-                obj.experience.level,
-                VeterancyLevel::Veteran | VeterancyLevel::Elite | VeterancyLevel::Heroic
-            ) {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_veteran_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    if matches!(
+                        obj.experience.level,
+                        VeterancyLevel::Veteran | VeterancyLevel::Elite | VeterancyLevel::Heroic
+                    ) {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No veteran units";
             self.game_hud.push_info_message(msg);
@@ -15092,16 +15120,23 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if matches!(obj.ai_state, crate::game_logic::AIState::Patrolling) {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_patrolling_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if matches!(obj.ai_state, crate::game_logic::AIState::Patrolling) {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No patrolling units";
             self.game_hud.push_info_message(msg);
@@ -15127,20 +15162,27 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if matches!(
-                obj.ai_state,
-                crate::game_logic::AIState::Gathering
-                    | crate::game_logic::AIState::ReturningResources
-            ) {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_gathering_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if matches!(
+                        obj.ai_state,
+                        crate::game_logic::AIState::Gathering
+                            | crate::game_logic::AIState::ReturningResources
+                    ) {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No gathering units";
             self.game_hud.push_info_message(msg);
@@ -15232,22 +15274,29 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            let guarding = matches!(
-                obj.ai_state,
-                crate::game_logic::AIState::GuardingArea
-                    | crate::game_logic::AIState::GuardingObject
-            ) || obj.guard_position.is_some()
-                || obj.guard_target.is_some();
-            if guarding {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_guarding_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    let guarding = matches!(
+                        obj.ai_state,
+                        crate::game_logic::AIState::GuardingArea
+                            | crate::game_logic::AIState::GuardingObject
+                    ) || obj.guard_position.is_some()
+                        || obj.guard_target.is_some();
+                    if guarding {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No guarding units";
             self.game_hud.push_info_message(msg);
@@ -15283,29 +15332,36 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            let n = obj.template_name.to_ascii_lowercase();
-            if obj.is_dozer
-                || n.contains("dozer")
-                || n.contains("worker")
-                || n.contains("supply")
-                || n.contains("harvester")
-            {
-                continue;
-            }
-            if !obj.can_move() && !obj.can_attack() {
-                continue;
-            }
-            ids.push(id);
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_combat_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    let n = obj.template_name.to_ascii_lowercase();
+                    if obj.is_dozer
+                        || n.contains("dozer")
+                        || n.contains("worker")
+                        || n.contains("supply")
+                        || n.contains("harvester")
+                    {
+                        continue;
+                    }
+                    if !obj.can_move() && !obj.can_attack() {
+                        continue;
+                    }
+                    ids.push(id);
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No combat units";
             self.game_hud.push_info_message(msg);
