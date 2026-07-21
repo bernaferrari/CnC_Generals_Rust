@@ -11001,6 +11001,24 @@ mod tests {
     }
 
     #[test]
+    fn victory_script_registry_empty_safe() {
+        let v = include_str!("../../GameEngine/GameLogic/src/scripting/victory.rs");
+        assert!(
+            v.contains("do not treat as \"all enemies dead\""),
+            "destruction progress must not complete when dual-world registry empty"
+        );
+        assert!(
+            v.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
+            "victory dual-world progress calcs must gate on empty registry"
+        );
+        let eng = include_str!("../../GameEngine/GameLogic/src/scripting/engine.rs");
+        assert!(
+            eng.contains("fn create_named_cache") && eng.contains("OBJECT_REGISTRY.is_empty()"),
+            "script engine named cache must skip empty dual-world registry"
+        );
+    }
+
+    #[test]
     fn production_progress_log_carries_power_factor() {
         let log = include_str!("game_logic/host_production_progress_log.rs");
         assert!(

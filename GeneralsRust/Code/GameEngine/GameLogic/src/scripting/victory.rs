@@ -780,6 +780,10 @@ impl VictoryManager {
         }
 
         let enemy_ids: HashSet<u32> = active_player.into_iter().collect();
+        // Host path: dual-world factory empty — do not treat as "all enemies dead".
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(0.0);
+        }
         let mut enemy_alive = 0usize;
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj) = obj_arc.read() else {
@@ -820,6 +824,10 @@ impl VictoryManager {
             .map(|p| p.id)
             .collect();
 
+        // Host path: empty dual-world registry — no structure residual to score.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(0.0);
+        }
         let mut remaining = 0usize;
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj) = obj_arc.read() else {
@@ -960,6 +968,10 @@ impl VictoryManager {
         }
 
         let active_player = context.active_player;
+        // Host path: empty dual-world registry — nothing built residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(0.0);
+        }
         let mut built = 0usize;
         for name in structures {
             let mut found = false;
