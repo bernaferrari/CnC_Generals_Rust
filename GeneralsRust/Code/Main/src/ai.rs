@@ -897,20 +897,43 @@ impl AIPlayer {
         busy_ok: bool,
     ) -> Option<ObjectId> {
         let factory_name = Self::factory_template_for_unit(unit_template_name, team)?;
-        for (object_id, object) in game_logic.get_objects() {
-            if object.team != team || !object.is_constructed() || !object.is_alive() {
-                continue;
-            }
-            let name_ok =
-                object.template_name == factory_name || object.get_template().name == factory_name;
-            if !name_ok {
-                continue;
-            }
-            if busy_ok || Self::factory_is_idle(object) {
-                return Some(*object_id);
-            }
-        }
-        None
+        // Pure residual acquire: prefer idle factories (priority 0) over busy (1)
+        // when busy_ok; nearest 3D tiebreak for stable multi-factory choice.
+        let cands: Vec<_> = game_logic
+            .get_objects()
+            .iter()
+            .filter_map(|(&id, object)| {
+                if object.team != team || !object.is_constructed() || !object.is_alive() {
+                    return None;
+                }
+                let name_ok = object.template_name == factory_name
+                    || object.get_template().name == factory_name;
+                if !name_ok {
+                    return None;
+                }
+                let idle = Self::factory_is_idle(object);
+                if !busy_ok && !idle {
+                    return None;
+                }
+                let priority = if idle { Some(0u8) } else { Some(1u8) };
+                Some(
+                    crate::game_logic::host_residual_acquire::PriorityAcquireCandidate {
+                        id,
+                        position: object.get_position(),
+                        is_alive: true,
+                        priority,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_best_priority_residual_target(
+            ObjectId(0),
+            glam::Vec3::ZERO,
+            (0.0, 0.0),
+            f32::MAX,
+            cands,
+        )
+        .map(|(id, _, _)| id)
     }
 
     /// C++ `isPossibleToBuildTeam` factory residual (requireIdleFactory=true):
