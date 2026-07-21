@@ -28656,38 +28656,48 @@ impl GameLogic {
         let tid = match intended_target {
             Some(id) => id,
             None => {
-                // Nearest combat target near impact residual.
-                let mut best: Option<(ObjectId, f32)> = None;
-                for (&id, obj) in self.objects.iter() {
-                    if source == Some(id) || !obj.is_alive() {
-                        continue;
-                    }
-                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                        || obj.is_kind_of(KindOf::Structure)
-                        || obj.is_kind_of(KindOf::Infantry)
-                        || obj.is_kind_of(KindOf::Vehicle)
-                        || obj.is_kind_of(KindOf::Aircraft);
-                    if !is_legal_overlord_gattling_target(
-                        true,
-                        false,
-                        obj.status.under_construction,
-                        combat_kind,
-                    ) {
-                        continue;
-                    }
-                    let pos = obj.get_position();
-                    let dx = impact.x - pos.x;
-                    let dz = impact.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    if dist <= 12.0 {
-                        match best {
-                            Some((_, b)) if dist >= b => {}
-                            _ => best = Some((id, dist)),
+                // Pure residual acquire: nearest combat target near impact (XZ).
+                let candidates: Vec<_> = self
+                    .objects
+                    .iter()
+                    .map(|(&id, obj)| {
+                        let combat_kind =
+                            crate::game_logic::host_residual_acquire::residual_combat_kind(
+                                obj.is_kind_of(KindOf::Attackable),
+                                obj.is_kind_of(KindOf::Structure),
+                                obj.is_kind_of(KindOf::Infantry),
+                                obj.is_kind_of(KindOf::Vehicle),
+                                obj.is_kind_of(KindOf::Aircraft),
+                            );
+                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                            id,
+                            team: obj.team,
+                            position: obj.get_position(),
+                            is_alive: obj.is_alive(),
+                            is_neutral: obj.team == Team::Neutral,
+                            under_construction: obj.status.under_construction,
+                            combat_kind,
+                            effectively_stealthed: obj.is_effectively_stealthed(),
+                            is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                            eject_invulnerable: obj.is_eject_invulnerable(),
                         }
-                    }
-                }
-                match best {
-                    Some((id, _)) => id,
+                    })
+                    .collect();
+                match crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                    source,
+                    (impact.x, impact.z),
+                    candidates,
+                    12.0,
+                    |c| {
+                        is_legal_overlord_gattling_target(
+                            true,
+                            false,
+                            c.under_construction,
+                            c.combat_kind,
+                        )
+                    },
+                ) {
+                    Some((id, _, _)) => id,
                     None => {
                         if is_aa {
                             self.overlord_addons.record_gattling_aa_fire(0);
@@ -29434,37 +29444,41 @@ impl GameLogic {
         let tid = match intended_target {
             Some(id) => id,
             None => {
-                let mut best: Option<(ObjectId, f32)> = None;
-                for (&id, obj) in self.objects.iter() {
-                    if source == Some(id) || !obj.is_alive() {
-                        continue;
-                    }
-                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                        || obj.is_kind_of(KindOf::Structure)
-                        || obj.is_kind_of(KindOf::Infantry)
-                        || obj.is_kind_of(KindOf::Vehicle)
-                        || obj.is_kind_of(KindOf::Aircraft);
-                    if !is_legal_gattling_target(
-                        true,
-                        false,
-                        obj.status.under_construction,
-                        combat_kind,
-                    ) {
-                        continue;
-                    }
-                    let pos = obj.get_position();
-                    let dx = impact.x - pos.x;
-                    let dz = impact.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    if dist <= 12.0 {
-                        match best {
-                            Some((_, b)) if dist >= b => {}
-                            _ => best = Some((id, dist)),
+                // Pure residual acquire: nearest combat target near impact (XZ).
+                let candidates: Vec<_> = self
+                    .objects
+                    .iter()
+                    .map(|(&id, obj)| {
+                        let combat_kind =
+                            crate::game_logic::host_residual_acquire::residual_combat_kind(
+                                obj.is_kind_of(KindOf::Attackable),
+                                obj.is_kind_of(KindOf::Structure),
+                                obj.is_kind_of(KindOf::Infantry),
+                                obj.is_kind_of(KindOf::Vehicle),
+                                obj.is_kind_of(KindOf::Aircraft),
+                            );
+                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                            id,
+                            team: obj.team,
+                            position: obj.get_position(),
+                            is_alive: obj.is_alive(),
+                            is_neutral: obj.team == Team::Neutral,
+                            under_construction: obj.status.under_construction,
+                            combat_kind,
+                            effectively_stealthed: obj.is_effectively_stealthed(),
+                            is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                            eject_invulnerable: obj.is_eject_invulnerable(),
                         }
-                    }
-                }
-                match best {
-                    Some((id, _)) => id,
+                    })
+                    .collect();
+                match crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                    source,
+                    (impact.x, impact.z),
+                    candidates,
+                    12.0,
+                    |c| is_legal_gattling_target(true, false, c.under_construction, c.combat_kind),
+                ) {
+                    Some((id, _, _)) => id,
                     None => {
                         self.queue_audio_event(
                             AudioEventRequest::new(GATTLING_FIRE_AUDIO)
