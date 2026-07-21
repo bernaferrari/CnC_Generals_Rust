@@ -6620,35 +6620,73 @@ pub fn probe_host_vs_gameworld(logic: &mut GameLogic) -> (GameWorldShadow, GameW
     (shadow, probe)
 }
 
-/// Optional post-host-tick hook (stateless one-shot probe).
+/// Apply undrained host authority logs onto Main `GameLogic`.
+///
+/// Used when no GameWorld shadow session will last-write this tick (bare
+/// `GameLogic::update`, tests, golden host-only). Engine path with an active
+/// shadow session drains logs via `shadow_session_after_host_tick` instead.
+///
+/// Damage authority freezes mid-frame HP; without this, host-only combat never
+/// shows HP/destroy. Economy authority parks refunds in `pending_supply_delta`.
+pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
+    // --- Damage (DAMAGE_AUTHORITY freezes mid-frame HP) ---
+    let damage_events = crate::game_logic::host_damage_log::drain();
+    let mut destroy_ids = Vec::new();
+    for e in damage_events {
+        let Some(obj) = logic.get_object_mut(e.target) else {
+            continue;
+        };
+        if e.destroyed || e.amount + 1e-3 >= obj.health.current {
+            obj.health.current = 0.0;
+            obj.status.destroyed = true;
+            destroy_ids.push(e.target);
+        } else if e.amount > 0.0 {
+            obj.health.current = (obj.health.current - e.amount).max(0.0);
+        }
+    }
+    for id in destroy_ids {
+        logic.mark_object_for_destruction(id, None);
+    }
+
+    // --- Heal / absolute HP ---
+    for e in crate::game_logic::host_heal_log::drain() {
+        if let Some(obj) = logic.get_object_mut(e.target) {
+            let max_hp = obj.health.maximum.max(0.0);
+            obj.health.current = e.health.clamp(0.0, max_hp);
+        }
+    }
+
+    // Construction percent already accumulates on host — do not re-apply clamped log.
+
+    // --- Economy pending deltas → real supplies ---
+    for p in logic.get_players_mut().values_mut() {
+        if p.pending_supply_delta != 0 {
+            let v = p.resources.supplies as i64 + p.pending_supply_delta;
+            p.resources.supplies = if v <= 0 {
+                0
+            } else if v >= u32::MAX as i64 {
+                u32::MAX
+            } else {
+                v as u32
+            };
+            p.pending_supply_delta = 0;
+        }
+    }
+}
+
+/// Optional post-host-tick hook when no long-lived shadow session is held.
+/// Materializes DAMAGE/ECONOMY authority logs onto host (does not discard them).
 pub fn maybe_shadow_after_host_tick(logic: &mut GameLogic) -> Option<GameWorldShadowProbe> {
+    // Engine holds `GameWorldShadow` and calls `shadow_session_after_host_tick`.
+    // This helper is the no-session path: materialize authority logs onto host.
+    materialize_host_authority_logs(logic);
     if !gameworld_shadow_enabled() {
         return None;
     }
-    // Drain host damage log so it does not grow unbounded when no session is held.
-    let events = crate::game_logic::host_damage_log::drain();
-    let _heals = crate::game_logic::host_heal_log::drain();
-    let _owners = crate::game_logic::host_owner_log::drain();
-    let _spawns = crate::game_logic::host_spawn_log::drain();
-    let _destroys = crate::game_logic::host_destroy_log::drain();
-    let _atks = crate::game_logic::host_attack_log::drain();
-    let _moves = crate::game_logic::host_move_log::drain();
-    let _prod = crate::game_logic::host_production_log::drain();
-    let _ = crate::game_logic::host_construction_log::drain();
     let (shadow, _probe) = probe_host_vs_gameworld(logic);
-    // Events already reflected in host health; sync copies health. Log size is the
-    // combat-bridge signal.
     let probe = shadow.probe(logic);
-    if !events.is_empty() {
-        log::trace!(
-            "gameworld_shadow drained {} host damage events this tick",
-            events.len()
-        );
-    }
     if !probe.full_match() {
-        log::warn!("{}", probe.format_report());
-    } else {
-        log::trace!("{}", probe.format_report());
+        log::trace!("maybe_shadow probe: {}", probe.format_report());
     }
     Some(probe)
 }
