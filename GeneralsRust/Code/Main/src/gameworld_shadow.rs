@@ -17348,4 +17348,52 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn residual_auto_fire_records_fire_intent_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for fn_name in [
+            "fn try_strategy_center_bombardment_turret_fire",
+            "fn try_base_defense_residual_fire",
+            "fn update_pending_patriot_assists",
+            "fn try_sentry_drone_residual_fire",
+            "fn try_hellfire_drone_residual_fire",
+            "fn try_transport_passenger_residual_fire",
+            "fn try_garrison_residual_fire",
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains("host_fire_intent_log::record")
+                    && w.contains("gameworld_ai_attack_authority_enabled"),
+                "{fn_name} must record fire-intent under AI attack authority"
+            );
+        }
+        let obj = include_str!("game_logic/object.rs");
+        let i = obj.find("fn fire_at_ex").expect("fire_at_ex");
+        let w = &obj[i..i + 8000];
+        assert!(
+            w.contains("gameworld_ai_decision_authority_enabled") && w.contains("record_set_state"),
+            "fire_at_ex pre-attack must honor AI decision authority"
+        );
+    }
 }
