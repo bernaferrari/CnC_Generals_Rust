@@ -1648,6 +1648,10 @@ impl InGameUI {
             .get_controlling_player_id()
             .map(|id| id as i32);
 
+        // Host/presentation path: empty dual-world registry → nothing to select.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(());
+        }
         let mut matching: Vec<ObjectID> = Vec::new();
         for obj in OBJECT_REGISTRY.get_all_objects() {
             let Ok(guard) = obj.read() else {
@@ -3184,6 +3188,10 @@ impl InGameUI {
         if templates.is_empty() {
             return -1;
         }
+        // Host/presentation path: no dual-world objects.
+        if OBJECT_REGISTRY.is_empty() {
+            return -1;
+        }
 
         let mut matching: Vec<ObjectID> = Vec::new();
         for obj in OBJECT_REGISTRY.get_all_objects() {
@@ -3251,6 +3259,10 @@ impl InGameUI {
         }
 
         if templates.is_empty() {
+            return -1;
+        }
+        // Host/presentation path: no dual-world objects.
+        if OBJECT_REGISTRY.is_empty() {
             return -1;
         }
 
