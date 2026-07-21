@@ -178,6 +178,8 @@ pub struct ControlBar {
     presentation_radar_disabled: bool,
     /// Queued upgrade names residual from PresentationFrame.
     presentation_queued_upgrades: Vec<String>,
+    /// Primary selection command-set name residual from PresentationFrame.
+    presentation_primary_command_set: String,
     displayed_construct_percent: f32,
     displayed_ocl_timer_seconds: u32,
     border_colors: CommandBarBorderColors,
@@ -293,6 +295,7 @@ impl ControlBar {
             presentation_radar_count: 0,
             presentation_radar_disabled: false,
             presentation_queued_upgrades: Vec::new(),
+            presentation_primary_command_set: String::new(),
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
             border_colors: CommandBarBorderColors::default(),
@@ -1715,7 +1718,10 @@ impl ControlBar {
         }
 
         super::control_bar_structure_inventory::append_structure_inventory_commands(context)?;
-        super::control_bar_beacon::append_beacon_commands(context)?;
+        super::control_bar_beacon::append_beacon_commands_with_presentation(
+            context,
+            &self.presentation_primary_command_set,
+        )?;
         Ok(())
     }
 
@@ -1758,7 +1764,10 @@ impl ControlBar {
         &self,
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        super::control_bar_beacon::append_beacon_commands(context)?;
+        super::control_bar_beacon::append_beacon_commands_with_presentation(
+            context,
+            &self.presentation_primary_command_set,
+        )?;
         Ok(())
     }
 
@@ -2065,11 +2074,25 @@ impl ControlBar {
             return Ok(());
         };
         let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            self.populate_beacon_windows(false, "")?;
+            // Host presentation residual: beacon UI when command-set freeze says BEACON.
+            let is_beacon = self
+                .presentation_primary_command_set
+                .to_ascii_uppercase()
+                .contains("BEACON")
+                || self
+                    .portrait_state
+                    .portrait_image
+                    .to_ascii_uppercase()
+                    .contains("BEACON");
+            self.populate_beacon_windows(is_beacon, "")?;
             return Ok(());
         };
         let Ok(object) = object_arc.read() else {
-            self.populate_beacon_windows(false, "")?;
+            let is_beacon = self
+                .presentation_primary_command_set
+                .to_ascii_uppercase()
+                .contains("BEACON");
+            self.populate_beacon_windows(is_beacon, "")?;
             return Ok(());
         };
 
@@ -2552,8 +2575,10 @@ impl ControlBar {
     /// intersection / ScriptOnly / prerequisite filter matrix.
     pub fn sync_command_set_from_presentation(&mut self, command_set_name: Option<&str>) {
         let Some(name) = command_set_name.map(str::trim).filter(|s| !s.is_empty()) else {
+            self.presentation_primary_command_set.clear();
             return;
         };
+        self.presentation_primary_command_set = name.to_string();
         let Some(control_bar) = get_control_bar_bridge() else {
             return;
         };
@@ -2629,6 +2654,9 @@ impl ControlBar {
     ) {
         if command_set_names.len() < 2 {
             return;
+        }
+        if let Some(first) = command_set_names.first() {
+            self.presentation_primary_command_set = first.clone();
         }
         let Some(control_bar) = get_control_bar_bridge() else {
             return;
