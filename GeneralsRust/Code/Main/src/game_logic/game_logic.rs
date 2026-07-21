@@ -71878,6 +71878,78 @@ mod tests {
         );
     }
 
+    #[test]
+    fn residual_auto_fire_ai_decision_writeback_sets_host_target() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::gameworld_shadow::{
+            gameworld_ai_attack_authority_enabled, gameworld_ai_decision_authority_enabled,
+            GameWorldShadow,
+        };
+
+        let prev_d = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        let prev_a = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        assert!(gameworld_ai_decision_authority_enabled());
+        assert!(gameworld_ai_attack_authority_enabled());
+        host_ai_decision_log::clear();
+
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let attacker = logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("atk");
+        let victim = logic
+            .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("vic");
+        // Arm attacker with a residual weapon for apply_damage path.
+        {
+            let o = logic.get_object_mut(attacker).unwrap();
+            o.weapon = Some(crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 200.0,
+                min_range: 0.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ammo: None,
+                clip_size: 0,
+                clip_reload_time: 0.0,
+                can_target_air: false,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+                splash_radius: 0.0,
+            });
+        }
+        assert!(logic.get_object(attacker).unwrap().target.is_none());
+        let weapon = logic.get_object(attacker).and_then(|o| o.weapon.clone());
+        let pos = logic.get_object(attacker).unwrap().get_position();
+        let _ =
+            logic.residual_auto_fire_apply_damage(attacker, victim, 10.0, pos, weapon.as_ref(), 0);
+        // Decision channel logged; host target still empty until shadow writeback.
+        let events = host_ai_decision_log::drain();
+        assert!(
+            !events.is_empty(),
+            "residual auto-fire must emit AI decision events under AI_DECISION_AUTHORITY"
+        );
+        assert!(logic.get_object(attacker).unwrap().target.is_none());
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert_eq!(logic.get_object(attacker).unwrap().target, Some(victim));
+
+        match prev_d {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_a {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
     /// Residual: GLA Stinger Site dual ground/AA + AP Rockets residual.
     #[test]
     fn stinger_site_residual_dual_fire_and_ap_rockets() {
