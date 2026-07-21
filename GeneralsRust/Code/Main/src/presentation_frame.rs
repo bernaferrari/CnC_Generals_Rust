@@ -11078,6 +11078,35 @@ mod tests {
     }
 
     #[test]
+    fn remaining_dual_world_registry_empty() {
+        for (path, needle) in [
+            (
+                include_str!("../../GameEngine/GameLogic/src/object/unit.rs"),
+                "OBJECT_REGISTRY.is_empty()",
+            ),
+            (
+                include_str!("../../GameEngine/GameLogic/src/ai/ai_build_list.rs"),
+                "OBJECT_REGISTRY.is_empty()",
+            ),
+            (
+                include_str!(
+                    "../../GameEngine/GameLogic/src/object/behavior/grant_stealth_behavior.rs"
+                ),
+                "OBJECT_REGISTRY.is_empty()",
+            ),
+            (
+                include_str!("../../GameEngine/GameLogic/src/terrain.rs"),
+                "OBJECT_REGISTRY.is_empty()",
+            ),
+        ] {
+            assert!(
+                path.contains(needle),
+                "expected empty-registry gate in dual-world bulk residual"
+            );
+        }
+    }
+
+    #[test]
     fn production_progress_log_carries_power_factor() {
         let log = include_str!("game_logic/host_production_progress_log.rs");
         assert!(

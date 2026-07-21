@@ -11452,6 +11452,10 @@ impl Object {
             parking.defect_all_parked_units(target_team.clone(), detection_time);
         });
 
+        // Host path: empty dual-world registry residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return;
+        }
         for mine in OBJECT_REGISTRY.get_all_objects() {
             let Ok(mut mine_guard) = mine.write() else {
                 continue;

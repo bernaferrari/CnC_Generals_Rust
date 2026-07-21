@@ -528,6 +528,10 @@ impl AiIntegrationManager {
                         pf.rebuild_from_terrain(&terrain);
                     }
 
+                    // Host path: empty dual-world registry residual.
+                    if OBJECT_REGISTRY.is_empty() {
+                        return Ok(());
+                    }
                     for obj_arc in OBJECT_REGISTRY.get_all_objects() {
                         let Ok(obj_guard) = obj_arc.read() else {
                             continue;
