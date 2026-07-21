@@ -1393,6 +1393,35 @@ impl GameClient {
             visual_delta * visual_speed as f32
         };
 
+        // Host/presentation residual: Main owns OS WindowEvent→commands and sole
+        // RenderPipeline 3D present. When OBJECT_REGISTRY is empty, skip dual-world
+        // shroud bind and dual Display DRAW present.
+        let host_presentation_path = OBJECT_REGISTRY.get_all_objects().is_empty();
+        if host_presentation_path {
+            // Shared THE_MOUSE/THE_KEYBOARD may still be polled for shell widgets;
+            // Main remains command authority. Prefer local drawable modules only.
+            self.update_drawables_local(visual_delta)?;
+            if self.should_skip_visual_updates_for_no_draw() {
+                self.rendered_object_count = 0;
+                self.finish_frame_timing(current_time);
+                return Ok(());
+            }
+            self.update_particle_system_local_player()?;
+            self.update_effects(visual_delta)?;
+            apply_pending_script_display_state();
+            self.update_display_only()?;
+            // No draw_display — Main RenderPipeline is sole present path.
+            self.draw_drawable_icon_ui();
+            self.update_display_string_manager()?;
+            self.update_post_draw_ui()?;
+            self.process_beacon_notifications()?;
+            self.pump_message_stream()?;
+            self.rendered_object_count = 0;
+            self.finish_frame_timing(current_time);
+            return Ok(());
+        }
+
+        // Dual-world residual: full C++-ordered client tick with registry bind.
         // C++ lines 560-584: keyboard, mouse, Anim2D, Eva
         self.update_input()?;
         self.update_audio()?;
