@@ -16741,11 +16741,14 @@ impl CnCGameEngine {
                 SoundType::Explosion => "Explosion",
                 SoundType::Build => "BuildingComplete",
             };
-            self.game_logic
-                .queue_audio_event(crate::game_logic::AudioEventRequest::new(kind));
-            // Input residual may land mid-frame after host process_audio_events —
-            // drain immediately so Select/Command is not delayed one tick.
-            self.game_logic.process_audio_events();
+            // Presentation path: dispatch UI SFX direct to AudioManager (no GameLogic
+            // dual-write / process_audio_events drain). Same-frame Select/Command.
+            let event = crate::game_logic::AudioEventRequest::new(kind);
+            log::trace!("🔊 UI presentation audio: {}", event.event_type);
+            let _ = crate::subsystem_manager::with_subsystem_mut::<
+                crate::subsystem_manager::AudioManagerSubsystem,
+                _,
+            >(|audio| audio.queue_event(event));
             return;
         }
 
