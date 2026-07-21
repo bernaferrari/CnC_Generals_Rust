@@ -11129,8 +11129,9 @@ mod tests {
         let postfire = particle_client_effects_for_status(ParticleUplinkStatus::Postfire);
         assert_eq!(postfire.outer_intensity, ParticleIntensity::Medium);
         assert_eq!(postfire.ground_to_orbit, 1);
-        // Grow phase.
-        assert!((particle_width_scalar(100, 100) - 0.0).abs() < 0.01);
+        // Grow phase: spawn frame gets first grow step so damage pulse is non-zero.
+        let spawn_step = 1.0 / (PARTICLE_WIDTH_GROW_FRAMES as f32);
+        assert!((particle_width_scalar(100, 100) - spawn_step).abs() < 0.01);
         assert!((particle_width_scalar(100, 130) - 0.5).abs() < 0.01);
         assert!((particle_width_scalar(100, 160) - 1.0).abs() < 0.01);
         assert!((particle_beam_damage_radius(100, 160) - PARTICLE_BEAM_RADIUS).abs() < 0.01);
@@ -11211,16 +11212,19 @@ mod tests {
         assert_eq!(reg.beam_fields()[0].parent_strike_id, id);
 
         // First beam pulse on spawn frame — uses SwathOfDeath epicenter.
-        // WidthGrow residual: radius 0 at spawn → only exact-epicenter unit hits.
+        // WidthGrow residual: first grow step at spawn so pulse has non-zero radius
+        // but still below dist-to-ObjectId(3) (~30).
         let beam_plans = reg.plan_due_beam_ticks(120, &objects);
         assert_eq!(beam_plans.len(), 1);
         assert!(
             (beam_plans[0].position.x - swath0.x).abs() < 0.1,
             "first pulse must use swath epicenter"
         );
-        assert!((beam_plans[0].damage_radius - 0.0).abs() < 0.01);
-        assert!((beam_plans[0].width_scalar - 0.0).abs() < 0.01);
-        assert_eq!(beam_plans[0].hits.len(), 1); // epicenter only under width=0
+        let spawn_step = 1.0 / (PARTICLE_WIDTH_GROW_FRAMES as f32);
+        let spawn_radius = PARTICLE_BEAM_RADIUS * spawn_step;
+        assert!((beam_plans[0].width_scalar - spawn_step).abs() < 0.01);
+        assert!((beam_plans[0].damage_radius - spawn_radius).abs() < 0.05);
+        assert_eq!(beam_plans[0].hits.len(), 1); // epicenter only under tiny radius
         assert_eq!(beam_plans[0].hits[0].target_id, ObjectId(2));
         assert!(!beam_plans[0]
             .hits
@@ -11246,8 +11250,13 @@ mod tests {
         assert!(reg.honesty_beam_swath_ok());
         assert!(reg.beam_fields()[0].swath_applications >= 1);
         assert!(reg.beam_fields()[0].max_swath_offset > 50.0);
-        // WidthGrow residual: first pulse at spawn still records peak scalar 0.
-        assert!(reg.beam_fields()[0].peak_width_scalar < 0.01);
+        // WidthGrow residual: first pulse at spawn records first grow step peak.
+        let spawn_step = 1.0 / (PARTICLE_WIDTH_GROW_FRAMES as f32);
+        assert!(
+            (reg.beam_fields()[0].peak_width_scalar - spawn_step).abs() < 0.01,
+            "peak_width_scalar {}",
+            reg.beam_fields()[0].peak_width_scalar
+        );
         // Fractional nextFactor: pulses_made=1 → factor 1/40 * 105 = 2.625 → floor 2.
         let expected_next = particle_next_pulse_frame(120, 1).max(121);
         assert_eq!(reg.beam_fields()[0].next_tick_frame, expected_next);
@@ -11403,10 +11412,11 @@ mod tests {
         );
 
         // Place enemies at DropVariance-adjusted residual epicenters.
-        let points = carpet_bomb_points(target);
+        // Queue used Team::China → CarpetBombFactionTier::China (10 bombs).
+        let points = carpet_bomb_points_for_tier(target, CarpetBombFactionTier::China);
         let first = points[0];
-        let center = points[7];
-        let outer = points[14];
+        let center = points[points.len() / 2];
+        let outer = *points.last().expect("outer");
         let objects = vec![
             (ObjectId(1), Vec3::ZERO, Team::China, true),
             (ObjectId(2), center, Team::USA, true), // center bomb (with variance)
@@ -11450,16 +11460,18 @@ mod tests {
         );
         assert!(!reg.honesty_complete_ok(HostSuperweaponKind::CarpetBomb));
 
-        // Jump to last bomb frame: remaining bombs (incl. center + outer) apply.
-        let last = multi_strike_last_impact_frame(
-            HostSuperweaponKind::CarpetBomb,
+        // Jump to last China-tier bomb frame: remaining bombs (incl. center + outer) apply.
+        let china_count = CarpetBombFactionTier::China.bomb_count();
+        let last = carpet_bomb_impact_frame_for_tier(
             0,
-            ArtilleryBarrageScienceTier::Level1,
+            china_count.saturating_sub(1),
+            CarpetBombFactionTier::China,
         );
         let plans = reg.plan_due_impacts(last, &objects);
         assert_eq!(plans.len(), 1);
         assert!(plans[0].is_final_wave);
-        assert!(plans[0].wave_shell_count >= 14);
+        // Remaining after first-wave apply: china_count - 1.
+        assert_eq!(plans[0].wave_shell_count, china_count.saturating_sub(1));
         // Center + outer-bomb enemies + friendly (ALLIES residual); far excluded.
         assert!(plans[0]
             .hits
@@ -11490,7 +11502,7 @@ mod tests {
         assert!(reg.toxin_fields().is_empty());
         assert!(reg.orbit_fields().is_empty());
         assert!(reg.beam_fields().is_empty());
-        assert_eq!(reg.get(id).unwrap().multi_strike_applied, CARPET_BOMB_COUNT);
+        assert_eq!(reg.get(id).unwrap().multi_strike_applied, china_count);
     }
 
     #[test]
@@ -12826,11 +12838,14 @@ mod tests {
             (ObjectId(2), near, Team::GLA, true),
         ];
 
-        // Spawn frame: width scalar 0 → miss (radius 0).
+        // Spawn frame: first grow step → tiny radius, still miss unit at dist 30.
         let early = reg.plan_due_beam_ticks(spawn, &objects);
         assert_eq!(early.len(), 1);
         assert!(early[0].hits.is_empty());
-        assert!((early[0].damage_radius - 0.0).abs() < 0.01);
+        let spawn_step = 1.0 / (PARTICLE_WIDTH_GROW_FRAMES as f32);
+        let spawn_radius = PARTICLE_BEAM_RADIUS * spawn_step;
+        assert!((early[0].width_scalar - spawn_step).abs() < 0.01);
+        assert!((early[0].damage_radius - spawn_radius).abs() < 0.05);
         reg.record_beam_tick_complete(field_id, 0.0, 0, 0, spawn);
 
         // Advance to half grow (scalar 0.5 → radius 25) — still miss unit at 30.
