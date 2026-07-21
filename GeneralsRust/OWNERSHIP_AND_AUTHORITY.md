@@ -21,6 +21,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 | Shadow session | **on** | `GENERALS_GAMEWORLD_SHADOW=0` |
 | HP last-writer (damage auth) | **on** (defers host HP only while shadow live; host-only applies immediately; unmapped shadow fallback) | `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0` |
 | Movement integrate (path follow) | **on** (host skips integrate only while shadow live; host-only steps paths) | `GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY=0` |
+| Construction percent | **on** (defer host percent only while shadow live; rebuild holes set host percent immediately when shadow off) | `GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY=0` |
 | Cash last-writer (economy auth) | **on** | `GENERALS_GAMEWORLD_ECONOMY_AUTHORITY=0` |
 | Attack target channel (shadow↔host) | **on** with shadow session | — |
 | Move destination channel (shadow↔host) | **on** with shadow session | — |
