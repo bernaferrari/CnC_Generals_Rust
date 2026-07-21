@@ -18900,4 +18900,31 @@ mod tests {
             "presentation helper required"
         );
     }
+
+    #[test]
+    fn runtime_host_upgrade_construct_presentation_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng.find("queue_upgrade").expect("queue_upgrade");
+        let body = &eng[i..eng.len().min(i + 3500)];
+        assert!(
+            body.contains("alive_upgrade_producer_structure_ids"),
+            "queue_upgrade empty producers must prefer presentation structures"
+        );
+        assert!(
+            body.contains("Boot residual only"),
+            "queue_upgrade must keep boot residual live dual-scan"
+        );
+        let i = eng.find("dozer_construct").expect("construct");
+        let body = &eng[i..eng.len().min(i + 3500)];
+        assert!(
+            body.contains("alive_construct_builder_ids"),
+            "construct empty builders must prefer presentation workers/dozers"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("fn alive_upgrade_producer_structure_ids")
+                && pf.contains("fn alive_construct_builder_ids"),
+            "presentation helpers required"
+        );
+    }
 }
