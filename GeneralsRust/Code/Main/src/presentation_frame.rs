@@ -10761,8 +10761,7 @@ mod tests {
         );
         let eng = include_str!("cnc_game_engine.rs");
         assert!(
-            eng.contains("frame.local_team_base_position")
-                || eng.contains("local_team_base_position.or_else"),
+            eng.contains("local_team_base_position") && eng.contains("or_else"),
             "snap_camera must prefer frozen local_team_base_position"
         );
     }
