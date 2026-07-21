@@ -1437,3 +1437,5 @@ Multi-select ControlBar rebuild prefers presentation_command_set_names before OB
 ControlBar structure inventory prefers presentation_max_garrison residual when OBJECT_REGISTRY is empty.
 
 GameClient drawable xfer load does not require OBJECT_REGISTRY; dual-world bind is residual only.
+
+GameClient host render update ticks local drawable_map only when OBJECT_REGISTRY is empty.
