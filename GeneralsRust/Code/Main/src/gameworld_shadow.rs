@@ -18880,4 +18880,24 @@ mod tests {
             "guard_position empty pick must use presentation mobiles"
         );
     }
+
+    #[test]
+    fn runtime_host_sell_presentation_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng.find("sell_selected").expect("sell_selected");
+        let body = &eng[i..eng.len().min(i + 4500)];
+        assert!(
+            body.contains("alive_sellable_friendly_structure_ids"),
+            "sell_selected empty targets must prefer presentation sellable structures"
+        );
+        assert!(
+            body.contains("Boot residual only"),
+            "sell empty fill must keep boot residual live dual-scan"
+        );
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("fn alive_sellable_friendly_structure_ids"),
+            "presentation helper required"
+        );
+    }
 }
