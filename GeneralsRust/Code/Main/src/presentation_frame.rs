@@ -2211,6 +2211,11 @@ pub struct PresentationFrame {
     pub superweapon_hidden_objects: Vec<u32>,
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
+    /// EVA residual counters frozen at snapshot (C++ Eva message queue deltas).
+    pub eva_low_power_count: u32,
+    pub eva_insufficient_funds_count: u32,
+    pub eva_base_under_attack_count: u32,
+    pub eva_ally_under_attack_count: u32,
     pub fow_shell_bypass: bool,
     /// Compact local-player cell-grid FOW for terrain overlay / minimap texture.
     /// Frozen at build so GPU upload does not re-query shroud mid-render.
@@ -3259,6 +3264,10 @@ impl PresentationFrame {
                 ids.truncate(32);
                 ids
             },
+            eva_low_power_count: logic.eva_low_power_count(),
+            eva_insufficient_funds_count: logic.eva_insufficient_funds_count(),
+            eva_base_under_attack_count: logic.eva_base_under_attack_count(),
+            eva_ally_under_attack_count: logic.eva_ally_under_attack_count(),
             fow_shell_bypass,
             fow_grid,
             particle_systems,
