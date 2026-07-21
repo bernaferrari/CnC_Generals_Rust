@@ -19222,4 +19222,41 @@ mod tests {
             "host_residual_acquire helpers required"
         );
     }
+
+    #[test]
+    fn boot_residual_dual_scan_labels_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        // Every live get_objects dual-scan should sit near Boot residual / Fail-open labels
+        // when a presentation-first path exists.
+        let mut unlabeled = 0u32;
+        let mut total = 0u32;
+        let mut search = eng;
+        let mut offset = 0usize;
+        while let Some(rel) = search.find("get_objects()") {
+            let abs = offset + rel;
+            total += 1;
+            let start = abs.saturating_sub(400);
+            let win = &eng[start..eng.len().min(abs + 80)];
+            if !(win.contains("Boot residual") || win.contains("Fail-open live residual")) {
+                unlabeled += 1;
+            }
+            offset = abs + 12;
+            search = &eng[offset..];
+        }
+        assert!(
+            total > 20,
+            "expected many get_objects dual-scan sites, got {total}"
+        );
+        assert_eq!(
+            unlabeled, 0,
+            "all get_objects dual-scans must be labeled Boot residual or Fail-open live residual (unlabeled={unlabeled})"
+        );
+        assert!(
+            eng.contains("Boot residual only — presentation pick owns InGame identity")
+                || eng.contains(
+                    "Boot residual only — presentation pose owns InGame camera slave follow"
+                ),
+            "key presentation-first Boot residual labels present"
+        );
+    }
 }
