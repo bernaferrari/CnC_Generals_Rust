@@ -230,6 +230,7 @@ InGame dozer/producer/selection/production-queue head checks on the engine UI
 path prefer `last_presentation_frame` (`presentation_ro` / `ui_object_*`
 helpers). Live `GameLogic` object walks are boot residual or command apply only.
 Producer fail-open live scan runs only when no presentation frame is installed.
+Special-power ready/type residual also prefers presentation (`ui_special_power_*`).
 
 
 ### Honest reading (do not overclaim)
