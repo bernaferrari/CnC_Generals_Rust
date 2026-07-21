@@ -10705,6 +10705,30 @@ mod tests {
     }
 
     #[test]
+    fn snap_camera_start_hint_prefers_presentation() {
+        let src = include_str!("cnc_game_engine.rs");
+        let marker = "Prefer presentation structure centroid / camera target as proximity hint";
+        let i = src
+            .find(marker)
+            .expect("snap_camera presentation start_hint marker");
+        let window = &src[i..src.len().min(i + 900)];
+        assert!(
+            window.contains("is_structure") && window.contains("unwrap_or(self.camera_target)"),
+            "snap_camera start_hint must seed from presentation structures"
+        );
+        let else_at = window.find("} else {").unwrap_or(window.len());
+        let presentation_branch = &window[..else_at];
+        assert!(
+            !presentation_branch.contains("team_base_position"),
+            "presentation start_hint branch must not call live team_base_position"
+        );
+        assert!(
+            window.contains("team_base_position(team)"),
+            "boot residual may still call live team_base_position without presentation"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
