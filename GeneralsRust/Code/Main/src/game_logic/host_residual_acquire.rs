@@ -79,6 +79,51 @@ pub fn residual_combat_kind(
 /// Used by splash / impact residual (gattling) where height is ignored.
 /// `exclude` skips the firing source when present. No automatic enemy-team filter —
 /// legality is entirely `is_legal`.
+/// Candidate for priority-band residual acquire (PDL intercept, etc.).
+#[derive(Debug, Clone)]
+pub struct PriorityAcquireCandidate {
+    pub id: ObjectId,
+    pub position: Vec3,
+    pub is_alive: bool,
+    /// Lower is better. `None` = ineligible.
+    pub priority: Option<u8>,
+}
+
+/// Best residual target by priority band (lower better), XZ range gate, 3D distance tiebreak.
+/// Mirrors C++ PointDefenseLaserUpdate-style selection.
+pub fn pick_best_priority_residual_target(
+    exclude: ObjectId,
+    origin: Vec3,
+    origin_xz: (f32, f32),
+    max_range_2d: f32,
+    candidates: impl IntoIterator<Item = PriorityAcquireCandidate>,
+) -> Option<(ObjectId, u8, f32)> {
+    let mut best: Option<(ObjectId, u8, f32)> = None;
+    let range_sq = max_range_2d * max_range_2d;
+    for c in candidates {
+        if c.id == exclude || !c.is_alive {
+            continue;
+        }
+        let Some(prio) = c.priority else {
+            continue;
+        };
+        let dx = origin_xz.0 - c.position.x;
+        let dz = origin_xz.1 - c.position.z;
+        if dx * dx + dz * dz > range_sq {
+            continue;
+        }
+        let dist = origin.distance(c.position);
+        let better = match best {
+            None => true,
+            Some((_, bp, bd)) => prio < bp || (prio == bp && dist < bd),
+        };
+        if better {
+            best = Some((c.id, prio, dist));
+        }
+    }
+    best
+}
+
 pub fn pick_nearest_residual_target_xz(
     exclude: Option<ObjectId>,
     origin_xz: (f32, f32),
@@ -340,5 +385,33 @@ mod tests {
             c.combat_kind
         });
         assert_eq!(pick.map(|(id, _, _)| id), Some(ObjectId(2)));
+    }
+
+    #[test]
+    fn priority_picks_primary_over_secondary() {
+        let origin = Vec3::ZERO;
+        let cands = [
+            PriorityAcquireCandidate {
+                id: ObjectId(1),
+                position: Vec3::new(5.0, 0.0, 0.0),
+                is_alive: true,
+                priority: Some(1), // secondary closer
+            },
+            PriorityAcquireCandidate {
+                id: ObjectId(2),
+                position: Vec3::new(8.0, 0.0, 0.0),
+                is_alive: true,
+                priority: Some(0), // primary farther
+            },
+            PriorityAcquireCandidate {
+                id: ObjectId(3),
+                position: Vec3::new(50.0, 0.0, 0.0),
+                is_alive: true,
+                priority: Some(0), // primary out of range
+            },
+        ];
+        let pick =
+            pick_best_priority_residual_target(ObjectId(99), origin, (0.0, 0.0), 12.0, cands);
+        assert_eq!(pick.map(|(id, p, _)| (id, p)), Some((ObjectId(2), 0)));
     }
 }

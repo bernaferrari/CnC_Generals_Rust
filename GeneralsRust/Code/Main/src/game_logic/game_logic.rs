@@ -26658,9 +26658,9 @@ impl GameLogic {
     /// TERTIARY WeaponStore allocate, or laser drawable path.
     pub fn update_point_defense_intercept(&mut self) {
         use crate::game_logic::host_point_defense::{
-            in_pdl_range_2d, intercept_priority, is_point_defense_carrier,
-            is_primary_intercept_target, is_secondary_intercept_target, pdl_damage,
-            pdl_delay_frames, pdl_fire_range, PDL_INTERCEPT_AUDIO,
+            intercept_priority, is_point_defense_carrier, is_primary_intercept_target,
+            is_secondary_intercept_target, pdl_damage, pdl_delay_frames, pdl_fire_range,
+            PDL_INTERCEPT_AUDIO,
         };
 
         // Snapshot carriers first (immutable pass).
@@ -26710,53 +26710,53 @@ impl GameLogic {
             let delay = pdl_delay_frames(&template_name);
             let carrier_xz = (carrier_pos.x, carrier_pos.z);
 
-            // Find best target: primary missiles first, then secondary infantry.
-            // Prefer closer targets within same priority band.
-            let mut best: Option<(ObjectId, u8, f32)> = None;
-            for (tid, target) in &self.objects {
-                if *tid == carrier_id || !target.is_alive() {
-                    continue;
-                }
-                let same_team = target.team == team;
-                let is_primary = is_primary_intercept_target(
-                    target.is_kind_of(KindOf::Projectile)
-                        || target.object_type == ObjectType::Projectile,
-                    target.is_alive(),
-                    same_team,
-                    &target.template_name,
-                );
-                // Retail: only Paladin has SecondaryTargetTypes = INFANTRY.
-                // Avenger / King Raptor / Combat Chinook: missiles only.
-                let is_secondary = if crate::game_logic::host_usa_tanks::paladin_allows_secondary_infantry_intercept(
+            // Pure residual acquire: primary missiles first, then secondary infantry;
+            // closer wins within the same priority band (XZ range / 3D tiebreak).
+            let allow_secondary =
+                crate::game_logic::host_usa_tanks::paladin_allows_secondary_infantry_intercept(
                     &template_name,
-                ) {
-                    is_secondary_intercept_target(
-                        target.is_kind_of(KindOf::Infantry),
+                );
+            let candidates: Vec<_> = self
+                .objects
+                .iter()
+                .map(|(&tid, target)| {
+                    let same_team = target.team == team;
+                    let is_primary = is_primary_intercept_target(
+                        target.is_kind_of(KindOf::Projectile)
+                            || target.object_type == ObjectType::Projectile,
                         target.is_alive(),
                         same_team,
-                        target.status.under_construction,
-                    )
-                } else {
-                    false
-                };
-                let Some(prio) = intercept_priority(is_primary, is_secondary) else {
-                    continue;
-                };
-                let tpos = target.get_position();
-                if !in_pdl_range_2d(carrier_xz, (tpos.x, tpos.z), fire_range) {
-                    continue;
-                }
-                let dist = carrier_pos.distance(tpos);
-                let better = match best {
-                    None => true,
-                    Some((_, bp, bd)) => prio < bp || (prio == bp && dist < bd),
-                };
-                if better {
-                    best = Some((*tid, prio, dist));
-                }
-            }
-
-            let Some((target_id, prio, _)) = best else {
+                        &target.template_name,
+                    );
+                    // Retail: only Paladin has SecondaryTargetTypes = INFANTRY.
+                    // Avenger / King Raptor / Combat Chinook: missiles only.
+                    let is_secondary = if allow_secondary {
+                        is_secondary_intercept_target(
+                            target.is_kind_of(KindOf::Infantry),
+                            target.is_alive(),
+                            same_team,
+                            target.status.under_construction,
+                        )
+                    } else {
+                        false
+                    };
+                    crate::game_logic::host_residual_acquire::PriorityAcquireCandidate {
+                        id: tid,
+                        position: target.get_position(),
+                        is_alive: target.is_alive(),
+                        priority: intercept_priority(is_primary, is_secondary),
+                    }
+                })
+                .collect();
+            let Some((target_id, prio, _)) =
+                crate::game_logic::host_residual_acquire::pick_best_priority_residual_target(
+                    carrier_id,
+                    carrier_pos,
+                    carrier_xz,
+                    fire_range,
+                    candidates,
+                )
+            else {
                 continue;
             };
 
