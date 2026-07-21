@@ -10981,6 +10981,26 @@ mod tests {
     }
 
     #[test]
+    fn selection_translators_registry_empty() {
+        let sel = include_str!("../../GameEngine/GameClient/src/message_stream/selection_xlat.rs");
+        assert!(
+            sel.contains("OBJECT_REGISTRY.is_empty()") && sel.contains("return Vec::new()"),
+            "selection_xlat collect_drawables must early-out when registry empty"
+        );
+        let tr = include_str!("../../GameEngine/GameClient/src/message_stream/translators.rs");
+        assert!(
+            tr.contains("OBJECT_REGISTRY.is_empty()")
+                && tr.contains("return (Vec::new(), Vec::new())"),
+            "context pick translators must early-out when registry empty"
+        );
+        let am = include_str!("../../GameEngine/GameLogic/src/action_manager.rs");
+        assert!(
+            am.contains("OBJECT_REGISTRY.is_empty()"),
+            "action_manager dual-world special-object scans must gate on empty registry"
+        );
+    }
+
+    #[test]
     fn production_progress_log_carries_power_factor() {
         let log = include_str!("game_logic/host_production_progress_log.rs");
         assert!(
