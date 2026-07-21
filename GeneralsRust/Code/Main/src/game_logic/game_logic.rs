@@ -25389,7 +25389,7 @@ impl GameLogic {
                     self.usa_pilot.record_invulnerable_block();
                     continue;
                 }
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, Some(center_id));
                 hits = hits.saturating_add(1);
                 if destroyed {
                     destroy_ids.push((id, Some(team)));
@@ -25659,7 +25659,7 @@ impl GameLogic {
             }
             let _ = hits;
         } else if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage(damage);
+            destroyed = target.take_damage_from(damage, Some(defense_id));
             if destroyed {
                 kill_xp = target.thing.template.experience_value
                     * Self::veterancy_xp_multiplier(target.experience.level);
@@ -26054,7 +26054,7 @@ impl GameLogic {
             let mut destroyed = false;
             let mut kill_xp = 0.0;
             if let Some(target) = self.objects.get_mut(&clip.victim_id) {
-                destroyed = target.take_damage(damage);
+                destroyed = target.take_damage_from(damage, Some(clip.assistant_id));
                 if destroyed {
                     kill_xp = target.thing.template.experience_value
                         * Self::veterancy_xp_multiplier(target.experience.level);
@@ -33371,7 +33371,8 @@ impl GameLogic {
         let mut destroyed = false;
         let mut kill_xp = 0.0;
         if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage(damage);
+            // Source-attributed residual: BodyModule last_damage_source + damage log.
+            destroyed = target.take_damage_from(damage, Some(sentry_id));
             if destroyed {
                 kill_xp = target.thing.template.experience_value
                     * Self::veterancy_xp_multiplier(target.experience.level);
@@ -33513,7 +33514,7 @@ impl GameLogic {
         let mut destroyed = false;
         let mut kill_xp = 0.0;
         if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage(damage);
+            destroyed = target.take_damage_from(damage, Some(hellfire_id));
             if destroyed {
                 kill_xp = target.thing.template.experience_value
                     * Self::veterancy_xp_multiplier(target.experience.level);
@@ -34059,7 +34060,7 @@ impl GameLogic {
         let mut destroyed = false;
         let mut kill_xp = 0.0;
         if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage(damage);
+            destroyed = target.take_damage_from(damage, Some(passenger_id));
             if destroyed {
                 kill_xp = target.thing.template.experience_value
                     * Self::veterancy_xp_multiplier(target.experience.level);
@@ -34165,7 +34166,7 @@ impl GameLogic {
         let mut destroyed = false;
         let mut kill_xp = 0.0;
         if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage(damage);
+            destroyed = target.take_damage_from(damage, Some(garrisoned_id));
             if destroyed {
                 kill_xp = target.thing.template.experience_value
                     * Self::veterancy_xp_multiplier(target.experience.level);
