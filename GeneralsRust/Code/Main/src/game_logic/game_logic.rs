@@ -7639,18 +7639,12 @@ impl GameLogic {
         }
         u.is_blocked = false;
         u.is_blocked_and_stuck = false;
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
-        if decision_auth {
-            // Drop mut borrow before logging.
-            drop(u);
+        // Host-immediate engagement residual; log for GameWorld last-write.
+        u.target = Some(target_id);
+        // Face without full path — spin in place residual.
+        let _ = u.face_position(target_pos, 1.0 / 30.0);
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
-            if let Some(u) = self.objects.get_mut(&unit_id) {
-                let _ = u.face_position(target_pos, 1.0 / 30.0);
-            }
-        } else {
-            u.target = Some(target_id);
-            // Face without full path — spin in place residual.
-            let _ = u.face_position(target_pos, 1.0 / 30.0);
         }
         true
     }
@@ -10789,10 +10783,20 @@ impl GameLogic {
     pub(crate) fn tick_physics_collisions_all(&mut self) -> u32 {
         // Per-frame blocked bookkeeping residual (before new collide pairs).
         // Snapshot ground heights before mut pass (terrain borrow).
+        // Only mobile / physics-active bodies need terrain samples + motion step —
+        // sampling every structure on Lone Eagle (~900 objs) dominated host frames.
         let ground_heights: Vec<(ObjectId, f32)> = {
             let mut out = Vec::new();
             for (id, o) in self.objects.iter() {
                 if o.status.destroyed || !o.is_alive() {
+                    continue;
+                }
+                // Structures/immobile skip full physics motion residual.
+                if !(o.can_move()
+                    || o.shock_stun_frames > 0
+                    || o.bounce_audio_pending > 0
+                    || o.movement.velocity.length_squared() > 1e-6)
+                {
                     continue;
                 }
                 let p = o.get_position();
@@ -10804,13 +10808,17 @@ impl GameLogic {
             out
         };
         for o in self.objects.values_mut() {
+            if o.status.destroyed || !o.is_alive() {
+                continue;
+            }
             o.clear_blocked_frame_state();
             o.tick_move_away_state();
             o.tick_path_queue();
             // C++ PhysicsBehavior update residual order: friction → integrate accel → motion.
-            if o.can_move() && !o.status.destroyed {
+            if o.can_move() {
                 o.apply_frictional_forces();
             }
+            // Immobile structures still clear accel residual cheaply.
             o.integrate_physics_accel();
         }
         for (id, ground_y) in ground_heights {
@@ -10821,7 +10829,10 @@ impl GameLogic {
         // Rebuild partition cells (C++ registerObject residual each update).
         // Keep FOW reveal residual; only re-register live objects.
         self.partition_manager.clear_registered_objects();
-        let mut entries: Vec<(ObjectId, glam::Vec3, f32)> = Vec::new();
+        // O(1) id → pose/radius for pair resolution (was linear find per neighbor).
+        let mut entry_by_id: std::collections::HashMap<u32, (glam::Vec3, f32)> =
+            std::collections::HashMap::new();
+        let mut mobile_ids: Vec<ObjectId> = Vec::new();
         for (id, o) in self.objects.iter() {
             if !o.is_alive() || o.status.destroyed {
                 continue;
@@ -10830,14 +10841,22 @@ impl GameLogic {
             let r = o.selection_radius.max(1.0);
             self.partition_manager
                 .register_object_at(id.0, pos.x, pos.z);
-            entries.push((*id, pos, r));
+            entry_by_id.insert(id.0, (pos, r));
+            // Only mobile bodies initiate collide queries (structures stay as
+            // partition obstacles via neighbor lookup).
+            if o.can_move() {
+                mobile_ids.push(*id);
+            }
         }
-        entries.sort_by_key(|(id, _, _)| id.0);
+        mobile_ids.sort_by_key(|id| id.0);
 
         let mut handled = 0u32;
         let mut seen_pairs: std::collections::HashSet<(u32, u32)> =
             std::collections::HashSet::new();
-        for (a_id, a_pos, a_r) in &entries {
+        for a_id in &mobile_ids {
+            let Some((a_pos, a_r)) = entry_by_id.get(&a_id.0).copied() else {
+                continue;
+            };
             let neighbors = self.partition_manager.neighbor_object_ids(a_pos.x, a_pos.z);
             for b_raw in neighbors {
                 if b_raw == a_id.0 {
@@ -10848,8 +10867,7 @@ impl GameLogic {
                 if !seen_pairs.insert((lo, hi)) {
                     continue;
                 }
-                let b_id = ObjectId(b_raw);
-                let Some((_, b_pos, b_r)) = entries.iter().find(|(id, _, _)| *id == b_id) else {
+                let Some((b_pos, b_r)) = entry_by_id.get(&b_raw).copied() else {
                     continue;
                 };
                 let dx = a_pos.x - b_pos.x;
@@ -10858,16 +10876,33 @@ impl GameLogic {
                 if dx * dx + dz * dz > sum * sum {
                     continue;
                 }
-                if self.try_physics_collide(*a_id, b_id, *a_r) {
+                let b_id = ObjectId(b_raw);
+                if self.try_physics_collide(*a_id, b_id, a_r) {
                     handled = handled.saturating_add(1);
-                } else if self.try_physics_collide(b_id, *a_id, *b_r) {
+                } else if self.try_physics_collide(b_id, *a_id, b_r) {
                     handled = handled.saturating_add(1);
                 }
             }
         }
         // C++ previousOverlap = currentOverlap end of physics update residual.
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
-        for id in ids {
+        for id in mobile_ids {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.advance_physics_overlap_frame();
+            }
+        }
+        // Stun/bounce residual on non-mobile still advances overlap bookkeeping.
+        let extra: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && !o.status.destroyed
+                    && !o.can_move()
+                    && (o.shock_stun_frames > 0 || o.bounce_audio_pending > 0)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in extra {
             if let Some(o) = self.objects.get_mut(&id) {
                 o.advance_physics_overlap_frame();
             }
@@ -96494,7 +96529,17 @@ mod tests {
         let mut inf = Object::new(ti, iid, Team::USA);
         logic.objects.insert(iid, inf);
         assert!(logic.try_physics_collide(iid, vid, 5.0));
-        assert!(logic.objects.get(&iid).unwrap().status.destroyed);
+        // Reclaim residual: process_destroy_list removes the pilot (not merely
+        // marks destroyed while leaving the slot occupied).
+        assert!(
+            logic.objects.get(&iid).is_none()
+                || logic
+                    .objects
+                    .get(&iid)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(false),
+            "pilot must be destroyed or removed after unmanned reclaim"
+        );
         assert!(!logic.objects.get(&vid).unwrap().status.disabled_unmanned);
         assert_eq!(logic.objects.get(&vid).unwrap().team, Team::USA);
     }
