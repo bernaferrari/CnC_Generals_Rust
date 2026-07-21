@@ -24855,12 +24855,13 @@ impl GameLogic {
                 unit.set_position(crawler_pos + offset);
                 unit.set_contained_by(None);
                 unit.set_status_moving(false);
-                // GoAggressiveOnExit residual: attack designated target.
-                unit.attack_target(target_id);
-                ordered = ordered.saturating_add(1);
-                self.troop_crawler.record_deploy_attack_order();
-                self.troop_crawler.record_unload();
             }
+            // GoAggressiveOnExit residual: attack designated target.
+            // Under AI decision authority, log-only for GameWorld writeback.
+            self.engage_target_decision_aware(occ_id, target_id);
+            ordered = ordered.saturating_add(1);
+            self.troop_crawler.record_deploy_attack_order();
+            self.troop_crawler.record_unload();
         }
 
         self.troop_crawler.record_assault_deploy();
@@ -24871,6 +24872,15 @@ impl GameLogic {
                 .with_priority(140),
         );
         ordered
+    }
+
+    #[cfg(test)]
+    pub fn apply_troop_crawler_assault_deploy_for_test(
+        &mut self,
+        crawler_id: ObjectId,
+        target_id: ObjectId,
+    ) -> u32 {
+        self.apply_troop_crawler_assault_deploy(crawler_id, target_id)
     }
 
     /// Record a residual Overlord BattleBunker enter (tests / host path).
@@ -32108,8 +32118,10 @@ impl GameLogic {
         let src_pos = src_pos;
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_active_weapon_slot(1);
-            obj.attack_target(target_id);
         }
+        // Laser-guided special: engage secondary-slot target.
+        // Under AI decision authority, log-only for GameWorld writeback.
+        self.engage_target_decision_aware(object_id, target_id);
         self.missile_defender_residual_laser_specials = self
             .missile_defender_residual_laser_specials
             .saturating_add(1);
@@ -32120,6 +32132,15 @@ impl GameLogic {
                 .with_priority(160),
         );
         true
+    }
+
+    #[cfg(test)]
+    pub fn activate_missile_defender_laser_guided_for_test(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        self.activate_missile_defender_laser_guided(object_id, target_id)
     }
 
     /// Record Combat Cycle residual rider load honesty.

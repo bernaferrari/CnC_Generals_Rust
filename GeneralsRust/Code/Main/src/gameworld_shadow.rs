@@ -15683,6 +15683,162 @@ mod tests {
     }
 
     #[test]
+    fn troop_crawler_assault_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("TcAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let crawler_name = "ChinaVehicleTroopCrawler";
+        for name in [crawler_name, "TcO", "TcE"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                if name == crawler_name {
+                    t.add_kind_of(KindOf::Vehicle);
+                } else {
+                    t.add_kind_of(KindOf::Infantry);
+                }
+                t.add_kind_of(KindOf::Attackable);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let crawler = logic
+            .create_object(crawler_name, Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("c");
+        let occ = logic
+            .create_object("TcO", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
+            .expect("o");
+        let enemy = logic
+            .create_object("TcE", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
+            .expect("e");
+        if let Some(c) = logic.get_objects_mut().get_mut(&crawler) {
+            c.install_troop_crawler_transport();
+            let _ = c.add_occupant(occ);
+        }
+        if let Some(o) = logic.get_objects_mut().get_mut(&occ) {
+            o.set_contained_by(Some(crawler));
+        }
+        let ordered = logic.apply_troop_crawler_assault_deploy_for_test(crawler, enemy);
+        assert!(
+            ordered >= 1,
+            "deploy should order occupant attack; ordered={ordered}"
+        );
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_ATTACK && e.target_host == enemy.0
+            }),
+            "assault deploy must log AttackTarget; ordered={ordered} events={events:?}"
+        );
+        // Occupant host target deferred when authority on.
+        if let Some(o) = logic.get_objects().get(&occ) {
+            assert!(
+                o.target.is_none(),
+                "occupant host target deferred under decision authority"
+            );
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        // Writeback should land on whoever logged AttackTarget (occ if ordered, else engagetest).
+        let hit = logic
+            .get_objects()
+            .iter()
+            .any(|(id, o)| o.target == Some(enemy) && *id != enemy);
+        assert!(hit, "writeback must set some unit target to enemy");
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
+    fn missile_defender_laser_guided_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MdAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        // Retail template name residual for missile defender.
+        let md_name = "AmericaInfantryMissileDefender";
+        if !logic.templates.contains_key(md_name) {
+            let mut t = ThingTemplate::new(md_name);
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert(md_name.into(), t);
+        }
+        if !logic.templates.contains_key("MdE") {
+            let mut t = ThingTemplate::new("MdE");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("MdE".into(), t);
+        }
+        let mid = logic
+            .create_object(md_name, Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("md");
+        let eid = logic
+            .create_object("MdE", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("e");
+        if let Some(o) = logic.get_objects_mut().get_mut(&mid) {
+            o.secondary_weapon = Some(Weapon {
+                damage: 20.0,
+                range: 250.0,
+                ..Weapon::default()
+            });
+            o.weapon = Some(Weapon {
+                damage: 5.0,
+                range: 100.0,
+                ..Weapon::default()
+            });
+        }
+        let ok = logic.activate_missile_defender_laser_guided_for_test(mid, eid);
+        assert!(ok, "laser guided should activate");
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_ATTACK
+                    && e.host_object == mid
+                    && e.target_host == eid.0
+            }),
+            "laser guided must log AttackTarget; got {events:?}"
+        );
+        assert!(
+            logic.get_objects().get(&mid).unwrap().target.is_none(),
+            "host target deferred under decision authority"
+        );
+        // Weapon slot still host-applied.
+        assert_eq!(logic.get_objects().get(&mid).unwrap().active_weapon_slot, 1);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert_eq!(logic.get_objects().get(&mid).unwrap().target, Some(eid));
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn mood_auto_acquire_logs_decision_under_authority() {
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
