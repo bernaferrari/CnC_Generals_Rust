@@ -18628,4 +18628,35 @@ mod tests {
             "presentation shell must tick update_input on shared device handles"
         );
     }
+
+    #[test]
+    fn residual_auto_fire_host_attack_log_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        let helper = src
+            .find("fn residual_auto_fire_apply_damage")
+            .expect("helper");
+        let body = &src[helper..src.len().min(helper + 2500)];
+        assert!(
+            body.contains("host_attack_log::record(attacker_id, Some(target_id))"),
+            "residual auto-fire helper must record host_attack_log for presentation AttackTargeted"
+        );
+        for name in [
+            "try_garrison_residual_fire",
+            "try_transport_passenger_residual_fire",
+        ] {
+            let at = src.find(&format!("fn {name}")).expect(name);
+            let b = &src[at..src.len().min(at + 9000)];
+            assert!(
+                b.contains("record_attack")
+                    && b.contains("gameworld_ai_decision_authority_enabled"),
+                "{name} must log attack decision under AI decision authority"
+            );
+        }
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("host_attack_log::take_last_drain")
+                && pf.contains("PresentationEvent::AttackTargeted"),
+            "presentation must freeze AttackTargeted from host_attack_log"
+        );
+    }
 }
