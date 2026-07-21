@@ -183,7 +183,7 @@ Shadow session **defaults on** in the engine (`GENERALS_GAMEWORLD_SHADOW=0` to d
 
 **Production defaults (2026-07-14):** shadow session, damage authority, and economy authority are **on** when env unset. Opt out with `=0` / `false`. `host_attack_log` from `Object::set_target` → SetAttackTarget each tick.
 
-Still not sole GameWorld production authority (host Main GameLogic remains match host; shadow is last-writer overlay).
+Production queue last-writer via GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY (default on); host still executes completion spawns. Still not sole GameWorld production *tick* authority (host Main GameLogic remains match host; shadow is last-writer overlay).
 
 ### Host authority log materialize (no-session path)
 

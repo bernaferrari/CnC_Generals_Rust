@@ -218,6 +218,25 @@ pub fn gameworld_construction_authority_enabled() -> bool {
     }
 }
 
+/// When enabled (default), GameWorld shadow is last-writer for production queue
+/// identity (items/progress/rally/exit delay) via host progress logs + writeback.
+/// Host still *executes* production ticks (spawn completion residual); shadow owns
+/// the frozen queue snapshot at session end.
+///
+/// Env: `GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
+pub fn gameworld_production_authority_enabled() -> bool {
+    match std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => true,
+    }
+}
+
 /// Gates/smoke: no-op when production defaults are already on.
 /// Still forces `1` if env was never set (explicit documentation for gate binaries).
 pub fn ensure_gate_damage_authority() {
@@ -227,6 +246,7 @@ pub fn ensure_gate_damage_authority() {
         }
     }
     ensure_gate_economy_authority();
+    ensure_gate_production_authority();
 }
 
 /// Gates/smoke: force economy authority env to `1` when unset.
@@ -234,6 +254,15 @@ pub fn ensure_gate_economy_authority() {
     if std::env::var_os("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").is_none() {
         unsafe {
             std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+        }
+    }
+}
+
+/// Gates/smoke: force production authority env to `1` when unset.
+pub fn ensure_gate_production_authority() {
+    if std::env::var_os("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").is_none() {
+        unsafe {
+            std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
         }
     }
 }
@@ -1891,6 +1920,9 @@ impl GameWorldShadow {
 
     /// Write shadow production queue + rally_point last-writer residual onto host buildings.
     pub fn writeback_production_to_host(&self, logic: &mut GameLogic) -> usize {
+        if !gameworld_production_authority_enabled() {
+            return 0;
+        }
         use crate::game_logic::{ProductionItem, ProductionKind, Resources};
         let mut updated = 0usize;
         for (&hid, &eid) in &self.host_to_entity {
@@ -9277,6 +9309,112 @@ mod tests {
     }
 
     #[test]
+    fn production_authority_writeback_is_queue_last_writer() {
+        use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
+        use crate::game_logic::{
+            BuildingData, BuildingType, KindOf, ProductionItem, ProductionKind, Resources, Team,
+            ThingTemplate,
+        };
+        let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+        assert!(gameworld_production_authority_enabled());
+        host_production_progress_log::clear();
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ProdAuthWB");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("ProdAuthBarracks") {
+            let mut t = ThingTemplate::new("ProdAuthBarracks");
+            t.set_health(500.0);
+            t.add_kind_of(KindOf::Structure);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("ProdAuthBarracks".into(), t);
+        }
+        let oid = logic
+            .create_object(
+                "ProdAuthBarracks",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 10.0),
+            )
+            .expect("barracks");
+        {
+            let o = logic.get_objects_mut().get_mut(&oid).expect("b");
+            let mut bd = BuildingData::new(BuildingType::Barracks);
+            bd.production_queue.push(ProductionItem {
+                template_name: "ProdAuthRanger".into(),
+                progress: 2.0,
+                total_time: 10.0,
+                cost: Resources {
+                    supplies: 150,
+                    power: 0,
+                },
+                quantity_total: 1,
+                quantity_produced: 0,
+                kind: ProductionKind::Unit,
+            });
+            o.building_data = Some(bd);
+        }
+
+        let items = vec![HostProductionQueueItem {
+            template_name: "ProdAuthRanger".into(),
+            progress: 2.0,
+            total_time: 10.0,
+            cost_supplies: 150,
+            is_upgrade: false,
+        }];
+        host_production_progress_log::record(oid, items.clone(), 0.0);
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let n =
+            shadow.apply_host_production_progress_events(&host_production_progress_log::drain());
+        assert!(n >= 1, "progress apply {n}");
+
+        // Dirty host queue — authority writeback must restore shadow snapshot.
+        {
+            let o = logic.get_object_mut(oid).expect("o");
+            o.building_data.as_mut().unwrap().production_queue.clear();
+        }
+        assert!(shadow.writeback_production_to_host(&mut logic) >= 1);
+        let restored = logic
+            .get_object(oid)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue
+            .len();
+        assert_eq!(
+            restored,
+            items.len(),
+            "writeback must restore queue under production authority"
+        );
+
+        // Authority off: writeback is a no-op.
+        std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
+        assert!(!gameworld_production_authority_enabled());
+        {
+            let o = logic.get_object_mut(oid).expect("o");
+            o.building_data.as_mut().unwrap().production_queue.clear();
+        }
+        assert_eq!(shadow.writeback_production_to_host(&mut logic), 0);
+        assert!(logic
+            .get_object(oid)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue
+            .is_empty());
+
+        host_production_progress_log::clear();
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn host_veterancy_log_drives_set_veterancy_channel() {
         use crate::game_logic::{host_veterancy_log, KindOf, Team, ThingTemplate, VeterancyLevel};
         let mut logic = GameLogic::new();
@@ -12746,11 +12884,17 @@ mod tests {
     #[test]
     fn production_authority_defaults_on() {
         // Unset → on. Process may have gate env from other tests; only assert when unset.
-        if std::env::var_os("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").is_none() {
-            assert!(gameworld_damage_authority_enabled());
+        if std::env::var_os("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").is_none() {
+            assert!(gameworld_production_authority_enabled());
         }
-        if std::env::var_os("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").is_none() {
-            assert!(gameworld_economy_authority_enabled());
+        let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
+        assert!(!gameworld_production_authority_enabled());
+        std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+        assert!(gameworld_production_authority_enabled());
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
         }
     }
 
