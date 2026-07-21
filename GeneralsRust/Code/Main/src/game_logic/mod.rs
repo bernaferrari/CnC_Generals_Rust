@@ -5,6 +5,7 @@ pub mod combat_particles;
 pub mod game_logic;
 pub mod host_ai_ability_upgrade_residual;
 pub mod host_ai_mood_log;
+pub mod host_ai_request_log;
 pub mod host_body_damage_log;
 pub mod host_bounce_land_log;
 pub mod host_combat_attack_log;
