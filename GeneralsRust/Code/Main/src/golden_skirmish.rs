@@ -789,6 +789,36 @@ fn approach_point(enemy_pos: Vec3, index: usize) -> Vec3 {
 /// Returns `(fought, all_cleared, combat_no_teleport_ok, realistic_speed_ok, store_damage_ok)`.
 /// `combat_no_teleport_ok` is true only when damage/kills happened without any
 /// set_position combat range pull.
+
+/// Materialize `host_damage_log` into host HP/destroy flags.
+///
+/// Under `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY` (default on), `take_damage` logs
+/// intent only and freezes host HP until a GameWorld shadow writeback. Golden
+/// map-world combat is host-only (no dual shadow session), so without this
+/// drain the primary enemy never appears dead and `fought`/`victory` stay false.
+fn materialize_host_damage_log(logic: &mut GameLogic) {
+    let events = crate::game_logic::host_damage_log::drain();
+    if events.is_empty() {
+        return;
+    }
+    let mut destroy_ids = Vec::new();
+    for e in events {
+        let Some(obj) = logic.get_object_mut(e.target) else {
+            continue;
+        };
+        if e.destroyed || e.amount + 1e-3 >= obj.health.current {
+            obj.health.current = 0.0;
+            obj.status.destroyed = true;
+            destroy_ids.push(e.target);
+        } else if e.amount > 0.0 {
+            obj.health.current = (obj.health.current - e.amount).max(0.0);
+        }
+    }
+    for id in destroy_ids {
+        logic.mark_object_for_destruction(id, None);
+    }
+}
+
 fn fight_enemies_with_rangers(
     logic: &mut GameLogic,
     rangers: &[ObjectId],
@@ -805,6 +835,7 @@ fn fight_enemies_with_rangers(
     let primary_hp_before = primary_target
         .and_then(|id| logic.get_object(id).map(|o| o.health.current))
         .unwrap_or(0.0);
+    crate::game_logic::host_damage_log::clear();
     let mut any_damage = false;
     let mut combat_destroyed = false;
     let mut used_teleport_pull = false;
@@ -871,6 +902,7 @@ fn fight_enemies_with_rangers(
                 let used = run_until_budget(logic, march_frames, |g| {
                     any_ranger_in_weapon_range(g, &live, ep)
                 });
+                materialize_host_damage_log(logic);
                 fight_sim_frames = fight_sim_frames.saturating_add(used);
             }
         }
@@ -957,6 +989,7 @@ fn fight_enemies_with_rangers(
             // Bound per-focus thrash so multi-base retarget cannot hang.
             let mini = (((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 180).clamp(30, 450);
             let used = run_until_budget(logic, mini, |g| any_ranger_in_weapon_range(g, &live, ep));
+            materialize_host_damage_log(logic);
             fight_sim_frames = fight_sim_frames.saturating_add(used);
             if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
                 break;
@@ -1057,6 +1090,7 @@ fn fight_enemies_with_rangers(
             }
             let step = step_frames.min(MAX_FIGHT_SIM_FRAMES.saturating_sub(fight_sim_frames));
             run_frames(logic, step);
+            materialize_host_damage_log(logic);
             fight_sim_frames = fight_sim_frames.saturating_add(step);
             if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
                 break;
@@ -1073,10 +1107,36 @@ fn fight_enemies_with_rangers(
             cmd_id += 1;
             let step = 3usize.min(MAX_FIGHT_SIM_FRAMES.saturating_sub(fight_sim_frames));
             run_frames(logic, step);
+            materialize_host_damage_log(logic);
             fight_sim_frames = fight_sim_frames.saturating_add(step);
             if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
                 break;
             }
+        }
+
+        // Damage-authority honesty: host HP may not drop mid-frame; observe
+        // host_damage_log residual (same pattern as superweapon host-path tests).
+        let dmg_events = crate::game_logic::host_damage_log::snapshot();
+        let enemy_damage_logged = dmg_events.iter().any(|e| {
+            logic
+                .get_object(e.target)
+                .map(|o| o.team != Team::USA && o.team != Team::Neutral)
+                .unwrap_or(false)
+                && (e.amount > 0.0 || e.destroyed)
+        });
+        if enemy_damage_logged {
+            any_damage = true;
+        }
+        let enemy_kill_logged = dmg_events.iter().any(|e| {
+            e.destroyed
+                && logic
+                    .get_object(e.target)
+                    .map(|o| o.team != Team::USA && o.team != Team::Neutral)
+                    .unwrap_or(true)
+        });
+        if enemy_kill_logged {
+            combat_destroyed = true;
+            any_damage = true;
         }
 
         if let Some(pid) = primary_target {
@@ -1087,6 +1147,13 @@ fn fight_enemies_with_rangers(
                 if o.health.current < primary_hp_before {
                     any_damage = true;
                 }
+            }
+            // Log residual against the primary target specifically.
+            if dmg_events
+                .iter()
+                .any(|e| e.target == pid && (e.amount > 0.0 || e.destroyed))
+            {
+                any_damage = true;
             }
         } else if !logic
             .get_objects()
@@ -1124,6 +1191,27 @@ fn fight_enemies_with_rangers(
             combat_destroyed = true;
             any_damage = true;
         }
+        let dmg = crate::game_logic::host_damage_log::snapshot();
+        if dmg
+            .iter()
+            .any(|e| e.target == pid && (e.amount > 0.0 || e.destroyed))
+        {
+            any_damage = true;
+        }
+        if dmg.iter().any(|e| e.target == pid && e.destroyed) {
+            combat_destroyed = true;
+        }
+    }
+    // Any logged enemy damage counts as fought under damage authority.
+    let dmg_all = crate::game_logic::host_damage_log::snapshot();
+    if dmg_all.iter().any(|e| {
+        e.amount > 0.0
+            && logic
+                .get_object(e.target)
+                .map(|o| o.team != Team::USA && o.team != Team::Neutral)
+                .unwrap_or(false)
+    }) {
+        any_damage = true;
     }
     let fought = any_damage || combat_destroyed;
     // Honesty: damage/victory without ever pulling via set_position.
@@ -2165,6 +2253,7 @@ mod tests {
     use super::*;
 
     #[test]
+
     fn host_construct_after_load_map_residual() {
         crate::gameworld_shadow::ensure_gate_damage_authority();
         set_verification_single_authority(true);

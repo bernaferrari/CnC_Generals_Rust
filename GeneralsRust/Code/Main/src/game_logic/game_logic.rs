@@ -6094,12 +6094,13 @@ impl GameLogic {
                     let base_rate = 1.0 / obj.thing.template.build_time;
                     let effective_rate = base_rate * dozer_count as f32 * power_factor;
                     let projected = (obj.construction_percent + effective_rate * dt).min(1.0);
-                    // Construction authority: host keeps pre-tick percent for dual-read
-                    // safety only when writeback will last-write; still use projected
-                    // for completion side effects and progress log.
-                    if !crate::gameworld_shadow::gameworld_construction_authority_enabled() {
-                        obj.construction_percent = projected;
-                    }
+                    // Always accumulate host construction progress.
+                    // Prior construction-authority path froze percent and recomputed
+                    // `projected = percent + rate*dt` each frame, so build_time > dt
+                    // never reached 1.0 without a shadow writeback session (golden /
+                    // headless map path stalled USA_Barracks at uc=true forever).
+                    // Shadow writeback remains last-writer after dual-session ticks.
+                    obj.construction_percent = projected;
                     crate::game_logic::host_construction_progress_log::record(
                         id,
                         projected,
@@ -6107,9 +6108,7 @@ impl GameLogic {
                     );
 
                     if projected >= 1.0 {
-                        if !crate::gameworld_shadow::gameworld_construction_authority_enabled() {
-                            obj.construction_percent = 1.0;
-                        }
+                        obj.construction_percent = 1.0;
                         obj.set_status_under_construction(false);
                         obj.clear_under_construction_model_conditions();
                         let full_hp = obj.health.maximum;
