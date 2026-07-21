@@ -17767,11 +17767,7 @@ mod tests {
             }),
             "assign_unit_path must log Moving; got {events:?}"
         );
-        assert_ne!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
-            AIState::Moving,
-            "host ai_state deferred under decision authority"
-        );
+        assert_eq!(logic.get_objects().get(&oid).unwrap().ai_state, AIState::Moving, "host Moving immediate");
         assert!(
             logic.get_objects().get(&oid).unwrap().status.moving
                 || logic
@@ -17949,10 +17945,7 @@ mod tests {
             }),
             "waypoint must log Moving; got {events:?}"
         );
-        assert_ne!(
-            logic.get_objects().get(&oid).unwrap().ai_state,
-            AIState::Moving
-        );
+        assert_eq!(logic.get_objects().get(&oid).unwrap().ai_state, AIState::Moving, "host Moving immediate");
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
