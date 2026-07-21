@@ -338,42 +338,56 @@ impl UnitControlSystem {
         prioritize_enemy_targets: bool,
         base_selection_radius: f32,
     ) -> Option<ObjectId> {
-        let mut best: Option<(ObjectId, u8, f32)> = None;
-        for o in &frame.objects {
-            if o.destroyed {
-                continue;
-            }
-            let distance = o.position.distance(position);
-            let radius = base_selection_radius.max(o.selection_radius);
-            if distance > radius {
-                continue;
-            }
-            let selectable = Self::presentation_is_selectable(o);
-            let attackable = Self::presentation_is_attackable(o);
-            let priority = if prioritize_enemy_targets {
-                match player_team {
-                    Some(team) if o.team != team && attackable => 0,
-                    Some(team) if o.team == team && selectable => 1,
-                    _ if attackable => 2,
-                    _ if selectable => 3,
-                    _ => continue,
+        // Pure residual acquire: priority bands + nearest 3D tiebreak.
+        // Per-object selection radius is applied when building candidates.
+        let cands: Vec<_> = frame
+            .objects
+            .iter()
+            .filter_map(|o| {
+                if o.destroyed {
+                    return None;
                 }
-            } else {
-                match player_team {
-                    Some(team) if o.team == team && selectable => 0,
-                    Some(_) => continue,
-                    None if selectable => 0,
-                    None => continue,
+                let distance = o.position.distance(position);
+                let radius = base_selection_radius.max(o.selection_radius);
+                if distance > radius {
+                    return None;
                 }
-            };
-            match best {
-                Some((_, best_priority, best_distance))
-                    if priority > best_priority
-                        || (priority == best_priority && distance >= best_distance) => {}
-                _ => best = Some((o.id, priority, distance)),
-            }
-        }
-        best.map(|(id, _, _)| id)
+                let selectable = Self::presentation_is_selectable(o);
+                let attackable = Self::presentation_is_attackable(o);
+                let priority = if prioritize_enemy_targets {
+                    match player_team {
+                        Some(team) if o.team != team && attackable => Some(0),
+                        Some(team) if o.team == team && selectable => Some(1),
+                        _ if attackable => Some(2),
+                        _ if selectable => Some(3),
+                        _ => None,
+                    }
+                } else {
+                    match player_team {
+                        Some(team) if o.team == team && selectable => Some(0),
+                        Some(_) => None,
+                        None if selectable => Some(0),
+                        None => None,
+                    }
+                };
+                Some(
+                    crate::game_logic::host_residual_acquire::PriorityAcquireCandidate {
+                        id: o.id,
+                        position: o.position,
+                        is_alive: true,
+                        priority,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_best_priority_residual_target(
+            ObjectId(0),
+            position,
+            (position.x, position.z),
+            f32::MAX,
+            cands,
+        )
+        .map(|(id, _, _)| id)
     }
 
     /// Pick using presentation identity when a frame is cached.
