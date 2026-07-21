@@ -10665,6 +10665,25 @@ mod tests {
     }
 
     #[test]
+    fn under_construction_context_uses_presentation_percent() {
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        assert!(
+            cb.contains("presentation_construction_percent")
+                && cb.contains("Host/presentation residual owns construct percent display"),
+            "under-construction context must track presentation construct percent without registry"
+        );
+        assert!(
+            cb.contains("presentation_ocl_timer_seconds")
+                && cb.contains("presentation freeze owns display"),
+            "OCL timer context must not require dual-world OCLUpdate modules"
+        );
+        assert!(
+            cb.contains("self.presentation_construction_percent = construction_percent"),
+            "sync_structure_context must store construction percent residual"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation
