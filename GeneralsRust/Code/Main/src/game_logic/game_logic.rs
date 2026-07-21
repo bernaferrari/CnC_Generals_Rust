@@ -14157,7 +14157,31 @@ impl GameLogic {
     }
 
     /// Apply AI command to the game state
-    pub(crate) fn apply_ai_command(&mut self, command: AICommand) {
+    /// Engage a target, honoring AI decision authority (log-only when GameWorld applies).
+    ///
+    /// Player command paths should call [`Object::attack_target`] directly so orders
+    /// apply same-frame without waiting for shadow writeback.
+    fn engage_target_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
+            return;
+        }
+        if let Some(obj) = self.objects.get_mut(&unit_id) {
+            obj.set_force_attack(false);
+            obj.attack_target(target_id);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn engage_target_decision_aware_for_test(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) {
+        self.engage_target_decision_aware(unit_id, target_id);
+    }
+
+    fn apply_ai_command(&mut self, command: AICommand) {
         match command {
             AICommand::AttackTarget {
                 object_id,
@@ -14283,10 +14307,7 @@ impl GameLogic {
                                 self, anchor, team, radius,
                             )
                         {
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_force_attack(false);
-                                obj.attack_target(enemy_id);
-                            }
+                            self.engage_target_decision_aware(object_id, enemy_id);
                             continue;
                         }
                     }
@@ -14329,10 +14350,7 @@ impl GameLogic {
                                 radius,
                             )
                         {
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_force_attack(false);
-                                obj.attack_target(enemy_id);
-                            }
+                            self.engage_target_decision_aware(object_id, enemy_id);
                             continue;
                         }
                     }

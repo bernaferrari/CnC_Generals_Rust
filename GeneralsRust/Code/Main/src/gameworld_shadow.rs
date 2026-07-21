@@ -15475,6 +15475,57 @@ mod tests {
     }
 
     #[test]
+    fn support_guard_engage_uses_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("GuardEng");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("GeU") {
+            let mut t = ThingTemplate::new("GeU");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert("GeU".into(), t);
+        }
+        let oid = logic
+            .create_object("GeU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        let vid = logic
+            .create_object("GeU", Team::GLA, glam::Vec3::new(15.0, 0.0, 0.0))
+            .expect("v");
+        // Direct helper (same path support-states uses under authority).
+        logic.engage_target_decision_aware_for_test(oid, vid);
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_ATTACK
+                    && e.host_object == oid
+                    && e.target_host == vid.0
+            }),
+            "guard engage must log decision; got {events:?}"
+        );
+        assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn fire_spawn_authority_defers_queue_until_shadow() {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_fire_spawn_log;
