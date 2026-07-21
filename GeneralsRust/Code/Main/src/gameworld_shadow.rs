@@ -19189,6 +19189,14 @@ mod tests {
                 "{name} must use pure residual combat acquire query"
             );
         }
+        // Spectre orbit gattling residual nearest enemy.
+        {
+            let sp = include_str!("game_logic/special_power_strikes.rs");
+            assert!(
+                sp.contains("if gattling_due") && sp.contains("pick_nearest_residual_target_xz"),
+                "spectre gattling residual must use pure XZ acquire"
+            );
+        }
         // AI decisions + resource gather nearest residual.
         {
             let ai = include_str!("ai_decisions.rs");
