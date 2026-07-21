@@ -308,8 +308,11 @@ pub struct PendingProjectile {
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
 pub fn queue_projectile(pending: PendingProjectile) {
-    if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled() {
-        // Defer spawn into CombatSystem until shadow_session (before projectile step).
+    // Defer only when a live shadow session will drain host_fire_spawn_log.
+    // Host-only (shadow off) must enqueue immediately or combat never spawns shots.
+    if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled()
+        && crate::gameworld_shadow::gameworld_shadow_enabled()
+    {
         crate::game_logic::host_fire_spawn_log::record(pending);
         return;
     }
@@ -322,6 +325,20 @@ pub fn queue_projectile(pending: PendingProjectile) {
 pub fn queue_projectile_direct(pending: PendingProjectile) {
     if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
         queue.push(pending);
+    }
+}
+
+/// Test helper: length of the static pending projectile queue.
+#[cfg(test)]
+pub fn pending_projectile_queue_len_for_test() -> usize {
+    PENDING_PROJECTILES.lock().map(|q| q.len()).unwrap_or(0)
+}
+
+/// Test helper: clear static pending projectile queue.
+#[cfg(test)]
+pub fn clear_pending_projectile_queue_for_test() {
+    if let Ok(mut q) = PENDING_PROJECTILES.lock() {
+        q.clear();
     }
 }
 

@@ -17131,9 +17131,13 @@ mod tests {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_fire_spawn_log;
         use crate::game_logic::host_usa_pilot::HostDeathType;
+        let _env_guard = authority_env_lock();
         let prev = std::env::var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY").ok();
+        let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
         std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         assert!(gameworld_fire_spawn_authority_enabled());
+        assert!(gameworld_shadow_enabled());
         host_fire_spawn_log::clear();
         combat::queue_projectile(PendingProjectile {
             shooter_id: ObjectId(1),
@@ -17184,6 +17188,76 @@ mod tests {
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
+        }
+        match prev_shadow {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+    }
+
+    #[test]
+    fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
+        use crate::game_logic::combat::{self, DamageType, PendingProjectile};
+        use crate::game_logic::host_fire_spawn_log;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        let _env_guard = authority_env_lock();
+        let prev = std::env::var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY").ok();
+        let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+        assert!(gameworld_fire_spawn_authority_enabled());
+        assert!(!gameworld_shadow_enabled());
+        host_fire_spawn_log::clear();
+        combat::clear_pending_projectile_queue_for_test();
+        combat::queue_projectile(PendingProjectile {
+            shooter_id: ObjectId(9),
+            shooter_pos: glam::Vec3::ZERO,
+            target_id: Some(ObjectId(10)),
+            target_pos: Some(glam::Vec3::new(10.0, 0.0, 0.0)),
+            damage: 5.0,
+            speed: 200.0,
+            splash_radius: 0.0,
+            is_homing: false,
+            damage_type: DamageType::Bullet,
+            death_type: HostDeathType::Normal,
+            projectile_object_name: String::new(),
+            detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
+            radius_damage_affects: 0,
+            projectile_collides: 0,
+            scatter_radius: 0.0,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 0.0,
+            min_attack_range: 0.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
+        });
+        assert!(
+            host_fire_spawn_log::drain().is_empty(),
+            "host-only must not defer into fire_spawn_log"
+        );
+        assert!(
+            combat::pending_projectile_queue_len_for_test() >= 1,
+            "shadow-off + fire_spawn auth must enqueue PENDING_PROJECTILES immediately"
+        );
+        combat::clear_pending_projectile_queue_for_test();
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
+        }
+        match prev_shadow {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
     }
 
