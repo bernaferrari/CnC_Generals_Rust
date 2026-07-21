@@ -20422,10 +20422,11 @@ mod tests {
         let hi = helper
             .find("fn residual_auto_fire_apply_damage")
             .expect("helper");
-        let hbody = &helper[hi..helper.len().min(hi + 4500)];
+        let hbody = &helper[hi..helper.len().min(hi + 6000)];
         assert!(
-            hbody.contains("record_residual_hitscan"),
-            "residual auto-fire must mark hitscan pairs for shadow"
+            hbody.contains("record_residual_hitscan")
+                && hbody.contains("fire_spawn_authority_live"),
+            "residual auto-fire must mark hitscan pairs for shadow (live gate)"
         );
     }
 
