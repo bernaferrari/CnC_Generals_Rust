@@ -265,6 +265,12 @@ pub struct RenderPipeline {
     /// Last presentation move/attack order line packs (execute path).
     debug_last_move_lines_packed: u32,
     debug_last_attack_lines_packed: u32,
+    /// Last presentation floating-text CPU layout residual (execute path).
+    debug_last_floating_texts_packed: u32,
+    debug_last_floating_text_pack_ok: bool,
+    /// Last presentation world-anim CPU layout residual (execute path).
+    debug_last_world_anims_packed: u32,
+    debug_last_world_anim_pack_ok: bool,
 }
 
 const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
@@ -627,6 +633,10 @@ impl RenderPipeline {
             debug_last_projectile_pack_ok: false,
             debug_last_move_lines_packed: 0,
             debug_last_attack_lines_packed: 0,
+            debug_last_floating_texts_packed: 0,
+            debug_last_floating_text_pack_ok: false,
+            debug_last_world_anims_packed: 0,
+            debug_last_world_anim_pack_ok: false,
         })
     }
 
@@ -720,7 +730,13 @@ impl RenderPipeline {
             self.debug_last_move_lines_packed = moves.honesty.lines_packed;
             let attacks = self.pack_presentation_attack_lines();
             self.debug_last_attack_lines_packed = attacks.honesty.lines_packed;
-            let _ = (laser, proj, moves, attacks);
+            let floats = self.pack_presentation_floating_texts();
+            self.debug_last_floating_texts_packed = floats.honesty.texts_packed;
+            self.debug_last_floating_text_pack_ok = floats.honesty.cpu_pack_ok;
+            let anims = self.pack_presentation_world_anims();
+            self.debug_last_world_anims_packed = anims.honesty.anims_packed;
+            self.debug_last_world_anim_pack_ok = anims.honesty.cpu_pack_ok;
+            let _ = (laser, proj, moves, attacks, floats, anims);
         }
 
         let delta_time = time - self.last_frame_time;
@@ -2747,6 +2763,48 @@ impl RenderPipeline {
         self.debug_last_attack_lines_packed
     }
 
+    pub fn debug_last_floating_texts_packed(&self) -> u32 {
+        self.debug_last_floating_texts_packed
+    }
+
+    pub fn debug_last_floating_text_pack_ok(&self) -> bool {
+        self.debug_last_floating_text_pack_ok
+    }
+
+    pub fn debug_last_world_anims_packed(&self) -> u32 {
+        self.debug_last_world_anims_packed
+    }
+
+    pub fn debug_last_world_anim_pack_ok(&self) -> bool {
+        self.debug_last_world_anim_pack_ok
+    }
+
+    /// Pack presentation floating-text captions into CPU layout (no live GameLogic).
+    pub fn pack_presentation_floating_texts(
+        &self,
+    ) -> crate::graphics::floating_text_layout::FloatingTextLayout {
+        match self.presentation_frame.as_ref() {
+            Some(frame) => {
+                crate::graphics::floating_text_layout::FloatingTextLayout::pack_from_presentation(
+                    frame,
+                )
+            }
+            None => crate::graphics::floating_text_layout::FloatingTextLayout::empty(),
+        }
+    }
+
+    /// Pack presentation world-anim (MoneyPickUp) samples into CPU layout.
+    pub fn pack_presentation_world_anims(
+        &self,
+    ) -> crate::graphics::world_anim_layout::WorldAnimLayout {
+        match self.presentation_frame.as_ref() {
+            Some(frame) => {
+                crate::graphics::world_anim_layout::WorldAnimLayout::pack_from_presentation(frame)
+            }
+            None => crate::graphics::world_anim_layout::WorldAnimLayout::empty(),
+        }
+    }
+
     /// Pack presentation laser Line3D segments into CPU buffer (no live GameLogic).
     /// so SegLine upload does not re-read live GameLogic mid-render.
     pub fn pack_presentation_laser_segments(
@@ -4770,8 +4828,10 @@ mod tests {
             body.contains("pack_presentation_laser_segments")
                 && body.contains("pack_presentation_projectiles")
                 && body.contains("pack_presentation_move_lines")
-                && body.contains("pack_presentation_attack_lines"),
-            "execute must pack presentation FX/order lines without GameLogic dual-read"
+                && body.contains("pack_presentation_attack_lines")
+                && body.contains("pack_presentation_floating_texts")
+                && body.contains("pack_presentation_world_anims"),
+            "execute must pack presentation FX/order/UI layout lines without GameLogic dual-read"
         );
         assert!(
             body.contains("debug_last_laser_segments_packed")
