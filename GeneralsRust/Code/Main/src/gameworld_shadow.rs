@@ -19376,7 +19376,7 @@ mod tests {
             assert!(
                 w.contains("write_object_health_authority_aware")
                     || w.contains("host_heal_log::record")
-                    || w.contains("gameworld_damage_authority_enabled"),
+                    || w.contains("gameworld_damage_authority"),
                 "{fn_name} must honor damage/heal authority for absolute HP writes"
             );
         }
@@ -19476,7 +19476,7 @@ mod tests {
             let w = &src[i..=end];
             assert!(
                 w.contains(token)
-                    && (w.contains("gameworld_damage_authority_enabled")
+                    && (w.contains("gameworld_damage_authority")
                         || token == "write_object_health_authority_aware"),
                 "{fn_name} must honor damage authority via {token}"
             );
@@ -19690,7 +19690,7 @@ mod tests {
             .expect("helper");
         let helper = &src[helper_i..src.len().min(helper_i + 6000)];
         assert!(
-            helper.contains("gameworld_fire_spawn_authority_enabled")
+            helper.contains("gameworld_fire_spawn_authority")
                 && helper.contains("queue_projectile")
                 && helper.contains("take_damage_from")
                 && helper.contains("record_residual_hitscan"),
