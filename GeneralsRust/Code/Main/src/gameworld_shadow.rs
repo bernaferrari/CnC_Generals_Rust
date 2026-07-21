@@ -19259,4 +19259,35 @@ mod tests {
             "key presentation-first Boot residual labels present"
         );
     }
+
+    #[test]
+    fn host_object_id_named_lookup_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        let i = src
+            .find("fn find_object_id_by_name")
+            .expect("find_object_id_by_name");
+        let body = &src[i..src.len().min(i + 1800)];
+        assert!(
+            body.contains("engine_object_bridge_enabled")
+                && body.contains("Prefer host object name residual"),
+            "find_object_id_by_name must prefer host names; engine tracker only when bridge on"
+        );
+        let i = src
+            .find("fn transfer_script_object_name")
+            .expect("transfer_script_object_name");
+        let body = &src[i..src.len().min(i + 1200)];
+        assert!(
+            body.contains("engine_object_bridge_enabled") && body.contains("to_id.0"),
+            "transfer_script_object_name must register host id when bridge off"
+        );
+        let i = src
+            .find("fn sync_attack_priority_from_script_engine")
+            .expect("sync_attack_priority");
+        let body = &src[i..src.len().min(i + 1500)];
+        assert!(
+            body.contains("engine_object_bridge_enabled")
+                && body.contains("use host ObjectId as script-engine key by default"),
+            "attack priority sync must default to host ObjectId keys"
+        );
+    }
 }
