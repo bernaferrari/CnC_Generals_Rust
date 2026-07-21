@@ -7555,7 +7555,18 @@ impl GameLogic {
         }
         if vehicle_crash_destroys_vehicle(outcome) {
             if let Some(v) = self.objects.get_mut(&vehicle_id) {
-                v.health.current = 0.0;
+                // Damage authority: HP last-writer via damage log; destroy flag stays host.
+                let hp = v.health.current.max(1.0);
+                if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                    crate::game_logic::host_damage_log::record(
+                        vehicle_id,
+                        hp,
+                        Some(vehicle_id),
+                        true,
+                    );
+                } else {
+                    v.health.current = 0.0;
+                }
                 v.status.destroyed = true;
                 v.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Exploded;
             }
@@ -35410,7 +35421,12 @@ impl GameLogic {
             if let Some(chute) = self.objects.get_mut(&id) {
                 chute.clear_eject_parachuting();
                 if chute.is_alive() {
-                    chute.health.current = 0.0;
+                    let hp = chute.health.current.max(1.0);
+                    if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                        crate::game_logic::host_damage_log::record(id, hp, None, true);
+                    } else {
+                        chute.health.current = 0.0;
+                    }
                     chute.status.destroyed = true;
                     chute.status.death_type = HostDeathType::Normal;
                 }
@@ -37846,7 +37862,12 @@ impl GameLogic {
             // Kill AmericaParachute (SlowDeath residual → destroy).
             if let Some(chute) = self.objects.get_mut(&pilot_id) {
                 chute.clear_eject_parachuting();
-                chute.health.current = 0.0;
+                let hp = chute.health.current.max(1.0);
+                if crate::gameworld_shadow::gameworld_damage_authority_enabled() {
+                    crate::game_logic::host_damage_log::record(pilot_id, hp, None, true);
+                } else {
+                    chute.health.current = 0.0;
+                }
                 chute.status.destroyed = true;
             }
             self.mark_object_for_destruction(pilot_id, None);
@@ -49126,7 +49147,8 @@ impl GameLogic {
                     o.construction_percent = 0.0;
                 }
                 o.set_under_construction_model_conditions(true);
-                o.health.current = (o.health.maximum * 0.1).max(1.0);
+                let start_hp = (o.health.maximum * 0.1).max(1.0);
+                Self::write_object_health_authority_aware(o, start_hp);
                 // C++ setProducer(hole) residual.
                 o.producer_id = Some(hole_id);
             }
