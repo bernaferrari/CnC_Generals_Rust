@@ -2029,20 +2029,33 @@ impl CnCGameEngine {
             1.0
         };
 
-        let selected_count = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.selected_objects.len() as u32)
-            .unwrap_or(0);
-        let local_team = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.team);
+        let local_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            Some(frame.local_team())
+        } else {
+            self.game_logic
+                .get_player(self.current_player_id)
+                .map(|p| p.team)
+        };
+        let selected_count = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            // Prefer snapshot selected flags; fall back to host selection length.
+            let n = frame.count_selected_friendlies(frame.local_team());
+            if n > 0 {
+                n
+            } else {
+                self.selected_objects.len() as u32
+            }
+        } else {
+            self.game_logic
+                .get_player(self.current_player_id)
+                .map(|p| p.selected_objects.len() as u32)
+                .unwrap_or(self.selected_objects.len() as u32)
+        };
         let local_mobile_units = local_team
             .map(|team| {
                 if let Some(frame) = self.last_presentation_frame.as_ref() {
                     frame.count_mobile_friendlies(team)
                 } else {
+                    // Boot residual only.
                     self.game_logic
                         .get_objects()
                         .values()
@@ -2051,18 +2064,18 @@ impl CnCGameEngine {
                 }
             })
             .unwrap_or(0);
-
-        let local_team = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.team);
         let under_construction = local_team
             .map(|team| {
-                self.game_logic
-                    .get_objects()
-                    .values()
-                    .filter(|o| o.is_alive() && o.team == team && o.status.under_construction)
-                    .count() as u32
+                if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.count_under_construction_friendlies(team)
+                } else {
+                    // Boot residual only.
+                    self.game_logic
+                        .get_objects()
+                        .values()
+                        .filter(|o| o.is_alive() && o.team == team && o.status.under_construction)
+                        .count() as u32
+                }
             })
             .unwrap_or(0);
 
@@ -2159,21 +2172,29 @@ impl CnCGameEngine {
                 self.camera_target.x, self.camera_target.y, self.camera_target.z
             ),
             sample_unit_pos: {
-                let team = self
-                    .game_logic
-                    .get_player(self.current_player_id)
-                    .map(|p| p.team);
-                let mut sample = "-".to_string();
-                if let Some(team) = team {
-                    for obj in self.game_logic.get_objects().values() {
-                        if obj.team == team && obj.is_alive() {
-                            let pos = obj.get_position();
-                            sample = format!("{:.1},{:.1},{:.1}:{}", pos.x, pos.y, pos.z, obj.name);
-                            break;
+                if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame
+                        .first_friendly_sample_label(frame.local_team())
+                        .unwrap_or_else(|| "-".to_string())
+                } else {
+                    // Boot residual only.
+                    let team = self
+                        .game_logic
+                        .get_player(self.current_player_id)
+                        .map(|p| p.team);
+                    let mut sample = "-".to_string();
+                    if let Some(team) = team {
+                        for obj in self.game_logic.get_objects().values() {
+                            if obj.team == team && obj.is_alive() {
+                                let pos = obj.get_position();
+                                sample =
+                                    format!("{:.1},{:.1},{:.1}:{}", pos.x, pos.y, pos.z, obj.name);
+                                break;
+                            }
                         }
                     }
+                    sample
                 }
-                sample
             },
         }
     }
