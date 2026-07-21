@@ -846,6 +846,22 @@ pub enum WorldMutation {
         auto_acquire_when_idle: bool,
         attack_priority_set: String,
     },
+    /// Host AI request/retaliate/crate residual.
+    SetAiRequest {
+        target: EntityId,
+        requested_victim_host: u32,
+        requested_destination: Option<[f32; 3]>,
+        prev_victim_pos: Option<[f32; 3]>,
+        crate_created_host: u32,
+        guard_retaliate_victim_host: u32,
+        guard_retaliate_anchor: Option<[f32; 3]>,
+        path_timestamp: u32,
+        disguise_pending_template: String,
+        disguise_pending_team_ordinal: u8,
+        weapon_crate_upgrade: u8,
+        armor_crate_upgrade: u8,
+        selection_flash_remaining: u32,
+    },
     /// Host Object weapon-set residual flags (player upgrade / armed riders).
     SetWeaponSetFlags {
         target: EntityId,
@@ -1890,6 +1906,41 @@ impl GameWorld {
                         e.mood_attack_check_rate = mood_attack_check_rate;
                         e.auto_acquire_when_idle = auto_acquire_when_idle;
                         e.attack_priority_set = attack_priority_set;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetAiRequest {
+                    target,
+                    requested_victim_host,
+                    requested_destination,
+                    prev_victim_pos,
+                    crate_created_host,
+                    guard_retaliate_victim_host,
+                    guard_retaliate_anchor,
+                    path_timestamp,
+                    disguise_pending_template,
+                    disguise_pending_team_ordinal,
+                    weapon_crate_upgrade,
+                    armor_crate_upgrade,
+                    selection_flash_remaining,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.requested_victim_id = if requested_victim_host == 0 {
+                            None
+                        } else {
+                            Some(requested_victim_host)
+                        };
+                        e.requested_destination = requested_destination;
+                        e.prev_victim_pos = prev_victim_pos;
+                        e.crate_created_host = crate_created_host;
+                        e.guard_retaliate_victim_host = guard_retaliate_victim_host;
+                        e.guard_retaliate_anchor = guard_retaliate_anchor;
+                        e.path_timestamp = path_timestamp;
+                        e.disguise_pending_template = disguise_pending_template;
+                        e.disguise_pending_team_ordinal = disguise_pending_team_ordinal;
+                        e.weapon_crate_upgrade = weapon_crate_upgrade;
+                        e.armor_crate_upgrade = armor_crate_upgrade;
+                        e.selection_flash_remaining = selection_flash_remaining;
                         applied += 1;
                     }
                 }

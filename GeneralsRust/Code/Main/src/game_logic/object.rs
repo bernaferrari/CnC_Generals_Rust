@@ -2202,6 +2202,7 @@ impl Object {
     pub fn flash_as_selected(&mut self) {
         self.selection_flash_remaining =
             crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
+        self.record_host_ai_request();
     }
 
     /// True while selection flash envelope residual is active.
@@ -2212,6 +2213,7 @@ impl Object {
     /// Tick selection flash residual once per logic frame.
     pub fn tick_selection_flash(&mut self) {
         self.selection_flash_remaining = self.selection_flash_remaining.saturating_sub(1);
+        self.record_host_ai_request();
     }
 
     pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
@@ -4276,7 +4278,9 @@ impl Object {
     ) -> bool {
         // Returns false if should defer (repath too soon).
         self.requested_destination = Some(victim_pos);
+        self.record_host_ai_request();
         self.requested_victim_id = victim_id;
+        self.record_host_ai_request();
         self.is_attack_path = true;
         self.is_approach_path = false;
         self.record_host_locomotor();
@@ -4288,13 +4292,16 @@ impl Object {
             return false;
         }
         self.path_timestamp = current_frame;
+        self.record_host_ai_request();
         true
     }
 
     /// C++ AIUpdateInterface::requestPath flag residual (non-attack).
     pub fn begin_request_move_path(&mut self, destination: glam::Vec3, current_frame: u32) -> bool {
         self.requested_destination = Some(destination);
+        self.record_host_ai_request();
         self.requested_victim_id = None;
+        self.record_host_ai_request();
         self.is_attack_path = false;
         self.is_approach_path = false;
         self.record_host_locomotor();
@@ -4305,6 +4312,7 @@ impl Object {
             return false;
         }
         self.path_timestamp = current_frame;
+        self.record_host_ai_request();
         true
     }
 
@@ -4330,6 +4338,7 @@ impl Object {
         let ok = self.begin_request_move_path(flee_pos, current_frame);
         self.is_safe_path = true;
         self.requested_victim_id = Some(repulsor);
+        self.record_host_ai_request();
         ok
     }
 
@@ -6217,6 +6226,7 @@ impl Object {
             return;
         }
         self.disguise_pending_template = Some(template_name.to_string());
+        self.record_host_ai_request();
         self.disguise_pending_team = Some(as_team);
         // Not fully disguised until halfpoint residual.
         self.set_status_disguised(false);
@@ -6260,6 +6270,7 @@ impl Object {
         self.disguise_as_template = None;
         self.disguise_as_team = None;
         self.disguise_pending_template = None;
+        self.record_host_ai_request();
         self.disguise_pending_team = None;
         self.set_status_stealthed(false);
         self.set_status_detected(false);
@@ -6320,6 +6331,7 @@ impl Object {
                 self.disguise_as_template = None;
                 self.disguise_as_team = None;
                 self.disguise_pending_template = None;
+                self.record_host_ai_request();
                 self.disguise_pending_team = None;
             }
         }
@@ -8034,6 +8046,7 @@ impl Object {
     /// C++ AIUpdateInterface::notifyCrate residual.
     pub fn notify_crate(&mut self, crate_id: ObjectId) {
         self.crate_created = Some(crate_id);
+        self.record_host_ai_request();
     }
 
     /// C++ AIUpdateInterface::checkForCrateToPickup residual.
@@ -8059,6 +8072,7 @@ impl Object {
         }
         let anchor_pos = anchor.unwrap_or_else(|| self.get_position());
         self.guard_retaliate_victim = Some(victim);
+        self.record_host_ai_request();
         self.guard_retaliate_anchor = Some(anchor_pos);
         // Preserve ordinary guard anchors if already guarding.
         if self.guard_position.is_none() && self.guard_target.is_none() {
@@ -8873,6 +8887,7 @@ impl Object {
             return;
         }
         self.weapon_crate_upgrade = self.weapon_crate_upgrade.saturating_add(1);
+        self.record_host_ai_request();
         if let Some(w) = self.weapon.as_mut() {
             w.damage *= 1.15;
         }
@@ -9341,6 +9356,33 @@ impl Object {
     pub fn record_host_target_location(&self) {
         let loc = self.target_location.map(|p| [p.x, p.y, p.z]);
         crate::game_logic::host_target_location_log::record(self.id, loc);
+    }
+
+    pub fn record_host_ai_request(&self) {
+        let pending_team = self
+            .disguise_pending_team
+            .map(|t| match t {
+                crate::game_logic::Team::USA => 0u8,
+                crate::game_logic::Team::China => 1u8,
+                crate::game_logic::Team::GLA => 2u8,
+                crate::game_logic::Team::Neutral => 3u8,
+            })
+            .unwrap_or(255u8);
+        crate::game_logic::host_ai_request_log::record(
+            self.id,
+            self.requested_victim_id.map(|id| id.0).unwrap_or(0),
+            self.requested_destination.map(|p| [p.x, p.y, p.z]),
+            self.prev_victim_pos.map(|p| [p.x, p.y, p.z]),
+            self.crate_created.map(|id| id.0).unwrap_or(0),
+            self.guard_retaliate_victim.map(|id| id.0).unwrap_or(0),
+            self.guard_retaliate_anchor.map(|p| [p.x, p.y, p.z]),
+            self.path_timestamp,
+            self.disguise_pending_template.clone().unwrap_or_default(),
+            pending_team,
+            self.weapon_crate_upgrade,
+            self.armor_crate_upgrade,
+            self.selection_flash_remaining,
+        );
     }
 
     pub fn record_host_locomotor(&self) {
