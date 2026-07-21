@@ -8638,7 +8638,7 @@ impl CnCGameEngine {
                 self.apply_presentation_to_huds(&pres);
                 // Presentation audio already dispatched via dispatch_audio_events_direct
                 // (BuildingComplete/UnitReady/UpgradeComplete). Do not dual-play engine SFX.
-                self.sync_eva_messages_from_logic();
+                self.sync_eva_messages_from_presentation(&pres);
                 #[cfg(feature = "game_client")]
                 {
                     pres.apply_to_control_bar(&mut self.control_bar);
@@ -8995,8 +8995,8 @@ impl CnCGameEngine {
             if let Some(pres) = self.last_presentation_frame.clone() {
                 pres.apply_to_ui_state(&mut ui_state);
                 self.apply_presentation_to_huds(&pres);
-                self.play_presentation_event_sfx(&pres);
-                self.sync_eva_messages_from_logic();
+                // Presentation audio already dispatched; SFX dual-path retired.
+                self.sync_eva_messages_from_presentation(&pres);
                 #[cfg(feature = "game_client")]
                 {
                     pres.apply_to_control_bar(&mut self.control_bar);
@@ -9414,27 +9414,56 @@ impl CnCGameEngine {
 
     /// C++ TheEva residual → chat EVA lines when honesty counters advance.
     fn sync_eva_messages_from_logic(&mut self) {
+        // Prefer presentation-frozen EVA counters when a frame is installed
+        // (no live GameLogic dual-read mid-HUD apply).
+        if let Some(pres) = self.last_presentation_frame.clone() {
+            self.sync_eva_messages_from_presentation(&pres);
+            return;
+        }
+        self.sync_eva_messages_from_host_counts(
+            self.game_logic.eva_low_power_count(),
+            self.game_logic.eva_insufficient_funds_count(),
+            self.game_logic.eva_base_under_attack_count(),
+            self.game_logic.eva_ally_under_attack_count(),
+        );
+    }
+
+    fn sync_eva_messages_from_presentation(
+        &mut self,
+        pres: &crate::presentation_frame::PresentationFrame,
+    ) {
+        self.sync_eva_messages_from_host_counts(
+            pres.eva_low_power_count,
+            pres.eva_insufficient_funds_count,
+            pres.eva_base_under_attack_count,
+            pres.eva_ally_under_attack_count,
+        );
+    }
+
+    fn sync_eva_messages_from_host_counts(
+        &mut self,
+        low_power: u32,
+        funds: u32,
+        base: u32,
+        ally: u32,
+    ) {
         let mut push = |msg: &str| {
             self.chat_panel.add_eva_message(msg);
             self.game_hud.push_info_message(msg);
             self.ui_manager.game_hud_mut().push_info_message(msg);
         };
-        let count = self.game_logic.eva_low_power_count();
-        if count > self.last_eva_low_power_count {
-            self.last_eva_low_power_count = count;
+        if low_power > self.last_eva_low_power_count {
+            self.last_eva_low_power_count = low_power;
             push("Warning: low power");
         }
-        let funds = self.game_logic.eva_insufficient_funds_count();
         if funds > self.last_eva_insufficient_funds_count {
             self.last_eva_insufficient_funds_count = funds;
             push("Insufficient funds");
         }
-        let base = self.game_logic.eva_base_under_attack_count();
         if base > self.last_eva_base_under_attack_count {
             self.last_eva_base_under_attack_count = base;
             push("Our base is under attack");
         }
-        let ally = self.game_logic.eva_ally_under_attack_count();
         if ally > self.last_eva_ally_under_attack_count {
             self.last_eva_ally_under_attack_count = ally;
             push("Ally under attack");
