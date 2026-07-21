@@ -7796,11 +7796,14 @@ impl GameLogic {
                 continue;
             }
             if had_target {
-                if decision_auth {
-                    // Log retarget; GameWorld apply/writeback is last-writer.
-                    crate::game_logic::host_ai_decision_log::record_attack(id, to_id);
-                } else if let Some(u) = self.objects.get_mut(&id) {
+                // C++ transferAttack always retargets on the host immediately
+                // (rebuild-hole / death handoff). Still log under decision authority
+                // so GameWorld can last-write, but never leave host pointing at a corpse.
+                if let Some(u) = self.objects.get_mut(&id) {
                     u.target = Some(to_id);
+                }
+                if decision_auth {
+                    crate::game_logic::host_ai_decision_log::record_attack(id, to_id);
                 }
             }
             if had_turret {
@@ -49795,10 +49798,13 @@ impl GameLogic {
         if let Some(h) = self.objects.get_mut(&hole_id) {
             h.set_orientation(orient);
             h.set_status_under_construction(false);
-            if crate::gameworld_shadow::gameworld_construction_authority_enabled() {
+            // Defer percent only when shadow sole-ticks construction; host-only
+            // must set percent immediately or rebuild holes stay incomplete forever.
+            if crate::gameworld_shadow::gameworld_construction_authority_live() {
                 crate::game_logic::host_construction_progress_log::record(hole_id, 1.0, false, 0.0);
             } else {
                 h.construction_percent = 1.0;
+                crate::game_logic::host_construction_progress_log::record(hole_id, 1.0, false, 0.0);
             }
             Self::write_object_health_authority_aware(h, REBUILD_HOLE_MAX_HEALTH_RESIDUAL);
             h.health.maximum = REBUILD_HOLE_MAX_HEALTH_RESIDUAL;
@@ -49993,12 +49999,15 @@ impl GameLogic {
                 o.set_orientation(orient);
                 o.set_status_under_construction(true);
                 o.set_status_reconstructing(true);
-                if crate::gameworld_shadow::gameworld_construction_authority_enabled() {
+                if crate::gameworld_shadow::gameworld_construction_authority_live() {
                     crate::game_logic::host_construction_progress_log::record(
                         new_id, 0.0, true, 0.0,
                     );
                 } else {
                     o.construction_percent = 0.0;
+                    crate::game_logic::host_construction_progress_log::record(
+                        new_id, 0.0, true, 0.0,
+                    );
                 }
                 o.set_under_construction_model_conditions(true);
                 let start_hp = (o.health.maximum * 0.1).max(1.0);

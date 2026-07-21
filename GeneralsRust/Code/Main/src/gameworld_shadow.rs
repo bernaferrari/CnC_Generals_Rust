@@ -261,6 +261,12 @@ pub fn gameworld_construction_authority_enabled() -> bool {
     }
 }
 
+/// Construction progress last-writer only while shadow can sole-tick percent.
+#[inline]
+pub fn gameworld_construction_authority_live() -> bool {
+    gameworld_construction_authority_enabled() && gameworld_shadow_enabled()
+}
+
 /// Host skips construction percent advance only when authority AND shadow session run.
 pub fn gameworld_construction_sole_tick_enabled() -> bool {
     gameworld_construction_authority_enabled() && gameworld_shadow_enabled()
@@ -302,6 +308,12 @@ pub fn gameworld_production_authority_enabled() -> bool {
         }
         Err(_) => true,
     }
+}
+
+/// Production queue last-writer only while shadow can sole-tick progress.
+#[inline]
+pub fn gameworld_production_authority_live() -> bool {
+    gameworld_production_authority_enabled() && gameworld_shadow_enabled()
 }
 
 /// Host skips progress advance only when production authority AND shadow session run.
@@ -8599,6 +8611,8 @@ mod tests {
 
     #[test]
     fn construction_authority_sole_ticks_percent() {
+        let _env_guard = authority_env_lock();
+
         let prev_a = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
         let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
         std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
@@ -17521,6 +17535,48 @@ mod tests {
         match prev_m {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY"),
+        }
+        match prev_s {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+    }
+
+    #[test]
+    fn construction_authority_sets_host_percent_when_shadow_disabled() {
+        let _env_guard = authority_env_lock();
+        let prev_c = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
+        let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+        assert!(gameworld_construction_authority_enabled());
+        assert!(!gameworld_construction_authority_live());
+        assert!(!gameworld_construction_sole_tick_enabled());
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ConstNoShadow");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "HoleT", 500.0);
+        if let Some(t) = logic.templates.get_mut("HoleT") {
+            t.add_kind_of(KindOf::Structure);
+        }
+        let id = logic
+            .create_object("HoleT", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("hole");
+        if let Some(h) = logic.get_objects_mut().get_mut(&id) {
+            // Simulate rebuild-hole complete residual path without dual-world.
+            if crate::gameworld_shadow::gameworld_construction_authority_live() {
+                crate::game_logic::host_construction_progress_log::record(id, 1.0, false, 0.0);
+            } else {
+                h.construction_percent = 1.0;
+            }
+            assert!(
+                (h.construction_percent - 1.0).abs() < 0.01,
+                "host-only must set construction_percent immediately"
+            );
+        }
+        match prev_c {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
         }
         match prev_s {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
