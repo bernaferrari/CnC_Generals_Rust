@@ -16885,15 +16885,16 @@ mod tests {
             }),
             "transfer_attack must log AttackTarget retarget; got {events:?}"
         );
-        // Host still points at old victim until writeback.
+        // Host retargets immediately (C++ transferAttack / rebuild-hole residual).
         assert_eq!(
             logic.get_objects().get(&attacker).unwrap().target,
-            Some(from)
+            Some(to),
+            "host must retarget immediately"
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         assert_eq!(logic.get_objects().get(&attacker).unwrap().target, Some(to));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -17282,12 +17283,12 @@ mod tests {
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
-        // Seed world attack then apply stop decision so writeback path still exercises.
+        // Seed world attack then apply stop decision; host already clear, writeback is no-op.
         assert!(shadow.queue_set_attack_target_for_host(oid, Some(vid)));
         let _ = shadow.apply_pending();
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.apply_pending();
-        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         assert!(logic.get_objects().get(&oid).unwrap().target.is_none());
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -18902,10 +18903,10 @@ mod tests {
         let _ = shadow.apply_pending();
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
         let _ = shadow.apply_pending();
-        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         assert!(
             logic.get_objects().get(&oid).unwrap().target.is_none(),
-            "writeback must clear host target"
+            "host remains clear after stop + GameWorld stop apply"
         );
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
