@@ -308,6 +308,18 @@ pub struct PendingProjectile {
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
 pub fn queue_projectile(pending: PendingProjectile) {
+    if crate::gameworld_shadow::gameworld_fire_spawn_authority_enabled() {
+        // Defer spawn into CombatSystem until shadow_session (before projectile step).
+        crate::game_logic::host_fire_spawn_log::record(pending);
+        return;
+    }
+    if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
+        queue.push(pending);
+    }
+}
+
+/// Unconditional enqueue for shadow fire-spawn apply (bypasses authority gate).
+pub fn queue_projectile_direct(pending: PendingProjectile) {
     if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
         queue.push(pending);
     }

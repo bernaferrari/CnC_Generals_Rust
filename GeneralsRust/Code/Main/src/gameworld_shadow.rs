@@ -186,6 +186,22 @@ pub fn gameworld_ai_decision_authority_enabled() -> bool {
     }
 }
 
+/// When enabled (default), `queue_projectile` only logs fire-spawns; shadow
+/// applies them into host CombatSystem before projectile integrate authority.
+/// Env: `GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY=0|false` off; unset/`1` = **on**.
+pub fn gameworld_fire_spawn_authority_enabled() -> bool {
+    match std::env::var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => true,
+    }
+}
+
 /// When enabled, host construction percent is last-written from GameWorld after
 /// progress logs (host still computes projected percent for completion side effects).
 /// Env: `GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
@@ -3849,6 +3865,34 @@ impl GameWorldShadow {
         n
     }
 
+    /// Apply deferred fire-spawns into host CombatSystem (fire-spawn authority).
+    pub fn apply_host_fire_spawn_events(
+        &mut self,
+        logic: &mut GameLogic,
+        events: Vec<crate::game_logic::combat::PendingProjectile>,
+    ) -> usize {
+        if events.is_empty() {
+            return 0;
+        }
+        // Push into the global pending queue then drain into CombatSystem so
+        // scatter/target resolution stays on the production spawn path.
+        for ev in events {
+            crate::game_logic::combat::queue_projectile_direct(ev);
+        }
+        {
+            let objects = logic.get_objects();
+            // SAFETY: drain only needs shared objects map + mut combat.
+            // Split via raw pointers is avoided — clone keys/positions is heavy;
+            // use GameLogic helper instead.
+            let _ = objects;
+        }
+        logic.drain_pending_projectiles_into_combat();
+        crate::game_logic::host_projectile_log::record_snapshot(
+            logic.combat_system.projectiles_snapshot(),
+        );
+        self.apply_host_projectile_events(&crate::game_logic::host_projectile_log::drain())
+    }
+
     /// Last-write host CombatSystem projectile pose/lifetime from GameWorld residual.
     pub fn writeback_projectiles_to_host(&self, logic: &mut GameLogic) -> usize {
         if !gameworld_projectile_authority_enabled() {
@@ -6702,6 +6746,12 @@ pub fn shadow_session_after_host_tick(
     let _fi_applied = shadow.apply_host_fire_intent_events(&fire_intent_events);
     let projectile_events = crate::game_logic::host_projectile_log::drain();
     let _proj_applied = shadow.apply_host_projectile_events(&projectile_events);
+    // Fire-spawn authority: materialize deferred weapon discharges into CombatSystem
+    // before projectile integrate authority steps flight.
+    if gameworld_fire_spawn_authority_enabled() {
+        let spawns = crate::game_logic::host_fire_spawn_log::drain();
+        let _fs = shadow.apply_host_fire_spawn_events(logic, spawns);
+    }
     if gameworld_projectile_authority_enabled() {
         let dt = 1.0_f32 / 30.0;
         // Host object poses for homing refresh.
@@ -11392,6 +11442,7 @@ mod tests {
         host_continuous_fire_log::clear();
         crate::game_logic::host_combat_attack_log::clear();
         crate::game_logic::host_fire_intent_log::clear();
+        crate::game_logic::host_fire_spawn_log::clear();
         crate::game_logic::host_projectile_log::clear();
         {
             let o = logic.get_objects_mut().get_mut(&oid).expect("o");
@@ -15356,6 +15407,67 @@ mod tests {
         match prev_atk {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
+    fn fire_spawn_authority_defers_queue_until_shadow() {
+        use crate::game_logic::combat::{self, DamageType, PendingProjectile};
+        use crate::game_logic::host_fire_spawn_log;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        let prev = std::env::var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
+        assert!(gameworld_fire_spawn_authority_enabled());
+        host_fire_spawn_log::clear();
+        combat::queue_projectile(PendingProjectile {
+            shooter_id: ObjectId(1),
+            shooter_pos: glam::Vec3::ZERO,
+            target_id: Some(ObjectId(2)),
+            target_pos: Some(glam::Vec3::new(50.0, 0.0, 0.0)),
+            damage: 12.0,
+            speed: 100.0,
+            splash_radius: 0.0,
+            is_homing: false,
+            damage_type: DamageType::Bullet,
+            death_type: HostDeathType::Normal,
+            projectile_object_name: String::new(),
+            detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
+            radius_damage_affects: 0,
+            projectile_collides: 0,
+            scatter_radius: 0.0,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 0.0,
+            min_attack_range: 0.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
+        });
+        // Not yet in combat system.
+        let mut logic = GameLogic::new();
+        assert_eq!(logic.combat_system.projectile_count(), 0);
+        let spawns = host_fire_spawn_log::drain();
+        assert_eq!(spawns.len(), 1);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let n = shadow.apply_host_fire_spawn_events(&mut logic, spawns);
+        assert!(n >= 1 || logic.combat_system.projectile_count() >= 1);
+        assert!(
+            logic.combat_system.projectile_count() >= 1,
+            "shadow apply must spawn into CombatSystem"
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
         }
     }
 

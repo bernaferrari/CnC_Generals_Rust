@@ -6827,6 +6827,14 @@ impl GameLogic {
     /// Update AI behavior for all objects
     /// Enhanced with AI decision system for intelligent behavior
 
+    /// Drain global fire-spawn queue into host CombatSystem (fire-spawn authority apply).
+    pub(crate) fn drain_pending_projectiles_into_combat(&mut self) {
+        crate::game_logic::combat::drain_pending_projectiles(
+            &mut self.combat_system,
+            &self.objects,
+        );
+    }
+
     /// Hit-only projectile pass after GameWorld flight integrate writeback.
     pub(crate) fn resolve_projectiles_hits_only(&mut self) -> Vec<ObjectId> {
         self.combat_system.refresh_homing_aims(&self.objects);
