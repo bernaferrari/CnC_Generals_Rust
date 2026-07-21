@@ -827,6 +827,18 @@ impl Keyboard {
         events
     }
 
+    /// Key residual from Main OS without crossing winit KeyEvent version boundaries.
+    pub fn handle_key_simple(&mut self, key: KeyCode, pressed: bool) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        self.stats.keyboard_events = self.stats.keyboard_events.saturating_add(1);
+        self.stats.events_processed = self.stats.events_processed.saturating_add(1);
+        self.state
+            .update_key(key, pressed, std::time::Instant::now());
+        true
+    }
+
     /// Process text input
     pub fn handle_text_input(&mut self, text: &str) {
         if !self.enabled {
@@ -913,6 +925,20 @@ impl SubsystemInterface for Keyboard {
         self.update();
         Ok(())
     }
+}
+
+/// Global Keyboard residual (C++ TheKeyboard parity) for Main OS inject without dual ownership.
+static THE_KEYBOARD: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<Keyboard>>> =
+    std::sync::OnceLock::new();
+
+pub fn the_keyboard() -> &'static std::sync::Arc<std::sync::Mutex<Keyboard>> {
+    THE_KEYBOARD.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(Keyboard::new())))
+}
+
+pub fn with_keyboard<R>(f: impl FnOnce(&mut Keyboard) -> R) -> R {
+    let keyboard = the_keyboard();
+    let mut guard = keyboard.lock().unwrap_or_else(|e| e.into_inner());
+    f(&mut guard)
 }
 
 #[cfg(test)]
