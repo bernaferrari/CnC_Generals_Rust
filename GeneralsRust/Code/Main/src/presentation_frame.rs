@@ -10902,6 +10902,20 @@ mod tests {
     }
 
     #[test]
+    fn superweapon_damage_applies_host_hp() {
+        let obj = include_str!("game_logic/object.rs");
+        assert!(
+            obj.contains("fn take_damage_from_immediate") && obj.contains("force_host_hp"),
+            "object must support immediate host HP damage for superweapons"
+        );
+        let gl = include_str!("game_logic/game_logic.rs");
+        assert!(
+            gl.contains("take_damage_from_immediate(hit.damage"),
+            "update_special_power_strikes must apply host HP immediately"
+        );
+    }
+
+    #[test]
     fn train_unit_prefers_presentation_team() {
         let eng = include_str!("cnc_game_engine.rs");
         let i = eng.find("train_unit\" =>").expect("train_unit");
