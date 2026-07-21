@@ -1635,6 +1635,9 @@ impl ShroudManager {
         self.last_update_frame = 0;
         self.last_vision_recalc_frame = 0;
         self.has_updated_once = false;
+        // Drop terrain grid so permanent reveal lookers cannot leak across tests
+        // / scenario resets. Callers re-init via init_shroud_grid.
+        self.shroud_grid = None;
     }
 
     /// Update explored territory from current visibility

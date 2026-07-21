@@ -52,6 +52,13 @@ fn shroud_runtime_active(
 ///
 /// Snapshot-friendly (Copy + Serialize) so `PresentationFrame` can own unit FOW
 /// without re-locking the shroud manager mid-render.
+/// Serialize tests that mutate the process-wide shroud manager / FOW bridge.
+pub fn shroud_test_isolation_lock() -> &'static std::sync::Mutex<()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ObjectVisibility {
     /// Alpha blend factor (0.0 = hidden, 1.0 = fully visible)
