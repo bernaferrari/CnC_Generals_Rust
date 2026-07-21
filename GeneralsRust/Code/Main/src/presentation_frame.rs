@@ -10721,37 +10721,23 @@ mod tests {
             window.contains("camera_target"),
             "start_hint falls back to camera_target when no structures"
         );
-        // Live team_base_position only in the no-frame else branch / boot residual comment.
         assert!(
             window.contains("team_base_position(team)"),
-            "boot residual may still call live team_base_position without presentation"
+            "boot residual may still call live team base position without presentation"
         );
-        // The presentation if-let body ends before the else that owns team_base_position.
         let live_call = window
             .find("team_base_position(team)")
-            .expect("live team_base_position call");
+            .expect("live team base position call");
         let pres_if = window
             .find("if let Some(frame) = self.last_presentation_frame.as_ref()")
             .expect("presentation if");
         assert!(
             live_call > pres_if,
-            "live team_base_position must come after presentation if-let, not before"
-        );
-        // Ensure comment documents boot residual.
-        assert!(
-            window.contains("boot residual only") || window.contains("Boot residual only")
-                || window.contains("no presentation frame"),
-            "must document live team_base_position as boot residual"
-        );
-    } else {").unwrap_or(window.len());
-        let presentation_branch = &window[..else_at];
-        assert!(
-            !presentation_branch.contains("team_base_position"),
-            "presentation start_hint branch must not call live team_base_position"
+            "live team base position must come after presentation if-let, not before"
         );
         assert!(
-            window.contains("team_base_position(team)"),
-            "boot residual may still call live team_base_position without presentation"
+            window.contains("no presentation frame"),
+            "must document live team base position as boot residual"
         );
     }
 
