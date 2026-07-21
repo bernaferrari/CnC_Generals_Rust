@@ -18834,4 +18834,23 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn snap_camera_presentation_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng
+            .find("fn snap_camera_to_local_units_if_needed")
+            .expect("snap_camera");
+        let body = &eng[i..eng.len().min(i + 4500)];
+        assert!(
+            body.contains("last_presentation_frame")
+                && body.contains("PresentationBuildingType::CommandCenter")
+                && body.contains("Boot residual only"),
+            "snap_camera must prefer presentation poses with boot residual live scan"
+        );
+        assert!(
+            body.contains("for o in &frame.objects"),
+            "presentation path must iterate frame.objects for focus"
+        );
+    }
 }
