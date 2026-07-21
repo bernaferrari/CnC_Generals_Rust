@@ -10814,6 +10814,24 @@ mod tests {
     }
 
     #[test]
+    fn runtime_host_move_prefers_presentation_selection() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let i = eng
+            .find("\"move\" | \"move_selected\"")
+            .expect("move command");
+        let window = &eng[i..eng.len().min(i + 1200)];
+        assert!(
+            window.contains("Prefer presentation/engine selection residual")
+                || window.contains("count_selected_friendlies"),
+            "move must prefer presentation/engine selection over live player roster only"
+        );
+        assert!(
+            window.contains("select_objects") && window.contains("selected_objects.is_empty()"),
+            "move must re-sync host player selection from engine residual when empty"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation

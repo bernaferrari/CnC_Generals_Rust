@@ -3120,14 +3120,38 @@ impl CnCGameEngine {
                     let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(0.0);
-                    let selected = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.selected_objects.len())
-                        .unwrap_or(0);
+                    // Prefer presentation/engine selection residual; live player roster is boot fallback.
+                    let selected = if !self.selected_objects.is_empty() {
+                        self.selected_objects.len()
+                    } else if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        let n = frame.count_selected_friendlies(frame.local_team()) as usize;
+                        if n > 0 {
+                            n
+                        } else {
+                            frame.selected.len()
+                        }
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.selected_objects.len())
+                            .unwrap_or(0)
+                    };
                     if selected == 0 {
                         self.runtime_host_last_gameplay_cmd = "move_fail_no_selection".into();
                     } else {
+                        // Keep host player selection coherent with engine residual before command.
+                        if self
+                            .game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.selected_objects.is_empty())
+                            .unwrap_or(true)
+                            && !self.selected_objects.is_empty()
+                        {
+                            self.game_logic.select_objects(
+                                self.current_player_id,
+                                self.selected_objects.clone(),
+                            );
+                        }
                         self.game_logic
                             .command_move(self.current_player_id, glam::Vec3::new(x, y, z));
                         self.runtime_host_last_gameplay_cmd =
@@ -3198,11 +3222,16 @@ impl CnCGameEngine {
                                 .select_objects(self.current_player_id, attackers);
                         }
                     }
-                    let selected = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.selected_objects.len())
-                        .unwrap_or(0);
+                    let selected = if !self.selected_objects.is_empty() {
+                        self.selected_objects.len()
+                    } else if let Some(frame) = self.last_presentation_frame.as_ref() {
+                        frame.count_selected_friendlies(frame.local_team()) as usize
+                    } else {
+                        self.game_logic
+                            .get_player(self.current_player_id)
+                            .map(|p| p.selected_objects.len())
+                            .unwrap_or(0)
+                    };
                     if selected == 0 {
                         self.runtime_host_last_gameplay_cmd = "attack_fail_no_selection".into();
                     } else if let Some(team) = team {
