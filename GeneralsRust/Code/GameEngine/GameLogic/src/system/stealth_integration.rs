@@ -310,6 +310,10 @@ impl StealthRenderingHooks {
             .map_err(|e| StealthError::operation_failed(format!("stealth_mgr lock: {}", e)))?;
         let mut visible = Vec::new();
 
+        // Host path: empty dual-world registry residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(Vec::new());
+        }
         for object_ref in OBJECT_REGISTRY.get_all_objects() {
             let Ok(object_guard) = object_ref.read() else {
                 continue;

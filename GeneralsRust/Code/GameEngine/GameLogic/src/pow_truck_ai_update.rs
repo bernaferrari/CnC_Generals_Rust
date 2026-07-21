@@ -742,6 +742,10 @@ impl POWTruckAIUpdate {
 
         let mut closest_target: Option<ObjectID> = None;
         let mut closest_dist_sq: Real = Real::MAX;
+        // Host path: empty dual-world registry residual.
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return None;
+        }
         for obj in crate::object::registry::OBJECT_REGISTRY.get_all_objects() {
             let obj_id = obj
                 .read()

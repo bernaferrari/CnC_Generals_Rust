@@ -2135,6 +2135,10 @@ impl Unit {
         max_distance: Real,
         vision_distance: Real,
     ) -> Option<(ObjectID, Real)> {
+        // Host path: empty dual-world registry residual.
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return None;
+        }
         let all_objects = crate::object::registry::OBJECT_REGISTRY.get_all_objects();
         let self_id = self
             .base_object
@@ -2252,6 +2256,10 @@ impl Unit {
             return self.find_closest_enemy(center, max_distance, vision_distance);
         }
 
+        // Host path: empty dual-world registry residual.
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            return None;
+        }
         let all_objects = crate::object::registry::OBJECT_REGISTRY.get_all_objects();
         let self_id = self
             .base_object

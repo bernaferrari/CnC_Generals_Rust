@@ -326,6 +326,10 @@ impl StealthDetectorController {
         let mut found_someone = false;
 
         // Scan for stealthed objects in range (lines 179-335)
+        // Host path: empty dual-world registry residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(UpdateSleepTime::None);
+        }
         let all_objects = OBJECT_REGISTRY.get_all_objects();
 
         for obj_ref in all_objects {
