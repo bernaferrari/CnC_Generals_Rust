@@ -14022,34 +14022,41 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            let n = obj.template_name.to_ascii_lowercase();
-            if obj.is_dozer
-                || n.contains("dozer")
-                || n.contains("worker")
-                || n.contains("supply")
-                || n.contains("harvester")
-            {
-                continue;
-            }
-            if !obj.can_move() && !obj.can_attack() {
-                continue;
-            }
-            let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
-                && obj.target.is_none()
-                && !obj.status.moving;
-            if idle {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_idle_military_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    let n = obj.template_name.to_ascii_lowercase();
+                    if obj.is_dozer
+                        || n.contains("dozer")
+                        || n.contains("worker")
+                        || n.contains("supply")
+                        || n.contains("harvester")
+                    {
+                        continue;
+                    }
+                    if !obj.can_move() && !obj.can_attack() {
+                        continue;
+                    }
+                    let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+                        && obj.target.is_none()
+                        && !obj.status.moving;
+                    if idle {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No idle military";
             self.game_hud.push_info_message(msg);
@@ -14093,16 +14100,23 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if matches!(obj.ai_state, crate::game_logic::AIState::Repairing) {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_repairing_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if matches!(obj.ai_state, crate::game_logic::AIState::Repairing) {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No repairing units";
             self.game_hud.push_info_message(msg);
@@ -14128,43 +14142,52 @@ impl CnCGameEngine {
             player.team
         };
 
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            if !obj.can_move() {
-                continue;
-            }
-            let n = obj.template_name.to_ascii_lowercase();
-            // Exclude pure workers/dozers/supply from "military idle" residual.
-            let is_worker =
-                obj.is_dozer || n.contains("dozer") || n.contains("worker") || n.contains("supply");
-            if is_worker {
-                continue;
-            }
-            let military = obj.can_attack()
-                || obj.is_kind_of(crate::game_logic::KindOf::Infantry)
-                || obj.is_kind_of(crate::game_logic::KindOf::Vehicle)
-                || obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                || n.contains("ranger")
-                || n.contains("tank")
-                || n.contains("jet")
-                || n.contains("humvee");
-            if !military {
-                continue;
-            }
-            let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
-                && obj.target.is_none()
-                && !obj.status.moving;
-            if idle {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_idle_military_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    if !obj.can_move() {
+                        continue;
+                    }
+                    let n = obj.template_name.to_ascii_lowercase();
+                    // Exclude pure workers/dozers/supply from "military idle" residual.
+                    let is_worker = obj.is_dozer
+                        || n.contains("dozer")
+                        || n.contains("worker")
+                        || n.contains("supply");
+                    if is_worker {
+                        continue;
+                    }
+                    let military = obj.can_attack()
+                        || obj.is_kind_of(crate::game_logic::KindOf::Infantry)
+                        || obj.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                        || obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                        || n.contains("ranger")
+                        || n.contains("tank")
+                        || n.contains("jet")
+                        || n.contains("humvee");
+                    if !military {
+                        continue;
+                    }
+                    let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+                        && obj.target.is_none()
+                        && !obj.status.moving;
+                    if idle {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No idle military units";
             self.game_hud.push_info_message(msg);
@@ -14190,24 +14213,31 @@ impl CnCGameEngine {
             player.team
         };
 
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            let n = obj.template_name.to_ascii_lowercase();
-            // Prefer true collectors; include GLA workers as harvesters residual.
-            let is_collector = n.contains("supply")
-                || n.contains("harvester")
-                || n.contains("chinook")
-                || (n.contains("worker") && !n.contains("dozer"))
-                || matches!(obj.ai_state, crate::game_logic::AIState::Gathering);
-            if !is_collector {
-                continue;
-            }
-            ids.push(id);
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_harvester_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    let n = obj.template_name.to_ascii_lowercase();
+                    // Prefer true collectors; include GLA workers as harvesters residual.
+                    let is_collector = n.contains("supply")
+                        || n.contains("harvester")
+                        || n.contains("chinook")
+                        || (n.contains("worker") && !n.contains("dozer"))
+                        || matches!(obj.ai_state, crate::game_logic::AIState::Gathering);
+                    if !is_collector {
+                        continue;
+                    }
+                    ids.push(id);
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No harvesters found";
             self.game_hud.push_info_message(msg);
@@ -14233,27 +14263,34 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            let n = obj.template_name.to_ascii_lowercase();
-            let is_collector = n.contains("supply")
-                || n.contains("harvester")
-                || n.contains("chinook")
-                || (n.contains("worker") && !n.contains("dozer"));
-            if !is_collector {
-                continue;
-            }
-            let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
-                && obj.target.is_none()
-                && !obj.status.moving;
-            if idle {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_idle_harvester_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    let n = obj.template_name.to_ascii_lowercase();
+                    let is_collector = n.contains("supply")
+                        || n.contains("harvester")
+                        || n.contains("chinook")
+                        || (n.contains("worker") && !n.contains("dozer"));
+                    if !is_collector {
+                        continue;
+                    }
+                    let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+                        && obj.target.is_none()
+                        && !obj.status.moving;
+                    if idle {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No idle harvesters";
             self.game_hud.push_info_message(msg);
@@ -14565,22 +14602,30 @@ impl CnCGameEngine {
         if !self.selected_objects.is_empty() {
             return;
         }
-        let Some(team) = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.team)
-        else {
-            return;
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
         };
-        if let Some((id, _)) = self
-            .game_logic
-            .get_objects()
-            .iter()
-            .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
-        {
-            self.selected_objects = vec![*id];
+        let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame
+                .alive_selectable_friendly_mobile_ids(team)
+                .into_iter()
+                .next()
+        } else {
             self.game_logic
-                .select_objects(self.current_player_id, vec![*id]);
+                .get_objects()
+                .iter()
+                .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
+                .map(|(&id, _)| id)
+        };
+        if let Some(id) = id {
+            self.selected_objects = vec![id];
+            self.game_logic
+                .select_objects(self.current_player_id, vec![id]);
         }
     }
 
@@ -14695,34 +14740,28 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                continue;
-            }
-            if obj.contained_units().is_empty() {
-                continue;
-            }
-            // Occupied non-structure container = transport residual.
-            ids.push(id);
-        }
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            for o in &frame.objects {
-                if o.team != team || o.destroyed || o.is_structure {
-                    continue;
+        let mut ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_occupied_transport_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                        continue;
+                    }
+                    if obj.contained_units().is_empty() {
+                        continue;
+                    }
+                    // Occupied non-structure container = transport residual.
+                    ids.push(id);
                 }
-                if o.garrisoned_units.is_empty() {
-                    continue;
-                }
-                if !ids.iter().any(|id| id.0 == o.id.0) {
-                    ids.push(o.id);
-                }
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         ids.dedup();
         if ids.is_empty() {
             let msg = "No occupied transports";
@@ -15007,23 +15046,30 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            let is_ac = obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                || obj.object_type == crate::game_logic::ObjectType::Aircraft;
-            if !is_ac {
-                continue;
-            }
-            let docked = matches!(obj.ai_state, crate::game_logic::AIState::Docked)
-                || obj.contained_by.is_some();
-            if docked {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_docked_aircraft_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    let is_ac = obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                        || obj.object_type == crate::game_logic::ObjectType::Aircraft;
+                    if !is_ac {
+                        continue;
+                    }
+                    let docked = matches!(obj.ai_state, crate::game_logic::AIState::Docked)
+                        || obj.contained_by.is_some();
+                    if docked {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No docked aircraft";
             self.game_hud.push_info_message(msg);
@@ -15475,24 +15521,32 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            let n = obj.template_name.to_ascii_lowercase();
-            let is_worker = obj.is_dozer || n.contains("dozer") || n.contains("worker");
-            if !is_worker {
-                continue;
-            }
-            if matches!(
-                obj.ai_state,
-                crate::game_logic::AIState::Constructing | crate::game_logic::AIState::Repairing
-            ) {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_constructing_worker_ids(team)
+            } else {
+                // Boot residual only — presentation filter-select owns InGame path.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    let n = obj.template_name.to_ascii_lowercase();
+                    let is_worker = obj.is_dozer || n.contains("dozer") || n.contains("worker");
+                    if !is_worker {
+                        continue;
+                    }
+                    if matches!(
+                        obj.ai_state,
+                        crate::game_logic::AIState::Constructing
+                            | crate::game_logic::AIState::Repairing
+                    ) {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No constructing workers";
             self.game_hud.push_info_message(msg);

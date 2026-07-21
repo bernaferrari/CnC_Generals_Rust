@@ -4100,6 +4100,114 @@ impl PresentationFrame {
         })
     }
 
+    pub fn alive_selectable_friendly_harvester_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            let n = o.template_name.to_ascii_lowercase();
+            n.contains("supply")
+                || n.contains("harvester")
+                || n.contains("gatherer")
+                || n.contains("worker")
+                || matches!(o.ai_state_ordinal, 5 | 6)
+        })
+    }
+
+    pub fn alive_selectable_friendly_idle_harvester_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            let n = o.template_name.to_ascii_lowercase();
+            let is_h = n.contains("supply")
+                || n.contains("harvester")
+                || n.contains("gatherer")
+                || n.contains("worker");
+            is_h && o.ai_state_ordinal == 0 && !o.moving
+        })
+    }
+
+    pub fn alive_selectable_friendly_occupied_transport_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            !o.is_structure
+                && o.occupant_count > 0
+                && (o.max_transport > 0
+                    || o.is_humvee_transport
+                    || o.is_troop_crawler_transport
+                    || o.is_combat_chinook_transport
+                    || o.is_helix_transport
+                    || o.is_battle_bus_transport
+                    || o.is_technical_transport
+                    || o.is_combat_cycle_transport)
+        })
+    }
+
+    pub fn alive_selectable_friendly_docked_aircraft_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        // host_ai_state_ordinal Docked = 12
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            (o.object_type == PresentationObjectType::Aircraft || o.airborne_target)
+                && o.ai_state_ordinal == 12
+        })
+    }
+
+    pub fn alive_selectable_friendly_repairing_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        // Repairing = 8, SeekingRepair = 15
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            matches!(o.ai_state_ordinal, 8 | 15)
+        })
+    }
+
+    pub fn alive_selectable_friendly_constructing_worker_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        // Constructing = 7
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            let n = o.template_name.to_ascii_lowercase();
+            o.ai_state_ordinal == 7
+                || ((n.contains("dozer") || n.contains("worker") || n.contains("constructor"))
+                    && (o.moving || o.ai_state_ordinal == 7))
+        })
+    }
+
+    pub fn alive_selectable_friendly_idle_military_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            if o.is_structure {
+                return false;
+            }
+            let n = o.template_name.to_ascii_lowercase();
+            if n.contains("dozer") || n.contains("supply") || n.contains("harvester") {
+                return false;
+            }
+            let combat = o.is_mobile || o.has_weapon || o.is_unit;
+            combat
+                && o.ai_state_ordinal == 0
+                && !o.moving
+                && !o.attacking
+                && o.attack_target.is_none()
+        })
+    }
+
+    pub fn alive_selectable_friendly_mobile_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| o.is_mobile)
+    }
+
     pub fn alive_selectable_friendly_aircraft_ids(
         &self,
         player_team: crate::game_logic::Team,

@@ -18736,4 +18736,58 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn specialty_select_presentation_source() {
+        let pf = include_str!("presentation_frame.rs");
+        for name in [
+            "alive_selectable_friendly_harvester_ids",
+            "alive_selectable_friendly_idle_harvester_ids",
+            "alive_selectable_friendly_occupied_transport_ids",
+            "alive_selectable_friendly_docked_aircraft_ids",
+            "alive_selectable_friendly_repairing_ids",
+            "alive_selectable_friendly_constructing_worker_ids",
+            "alive_selectable_friendly_idle_military_ids",
+            "alive_selectable_friendly_mobile_ids",
+        ] {
+            assert!(
+                pf.contains(&format!("fn {name}")),
+                "PresentationFrame must expose {name}"
+            );
+        }
+        let eng = include_str!("cnc_game_engine.rs");
+        for (fn_name, call) in [
+            (
+                "select_all_harvesters",
+                "alive_selectable_friendly_harvester_ids",
+            ),
+            (
+                "select_idle_harvesters",
+                "alive_selectable_friendly_idle_harvester_ids",
+            ),
+            (
+                "select_all_occupied_transports",
+                "alive_selectable_friendly_occupied_transport_ids",
+            ),
+            (
+                "select_all_docked_aircraft",
+                "alive_selectable_friendly_docked_aircraft_ids",
+            ),
+            (
+                "select_all_idle_military",
+                "alive_selectable_friendly_idle_military_ids",
+            ),
+            (
+                "ensure_host_mobile_selection",
+                "alive_selectable_friendly_mobile_ids",
+            ),
+        ] {
+            let at = eng.find(&format!("fn {fn_name}")).expect(fn_name);
+            let body = &eng[at..eng.len().min(at + 1800)];
+            assert!(
+                body.contains(call),
+                "{fn_name} must prefer presentation {call}"
+            );
+        }
+    }
 }
