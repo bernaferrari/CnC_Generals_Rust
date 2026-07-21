@@ -17810,4 +17810,129 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn cancel_production_refund_economy_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for fn_name in [
+            "fn cancel_production",
+            "fn cancel_all_production",
+            "fn ensure_skirmish_ai_starting_cash",
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains("apply_supply_gain")
+                    || w.contains("gameworld_economy_authority_enabled")
+                    || w.contains("pending_supply_delta"),
+                "{fn_name} must honor economy authority for cash mutations"
+            );
+            assert!(
+                !w.contains("resources.supplies +=")
+                    && !w.contains(
+                        "resources.supplies =
+                    player.resources.supplies.saturating_add"
+                    )
+                    && !w.contains("resources.supplies = min_cash"),
+                "{fn_name} must not host-poke absolute supplies under refund/top-up"
+            );
+        }
+    }
+
+    #[test]
+    fn cancel_production_refund_economy_authority_writeback() {
+        use crate::game_logic::host_economy_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+        host_economy_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EconRef");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        // Seed a local player with known cash.
+        let pid = logic
+            .get_players()
+            .values()
+            .find(|p| p.team == Team::USA)
+            .map(|p| p.id)
+            .expect("usa player");
+        {
+            let p = logic.get_player_mut(pid).expect("p");
+            p.resources.supplies = 1000;
+            p.pending_supply_delta = 0;
+        }
+        if !logic.templates.contains_key("EconFac") {
+            let mut t = ThingTemplate::new("EconFac");
+            t.add_kind_of(KindOf::Structure);
+            t.add_kind_of(KindOf::FSBarracks);
+            logic.templates.insert("EconFac".into(), t);
+        }
+        if !logic.templates.contains_key("EconUnit") {
+            let mut t = ThingTemplate::new("EconUnit");
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("EconUnit".into(), t);
+        }
+        let fac = logic
+            .create_object("EconFac", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("fac");
+        // Queue a unit with cost via building_data if available.
+        {
+            use crate::game_logic::buildings::{
+                BuildingData, BuildingType, ProductionItem, ProductionKind,
+            };
+            use crate::game_logic::Resources;
+            let o = logic.get_objects_mut().get_mut(&fac).expect("f");
+            if o.building_data.is_none() {
+                o.building_data = Some(BuildingData::new(BuildingType::Barracks));
+            }
+            if let Some(bd) = o.building_data.as_mut() {
+                bd.production_queue.push(ProductionItem {
+                    template_name: "EconUnit".into(),
+                    progress: 0.0,
+                    total_time: 10.0,
+                    cost: Resources {
+                        supplies: 250,
+                        power: 0,
+                    },
+                    quantity_total: 1,
+                    quantity_produced: 0,
+                    kind: ProductionKind::Unit,
+                });
+            }
+        }
+        assert!(logic.cancel_production(fac, "EconUnit".into()));
+        let p = logic.get_player(pid).expect("p");
+        // Under economy authority host absolute supplies stay 1000; pending delta +250.
+        assert_eq!(p.resources.supplies, 1000);
+        assert_eq!(p.pending_supply_delta, 250);
+        assert_eq!(p.effective_supplies(), 1250);
+        let evs = host_economy_log::drain();
+        assert!(
+            evs.iter().any(|e| e.player_id == pid && e.supplies == 1250),
+            "refund must log effective supplies; got {evs:?}"
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
+        }
+    }
 }
