@@ -1856,6 +1856,2062 @@ mod tests {
             "MoveOrdered must map to UnitMove audio residual"
         );
     }
+
+    #[test]
+    fn presentation_shell_input_audio_without_draw_dual_own() {
+        let gc = include_str!("../../GameEngine/GameClient/src/core/game_client.rs");
+        let start = gc
+            .find("pub fn update_presentation_shell")
+            .expect("presentation shell");
+        let window = &gc[start..start + 2500.min(gc.len() - start)];
+        assert!(
+            gc.contains("update_presentation_shell")
+                && window.contains("without Main-owned input/audio or Display DRAW dual-ownership")
+                && window.contains("update_drawables_local")
+                && !window.contains("self.draw_display()?")
+                && !window.contains("self.update_input()?")
+                && window.contains("update_audio"),
+            "presentation shell ticks drawables/UI without dual-owning Main OS input/3D draw; client audio queue drains"
+        );
+        assert!(
+            gc.contains("fn update_post_draw_ui") && gc.contains("crate::eva::update_eva_system()"),
+            "Eva must tick from post-draw UI residual used by shell"
+        );
+    }
+
+    #[test]
+    fn presentation_fow_shroud_drawable_residual_no_object_registry() {
+        let gc = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        ));
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let fow = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/fow_rendering.rs"));
+        let apply_idx = eng
+            .find("apply_presentation_shroud_to_drawables")
+            .expect("engine must call presentation shroud apply");
+        let apply_window = &eng[apply_idx..apply_idx.saturating_add(800).min(eng.len())];
+        assert!(
+            gc.contains("apply_presentation_shroud_to_drawables")
+                && gc.contains("no OBJECT_REGISTRY")
+                && fow.contains("fully_obscures_drawable")
+                && eng.contains("fow_visibility.fully_obscures_drawable")
+                && !apply_window.contains("OBJECT_REGISTRY"),
+            "presentation FOW must drive drawable shroud without OBJECT_REGISTRY dual-read"
+        );
+    }
+
+    #[test]
+    fn presentation_alliance_local_player_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        assert!(
+            eng.contains("take_alliance_events")
+                && eng.contains("last_presentation_frame")
+                && eng.contains("Prefer presentation local_player residual")
+                && eng.contains("local_player_id"),
+            "alliance notifications must prefer presentation residual then drain live take"
+        );
+    }
+
+    #[test]
+    fn presentation_camera_residual_prefers_frame() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        assert!(
+            eng.contains("fn apply_presentation_camera_residual")
+                && eng.contains("fn drain_live_camera_request_queues")
+                && eng.contains("Prefer presentation-frozen camera residual")
+                && eng.contains("apply_presentation_camera_residual(&pres)"),
+            "InGame script camera must prefer presentation freeze over live take_* dual-read"
+        );
+        let i = eng
+            .find("fn apply_pending_script_camera_requests")
+            .expect("apply_pending_script_camera_requests");
+        let window = &eng[i..i.saturating_add(900).min(eng.len())];
+        assert!(
+            window.contains("last_presentation_frame.clone()")
+                && window.contains("drain_live_camera_request_queues"),
+            "presentation path must drain live queues after apply"
+        );
+    }
+
+    #[test]
+    fn presentation_popup_music_fps_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        assert!(
+            pf.contains("struct PresentationPopupMessage")
+                && pf.contains("pause_music: p.pause_music")
+                && eng.contains("Prefer presentation popup/music residual")
+                && eng.contains("Prefer presentation script FPS residual")
+                && eng.contains("pres.pending_music_stop")
+                && eng.contains("p.script_fps_limit"),
+            "popup/music/fps must prefer presentation freeze over live take dual-read"
+        );
+    }
+
+    #[test]
+    fn presentation_script_message_movie_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let gl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/game_logic.rs"
+        ));
+        assert!(
+            eng.contains("Prefer presentation new_script_messages residual")
+                && eng.contains("apply_presentation_movie_residual")
+                && eng.contains("fn apply_presentation_movie_residual")
+                && eng.contains("Prefer presentation victory residual when installed")
+                && gl.contains("fn take_pending_movie")
+                && gl.contains("fn take_pending_radar_movie"),
+            "script messages/movies/victory status must prefer presentation freeze"
+        );
+    }
+
+    #[test]
+    fn presentation_play_time_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        assert!(
+            pf.contains("total_play_time_seconds: logic.get_total_play_time()")
+                && pf.contains("ui.current_game_time = self.total_play_time_seconds")
+                && eng.contains("Prefer presentation sim clock residual")
+                && eng.contains("p.total_play_time_seconds"),
+            "UI game time must prefer presentation total_play_time_seconds"
+        );
+    }
+
+    #[test]
+    fn presentation_defeat_save_info_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        let gl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/game_logic.rs"
+        ));
+        assert!(
+            pf.contains("defeated_player_ids")
+                && pf.contains("logic.peek_defeat_events()")
+                && gl.contains("fn peek_defeat_events")
+                && eng.contains("pres.defeated_player_ids.clone()")
+                && eng.contains("Prefer presentation residual for map/play_time/local team")
+                && eng.contains("p.total_play_time_seconds")
+                && eng.contains("p.world_env.map_name"),
+            "defeat notifications and save_info must prefer presentation freeze"
+        );
+    }
+
+    #[test]
+    fn presentation_alliance_events_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        let gl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/game_logic.rs"
+        ));
+        assert!(
+            pf.contains("pub alliance_events:")
+                && pf.contains("logic.peek_alliance_events()")
+                && gl.contains("fn peek_alliance_events")
+                && eng.contains("Prefer presentation alliance residual")
+                && eng.contains("pres.alliance_events.clone()"),
+            "alliance notifications must prefer presentation freeze over live take"
+        );
+    }
+
+    #[test]
+    fn presentation_difficulty_game_mode_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        assert!(
+            pf.contains("ai_difficulty: logic.get_difficulty()")
+                && pf.contains("game_mode: logic.game_mode()")
+                && eng.contains("p.ai_difficulty")
+                && eng.contains("p.game_mode")
+                && eng.contains("Prefer presentation residual for map/mode/faction")
+                && eng.contains("Prefer presentation world_env map residual"),
+            "save/restart/runtime-host must prefer presentation difficulty/mode/map"
+        );
+    }
+
+    #[test]
+    fn presentation_menu_shell_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        assert!(
+            eng.contains("Prefer presentation shell residual when it affirms shell-map mode")
+                && eng.contains("Some(pres) if pres.fow_shell_bypass => true")
+                && eng
+                    .contains("Prefer presentation script FPS residual when shell frame installed")
+                && eng.contains("filter(|p| p.fow_shell_bypass)"),
+            "menu shell tick must prefer presentation fow_shell_bypass when true"
+        );
+    }
+
+    #[test]
+    fn presentation_game_mode_helper_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        assert!(
+            eng.contains("fn presentation_or_live_game_mode")
+                && eng.contains("Prefer presentation game_mode residual when installed")
+                && eng.matches("presentation_or_live_game_mode()").count() >= 7
+                && eng.contains("should_keep_logic_running_while_iconic")
+                && eng.contains("engine.presentation_or_live_game_mode()"),
+            "load-screen/quick-save/restart/iconic must prefer presentation game_mode helper"
+        );
+    }
+
+    #[test]
+    fn presentation_load_screen_roster_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        assert!(
+            pf.contains("is_ai: logic.ai_manager_contains_player(id)")
+                && pf.contains("color_rgb: p.color_rgb")
+                && eng.contains("Prefer full presentation roster when installed")
+                && eng.contains("frame.players.is_empty()")
+                && eng.contains("is_ai: player.is_ai")
+                && eng.contains("player.color_rgb")
+                && eng.contains("apparent_text_color: Some(text_color)")
+                && eng.contains("apparent_color is multiplayer color *index*")
+                && eng.contains("visible: player.is_alive"),
+            "load-screen init must expand slots from full presentation roster with is_ai/color"
+        );
+    }
+
+    #[test]
+    fn presentation_cinematic_letterbox_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let gc = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        ));
+        assert!(
+            gc.contains("fn apply_presentation_cinematic_letterbox")
+                && gc.contains("enable_letter_box(enabled)")
+                && eng.contains("apply_presentation_cinematic_letterbox(pres.cinematic_letterbox)")
+                && eng.contains("Presentation cinematic letterbox residual"),
+            "presentation cinematic_letterbox must drive GameClient display letterbox"
+        );
+    }
+
+    #[test]
+    fn presentation_military_caption_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        let gc = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        ));
+        let gl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/game_logic.rs"
+        ));
+        assert!(
+            pf.contains("military_caption_remaining_ms")
+                && gl.contains("fn military_caption_remaining_ms")
+                && gc.contains("fn apply_presentation_military_caption")
+                && eng.contains("apply_presentation_military_caption")
+                && eng.contains("pres.military_caption_remaining_ms"),
+            "presentation military caption must freeze remaining_ms and apply to InGameUI"
+        );
+    }
+
+    #[test]
+    fn presentation_cinematic_text_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let gc = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/core/game_client.rs"
+        ));
+        assert!(
+            gc.contains("fn apply_presentation_cinematic_text")
+                && gc.contains("push_hud_message")
+                && gc.contains("last_applied_cinematic_text")
+                && eng
+                    .contains("apply_presentation_cinematic_text(pres.cinematic_text.as_deref())")
+                && eng.contains("Cinematic text residual"),
+            "presentation cinematic_text must push InGameUI HUD message with anti-spam"
+        );
+    }
+
+    #[test]
+    fn presentation_camera_follow_residual() {
+        let eng = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/cnc_game_engine.rs"
+        ));
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        let gl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/game_logic/game_logic.rs"
+        ));
+        assert!(
+            gl.contains("fn peek_camera_follow_target_position")
+                && pf.contains("camera_follow_position")
+                && pf.contains("peek_camera_follow_target_position")
+                && eng.contains("pres.camera_follow_position")
+                && eng.contains("Prefer presentation-frozen follow position"),
+            "camera follow must prefer presentation freeze over live dual-read"
+        );
+    }
+
+    #[test]
+    fn presentation_timers_cameo_superweapon_residual() {
+        let pf = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/presentation_frame.rs"
+        ));
+        assert!(
+            pf.contains("ui.named_timers = self.named_timers.clone()")
+                && pf.contains("ui.named_timer_display_shown = self.named_timer_display_shown")
+                && pf.contains("ui.cameo_flash = self.cameo_flash.clone()")
+                && pf.contains("ui.superweapon_display_enabled = self.superweapon_display_enabled")
+                && pf.contains(
+                    "ui.superweapon_hidden_objects = self.superweapon_hidden_objects.clone()"
+                )
+                && pf.contains("Script named-timer / cameo / superweapon residual"),
+            "apply_to_ui_state must project named_timers/cameo/superweapon from presentation"
+        );
+    }
+
+    #[test]
+    fn aiplayer_update_with_frame_cpp_phase_order() {
+        // C++ AIPlayer::update (AIPlayer.cpp): doBaseBuilding → checkReadyTeams →
+        // checkQueuedTeams → doTeamBuilding → doUpgradesAndSkills → updateBridgeRepair.
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        let i = src
+            .find("pub fn update_with_frame")
+            .expect("update_with_frame");
+        let window = &src[i..i.saturating_add(2200).min(src.len())];
+        let base = window
+            .find("self.do_base_building()?")
+            .expect("do_base_building");
+        let ready = window
+            .find("self.check_ready_teams()?")
+            .expect("check_ready");
+        let queued = window
+            .find("self.check_queued_teams()?")
+            .expect("check_queued");
+        let team = window.find("self.do_team_building()?").expect("do_team");
+        let upg = window
+            .find("self.do_upgrades_and_skills()?")
+            .expect("upgrades");
+        let bridge = window.find("self.update_bridge_repair()?").expect("bridge");
+        assert!(
+            base < ready && ready < queued && queued < team && team < upg && upg < bridge,
+            "update_with_frame must match C++ AIPlayer::update phase order (got base={base} ready={ready} queued={queued} team={team} upg={upg} bridge={bridge})"
+        );
+        // Attack residual must not interrupt the C++ phase block.
+        if let Some(atk) = window.find("self.process_attack_decisions") {
+            assert!(
+                atk > bridge,
+                "process_attack_decisions is host residual and must run after C++ phase block"
+            );
+        }
+    }
+
+    #[test]
+    fn aiplayer_check_ready_queued_cpp_parity_surface() {
+        // C++ AIPlayer.cpp checkReadyTeams / checkQueuedTeams surface in Rust.
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("AIPlayer::checkReadyTeams")
+                && src.contains("60 * LOGICFRAMES_PER_SECOND")
+                && src.contains("set_active()")
+                && src.contains("AIPlayer::checkQueuedTeams")
+                && src.contains("is_build_time_expired")
+                && src.contains("push_front(team)")
+                && src.contains("is_minimum_built")
+                && src.contains("are_builds_complete")
+                && src.contains("clear_team_flags")
+                && src.contains("join_team_reinforcement"),
+            "check_ready/queued must port C++ activation, expiry, prepend, joinTeam residual"
+        );
+        // Must NOT only move build→ready inside check_ready_teams (old wrong port).
+        let i = src.find("fn check_ready_teams").expect("check_ready_teams");
+        let end = (i + 3500).min(src.len());
+        let window = &src[i..end];
+        assert!(
+            !window.contains("team_build_queue.remove")
+                || window.contains("team_ready_queue.remove"),
+            "check_ready_teams must drain ready queue (C++), not only promote build queue"
+        );
+        assert!(
+            window.contains("team_ready_queue.remove") || window.contains("team_ready_queue"),
+            "check_ready_teams must iterate ready queue"
+        );
+    }
+
+    #[test]
+    fn aiplayer_do_base_team_delay_cpp() {
+        // C++ AIPlayer.cpp doBaseBuilding / doTeamBuilding delay rechecks.
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("BUILD_DELAY_RECHECK_FRAMES: u32 = 2 * LOGICFRAMES_PER_SECOND")
+                && src.contains("TEAM_DELAY_RECHECK_FRAMES: u32 = 5 * LOGICFRAMES_PER_SECOND")
+                && src.contains("self.build_delay = BUILD_DELAY_RECHECK_FRAMES")
+                && src.contains("self.team_delay = TEAM_DELAY_RECHECK_FRAMES")
+                && src.contains("let _ = self.queue_units()")
+                && src.contains("C++ `AIPlayer::doBaseBuilding`")
+                && src.contains("C++ `AIPlayer::doTeamBuilding`"),
+            "do_base/do_team must port C++ 2s/5s delay + queueUnits cadence"
+        );
+    }
+
+    #[test]
+    fn aiplayer_process_base_building_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::processBaseBuilding`")
+                && src.contains("arm_structure_timer_after_build")
+                && src.contains("rebuild_delay_frames")
+                && src.contains("structures_poor_mod")
+                && src.contains("structures_wealthy_mod"),
+            "process_base_building must arm structureTimer with C++ wealth mods"
+        );
+    }
+
+    #[test]
+    fn aiplayer_select_team_to_build_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::selectTeamToBuild`")
+                && src.contains("select_team_to_reinforce(hi_pri)")
+                && src.contains("game_logic_random_value")
+                && src.contains("build_specific_ai_team(team_name, false)")
+                && src.contains("arm_team_timer_after_build")
+                && src.contains("is_possible_to_build_team(team_name, true)"),
+            "selectTeamToBuild must hiPri-filter, reinforce first, random pick, arm teamTimer"
+        );
+    }
+
+    #[test]
+    fn aiplayer_select_team_to_reinforce_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::selectTeamToReinforce`")
+                && src.contains("automatically_reinforce")
+                && src.contains("try_to_recruit")
+                && src.contains("self.team_delay = 0"),
+            "selectTeamToReinforce must auto-reinforce with recruit/train + teamDelay shortcut"
+        );
+    }
+
+    #[test]
+    fn team_evaluate_production_condition_cpp() {
+        let team = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/team.rs"
+        ));
+        let ai = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            team.contains("evaluate_production_condition")
+                && team.contains("production_condition_runtime")
+                && team.contains("always_false")
+                && team.contains("evaluate_conditions")
+                && ai.contains("evaluate_production_condition()"),
+            "TeamPrototype::evaluateProductionCondition + isAGoodIdea wire required"
+        );
+    }
+
+    #[test]
+    fn aiplayer_queue_units_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::queueUnits`")
+                && src.contains("try_to_recruit")
+                && src.contains("while order.is_waiting_to_build()")
+                && src.contains("ai_move_to_position")
+                && src.contains("ai_idle"),
+            "queueUnits must tryToRecruit then startTraining (C++)"
+        );
+    }
+
+    #[test]
+    fn aiplayer_is_possible_to_build_team_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::isPossibleToBuildTeam`")
+                && src.contains("any_idle")
+                && src.contains("max_units as f32 + min_units as f32")
+                && src.contains("team_resources_to_build"),
+            "isPossibleToBuildTeam C++ factory/cost semantics required"
+        );
+    }
+
+    #[test]
+    fn aiplayer_start_training_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::startTraining`")
+                && src.contains("queue_unit_with_production_id")
+                && src.contains("request_unique_unit_production_id")
+                && src.contains("C++ `AIPlayer::findFactory`")
+                && src.contains("get_build_list"),
+            "startTraining/findFactory must queueCreateUnit via build-list factories"
+        );
+    }
+
+    #[test]
+    fn aiplayer_on_unit_produced_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::onUnitProduced`")
+                && src.contains("self.team_delay = 0")
+                && src.contains("set_force_wanting_state")
+                && src.contains("structure_timer = 1"),
+            "onUnitProduced must setTeam/delays/supply/dozer like C++"
+        );
+    }
+
+    #[test]
+    fn aiplayer_build_structure_with_dozer_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::buildStructureWithDozer`")
+                && src.contains("set_build_task")
+                && src.contains("build_structure_with_dozer"),
+            "buildStructureWithDozer must be wired for USE_DOZER base building"
+        );
+    }
+
+    #[test]
+    fn aiplayer_new_map_and_build_structure_now_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::newMap`")
+                && src.contains("C++ `AIPlayer::buildStructureNow`")
+                && src.contains("C++ `AIPlayer::checkForSupplyCenter`")
+                && src.contains("is_initially_built")
+                && src.contains("set_desired_gatherers(desired + 1)"),
+            "newMap/buildStructureNow/checkForSupplyCenter C++ paths required"
+        );
+    }
+
+    #[test]
+    fn aiplayer_queue_supply_truck_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::queueSupplyTruck`")
+                && src.contains("truck_in_queue")
+                && src.contains("queue_one_harvester_at_factory")
+                && src.contains("try_reattach_loose_harvester"),
+            "queueSupplyTruck C++ gatherer path required"
+        );
+    }
+
+    #[test]
+    fn aiplayer_find_dozer_queue_supply_safe_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::findDozer`")
+                && src.contains("C++ `AIPlayer::queueDozer`")
+                && src.contains("C++ `AIPlayer::isSupplySourceAttacked`")
+                && src.contains("C++ `AIPlayer::isSupplySourceSafe`")
+                && src.contains("C++ `AIPlayer::guardSupplyCenter`")
+                && src.contains("is_currently_ferrying_supplies")
+                && src.contains("start_training_internal"),
+            "findDozer/queueDozer/supply safety C++ paths required"
+        );
+    }
+
+    #[test]
+    fn aiplayer_compute_superweapon_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::computeSuperweaponTarget`")
+                && src.contains("C++ `AIPlayer::getPlayerSuperweaponValue`")
+                && src.contains("Fine tune: C++ uses (x-5) for BOTH axes")
+                && src.contains("FSBaseDefense"),
+            "superweapon targeting C++ parity required"
+        );
+    }
+
+    #[test]
+    fn aiplayer_build_upgrade_repair_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::buildUpgrade`")
+                && src.contains("C++ `AIPlayer::buildBySupplies`")
+                && src.contains("C++ `AIPlayer::repairStructure`")
+                && src.contains("C++ `AIPlayer::updateBridgeRepair`")
+                && src.contains("add_to_priority_build_list")
+                && src.contains("AiCommandType::Repair"),
+            "buildUpgrade/buildBySupplies/repair bridge C++ paths required"
+        );
+    }
+
+    #[test]
+    fn aiplayer_find_supply_nearest_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::findSupplyCenter`")
+                && src.contains("C++ `AIPlayer::buildSpecificBuildingNearestTeam`")
+                && src.contains("C++ `AIPlayer::calcClosestConstructionZoneLocation`")
+                && src.contains("C++ `AIPlayer::onStructureProduced`")
+                && src.contains("dist_sqr * 0.4")
+                && src.contains("RebuildHole"),
+            "findSupplyCenter/nearest/onStructure C++ paths required"
+        );
+    }
+
+    #[test]
+    fn aiplayer_build_recruit_team_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/ai_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AIPlayer::buildSpecificAITeam`")
+                && src.contains("C++ `AIPlayer::recruitSpecificAITeam`")
+                && src.contains("create_inactive_team")
+                && src.contains("team_ready_queue.push_front")
+                && src.contains("get_can_build_units"),
+            "buildSpecificAITeam/recruitSpecificAITeam C++ paths required"
+        );
+    }
+
+    #[test]
+    fn aiskirmish_base_defense_new_map_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/skirmish_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AISkirmishPlayer::buildAIBaseDefenseStructure`")
+                && src.contains("C++ `AISkirmishPlayer::newMap`")
+                && src.contains("add_to_priority_build_list")
+                && src.contains("build_structure_now_at_public"),
+            "skirmish defense/newMap C++ paths required"
+        );
+    }
+
+    #[test]
+    fn aiskirmish_process_base_building_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/skirmish_player.rs"
+        ));
+        assert!(
+            src.contains("build_structure_with_dozer")
+                && src.contains("ResumeConstruction")
+                && src.contains("processBaseBuilding"),
+            "skirmish processBaseBuilding dozer path required"
+        );
+    }
+
+    #[test]
+    fn aiskirmish_select_team_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/skirmish_player.rs"
+        ));
+        assert!(
+            src.contains("selectTeamToBuild")
+                && src.contains("is_a_good_idea_to_build_team(proto.get_name()")
+                && src.contains("select_team_to_reinforce(min_priority)"),
+            "skirmish selectTeam C++ delegation required"
+        );
+    }
+
+    #[test]
+    fn aiskirmish_update_phase_cpp() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/ai/skirmish_player.rs"
+        ));
+        assert!(
+            src.contains("C++ `AISkirmishPlayer::update`")
+                && src.contains("check_ready_teams")
+                && src.contains("do_base_building()")
+                && src.contains("do_team_building()")
+                && src.contains("check_queued_teams")
+                && src.contains("update_bridge_repair"),
+            "skirmish update C++ phase order required"
+        );
+    }
+
+    fn load_screen_init_prefers_presentation_roster() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains(
+                "Prefer presentation roster when installed (InGame residual); live only boot/menu"
+            ) && eng.contains("Boot residual only — no presentation roster yet")
+                && eng.contains("frame.player_info(local_id)"),
+            "load_screen_init_context must prefer presentation roster when frame installed"
+        );
+    }
+
+    fn render_execute_passes_none_game_logic_when_presentation_installed() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("set_presentation_frame(self.last_presentation_frame.clone())")
+                && eng.contains("PresentationFrame::build_from_logic")
+                && eng.contains("last_presentation_frame.is_none()"),
+            "engine must seed presentation before execute (no live GameLogic dual-read)"
+        );
+        // Structural: execute call site prefers None when presentation is Some.
+        let idx = eng
+            .find("self.render_pipeline.execute(")
+            .expect("execute call");
+        let window = &eng[idx..idx + 450];
+        assert!(
+            !window.contains("Some(&self.game_logic)"),
+            "execute must not pass live GameLogic (presentation-only boundary): {window}"
+        );
+        assert!(
+            eng.contains("PresentationFrame::build_from_logic")
+                && eng.contains("last_presentation_frame.is_none()"),
+            "engine must seed a presentation frame before execute when missing"
+        );
+        let rp = include_str!("graphics/render_pipeline.rs");
+        assert!(
+            rp.contains(
+                "Boot residual only — presentation unit_render_inputs owns model/transform"
+            ),
+            "pipeline live get_template must be boot residual only"
+        );
+    }
+
+    fn defeat_alliance_prefer_presentation_no_live_dual_read_when_frame_installed() {
+        let src = include_str!("cnc_game_engine.rs");
+        assert!(
+            src.contains(
+                "Boot residual only — no live dual-read when a presentation frame is installed"
+            ) && src.contains(
+                "Presentation installed but roster miss — fail-closed id-only residual"
+            ) && src.contains(
+                "Prefer presentation roster team when installed; live only if no frame"
+            ) && src.contains("else if self.last_presentation_frame.is_none()")
+                && src.contains("Boot residual only — presentation local_team owns InGame Ctrl+A")
+                && src.contains("Boot residual only — presentation local_team owns InGame Tab cycle")
+                && src.contains("Boot residual only — presentation local_team owns InGame similar-select")
+                && src.contains("Boot residual only — presentation local_team owns InGame box-select")
+                && src.contains("Boot residual only — presentation local_team owns InGame attack-click")
+                && src.contains("Boot residual only — presentation local_team owns InGame control-group select")
+                && src.contains("Boot residual only — presentation filter_alive_selectable_ids owns InGame")
+                && src.contains("Boot residual only — presentation centroid_of_ids owns InGame double-tap")
+                && src.contains("Boot residual only — presentation box_select_unit_ids owns InGame path")
+                && src.contains("Boot residual only — presentation similar_unit_ids owns InGame path"),
+            "defeat/alliance/selection must not dual-read get_player when presentation frame is installed"
+        );
+    }
+
+    fn legacy_render_stubs_prefer_presentation_identity() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains(
+                "Prefer presentation identity when installed (no live get_objects dual-read)"
+            ),
+            "render_game_objects stub must prefer presentation"
+        );
+        assert!(
+            eng.contains("Prefer presentation selected residual when installed (no live find_object dual-read)"),
+            "render_selection_indicators stub must prefer presentation"
+        );
+        assert!(
+            eng.contains("selection_renderer is sole path"),
+            "must document selection_renderer as production path"
+        );
+    }
+
+    #[test]
+    fn host_smoke_applies_skirmish_and_advances_frames() {
+        let r = run_shell_smoke(8);
+        assert!(r.host_constructed, "host only after apply: {}", r.detail);
+        assert!(r.skirmish_config_ok, "{}", r.detail);
+        assert!(r.menu_config_ok, "{}", r.detail);
+        assert!(r.frames_advanced > 0, "{}", r.detail);
+        assert!(r.hud_selection_ok, "HUD selection residual: {}", r.detail);
+        assert!(
+            r.dual_tick_presentation_ok,
+            "dual-tick presentation residual: {}",
+            r.detail
+        );
+        assert!(
+            r.dual_tick_counters_ok,
+            "dual-tick residual counters: {}",
+            r.detail
+        );
+        assert!(
+            r.gameworld_shadow_ok,
+            "gameworld shadow count parity: {}",
+            r.detail
+        );
+        assert!(
+            r.damage_authority_env_ok,
+            "damage authority should default on in shell gate: {}",
+            r.detail
+        );
+        assert!(
+            r.economy_authority_env_ok,
+            "economy authority should default on in shell gate: {}",
+            r.detail
+        );
+        assert!(
+            r.dual_tick_policy_authority_only,
+            "dual-tick must stay AuthorityOnly by default: {}",
+            r.detail
+        );
+        assert!(
+            r.engine_bridge_off,
+            "engine OBJECT_REGISTRY bridge must stay off by default: {}",
+            r.detail
+        );
+        assert!(
+            r.minimap_fow_presentation_ok,
+            "minimap FOW presentation residual: {}",
+            r.detail
+        );
+        assert!(
+            r.laser_segment_upload_ok,
+            "laser segment CPU upload residual: {}",
+            r.detail
+        );
+        assert!(
+            r.projectile_segment_upload_ok,
+            "projectile segment CPU upload residual: {}",
+            r.detail
+        );
+        assert!(
+            r.move_line_upload_ok,
+            "move line CPU upload residual: {}",
+            r.detail
+        );
+        assert!(
+            r.attack_line_upload_ok,
+            "attack line CPU upload residual: {}",
+            r.detail
+        );
+        assert!(
+            r.multi_beam_soft_edge_ok,
+            "multi-beam soft-edge residual: {}",
+            r.detail
+        );
+        assert!(
+            r.laser_presentation_residual_ok,
+            "laser presentation residual: {}",
+            r.detail
+        );
+        assert!(
+            r.floating_text_layout_ok,
+            "floating text CPU layout residual: {}",
+            r.detail
+        );
+        assert!(
+            r.floating_text_vanish_ok,
+            "floating text vanish-rate residual: {}",
+            r.detail
+        );
+        assert!(
+            r.game_text_caption_ok,
+            "GUI:AddCash caption residual: {}",
+            r.detail
+        );
+        assert!(
+            r.game_text_csf_str_ok,
+            "CSF/STR GameText residual: {}",
+            r.detail
+        );
+        assert!(
+            r.display_string_measure_ok,
+            "DisplayString measure residual: {}",
+            r.detail
+        );
+        assert!(
+            r.translate_copy_residual_ok,
+            "translate_copy residual: {}",
+            r.detail
+        );
+        assert!(
+            r.world_anim_layout_ok,
+            "world anim CPU layout residual: {}",
+            r.detail
+        );
+        assert!(
+            r.world_anim_fade_ok,
+            "world anim fade residual: {}",
+            r.detail
+        );
+        assert!(
+            r.anim2d_frame_ok,
+            "Anim2D frame advance residual: {}",
+            r.detail
+        );
+        assert!(
+            r.anim2d_collection_residual_ok,
+            "Anim2DCollection residual: {}",
+            r.detail
+        );
+        assert!(
+            r.rng_stream_residual_ok,
+            "RNG stream residual: {}",
+            r.detail
+        );
+        assert!(
+            r.mesh_asset_residual_ok,
+            "mesh asset residual: {}",
+            r.detail
+        );
+        assert!(
+            r.rng_residual_pack_ok,
+            "RNG residual pack wave72: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_wave72_residual_ok,
+            "special power residual pack wave72: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_wave73_residual_ok,
+            "special power residual pack wave73: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_wave76_residual_ok,
+            "special power residual pack wave76: {}",
+            r.detail
+        );
+        assert!(
+            r.paradrop_wave76_residual_ok,
+            "paradrop science-tier residual pack wave76: {}",
+            r.detail
+        );
+        assert!(
+            r.control_bar_wave76_residual_ok,
+            "control bar residual pack wave76: {}",
+            r.detail
+        );
+        assert!(
+            r.graphics_wave76_residual_ok,
+            "graphics residual pack wave76: {}",
+            r.detail
+        );
+        assert!(
+            r.spectre_orbit_decal_presentation_ok,
+            "spectre orbit decal presentation residual: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_wave77_residual_ok,
+            "special power audio residual pack wave77: {}",
+            r.detail
+        );
+        assert!(
+            r.fow_residual_pack_ok,
+            "FOW residual pack wave77: {}",
+            r.detail
+        );
+        assert!(
+            r.ground_height_presentation_ok,
+            "ground height presentation residual wave77: {}",
+            r.detail
+        );
+        assert!(
+            r.weapon_store_seed_residual_ok,
+            "weapon store seed residual wave77: {}",
+            r.detail
+        );
+        assert!(
+            r.ai_skirmish_residual_ok,
+            "AI skirmish residual pack wave77: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_wave78_residual_ok,
+            "special power residual pack wave78: {}",
+            r.detail
+        );
+        assert!(
+            r.cluster_mines_wave78_residual_ok,
+            "cluster mines residual pack wave78: {}",
+            r.detail
+        );
+        assert!(
+            r.gps_scrambler_wave78_residual_ok,
+            "GPS scrambler residual pack wave78: {}",
+            r.detail
+        );
+        assert!(
+            r.cash_bounty_wave78_residual_ok,
+            "cash bounty residual pack wave78: {}",
+            r.detail
+        );
+        assert!(
+            r.minimap_residual_pack_ok,
+            "minimap residual pack wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.selection_hud_residual_pack_ok,
+            "selection HUD residual pack wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.input_residual_pack_ok,
+            "input residual pack wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.drawable_residual_fields_ok,
+            "drawable residual fields wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.unit_training_wave79_residual_ok,
+            "unit training residual pack wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.upgrades_cost_time_application_ok,
+            "upgrades cost/time application wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.command_button_wave80_residual_ok,
+            "command button residual pack wave80: {}",
+            r.detail
+        );
+        assert!(
+            r.science_rank_wave80_residual_ok,
+            "science rank residual pack wave80: {}",
+            r.detail
+        );
+        assert!(
+            r.superweapon_kindof_wave80_residual_ok,
+            "superweapon kindof residual pack wave80: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_enum_wave80_residual_ok,
+            "special power enum residual pack wave80: {}",
+            r.detail
+        );
+        assert!(
+            r.terrain_height_sample_wave81_ok,
+            "map height sample residual pack wave81: {}",
+            r.detail
+        );
+        assert!(
+            r.pathfinder_wave81_residual_ok,
+            "pathfinder residual pack wave81: {}",
+            r.detail
+        );
+        assert!(
+            r.locomotor_table_wave81_ok,
+            "locomotor residual table wave81: {}",
+            r.detail
+        );
+        assert!(
+            r.armor_table_wave81_ok,
+            "armor residual table wave81: {}",
+            r.detail
+        );
+        assert!(
+            r.puc_flare_table_wave81_ok,
+            "PUC flare name table residual wave81: {}",
+            r.detail
+        );
+        assert!(
+            r.damage_type_wave82_ok,
+            "damage type residual enum table wave82: {}",
+            r.detail
+        );
+        assert!(
+            r.death_type_wave82_ok,
+            "death type residual enum table wave82: {}",
+            r.detail
+        );
+        assert!(
+            r.model_condition_wave82_ok,
+            "model condition residual flags wave82: {}",
+            r.detail
+        );
+        assert!(
+            r.weapon_bonus_wave82_ok,
+            "weapon bonus residual type table wave82: {}",
+            r.detail
+        );
+        assert!(
+            r.object_status_wave82_ok,
+            "object status residual table wave82: {}",
+            r.detail
+        );
+        assert!(
+            r.production_queue_wave83_ok,
+            "production queue residual pack wave83: {}",
+            r.detail
+        );
+        assert!(
+            r.supply_warehouse_wave83_ok,
+            "supply warehouse residual pack wave83: {}",
+            r.detail
+        );
+        assert!(
+            r.dozer_build_wave83_ok,
+            "dozer build residual pack wave83: {}",
+            r.detail
+        );
+        assert!(
+            r.capture_building_wave83_ok,
+            "capture building residual pack wave83: {}",
+            r.detail
+        );
+        assert!(
+            r.power_plant_wave83_ok,
+            "power plant residual pack wave83: {}",
+            r.detail
+        );
+        assert!(
+            r.command_center_wave83_ok,
+            "command center residual pack wave83: {}",
+            r.detail
+        );
+        assert!(
+            r.kindof_wave84_ok,
+            "kindof residual bit-name table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.weapon_slot_wave84_ok,
+            "weapon slot residual table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.veterancy_wave84_ok,
+            "veterancy residual level table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.relationship_wave84_ok,
+            "relationship residual table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.geometry_wave84_ok,
+            "geometry residual type table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.shadow_wave84_ok,
+            "shadow residual type table wave84: {}",
+            r.detail
+        );
+        assert!(
+            r.faction_side_wave85_ok,
+            "faction side residual table wave85: {}",
+            r.detail
+        );
+        assert!(
+            r.player_template_wave85_ok,
+            "player template residual pack wave85: {}",
+            r.detail
+        );
+        assert!(
+            r.starting_cash_wave85_ok,
+            "starting cash residual pack wave85: {}",
+            r.detail
+        );
+        assert!(
+            r.skirmish_ai_personality_wave85_ok,
+            "skirmish AI personality residual pack wave85: {}",
+            r.detail
+        );
+        assert!(
+            r.victory_condition_wave85_ok,
+            "victory condition residual pack wave85: {}",
+            r.detail
+        );
+        assert!(
+            r.gamedata_camera_fps_wave86_ok,
+            "gamedata camera/FPS residual pack wave86: {}",
+            r.detail
+        );
+        assert!(
+            r.gamedata_world_constants_wave86_ok,
+            "gamedata world constants residual pack wave86: {}",
+            r.detail
+        );
+        assert!(
+            r.multiplayer_options_wave86_ok,
+            "multiplayer options residual pack wave86: {}",
+            r.detail
+        );
+        assert!(
+            r.map_selection_wave86_ok,
+            "map selection residual pack wave86: {}",
+            r.detail
+        );
+        assert!(
+            r.crate_deepen_wave86_ok,
+            "crate residual deepen pack wave86: {}",
+            r.detail
+        );
+        assert!(
+            r.weather_wave87_ok,
+            "weather residual pack wave87: {}",
+            r.detail
+        );
+        assert!(
+            r.water_wave87_ok,
+            "water residual pack wave87: {}",
+            r.detail
+        );
+        assert!(
+            r.bridge_wave87_ok,
+            "bridge residual pack wave87: {}",
+            r.detail
+        );
+        assert!(
+            r.tunnel_wave87_ok,
+            "tunnel residual deepen wave87: {}",
+            r.detail
+        );
+        assert!(
+            r.garrison_wave87_ok,
+            "garrison residual pack wave87: {}",
+            r.detail
+        );
+        assert!(
+            r.transport_wave87_ok,
+            "transport residual pack wave87: {}",
+            r.detail
+        );
+        assert!(
+            r.radius_cursor_wave88_ok,
+            "radius cursor residual name table wave88: {}",
+            r.detail
+        );
+        assert!(
+            r.mouse_cursor_wave88_ok,
+            "mouse cursor residual name table wave88: {}",
+            r.detail
+        );
+        assert!(
+            r.superweapon_fxlist_wave88_ok,
+            "superweapon FXList residual name table wave88: {}",
+            r.detail
+        );
+        assert!(
+            r.superweapon_ocl_wave88_ok,
+            "superweapon OCL residual name table wave88: {}",
+            r.detail
+        );
+        assert!(
+            r.superweapon_particle_wave88_ok,
+            "superweapon particle residual name table wave88: {}",
+            r.detail
+        );
+        assert!(
+            r.superweapon_audio_wave88_ok,
+            "superweapon audio residual name table wave88: {}",
+            r.detail
+        );
+        assert!(
+            r.rank_skill_wave89_ok,
+            "rank skill-points application residual pack wave89: {}",
+            r.detail
+        );
+        assert!(
+            r.experience_wave89_ok,
+            "experience residual tables pack wave89: {}",
+            r.detail
+        );
+        assert!(
+            r.hotkey_wave89_ok,
+            "hotkey residual table pack wave89: {}",
+            r.detail
+        );
+        assert!(
+            r.chat_wave89_ok,
+            "chat residual host pack wave89: {}",
+            r.detail
+        );
+        assert!(
+            r.replay_wave89_ok,
+            "replay residual host pack wave89: {}",
+            r.detail
+        );
+        assert!(
+            r.options_wave89_ok,
+            "options residual pack wave89: {}",
+            r.detail
+        );
+        assert!(
+            r.gamespeed_wave90_ok,
+            "gamespeed residual pack wave90: {}",
+            r.detail
+        );
+        assert!(
+            r.frame_rate_wave90_ok,
+            "frame rate residual deepen pack wave90: {}",
+            r.detail
+        );
+        assert!(
+            r.debug_tables_wave90_ok,
+            "debug residual tables pack wave90: {}",
+            r.detail
+        );
+        assert!(
+            r.language_wave90_ok,
+            "language residual deepen pack wave90: {}",
+            r.detail
+        );
+        assert!(
+            r.credits_wave90_ok,
+            "credits residual pack wave90: {}",
+            r.detail
+        );
+        assert!(
+            r.tooltip_wave91_ok,
+            "tooltip residual pack wave91: {}",
+            r.detail
+        );
+        assert!(
+            r.help_box_wave91_ok,
+            "help box residual pack wave91: {}",
+            r.detail
+        );
+        assert!(
+            r.message_wave91_ok,
+            "message residual pack wave91: {}",
+            r.detail
+        );
+        assert!(r.eva_wave91_ok, "eva residual pack wave91: {}", r.detail);
+        assert!(
+            r.video_wave91_ok,
+            "video residual name table wave91: {}",
+            r.detail
+        );
+        assert!(
+            r.mission_briefing_wave91_ok,
+            "mission briefing residual pack wave91: {}",
+            r.detail
+        );
+        assert!(
+            r.weapon_deepen_wave92_ok,
+            "weapon residual deepen pack wave92: {}",
+            r.detail
+        );
+        assert!(
+            r.armor_expand_wave92_ok,
+            "armor residual expand pack wave92: {}",
+            r.detail
+        );
+        assert!(
+            r.body_health_wave92_ok,
+            "body max health residual table wave92: {}",
+            r.detail
+        );
+        assert!(
+            r.locomotor_expand_wave92_ok,
+            "locomotor residual expand pack wave92: {}",
+            r.detail
+        );
+        assert!(
+            r.science_names_wave92_ok,
+            "science residual name table wave92: {}",
+            r.detail
+        );
+        assert!(
+            r.particle_emit_wave93_ok,
+            "particle emit-rate residual deepen pack wave93: {}",
+            r.detail
+        );
+        assert!(
+            r.drawable_opacity_wave93_ok,
+            "drawable opacity/shroud residual deepen pack wave93: {}",
+            r.detail
+        );
+        assert!(
+            r.shadow_deepen_wave93_ok,
+            "shadow residual deepen pack wave93: {}",
+            r.detail
+        );
+        assert!(
+            r.terrain_texture_wave93_ok,
+            "terrain texture residual pack wave93: {}",
+            r.detail
+        );
+        assert!(r.road_wave93_ok, "road residual pack wave93: {}", r.detail);
+        assert!(
+            r.ai_state_wave94_ok,
+            "AI state residual table wave94: {}",
+            r.detail
+        );
+        assert!(
+            r.special_ability_wave94_ok,
+            "special ability residual deepen wave94: {}",
+            r.detail
+        );
+        assert!(
+            r.upgrade_names_wave94_ok,
+            "upgrade name table residual wave94: {}",
+            r.detail
+        );
+        assert!(
+            r.command_set_wave94_ok,
+            "CommandSet superweapon residual wave94: {}",
+            r.detail
+        );
+        assert!(
+            r.script_action_wave95_ok,
+            "script action name table residual wave95: {}",
+            r.detail
+        );
+        assert!(
+            r.script_condition_wave95_ok,
+            "script condition name table residual wave95: {}",
+            r.detail
+        );
+        assert!(
+            r.map_object_wave95_ok,
+            "map object residual pack wave95: {}",
+            r.detail
+        );
+        assert!(
+            r.waypoint_wave95_ok,
+            "waypoint residual pack wave95: {}",
+            r.detail
+        );
+        assert!(r.team_wave95_ok, "team residual pack wave95: {}", r.detail);
+        assert!(
+            r.player_deepen_wave95_ok,
+            "player residual deepen pack wave95: {}",
+            r.detail
+        );
+        assert!(
+            r.partition_wave96_ok,
+            "partition residual pack wave96: {}",
+            r.detail
+        );
+        assert!(
+            r.collision_wave96_ok,
+            "collision residual pack wave96: {}",
+            r.detail
+        );
+        assert!(
+            r.physics_wave96_ok,
+            "physics residual pack wave96: {}",
+            r.detail
+        );
+        assert!(
+            r.projectile_wave96_ok,
+            "projectile residual deepen pack wave96: {}",
+            r.detail
+        );
+
+        assert!(
+            r.radar_deepen_wave97_ok,
+            "radar residual deepen pack wave97: {}",
+            r.detail
+        );
+        assert!(
+            r.spotter_wave97_ok,
+            "spotter residual pack wave97: {}",
+            r.detail
+        );
+        assert!(
+            r.stealth_deepen_wave97_ok,
+            "stealth residual deepen pack wave97: {}",
+            r.detail
+        );
+        assert!(
+            r.detector_deepen_wave97_ok,
+            "detector residual deepen pack wave97: {}",
+            r.detail
+        );
+        assert!(
+            r.vision_wave97_ok,
+            "vision residual pack wave97: {}",
+            r.detail
+        );
+        assert!(r.dock_wave98_ok, "dock residual pack wave98: {}", r.detail);
+        assert!(
+            r.contain_wave98_ok,
+            "contain residual deepen pack wave98: {}",
+            r.detail
+        );
+        assert!(r.exit_wave98_ok, "exit residual pack wave98: {}", r.detail);
+        assert!(
+            r.heal_wave98_ok,
+            "heal residual deepen pack wave98: {}",
+            r.detail
+        );
+        assert!(
+            r.production_deepen_wave99_ok,
+            "production residual deepen pack wave99: {}",
+            r.detail
+        );
+        assert!(
+            r.buildable_wave99_ok,
+            "buildable residual pack wave99: {}",
+            r.detail
+        );
+        assert!(
+            r.prerequisite_wave99_ok,
+            "prerequisite residual pack wave99: {}",
+            r.detail
+        );
+        assert!(
+            r.command_button_deepen_wave99_ok,
+            "command button residual deepen pack wave99: {}",
+            r.detail
+        );
+        assert!(
+            r.control_bar_deepen_wave99_ok,
+            "control bar residual deepen pack wave99: {}",
+            r.detail
+        );
+        assert!(
+            r.thing_factory_deepen_wave100_ok,
+            "thing factory residual deepen pack wave100: {}",
+            r.detail
+        );
+        assert!(
+            r.module_type_wave100_ok,
+            "module type table residual pack wave100: {}",
+            r.detail
+        );
+        assert!(
+            r.xfer_deepen_wave100_ok,
+            "xfer residual deepen pack wave100: {}",
+            r.detail
+        );
+        assert!(
+            r.thing_factory_crosslink_wave100_ok,
+            "thing factory spawn crosslink residual pack wave100: {}",
+            r.detail
+        );
+        assert!(
+            r.module_factory_deepen_wave101_ok,
+            "module factory residual deepen pack wave101: {}",
+            r.detail
+        );
+        assert!(
+            r.thing_factory_create_wave101_ok,
+            "thing factory create residual deepen pack wave101: {}",
+            r.detail
+        );
+        assert!(
+            r.partition_register_wave101_ok,
+            "partition register residual pack wave101: {}",
+            r.detail
+        );
+        assert!(
+            r.mf_crosslink_wave101_ok,
+            "thing factory module partition crosslink residual pack wave101: {}",
+            r.detail
+        );
+        assert!(
+            r.display_string_deepen_wave102_ok,
+            "display string residual deepen pack wave102: {}",
+            r.detail
+        );
+        assert!(
+            r.anim2d_deepen_wave102_ok,
+            "anim2d residual deepen pack wave102: {}",
+            r.detail
+        );
+        assert!(
+            r.laser_segliner_deepen_wave102_ok,
+            "laser segliner residual deepen pack wave102: {}",
+            r.detail
+        );
+        assert!(
+            r.csf_multi_locale_deepen_wave102_ok,
+            "csf multi-locale residual deepen pack wave102: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_deepen_wave102_ok,
+            "presentation residual deepen pack wave102: {}",
+            r.detail
+        );
+        assert!(
+            r.weapon_deepen_wave103_ok,
+            "weapon residual deepen pack wave103: {}",
+            r.detail
+        );
+        assert!(
+            r.armor_expand_wave103_ok,
+            "armor residual expand pack wave103: {}",
+            r.detail
+        );
+        assert!(
+            r.locomotor_expand_wave103_ok,
+            "locomotor residual expand pack wave103: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_deepen_wave103_ok,
+            "special power superweapon residual deepen pack wave103: {}",
+            r.detail
+        );
+        assert!(
+            r.object_kindof_wave103_ok,
+            "object kindof residual pack wave103: {}",
+            r.detail
+        );
+
+        assert!(
+            r.object_status_wave104_ok,
+            "object status state machine residual pack wave104: {}",
+            r.detail
+        );
+        assert!(
+            r.object_create_wave104_ok,
+            "object create residual order pack wave104: {}",
+            r.detail
+        );
+        assert!(
+            r.active_body_wave104_ok,
+            "active body max health apply residual pack wave104: {}",
+            r.detail
+        );
+        assert!(
+            r.drawable_create_wave104_ok,
+            "drawable create residual bookkeeping pack wave104: {}",
+            r.detail
+        );
+        assert!(
+            r.register_object_wave104_ok,
+            "gamelogic registerObject m_objList residual pack wave104: {}",
+            r.detail
+        );
+        assert!(
+            r.ai_group_wave105_ok,
+            "ai group residual peels pack wave105: {}",
+            r.detail
+        );
+        assert!(
+            r.ai_path_wave105_ok,
+            "ai path residual deepen pack wave105: {}",
+            r.detail
+        );
+        assert!(
+            r.weapon_fire_wave105_ok,
+            "weapon fire residual deepen pack wave105: {}",
+            r.detail
+        );
+        assert!(
+            r.damage_application_wave105_ok,
+            "damage application residual deepen pack wave105: {}",
+            r.detail
+        );
+        assert!(
+            r.veterancy_wave105_ok,
+            "veterancy residual deepen pack wave105: {}",
+            r.detail
+        );
+        assert!(
+            r.game_state_deepen_wave106_ok,
+            "game state residual deepen pack wave106: {}",
+            r.detail
+        );
+        assert!(
+            r.campaign_mission_wave106_ok,
+            "campaign mission residual deepen pack wave106: {}",
+            r.detail
+        );
+        assert!(
+            r.main_menu_deepen_wave106_ok,
+            "main menu residual deepen pack wave106: {}",
+            r.detail
+        );
+        assert!(
+            r.game_window_deepen_wave106_ok,
+            "game window residual deepen pack wave106: {}",
+            r.detail
+        );
+        assert!(
+            r.window_layout_deepen_wave106_ok,
+            "window layout residual deepen pack wave106: {}",
+            r.detail
+        );
+        assert!(
+            r.particle_system_deepen_wave107_ok,
+            "particle system residual deepen pack wave107: {}",
+            r.detail
+        );
+        assert!(
+            r.fxlist_entry_deepen_wave107_ok,
+            "fxlist entry residual deepen pack wave107: {}",
+            r.detail
+        );
+        assert!(
+            r.ocl_create_deepen_wave107_ok,
+            "ocl create residual deepen pack wave107: {}",
+            r.detail
+        );
+        assert!(
+            r.audio_deepen_wave107_ok,
+            "audio residual deepen pack wave107: {}",
+            r.detail
+        );
+        assert!(
+            r.heightmap_deepen_wave108_ok,
+            "heightmap residual deepen pack wave108: {}",
+            r.detail
+        );
+        assert!(
+            r.bridge_deepen_wave108_ok,
+            "bridge residual deepen pack wave108: {}",
+            r.detail
+        );
+        assert!(
+            r.water_deepen_wave108_ok,
+            "water residual deepen pack wave108: {}",
+            r.detail
+        );
+        assert!(
+            r.road_deepen_wave108_ok,
+            "road residual deepen pack wave108: {}",
+            r.detail
+        );
+        assert!(
+            r.cliff_peels_wave108_ok,
+            "cliff residual peels pack wave108: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_store_wave109_ok,
+            "special power template store residual pack wave109: {}",
+            r.detail
+        );
+        assert!(
+            r.science_store_wave109_ok,
+            "science store residual deepen pack wave109: {}",
+            r.detail
+        );
+        assert!(
+            r.upgrade_store_wave109_ok,
+            "upgrade store residual deepen pack wave109: {}",
+            r.detail
+        );
+        assert!(
+            r.player_deepen_wave109_ok,
+            "player residual deepen pack wave109: {}",
+            r.detail
+        );
+        assert!(
+            r.team_deepen_wave109_ok,
+            "team residual deepen pack wave109: {}",
+            r.detail
+        );
+        assert!(
+            r.command_button_wave80_residual_ok,
+            "command button superweapon residual pack wave80: {}",
+            r.detail
+        );
+        assert!(
+            r.science_rank_wave80_residual_ok,
+            "science rank residual pack wave80: {}",
+            r.detail
+        );
+        assert!(
+            r.superweapon_kindof_wave80_residual_ok,
+            "superweapon kindof residual pack wave80: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_enum_wave80_residual_ok,
+            "special power enum residual pack wave80: {}",
+            r.detail
+        );
+        assert!(
+            r.world_anim_presentation_ok,
+            "world anim presentation residual: {}",
+            r.detail
+        );
+        assert!(
+            r.control_bar_layout_ok,
+            "ControlBar.wnd ensure residual: {}",
+            r.detail
+        );
+        assert!(
+            r.selection_consumers_ok,
+            "multi-consumer selection panel residual: {}",
+            r.detail
+        );
+        // When WindowZH is present, path+validate honesty must be true; prefer
+        // headless WindowManager load (not required for CI without assets).
+        if r.control_bar_path_resolved {
+            assert!(
+                r.control_bar_wnd_validated,
+                "ControlBar structural validate residual: {}",
+                r.detail
+            );
+            #[cfg(feature = "game_client")]
+            if r.control_bar_window_loaded {
+                assert!(
+                    r.control_bar_window_count > 0,
+                    "WindowManager load must materialise windows: {}",
+                    r.detail
+                );
+            }
+        } else {
+            assert!(
+                !r.control_bar_window_loaded && r.control_bar_window_count == 0,
+                "missing assets must not claim window load: {}",
+                r.detail
+            );
+        }
+        assert!(
+            r.screen_skirmish_ok,
+            "shell→InGame screen residual: {}",
+            r.detail
+        );
+        // Limited host claim when path is fully operational; never retail W3D claim.
+        assert!(
+            r.shell_host_playable_ok,
+            "shell_host_playable_ok for successful headless host path: {}",
+            r.detail
+        );
+        assert!(
+            !r.playable_claim,
+            "headless smoke must not claim retail playable"
+        );
+        assert_eq!(r.status, "success", "{}", r.detail);
+        assert_eq!(
+            r.shell_host_playable_ok,
+            r.status == "success",
+            "shell_host_playable_ok must track success without overclaiming playable_claim"
+        );
+    }
+
+    #[test]
+    fn shell_host_playable_ok_never_implies_retail_playable_claim() {
+        let r = run_shell_smoke(4);
+        // Documented honesty contract: limited host flag is independent of retail claim.
+        if r.shell_host_playable_ok {
+            assert!(
+                !r.playable_claim,
+                "shell_host_playable_ok must never flip playable_claim"
+            );
+        }
+        assert!(!r.playable_claim);
+    }
+
+    #[test]
+    fn presentation_carries_transform_health_team_model() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PresFields");
+        assert!(apply_skirmish_config(&mut logic, &cfg).is_ok());
+        let mut t = ThingTemplate::new("SmokeUnit");
+        t.set_health(50.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("SmokeUnit".into(), t);
+        let id = logic
+            .create_object("SmokeUnit", Team::USA, Vec3::new(3.0, 0.0, 4.0))
+            .expect("unit");
+        logic.update();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let obj = frame
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+            .expect("object in presentation");
+        assert_eq!(obj.team, Team::USA);
+        assert!((obj.position.x - 3.0).abs() < 0.01);
+        assert!(obj.health_current > 0.0);
+        assert_eq!(obj.health_max, 50.0);
+        assert_eq!(obj.model_key.as_deref(), Some("SmokeUnit"));
+        assert!(!obj.destroyed);
+    }
+
+    #[test]
+    fn dual_tick_after_map_load_seeds_hud_selection_health() {
+        // Residual closed by this change: after skirmish config + (optional) map load,
+        // dual-tick presentation must put selection health on GameHUD.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ShellHudSel");
+        assert!(apply_skirmish_config(&mut logic, &cfg).is_ok());
+        let mut t = ThingTemplate::new("ShellSelUnit");
+        t.set_health(64.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("ShellSelUnit".into(), t);
+        let id = logic
+            .create_object("ShellSelUnit", Team::USA, Vec3::new(2.0, 0.0, 2.0))
+            .expect("unit");
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+        }
+
+        // Seed like start_game_from_ui before first logic frame.
+        let mut hud = GameHUD::new();
+        let seed = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
+        assert!(
+            seed.alive_object_count() >= 1,
+            "seed presentation must see map/host units"
+        );
+        assert!(
+            hud.selected_unit_ids().contains(&id),
+            "seed apply must set HUD selection"
+        );
+
+        logic.update();
+        let post = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
+        let info = hud
+            .selected_unit_infos()
+            .iter()
+            .find(|u| u.object_id == id)
+            .expect("dual-tick HUD selection health");
+        assert!(
+            (info.health_current - 64.0).abs() < 0.01,
+            "health from presentation after dual-tick: {}",
+            info.health_current
+        );
+        assert!(
+            hud.selection_panel().has_positive_health(),
+            "ControlBar selection panel health after dual-tick"
+        );
+        assert!(
+            (hud.selection_panel().health_current - 64.0).abs() < 0.01,
+            "selection panel HP from presentation: {}",
+            hud.selection_panel().health_current
+        );
+        assert_eq!(post.frame.0, logic.get_frame());
+        assert!(!post.hud_minimap_units().is_empty());
+
+        #[cfg(feature = "game_client")]
+        {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            post.apply_to_control_bar(&mut bar);
+            let (hp, _) = bar
+                .selection_panel_health()
+                .expect("ControlBar health from dual-tick presentation");
+            assert!((hp - 64.0).abs() < 0.01, "ControlBar HP {hp}");
+        }
+    }
 }
 
 #[cfg(test)]
