@@ -11441,7 +11441,16 @@ impl GameLogic {
                 // Simplified two-runway layout along X.
                 prep.x += (runway_idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
                 prep.y = PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
-                jet.set_position(prep);
+                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    crate::game_logic::host_move_log::record(
+                        jet_id,
+                        Some([prep.x, prep.y, prep.z]),
+                    );
+                    jet.movement.target_position = Some(prep);
+                    jet.record_host_movement();
+                } else {
+                    jet.set_position(prep);
+                }
             }
         }
         let _ = team;
@@ -11635,7 +11644,14 @@ impl GameLogic {
                     pad.x += (idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
                 }
                 pad.y = af_pos.y;
-                jet.set_position(pad);
+                if crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+                    crate::game_logic::host_move_log::record(jet_id, Some([pad.x, pad.y, pad.z]));
+                    // Keep path destination; GameWorld integrates. Instant dock snap only host-only.
+                    jet.movement.target_position = Some(pad);
+                    jet.record_host_movement();
+                } else {
+                    jet.set_position(pad);
+                }
                 true
             }
         };
@@ -21913,29 +21929,37 @@ impl GameLogic {
                             dir.y = 0.0;
                             let dist = dir.length();
                             if dist > range * 0.8 {
-                                let dir = if dist > 1.0 {
-                                    dir / dist
-                                } else {
-                                    glam::Vec3::new(1.0, 0.0, 0.0)
-                                };
-                                let stand = tpos - dir * (range * 0.55);
-                                let stand = glam::Vec3::new(stand.x, from.y, stand.z);
-                                if let Some(a) = self.objects.get_mut(&object_id) {
-                                    a.set_position(stand);
-                                    a.attack_target(target_id);
-                                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
-                                        crate::game_logic::host_ai_decision_log::record_set_state(
-                                            object_id, 2,
-                                        );
+                                // Movement authority: no range-snap teleport. Path was
+                                // already issued via assign_unit_attack_path; GameWorld
+                                // integrates the march. Host-only residual may still snap
+                                // for short smoke waits when authority is off.
+                                if !crate::gameworld_shadow::gameworld_movement_authority_enabled()
+                                {
+                                    let dir = if dist > 1.0 {
+                                        dir / dist
                                     } else {
-                                        a.set_ai_state(AIState::Attacking);
+                                        glam::Vec3::new(1.0, 0.0, 0.0)
+                                    };
+                                    let stand = tpos - dir * (range * 0.55);
+                                    let stand = glam::Vec3::new(stand.x, from.y, stand.z);
+                                    if let Some(a) = self.objects.get_mut(&object_id) {
+                                        a.set_position(stand);
+                                        a.attack_target(target_id);
+                                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled()
+                                        {
+                                            crate::game_logic::host_ai_decision_log::record_set_state(
+                                                object_id, 2,
+                                            );
+                                        } else {
+                                            a.set_ai_state(AIState::Attacking);
+                                        }
+                                        a.set_status_attacking(true);
+                                        a.set_status_moving(false);
+                                        a.movement.velocity = glam::Vec3::ZERO;
+                                        a.record_host_movement();
+                                        a.movement.target_position = None;
+                                        a.movement.path.clear();
                                     }
-                                    a.set_status_attacking(true);
-                                    a.set_status_moving(false);
-                                    a.movement.velocity = glam::Vec3::ZERO;
-                                    a.record_host_movement();
-                                    a.movement.target_position = None;
-                                    a.movement.path.clear();
                                 }
                             }
                         }
