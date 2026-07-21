@@ -13918,32 +13918,42 @@ impl CnCGameEngine {
             player.team
         };
 
-        let mut idle_workers: Vec<ObjectId> = Vec::new();
-        let mut busy_workers: Vec<ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_selectable() || !obj.is_alive() {
-                continue;
-            }
-            let n = obj.template_name.to_ascii_lowercase();
-            let is_worker = obj.is_dozer
-                || n.contains("dozer")
-                || n.contains("worker")
-                || n.contains("chinook")
-                || n.contains("supply")
-                || n.contains("hack");
-            if !is_worker {
-                continue;
-            }
-            // Prefer idle / non-tasked workers residual (retail SELECT_IDLE_WORKER).
-            let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
-                && obj.target.is_none()
-                && !obj.status.moving;
-            if idle {
-                idle_workers.push(id);
+        let (mut idle_workers, mut busy_workers) =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                (
+                    frame.alive_selectable_friendly_idle_worker_ids(team),
+                    frame.alive_selectable_friendly_busy_worker_ids(team),
+                )
             } else {
-                busy_workers.push(id);
-            }
-        }
+                // Boot residual only.
+                let mut idle_workers: Vec<ObjectId> = Vec::new();
+                let mut busy_workers: Vec<ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_selectable() || !obj.is_alive() {
+                        continue;
+                    }
+                    let n = obj.template_name.to_ascii_lowercase();
+                    let is_worker = obj.is_dozer
+                        || n.contains("dozer")
+                        || n.contains("worker")
+                        || n.contains("chinook")
+                        || n.contains("supply")
+                        || n.contains("hack");
+                    if !is_worker {
+                        continue;
+                    }
+                    // Prefer idle / non-tasked workers residual (retail SELECT_IDLE_WORKER).
+                    let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
+                        && obj.target.is_none()
+                        && !obj.status.moving;
+                    if idle {
+                        idle_workers.push(id);
+                    } else {
+                        busy_workers.push(id);
+                    }
+                }
+                (idle_workers, busy_workers)
+            };
         idle_workers.sort_by_key(|id| id.0);
         busy_workers.sort_by_key(|id| id.0);
         // Cycle idle first; fall back to all workers if none idle.
@@ -14068,63 +14078,98 @@ impl CnCGameEngine {
             .get_player(player_id)
             .map(|p| p.selected_objects.clone())
             .unwrap_or_else(|| self.selected_objects.clone());
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            self.game_logic
+                .get_player(player_id)
+                .map(|p| p.team)
+                .unwrap_or(crate::game_logic::Team::USA)
+        };
         let unfinished: Vec<_> = selected
             .iter()
             .copied()
             .filter(|&id| {
-                self.game_logic
-                    .get_object(id)
-                    .is_some_and(|o| o.is_alive() && o.status.under_construction && !o.status.sold)
+                if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.objects.iter().any(|o| {
+                        o.id == id
+                            && o.team == team
+                            && !o.destroyed
+                            && o.under_construction
+                            && !o.sold
+                    })
+                } else {
+                    self.game_logic.get_object(id).is_some_and(|o| {
+                        o.is_alive() && o.status.under_construction && !o.status.sold
+                    })
+                }
             })
             .collect();
         let dozers: Vec<_> = selected
             .iter()
             .copied()
             .filter(|&id| {
-                self.game_logic.get_object(id).is_some_and(|o| {
-                    o.is_alive()
-                        && (o.is_dozer
-                            || o.template_name.to_ascii_lowercase().contains("dozer")
-                            || o.template_name.to_ascii_lowercase().contains("worker"))
-                })
+                if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.objects.iter().any(|o| {
+                        o.id == id
+                            && o.team == team
+                            && !o.destroyed
+                            && crate::presentation_frame::PresentationFrame::presentation_is_worker_like(
+                                o,
+                            )
+                    })
+                } else {
+                    self.game_logic.get_object(id).is_some_and(|o| {
+                        o.is_alive()
+                            && (o.is_dozer
+                                || o.template_name.to_ascii_lowercase().contains("dozer")
+                                || o.template_name.to_ascii_lowercase().contains("worker"))
+                    })
+                }
             })
             .collect();
         // If only unfinished selected, pick all team dozers idle residual.
         let mut builders = dozers;
         if builders.is_empty() {
-            let team = self
-                .game_logic
-                .get_player(player_id)
-                .map(|p| p.team)
-                .unwrap_or(crate::game_logic::Team::USA);
-            for (&id, obj) in self.game_logic.get_objects() {
-                if obj.team != team || !obj.is_alive() {
-                    continue;
-                }
-                let n = obj.template_name.to_ascii_lowercase();
-                if obj.is_dozer || n.contains("dozer") || n.contains("worker") {
-                    if matches!(obj.ai_state, crate::game_logic::AIState::Idle) {
-                        builders.push(id);
+            builders = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_idle_worker_ids(team)
+            } else {
+                // Boot residual only.
+                let mut builders = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() {
+                        continue;
+                    }
+                    let n = obj.template_name.to_ascii_lowercase();
+                    if obj.is_dozer || n.contains("dozer") || n.contains("worker") {
+                        if matches!(obj.ai_state, crate::game_logic::AIState::Idle) {
+                            builders.push(id);
+                        }
                     }
                 }
-            }
+                builders
+            };
         }
         let target = unfinished.first().copied().or_else(|| {
             // Fall back to cycled unfinished if selection is dozers only.
-            self.game_logic
-                .get_objects()
-                .iter()
-                .find(|(_, o)| {
-                    o.is_alive()
-                        && o.status.under_construction
-                        && !o.status.sold
-                        && self
-                            .game_logic
-                            .get_player(player_id)
-                            .map(|p| o.team == p.team)
-                            .unwrap_or(false)
-                })
-                .map(|(&id, _)| id)
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame
+                    .alive_selectable_friendly_unfinished_ids(team)
+                    .into_iter()
+                    .next()
+            } else {
+                // Boot residual only.
+                self.game_logic
+                    .get_objects()
+                    .iter()
+                    .find(|(_, o)| {
+                        o.is_alive()
+                            && o.status.under_construction
+                            && !o.status.sold
+                            && o.team == team
+                    })
+                    .map(|(&id, _)| id)
+            }
         });
         let Some(target_id) = target else {
             let msg = "No unfinished construction to resume";
@@ -14163,16 +14208,23 @@ impl CnCGameEngine {
             };
             player.team
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        for (&id, obj) in self.game_logic.get_objects() {
-            if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                continue;
-            }
-            if obj.status.under_construction && !obj.status.sold {
-                ids.push(id);
-            }
-        }
-        ids.sort_by_key(|id| id.0);
+        let mut ids: Vec<crate::game_logic::ObjectId> =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.alive_selectable_friendly_unfinished_ids(team)
+            } else {
+                // Boot residual only.
+                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
+                for (&id, obj) in self.game_logic.get_objects() {
+                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
+                        continue;
+                    }
+                    if obj.status.under_construction && !obj.status.sold {
+                        ids.push(id);
+                    }
+                }
+                ids.sort_by_key(|id| id.0);
+                ids
+            };
         if ids.is_empty() {
             let msg = "No unfinished construction";
             self.game_hud.push_info_message(msg);
