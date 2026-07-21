@@ -991,6 +991,14 @@ pub enum WorldMutation {
         is_homing: bool,
         active: bool,
     },
+    /// Host AICommand apply-order residual (decision buffer).
+    PushAiDecision {
+        host_object: u32,
+        kind: u8,
+        target_host: u32,
+        destination: Option<[f32; 3]>,
+        ai_state_ordinal: u8,
+    },
     /// Host Movement velocity/path residual.
     SetMovement {
         target: EntityId,
@@ -1185,6 +1193,21 @@ pub struct ProjectileFlightResidual {
     pub active: bool,
 }
 
+/// One host AICommand residual in apply order (deterministic decision buffer).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AiDecisionResidual {
+    /// Host object id that received the command.
+    pub host_object: u32,
+    /// 0 AttackTarget, 1 StopAttack, 2 MoveTo, 3 SetAIState.
+    pub kind: u8,
+    /// Attack target host id (0 if none).
+    pub target_host: u32,
+    /// Move destination (world XYZ); ignored unless kind==MoveTo.
+    pub destination: Option<[f32; 3]>,
+    /// AI state ordinal for SetAIState; ignored otherwise.
+    pub ai_state_ordinal: u8,
+}
+
 #[derive(Debug)]
 pub struct GameWorld {
     inner: World,
@@ -1193,6 +1216,8 @@ pub struct GameWorld {
     last_spawned_entity: Option<EntityId>,
     /// Host CombatSystem in-flight projectile residual (keyed by host projectile id).
     projectiles: std::collections::HashMap<u32, ProjectileFlightResidual>,
+    /// Ordered host AICommand residual buffer (capped).
+    ai_decisions: Vec<AiDecisionResidual>,
 }
 
 impl GameWorld {
@@ -1203,6 +1228,7 @@ impl GameWorld {
             pending: Vec::new(),
             last_spawned_entity: None,
             projectiles: std::collections::HashMap::new(),
+            ai_decisions: Vec::new(),
         }
     }
 
@@ -1219,6 +1245,16 @@ impl GameWorld {
     /// Lookup one projectile residual by host id.
     pub fn projectile(&self, host_id: u32) -> Option<&ProjectileFlightResidual> {
         self.projectiles.get(&host_id)
+    }
+
+    /// Ordered AI decision residual buffer (host AICommand apply order).
+    pub fn ai_decisions(&self) -> &[AiDecisionResidual] {
+        &self.ai_decisions
+    }
+
+    /// Clear the AI decision residual buffer (tests / frame boundary).
+    pub fn clear_ai_decisions(&mut self) {
+        self.ai_decisions.clear();
     }
 
     /// Immutable access to the underlying world.
@@ -2265,6 +2301,27 @@ impl GameWorld {
                     } else {
                         self.projectiles.remove(&host_id);
                     }
+                    applied += 1;
+                }
+                WorldMutation::PushAiDecision {
+                    host_object,
+                    kind,
+                    target_host,
+                    destination,
+                    ai_state_ordinal,
+                } => {
+                    const CAP: usize = 4096;
+                    if self.ai_decisions.len() >= CAP {
+                        let drain = self.ai_decisions.len() - CAP + 1;
+                        self.ai_decisions.drain(0..drain);
+                    }
+                    self.ai_decisions.push(AiDecisionResidual {
+                        host_object,
+                        kind,
+                        target_host,
+                        destination,
+                        ai_state_ordinal,
+                    });
                     applied += 1;
                 }
                 WorldMutation::SetMovement {

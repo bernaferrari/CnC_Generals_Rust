@@ -14090,17 +14090,19 @@ impl GameLogic {
     }
 
     /// Apply AI command to the game state
-    fn apply_ai_command(&mut self, command: AICommand) {
+    pub(crate) fn apply_ai_command(&mut self, command: AICommand) {
         match command {
             AICommand::AttackTarget {
                 object_id,
                 target_id,
             } => {
+                crate::game_logic::host_ai_decision_log::record_attack(object_id, target_id);
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     obj.attack_target(target_id);
                 }
             }
             AICommand::StopAttack { object_id } => {
+                crate::game_logic::host_ai_decision_log::record_stop_attack(object_id);
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     obj.stop_attack();
                 }
@@ -14109,14 +14111,45 @@ impl GameLogic {
                 object_id,
                 position,
             } => {
+                crate::game_logic::host_ai_decision_log::record_move_to(object_id, position);
                 self.move_object_with_pathfinding(object_id, position, None);
             }
             AICommand::SetAIState { object_id, state } => {
+                let ordinal = match state {
+                    AIState::Idle => 0u8,
+                    AIState::Moving => 1,
+                    AIState::Attacking => 2,
+                    AIState::AttackMoving => 3,
+                    AIState::AttackingGround => 4,
+                    AIState::Gathering => 5,
+                    AIState::ReturningResources => 6,
+                    AIState::Constructing => 7,
+                    AIState::Repairing => 8,
+                    AIState::GuardingArea => 9,
+                    AIState::GuardingObject => 10,
+                    AIState::Patrolling => 11,
+                    AIState::Docked => 12,
+                    AIState::Garrisoned => 13,
+                    AIState::SpecialAbility => 14,
+                    AIState::SeekingRepair => 15,
+                    AIState::SeekingHealing => 16,
+                    AIState::Entering => 17,
+                    AIState::Docking => 18,
+                    AIState::Capturing => 19,
+                    AIState::GuardRetaliating => 20,
+                };
+                crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     obj.set_ai_state(state);
                 }
             }
         }
+    }
+
+    /// Test hook: apply one AICommand through the production decision path.
+    #[cfg(test)]
+    pub fn apply_ai_command_for_test(&mut self, command: AICommand) {
+        self.apply_ai_command(command);
     }
 
     fn update_support_states(&mut self, object_ids: &[ObjectId], dt: f32) {
