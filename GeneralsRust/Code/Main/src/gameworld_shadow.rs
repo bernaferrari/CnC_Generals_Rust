@@ -7645,6 +7645,15 @@ mod tests {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
+    use std::sync::{Mutex, OnceLock};
+
+    /// Serializes tests that read/write GENERALS_GAMEWORLD_* process env.
+    fn authority_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
 
     fn ensure_template(logic: &mut GameLogic, name: &str, hp: f32) {
         if logic.templates.contains_key(name) {
@@ -12828,6 +12837,8 @@ mod tests {
 
     #[test]
     fn damage_authority_defers_host_hp_until_writeback() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::{host_damage_log, KindOf, Team, ThingTemplate};
         std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
         assert!(gameworld_damage_authority_enabled());
@@ -17750,6 +17761,8 @@ mod tests {
 
     #[test]
     fn damage_authority_writeback_is_last_writer() {
+        let _env_guard = authority_env_lock();
+
         crate::game_logic::host_damage_log::clear();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("DmgAuthority");
@@ -17813,6 +17826,8 @@ mod tests {
 
     #[test]
     fn damage_authority_applies_host_hp_when_shadow_disabled() {
+        let _env_guard = authority_env_lock();
+
         // Without a live shadow session, deferred damage would never write back.
         // Authority must couple to shadow_enabled so host-only combat still hits.
         let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
@@ -17841,6 +17856,50 @@ mod tests {
         );
 
         // restore env
+        match prev_shadow {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+        match prev_auth {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        }
+    }
+
+    #[test]
+    fn damage_authority_lethal_marks_destroyed_without_host_hp() {
+        let _env_guard = authority_env_lock();
+        let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        let prev_auth = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+
+        // Deferred lethal must flip status.destroyed so mid-frame is_alive is false
+        // while HP stays full until shadow writeback (last-writer for numeric health).
+        crate::game_logic::host_damage_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DmgAuthLethalFlag");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "AuthUnit", 50.0);
+        let id = logic
+            .create_object("AuthUnit", Team::USA, Vec3::new(3.0, 0.0, 0.0))
+            .expect("unit");
+        assert!(gameworld_damage_authority_enabled());
+        assert!(gameworld_shadow_enabled());
+        let pre = logic.get_objects().get(&id).unwrap().health.current;
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            let dead = obj.take_damage(999.0);
+            assert!(dead, "projected lethal");
+            assert!(obj.status.destroyed, "destroyed flag must flip mid-frame");
+            assert!(!obj.is_alive(), "is_alive must fail after deferred lethal");
+            assert!(
+                (obj.health.current - pre).abs() < 0.01,
+                "HP must stay full until writeback; pre={pre} now={}",
+                obj.health.current
+            );
+        } else {
+            panic!("missing unit");
+        }
         match prev_shadow {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -18955,6 +19014,8 @@ mod tests {
 
     #[test]
     fn heal_crate_defers_host_hp_under_damage_authority() {
+        let _env_guard = authority_env_lock();
+
         use crate::game_logic::host_heal_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let prev = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
@@ -19001,6 +19062,8 @@ mod tests {
 
     #[test]
     fn lethal_hp_and_rebuild_start_damage_authority_source() {
+        let _env_guard = authority_env_lock();
+
         let src = include_str!("game_logic/game_logic.rs");
         for (fn_name, token) in [
             (
@@ -19097,6 +19160,8 @@ mod tests {
 
     #[test]
     fn suicide_consume_destroy_damage_authority_source() {
+        let _env_guard = authority_env_lock();
+
         let src = include_str!("game_logic/game_logic.rs");
         assert!(
             src.contains("fn mark_destroyed_authority_aware")
