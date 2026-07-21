@@ -16522,6 +16522,77 @@ mod tests {
     }
 
     #[test]
+    fn assign_unit_path_decision_authority() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PathMv");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        if !logic.templates.contains_key("PmU") {
+            let mut t = ThingTemplate::new("PmU");
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Selectable);
+            logic.templates.insert("PmU".into(), t);
+        }
+        let oid = logic
+            .create_object("PmU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("id");
+        if let Some(o) = logic.get_objects_mut().get_mut(&oid) {
+            // Ensure mobile residual (max_speed > 0).
+            o.movement.max_speed = 20.0;
+        }
+        let ok = logic.assign_unit_path_for_test(oid, glam::Vec3::new(50.0, 0.0, 0.0), &[]);
+        assert!(ok, "path assign should succeed");
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
+                    && e.host_object == oid
+                    && e.ai_state_ordinal == 1
+            }),
+            "assign_unit_path must log Moving; got {events:?}"
+        );
+        assert_ne!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Moving,
+            "host ai_state deferred under decision authority"
+        );
+        assert!(
+            logic.get_objects().get(&oid).unwrap().status.moving
+                || logic
+                    .get_objects()
+                    .get(&oid)
+                    .unwrap()
+                    .movement
+                    .target_position
+                    .is_some()
+                || !logic
+                    .get_objects()
+                    .get(&oid)
+                    .unwrap()
+                    .movement
+                    .path
+                    .is_empty(),
+            "movement residual still on host"
+        );
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_ai_state_to_host(&mut logic) >= 1);
+        assert_eq!(
+            logic.get_objects().get(&oid).unwrap().ai_state,
+            AIState::Moving
+        );
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn death_type_channel_via_set_death_type() {
         use crate::game_logic::host_death_type_log;
         use crate::game_logic::host_usa_pilot::HostDeathType;
