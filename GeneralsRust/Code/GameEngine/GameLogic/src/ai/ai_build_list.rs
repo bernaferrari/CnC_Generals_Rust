@@ -1259,6 +1259,10 @@ impl AIBuildList {
         let base_center = self.get_player_base_center(player_id)?;
         let mut threat = 0.0;
         let mut total = 0.0;
+        // Host path: empty dual-world registry residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(0.0);
+        }
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
@@ -1303,6 +1307,10 @@ impl AIBuildList {
     fn compute_map_control(&self, player_id: u32) -> Result<f32, AiError> {
         let mut mine = 0.0;
         let mut total = 0.0;
+        // Host path: empty dual-world registry residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return Ok(0.0);
+        }
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
