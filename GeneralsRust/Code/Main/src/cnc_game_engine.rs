@@ -15553,15 +15553,20 @@ impl CnCGameEngine {
             player.team
         };
 
-        let selection: Vec<ObjectId> = self
-            .game_logic
-            .get_objects()
-            .iter()
-            .filter(|(_, obj)| {
-                obj.team == team && obj.is_selectable() && obj.is_alive() && obj.is_hero()
-            })
-            .map(|(&id, _)| id)
-            .collect();
+        let selection: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            // Presentation-owned hero identity (no live GameLogic dual-scan).
+            frame.alive_selectable_friendly_hero_ids(team)
+        } else {
+            // Boot residual only.
+            self.game_logic
+                .get_objects()
+                .iter()
+                .filter(|(_, obj)| {
+                    obj.team == team && obj.is_selectable() && obj.is_alive() && obj.is_hero()
+                })
+                .map(|(&id, _)| id)
+                .collect()
+        };
 
         if selection.is_empty() {
             return;

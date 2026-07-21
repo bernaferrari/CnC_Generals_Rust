@@ -3966,6 +3966,28 @@ impl PresentationFrame {
         ids
     }
 
+    /// Retail SELECT_HERO residual: friendly selectable heroes from snapshot.
+    pub fn alive_selectable_friendly_hero_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        use crate::game_logic::KindOf;
+        use crate::unit_control::UnitControlSystem;
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                o.team == player_team
+                    && UnitControlSystem::presentation_is_selectable(o)
+                    && !o.destroyed
+                    && (o.kind_of.contains(&KindOf::Hero) || o.template_name.contains("Hero"))
+            })
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
+    }
+
     /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
     pub fn alive_selectable_friendly_aircraft_ids(
         &self,
