@@ -18400,4 +18400,29 @@ mod tests {
             "paradrop elevate must log ground height"
         );
     }
+
+    #[test]
+    fn presentation_audio_direct_dispatch_source() {
+        let pf = include_str!("presentation_frame.rs");
+        assert!(
+            pf.contains("fn collect_audio_events")
+                && pf.contains("fn dispatch_audio_events_direct")
+                && pf.contains("AudioManagerSubsystem"),
+            "presentation must collect+dispatch audio without requiring GameLogic mut"
+        );
+        let eng = include_str!("cnc_game_engine.rs");
+        // Production frame path must use direct dispatch, not GameLogic dual-write.
+        let i = eng
+            .find("dispatch_audio_events_direct")
+            .expect("engine must call dispatch_audio_events_direct");
+        let window = &eng[i.saturating_sub(200)..eng.len().min(i + 400)];
+        assert!(
+            !window.contains("apply_events_to_audio(&mut self.game_logic)"),
+            "production path must not dual-write presentation audio into GameLogic"
+        );
+        assert!(
+            !window.contains("process_audio_events()"),
+            "presentation audio path must not require GameLogic process_audio_events drain"
+        );
+    }
 }

@@ -8534,12 +8534,11 @@ impl CnCGameEngine {
                     log::trace!("presentation overlay from GameWorld shadow: {n} objects");
                 }
             }
-            let audio_n = pres.apply_events_to_audio(&mut self.game_logic);
+            // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
+            let audio_n = pres.dispatch_audio_events_direct();
             if audio_n > 0 {
-                log::trace!("presentation audio events queued: {audio_n}");
+                log::trace!("presentation audio events dispatched: {audio_n}");
             }
-            // Same-frame residual: drain presentation-queued audio now (not next host tick).
-            self.game_logic.process_audio_events();
             // Same-frame particle residual: backfill client ParticleSystemManager.
             let fx_n = pres.apply_particle_systems_to_client();
             if fx_n > 0 {
