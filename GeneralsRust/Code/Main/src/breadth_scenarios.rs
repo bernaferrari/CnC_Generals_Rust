@@ -303,14 +303,13 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             .get_object(bldg)
             .map(|o| o.thing.template.build_cost.supplies)
             .unwrap_or(0);
+        // Economy authority: refund lands in pending_supply_delta; use effective_supplies.
         let before = logic
             .get_player(0)
-            .map(|p| p.resources.supplies)
+            .map(|p| p.effective_supplies())
             .unwrap_or(0);
         let sell_cmd = command(4, 0, CommandType::Sell { object_id: bldg }, vec![]);
         let sell_result = system.execute_command(&sell_cmd, &mut logic);
-        // C++ BuildAssistant::sellObject multi-frame residual:
-        // FRAMES_TO_ALLOW_SCAFFOLD(45) + TOTAL_FRAMES_TO_SELL_OBJECT(90) ≈ 135 ticks.
         // C++ BuildAssistant::sellObject multi-frame residual:
         // FRAMES_TO_ALLOW_SCAFFOLD(45) + TOTAL_FRAMES_TO_SELL_OBJECT(90).
         // status.sold is set at sell *start* (scaffold) — do not treat it as done.
@@ -326,7 +325,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         }
         let after = logic
             .get_player(0)
-            .map(|p| p.resources.supplies)
+            .map(|p| p.effective_supplies())
             .unwrap_or(0);
         let destroyed = logic
             .get_object(bldg)
