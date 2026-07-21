@@ -10542,6 +10542,27 @@ mod tests {
     }
 
     #[test]
+    fn control_bar_multi_select_rebuild_uses_presentation_names() {
+        let cb = include_str!("../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+        let ms = include_str!(
+            "../../GameEngine/GameClient/src/gui/control_bar/control_bar_multi_select.rs"
+        );
+        assert!(
+            cb.contains("presentation_command_set_names")
+                && cb.contains("populate_multi_select_commands_from_sets"),
+            "add_multi_select_commands must prefer presentation command-set names"
+        );
+        assert!(
+            ms.contains("fn populate_multi_select_commands_from_sets"),
+            "multi-select must support name-based intersection without OBJECT_REGISTRY"
+        );
+        assert!(
+            cb.contains("Presentation residual first (host path has no dual-world registry)"),
+            "host path multi-select rebuild must document presentation-first residual"
+        );
+    }
+
+    #[test]
     fn production_tick_builds_presentation_after_side_systems() {
         // Structural: presentation is built after host GameLogic update returns.
         // Projectile drain/step and path follow live inside GameLogic::update_simulation

@@ -180,6 +180,8 @@ pub struct ControlBar {
     presentation_queued_upgrades: Vec<String>,
     /// Primary selection command-set name residual from PresentationFrame.
     presentation_primary_command_set: String,
+    /// Multi-select command-set names residual from PresentationFrame (ordered).
+    presentation_command_set_names: Vec<String>,
     displayed_construct_percent: f32,
     displayed_ocl_timer_seconds: u32,
     border_colors: CommandBarBorderColors,
@@ -296,6 +298,7 @@ impl ControlBar {
             presentation_radar_disabled: false,
             presentation_queued_upgrades: Vec::new(),
             presentation_primary_command_set: String::new(),
+            presentation_command_set_names: Vec::new(),
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
             border_colors: CommandBarBorderColors::default(),
@@ -1729,7 +1732,17 @@ impl ControlBar {
         &self,
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        super::control_bar_multi_select::populate_multi_select_commands(context)?;
+        // Presentation residual first (host path has no dual-world registry).
+        if self.presentation_command_set_names.len() >= 2 {
+            super::control_bar_multi_select::populate_multi_select_commands_from_sets(
+                context,
+                &self.presentation_command_set_names,
+            )?;
+        }
+        if context.available_commands.is_empty() {
+            // Dual-world residual: OBJECT_REGISTRY intersection.
+            super::control_bar_multi_select::populate_multi_select_commands(context)?;
+        }
         if context.available_commands.is_empty() {
             self.add_object_commands(context)?;
         }
@@ -2576,9 +2589,11 @@ impl ControlBar {
     pub fn sync_command_set_from_presentation(&mut self, command_set_name: Option<&str>) {
         let Some(name) = command_set_name.map(str::trim).filter(|s| !s.is_empty()) else {
             self.presentation_primary_command_set.clear();
+            self.presentation_command_set_names.clear();
             return;
         };
         self.presentation_primary_command_set = name.to_string();
+        self.presentation_command_set_names = vec![name.to_string()];
         let Some(control_bar) = get_control_bar_bridge() else {
             return;
         };
@@ -2655,6 +2670,7 @@ impl ControlBar {
         if command_set_names.len() < 2 {
             return;
         }
+        self.presentation_command_set_names = command_set_names.to_vec();
         if let Some(first) = command_set_names.first() {
             self.presentation_primary_command_set = first.clone();
         }
