@@ -256,6 +256,15 @@ pub struct RenderPipeline {
     last_frame_time: f32,
     /// When set, collect_render_items prefers presentation-owned transforms/model keys.
     presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
+    /// Last presentation laser SegLine CPU pack residual (execute path).
+    debug_last_laser_segments_packed: u32,
+    debug_last_laser_pack_ok: bool,
+    /// Last presentation projectile trail CPU pack residual (execute path).
+    debug_last_projectile_segments_packed: u32,
+    debug_last_projectile_pack_ok: bool,
+    /// Last presentation move/attack order line packs (execute path).
+    debug_last_move_lines_packed: u32,
+    debug_last_attack_lines_packed: u32,
 }
 
 const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
@@ -612,6 +621,12 @@ impl RenderPipeline {
             animation_states: HashMap::new(),
             last_frame_time: 0.0,
             presentation_frame: None,
+            debug_last_laser_segments_packed: 0,
+            debug_last_laser_pack_ok: false,
+            debug_last_projectile_segments_packed: 0,
+            debug_last_projectile_pack_ok: false,
+            debug_last_move_lines_packed: 0,
+            debug_last_attack_lines_packed: 0,
         })
     }
 
@@ -690,6 +705,23 @@ impl RenderPipeline {
             );
         }
         graphics_system.begin_frame();
+
+        // Presentation-only FX residual: pack lasers/projectiles/order lines from the
+        // frozen frame (no live GameLogic dual-read). CPU pack honesty; GPU upload
+        // remains fail-closed until SegLine write_buffer path is wired.
+        {
+            let laser = self.pack_presentation_laser_segments();
+            self.debug_last_laser_segments_packed = laser.honesty.segments_packed;
+            self.debug_last_laser_pack_ok = laser.honesty.cpu_pack_ok;
+            let proj = self.pack_presentation_projectiles();
+            self.debug_last_projectile_segments_packed = proj.honesty.projectiles_packed;
+            self.debug_last_projectile_pack_ok = proj.honesty.cpu_pack_ok;
+            let moves = self.pack_presentation_move_lines();
+            self.debug_last_move_lines_packed = moves.honesty.lines_packed;
+            let attacks = self.pack_presentation_attack_lines();
+            self.debug_last_attack_lines_packed = attacks.honesty.lines_packed;
+            let _ = (laser, proj, moves, attacks);
+        }
 
         let delta_time = time - self.last_frame_time;
         self.last_frame_time = time;
@@ -2690,6 +2722,32 @@ impl RenderPipeline {
     ///
     /// Residual: does **not** write a live `wgpu::Queue` — returns host-testable
     /// interleaved bytes + honesty flags. Prefer this after `set_presentation_frame`
+
+    pub fn debug_last_laser_segments_packed(&self) -> u32 {
+        self.debug_last_laser_segments_packed
+    }
+
+    pub fn debug_last_laser_pack_ok(&self) -> bool {
+        self.debug_last_laser_pack_ok
+    }
+
+    pub fn debug_last_projectile_segments_packed(&self) -> u32 {
+        self.debug_last_projectile_segments_packed
+    }
+
+    pub fn debug_last_projectile_pack_ok(&self) -> bool {
+        self.debug_last_projectile_pack_ok
+    }
+
+    pub fn debug_last_move_lines_packed(&self) -> u32 {
+        self.debug_last_move_lines_packed
+    }
+
+    pub fn debug_last_attack_lines_packed(&self) -> u32 {
+        self.debug_last_attack_lines_packed
+    }
+
+    /// Pack presentation laser Line3D segments into CPU buffer (no live GameLogic).
     /// so SegLine upload does not re-read live GameLogic mid-render.
     pub fn pack_presentation_laser_segments(
         &self,
@@ -4701,5 +4759,28 @@ mod tests {
         let src = include_str!("render_pipeline.rs");
         assert!(src.contains("projectile_render_inputs"));
         assert!(src.contains("Presentation projectile mesh residual"));
+    }
+
+    #[test]
+    fn execute_packs_presentation_fx_segments_from_frame() {
+        let src = include_str!("render_pipeline.rs");
+        let i = src.find("pub fn execute").expect("execute");
+        let body = &src[i..src.len().min(i + 3500)];
+        assert!(
+            body.contains("pack_presentation_laser_segments")
+                && body.contains("pack_presentation_projectiles")
+                && body.contains("pack_presentation_move_lines")
+                && body.contains("pack_presentation_attack_lines"),
+            "execute must pack presentation FX/order lines without GameLogic dual-read"
+        );
+        assert!(
+            body.contains("debug_last_laser_segments_packed")
+                && body.contains("debug_last_projectile_segments_packed"),
+            "execute must record pack honesty counters"
+        );
+        assert!(
+            !body.contains("game_logic: Option<&GameLogic>") && !body.contains("&GameLogic"),
+            "execute must stay presentation-only (no live GameLogic param)"
+        );
     }
 }
