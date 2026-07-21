@@ -42310,25 +42310,44 @@ impl GameLogic {
             if *busy {
                 continue;
             }
-            let mut best: Option<(ObjectId, f32, Vec3)> = None;
-            for (mine_id, mine_team, mine_pos, _, _, _, under_construction, kind) in &mines {
-                if *under_construction || !can_clear_mine_kind(*kind) {
-                    continue;
-                }
-                // srj: only clear enemy or neutral mines (not ours / allies).
-                if *mine_team == *cteam {
-                    continue;
-                }
-                let dx = cpos.x - mine_pos.x;
-                let dz = cpos.z - mine_pos.z;
-                let dist_sqr = dx * dx + dz * dz;
-                if dist_sqr > scan_range_sqr {
-                    continue;
-                }
-                if best.map(|(_, d, _)| dist_sqr < d).unwrap_or(true) {
-                    best = Some((*mine_id, dist_sqr, *mine_pos));
-                }
-            }
+            // Pure residual acquire: nearest clearable enemy/neutral mine in scan range (XZ).
+            let mine_cands: Vec<_> = mines
+                .iter()
+                .filter(|(_, mine_team, _, _, _, _, under_construction, kind)| {
+                    !*under_construction && can_clear_mine_kind(*kind) && *mine_team != *cteam
+                })
+                .map(|(mine_id, mine_team, mine_pos, _, _, _, _, _)| {
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: *mine_id,
+                        team: *mine_team,
+                        position: *mine_pos,
+                        is_alive: true,
+                        is_neutral: *mine_team == Team::Neutral,
+                        under_construction: false,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    }
+                })
+                .collect();
+            let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                Some(*cid),
+                (cpos.x, cpos.z),
+                mine_cands,
+                DOZER_MINE_CLEAR_SCAN_RANGE,
+                |_| true,
+            )
+            .map(|(mine_id, dist, _)| {
+                let mine_pos = mines
+                    .iter()
+                    .find(|(id, _, _, _, _, _, _, _)| *id == mine_id)
+                    .map(|(_, _, p, _, _, _, _, _)| *p)
+                    .unwrap_or(*cpos);
+                (mine_id, dist * dist, mine_pos)
+            });
+            // Keep scan_range_sqr referenced for residual parity with prior sqr gate.
+            let _ = scan_range_sqr;
             if let Some((mine_id, dist_sqr, mine_pos)) = best {
                 if dist_sqr <= clear_range_sqr {
                     // Prefer first clearer to claim a mine this frame.
@@ -71976,6 +71995,7 @@ mod tests {
             .create_object("TestDozer", Team::USA, Vec3::new(approach_dist, 0.0, 0.0))
             .expect("dozer");
 
+        crate::game_logic::host_ai_decision_log::clear();
         game_logic.update_mines_and_demo_traps();
         assert_eq!(
             game_logic.mine_residual_clears(),
@@ -71984,11 +72004,30 @@ mod tests {
         );
         {
             let dozer = game_logic.find_object(dozer_id).unwrap();
-            assert_eq!(dozer.ai_state, AIState::Moving, "must approach mine");
+            // Host residual still stores approach destination.
             assert!(
                 dozer.movement.target_position.is_some(),
                 "must have move target toward mine"
             );
+            // AI state last-write under AI_DECISION_AUTHORITY (default on).
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                assert_eq!(dozer.ai_state, AIState::Idle);
+                let moving = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                    &AIState::Moving,
+                );
+                let events = crate::game_logic::host_ai_decision_log::snapshot();
+                assert!(
+                    events.iter().any(|e| {
+                        e.host_object == dozer_id
+                            && e.kind
+                                == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
+                            && e.ai_state_ordinal == moving
+                    }),
+                    "mine approach must log SetAIState(Moving) under decision authority"
+                );
+            } else {
+                assert_eq!(dozer.ai_state, AIState::Moving, "must approach mine");
+            }
         }
 
         // Move into clear range (host residual does not sim path here).
@@ -97319,10 +97358,7 @@ mod tests {
                 "continue-attack must log AttackTarget(mine2) under decision authority"
             );
             // Host target remains the prior engagement (writeback owns the swap).
-            assert_eq!(
-                logic.objects.get(&atk).and_then(|a| a.target),
-                Some(mine1)
-            );
+            assert_eq!(logic.objects.get(&atk).and_then(|a| a.target), Some(mine1));
         } else {
             let next = logic.objects.get(&atk).and_then(|a| a.target);
             assert_eq!(next, Some(mine2), "must chain to nearer same-team mine");
