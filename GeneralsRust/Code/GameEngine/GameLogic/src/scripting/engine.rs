@@ -2048,6 +2048,10 @@ impl ScriptEngine {
     ///
     /// C++ Reference: `ScriptEngine::createNamedCache()`.
     fn create_named_cache(&self) {
+        // Host path: dual-world factory empty — named cache stays empty residual.
+        if OBJECT_REGISTRY.is_empty() {
+            return;
+        }
         let tracker = get_named_object_tracker();
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
             let Ok(obj) = obj_arc.read() else { continue };
@@ -3175,6 +3179,9 @@ impl ScriptEngine {
 
     pub fn set_objects_should_receive_difficulty_bonus(&mut self, enable: bool) {
         self.objects_should_receive_difficulty_bonus = enable;
+        if OBJECT_REGISTRY.is_empty() {
+            return;
+        }
         for obj in OBJECT_REGISTRY.get_all_objects() {
             if let Ok(mut guard) = obj.write() {
                 guard.set_receiving_difficulty_bonus(enable);
