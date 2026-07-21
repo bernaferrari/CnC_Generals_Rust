@@ -17297,4 +17297,55 @@ mod tests {
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
         }
     }
+
+    #[test]
+    fn residual_eject_payload_ai_state_decision_authority_source() {
+        let src = include_str!("game_logic/game_logic.rs");
+        for fn_name in [
+            "fn apply_bunker_buster_to_target",
+            "fn apply_kill_garrisoned_to_target",
+            "fn apply_rider_free_fall_damage",
+            "fn tick_eject_parachute_residual",
+            "fn apply_host_hive_damage_from",
+            "fn update_angry_mobs",
+            "fn update_mines_and_demo_traps",
+            "fn clear_mine_internal",
+            "fn start_sell_object",
+            "fn cancel_dozers_building",
+            "fn resume_construction",
+            "fn apply_listening_outpost_initial_payload",
+            "fn apply_troop_crawler_initial_payload",
+            "fn command_attack",
+            "fn command_stop",
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains("gameworld_ai_decision_authority_enabled")
+                    || w.contains("set_ai_state_decision_aware")
+                    || w.contains("host_ai_decision_log::record_set_state")
+                    || w.contains("host_ai_decision_log::record_attack"),
+                "{fn_name} must honor AI decision authority"
+            );
+        }
+    }
 }
