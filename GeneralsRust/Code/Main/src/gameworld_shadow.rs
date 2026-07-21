@@ -3872,11 +3872,25 @@ impl GameWorldShadow {
         events: Vec<crate::game_logic::combat::PendingProjectile>,
     ) -> usize {
         if events.is_empty() {
+            // Still drain residual hitscan marks so they cannot leak across frames.
+            let _ = crate::game_logic::host_fire_spawn_log::drain_residual_hitscans();
             return 0;
         }
+        // Residual auto-fire already applied same-frame hitscan HP — zero those
+        // spawns' damage so dual-tick projectile resolve does not double-dip.
+        let residual_hitscans = crate::game_logic::host_fire_spawn_log::drain_residual_hitscans();
         // Push into the global pending queue then drain into CombatSystem so
         // scatter/target resolution stays on the production spawn path.
-        for ev in events {
+        for mut ev in events {
+            if let Some(tid) = ev.target_id {
+                if residual_hitscans
+                    .iter()
+                    .any(|(s, t)| *s == ev.shooter_id && *t == tid)
+                {
+                    ev.damage = 0.0;
+                    ev.secondary_damage = 0.0;
+                }
+            }
             crate::game_logic::combat::queue_projectile_direct(ev);
         }
         {
@@ -18334,13 +18348,32 @@ mod tests {
         assert!(
             helper.contains("gameworld_fire_spawn_authority_enabled")
                 && helper.contains("queue_projectile")
-                && helper.contains("take_damage_from"),
-            "helper must queue fire-spawn under authority and keep hitscan damage"
+                && helper.contains("take_damage_from")
+                && helper.contains("record_residual_hitscan"),
+            "helper must queue live-damage fire-spawn, hitscan same-frame, and mark residual hitscan"
         );
-        // Spawn residual carries damage 0 so hitscan owns same-frame residual damage.
+        // Spawn residual carries live primary `damage` (field from residual shot).
         assert!(
-            helper.contains("damage: 0.0"),
-            "fire-spawn residual from auto-fire must not double-apply damage"
+            "damage,".split_once(",").is_some() && helper.contains("damage,"),
+            "fire-spawn residual must carry live damage field from residual shot"
+        );
+        let primary_zero = helper
+            .lines()
+            .any(|l| l.trim() == "damage: 0.0," || l.trim() == "damage: 0.0");
+        assert!(
+            !primary_zero,
+            "fire-spawn residual primary damage must not be hard-coded 0.0"
+        );
+        let apply_src = include_str!("gameworld_shadow.rs");
+        assert!(
+            apply_src.contains("drain_residual_hitscans") && apply_src.contains("ev.damage = 0.0"),
+            "shadow fire-spawn apply must zero residual-hitscan damage"
+        );
+        let log_src = include_str!("game_logic/host_fire_spawn_log.rs");
+        assert!(
+            log_src.contains("record_residual_hitscan")
+                && log_src.contains("drain_residual_hitscans"),
+            "fire-spawn log must track residual hitscan pairs"
         );
     }
 
@@ -19070,6 +19103,38 @@ mod tests {
             pf.contains("fn count_under_construction_friendlies")
                 && pf.contains("fn first_friendly_sample_label"),
             "presentation helpers required"
+        );
+    }
+
+    #[test]
+    fn residual_hitscan_zeros_fire_spawn_damage_on_apply() {
+        use crate::game_logic::host_fire_spawn_log;
+        use crate::game_logic::ObjectId;
+
+        host_fire_spawn_log::clear();
+        host_fire_spawn_log::record_residual_hitscan(ObjectId(1), ObjectId(2));
+        host_fire_spawn_log::record_residual_hitscan(ObjectId(3), ObjectId(4));
+        let drained = host_fire_spawn_log::drain_residual_hitscans();
+        assert_eq!(drained.len(), 2);
+        assert!(host_fire_spawn_log::drain_residual_hitscans().is_empty());
+
+        let apply_src = include_str!("gameworld_shadow.rs");
+        let i = apply_src
+            .find("fn apply_host_fire_spawn_events")
+            .expect("apply");
+        let body = &apply_src[i..apply_src.len().min(i + 2200)];
+        assert!(
+            body.contains("drain_residual_hitscans") && body.contains("ev.damage = 0.0"),
+            "apply must zero residual-hitscan spawn damage"
+        );
+        let helper = include_str!("game_logic/game_logic.rs");
+        let hi = helper
+            .find("fn residual_auto_fire_apply_damage")
+            .expect("helper");
+        let hbody = &helper[hi..helper.len().min(hi + 4500)];
+        assert!(
+            hbody.contains("record_residual_hitscan"),
+            "residual auto-fire must mark hitscan pairs for shadow"
         );
     }
 }
