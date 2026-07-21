@@ -105,6 +105,9 @@ fn count_special_objects_by_producer(producer_id: ObjectID, special_object_updat
 }
 
 fn has_special_object_on_target(target_id: ObjectID, special_object_update: &str) -> bool {
+    if OBJECT_REGISTRY.is_empty() {
+        return false;
+    }
     OBJECT_REGISTRY.get_all_objects().into_iter().any(|obj| {
         let Ok(guard) = obj.read() else {
             return false;

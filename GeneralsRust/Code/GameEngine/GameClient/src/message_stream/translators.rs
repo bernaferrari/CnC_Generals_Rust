@@ -463,6 +463,10 @@ fn collect_selectable_objects(
         return (Vec::new(), Vec::new());
     }
 
+    // Host/presentation path: Main owns context pick via presentation residual.
+    if OBJECT_REGISTRY.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
     let mut mine = Vec::new();
     let mut other = Vec::new();
     for obj_ref in OBJECT_REGISTRY.get_all_objects() {
