@@ -17734,11 +17734,17 @@ mod tests {
         shadow.sync_from_host(&logic);
         let pre = logic.get_objects().get(&id).unwrap().health.current;
 
+        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+        assert!(gameworld_damage_authority_enabled());
         if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
             let _ = obj.take_damage(25.0);
         }
         let host_mid = logic.get_objects().get(&id).unwrap().health.current;
-        assert!(host_mid < pre);
+        // Under DAMAGE_AUTHORITY, host HP defers until writeback.
+        assert!(
+            (host_mid - pre).abs() < 0.01,
+            "host HP must not mid-frame mutate under damage authority (mid={host_mid} pre={pre})"
+        );
 
         let events = crate::game_logic::host_damage_log::drain();
         assert!(!events.is_empty());
@@ -17763,12 +17769,17 @@ mod tests {
             (host_final - shadow_final).abs() < 0.05,
             "writeback mismatch host={host_final} shadow={shadow_final}"
         );
-        // Shadow applied logged actual_damage from mid-frame combat.
+        // Writeback last-writes shadow HP (pre-25) onto host after mid-frame defer.
         assert!(
-            (host_final - host_mid).abs() < 0.05,
-            "authority final {host_final} vs mid-frame host {host_mid}"
+            (host_final - (pre - 25.0)).abs() < 0.05,
+            "authority final {host_final} expected ~{}",
+            pre - 25.0
         );
         assert!(host_final < pre);
+        assert!(
+            (host_mid - pre).abs() < 0.01,
+            "mid-frame host must stay deferred at pre"
+        );
     }
 
     #[test]
