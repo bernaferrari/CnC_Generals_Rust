@@ -3989,6 +3989,117 @@ impl PresentationFrame {
     }
 
     /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
+    /// Generic friendly selectable filter residual from snapshot.
+    pub fn alive_selectable_friendly_filtered_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+        mut pred: impl FnMut(&RenderableObject) -> bool,
+    ) -> Vec<ObjectId> {
+        use crate::unit_control::UnitControlSystem;
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && UnitControlSystem::presentation_is_selectable(o)
+                    && pred(o)
+            })
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
+    }
+
+    /// Combat units residual (mobile non-structure, not pure dozer/supply).
+    pub fn alive_selectable_friendly_combat_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            if o.is_structure {
+                return false;
+            }
+            let n = o.template_name.to_ascii_lowercase();
+            if n.contains("dozer") || n.contains("worker") || n.contains("supply") {
+                return false;
+            }
+            o.is_mobile || o.has_weapon || o.is_unit
+        })
+    }
+
+    pub fn alive_selectable_friendly_moving_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            !o.is_structure
+                && (o.moving
+                    || o.move_destination.is_some()
+                    || o.path_len > 0
+                    || o.velocity.length_squared() > 1e-6)
+        })
+    }
+
+    pub fn alive_selectable_friendly_attacking_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            !o.is_structure
+                && (o.attacking
+                    || o.attack_target.is_some()
+                    || o.is_firing_weapon
+                    || o.is_aiming_weapon)
+        })
+    }
+
+    pub fn alive_selectable_friendly_guarding_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        // host_ai_state_ordinal: GuardingArea=9, GuardingObject=10, GuardRetaliating=20
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            o.guard_position.is_some()
+                || o.guard_target.is_some()
+                || matches!(o.ai_state_ordinal, 9 | 10 | 20)
+        })
+    }
+
+    pub fn alive_selectable_friendly_patrolling_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        // host_ai_state_ordinal: Patrolling = 11
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| o.ai_state_ordinal == 11)
+    }
+
+    pub fn alive_selectable_friendly_gathering_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        // AIState::Gathering=5, ReturningResources=6
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            matches!(o.ai_state_ordinal, 5 | 6)
+        })
+    }
+
+    pub fn alive_selectable_friendly_stealthed_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| o.effectively_stealthed)
+    }
+
+    pub fn alive_selectable_friendly_veteran_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            !o.is_structure && !matches!(o.veterancy, PresentationVeterancy::Rookie)
+        })
+    }
+
     pub fn alive_selectable_friendly_aircraft_ids(
         &self,
         player_team: crate::game_logic::Team,
