@@ -13,8 +13,13 @@ pub mod graphics_system;
 pub mod laser_segment_upload;
 pub mod move_line_upload;
 pub use attack_line_upload::AttackLineUpload;
+pub mod particle_system_upload;
 pub mod projectile_segment_upload;
 pub use move_line_upload::MoveLineUpload;
+pub use particle_system_upload::{
+    pack_from_presentation as pack_particle_systems_from_presentation, ParticleSystemUpload,
+    ParticleSystemUploadHonesty,
+};
 pub use projectile_segment_upload::ProjectileSegmentUpload;
 pub mod minimap_renderer;
 pub mod render_item;

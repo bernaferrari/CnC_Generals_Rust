@@ -271,6 +271,9 @@ pub struct RenderPipeline {
     /// Last presentation world-anim CPU layout residual (execute path).
     debug_last_world_anims_packed: u32,
     debug_last_world_anim_pack_ok: bool,
+    /// Last presentation particle-system CPU layout residual (execute path).
+    debug_last_particle_systems_packed: u32,
+    debug_last_particle_pack_ok: bool,
 }
 
 const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
@@ -637,6 +640,8 @@ impl RenderPipeline {
             debug_last_floating_text_pack_ok: false,
             debug_last_world_anims_packed: 0,
             debug_last_world_anim_pack_ok: false,
+            debug_last_particle_systems_packed: 0,
+            debug_last_particle_pack_ok: false,
         })
     }
 
@@ -716,7 +721,7 @@ impl RenderPipeline {
         }
         graphics_system.begin_frame();
 
-        // Presentation-only FX residual: pack lasers/projectiles/order lines from the
+        // Presentation-only FX residual: pack lasers/projectiles/order lines/particles from the
         // frozen frame (no live GameLogic dual-read). CPU pack honesty; GPU upload
         // remains fail-closed until SegLine write_buffer path is wired.
         {
@@ -736,7 +741,10 @@ impl RenderPipeline {
             let anims = self.pack_presentation_world_anims();
             self.debug_last_world_anims_packed = anims.honesty.anims_packed;
             self.debug_last_world_anim_pack_ok = anims.honesty.cpu_pack_ok;
-            let _ = (laser, proj, moves, attacks, floats, anims);
+            let particles = self.pack_presentation_particle_systems();
+            self.debug_last_particle_systems_packed = particles.honesty.systems_packed;
+            self.debug_last_particle_pack_ok = particles.honesty.cpu_pack_ok;
+            let _ = (laser, proj, moves, attacks, floats, anims, particles);
         }
 
         let delta_time = time - self.last_frame_time;
@@ -2779,6 +2787,14 @@ impl RenderPipeline {
         self.debug_last_world_anim_pack_ok
     }
 
+    pub fn debug_last_particle_systems_packed(&self) -> u32 {
+        self.debug_last_particle_systems_packed
+    }
+
+    pub fn debug_last_particle_pack_ok(&self) -> bool {
+        self.debug_last_particle_pack_ok
+    }
+
     /// Pack presentation floating-text captions into CPU layout (no live GameLogic).
     pub fn pack_presentation_floating_texts(
         &self,
@@ -2802,6 +2818,18 @@ impl RenderPipeline {
                 crate::graphics::world_anim_layout::WorldAnimLayout::pack_from_presentation(frame)
             }
             None => crate::graphics::world_anim_layout::WorldAnimLayout::empty(),
+        }
+    }
+
+    /// Pack presentation combat particle systems into CPU layout (no live GameLogic).
+    pub fn pack_presentation_particle_systems(
+        &self,
+    ) -> crate::graphics::particle_system_upload::ParticleSystemUpload {
+        match self.presentation_frame.as_ref() {
+            Some(frame) => {
+                crate::graphics::particle_system_upload::pack_and_mark_upload_ready(frame)
+            }
+            None => crate::graphics::particle_system_upload::ParticleSystemUpload::empty(),
         }
     }
 
@@ -4830,8 +4858,9 @@ mod tests {
                 && body.contains("pack_presentation_move_lines")
                 && body.contains("pack_presentation_attack_lines")
                 && body.contains("pack_presentation_floating_texts")
-                && body.contains("pack_presentation_world_anims"),
-            "execute must pack presentation FX/order/UI layout lines without GameLogic dual-read"
+                && body.contains("pack_presentation_world_anims")
+                && body.contains("pack_presentation_particle_systems"),
+            "execute must pack presentation FX/order/UI/particle layout lines without GameLogic dual-read"
         );
         assert!(
             body.contains("debug_last_laser_segments_packed")
