@@ -5748,7 +5748,19 @@ impl Object {
             let projected = (self.health.current - actual_damage).max(0.0);
             let will_die = projected <= 0.0 || actual_damage >= self.health.current;
             crate::game_logic::host_damage_log::record(self.id, actual_damage, source, will_die);
-            // Callers (combat kill credit) see projected destruction without host HP poke.
+            // Projected lethal: mark destroyed so is_alive() fails mid-frame without
+            // mutating HP (shadow remains last-writer for the numeric health value).
+            // Prevents multi-attacker overkill / retarget of a corpse before writeback.
+            if will_die && !self.status.destroyed {
+                self.status.destroyed = true;
+                self.status.death_type = death_type;
+                crate::game_logic::host_death_type_log::record(
+                    self.id,
+                    self.status.death_type.ordinal(),
+                );
+                self.set_ai_state(AIState::Idle);
+                self.target = None;
+            }
             will_die
         } else {
             self.health.damage(actual_damage);
