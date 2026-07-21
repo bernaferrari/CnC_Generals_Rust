@@ -136,6 +136,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn sample_startup_camera_heights_prefers_presentation_height_grid() {
+        let eng = include_str!("cnc_game_engine.rs");
+        let idx = eng
+            .find("fn sample_startup_camera_heights")
+            .expect("camera height helper");
+        let body = &eng[idx..idx + 1200];
+        assert!(
+            body.contains("presentation")
+                && body.contains("sample_height")
+                && body.contains("world_env"),
+            "camera height helper must sample presentation world_env height grid"
+        );
+        assert!(
+            body.contains("Option<&crate::presentation_frame::PresentationFrame>")
+                || body.contains("presentation: Option"),
+            "camera height helper must take optional PresentationFrame"
+        );
+    }
+
     fn presentation_path_ticks_drawables_like_cpp() {
         let src = include_str!("cnc_game_engine.rs");
         // Build token from pieces so this test source does not self-match.
@@ -5484,10 +5504,10 @@ impl CnCGameEngine {
         // requested world coordinate directly into m_pos and builds the camera transform from that.
         let terrain_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
         let (camera_anchor_ground_height, terrain_height_max) =
-            Self::sample_startup_camera_heights(game_logic, terrain_target, world_center.y);
+            Self::sample_startup_camera_heights(game_logic, terrain_target, world_center.y, None);
         let focus_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
         let (focus_ground_height, _) =
-            Self::sample_startup_camera_heights(game_logic, focus_target, world_center.y);
+            Self::sample_startup_camera_heights(game_logic, focus_target, world_center.y, None);
 
         // Keep the C++ zoom/offset sampling from the top-left anchor, but aim the modern
         // Rust camera at the requested scene focus. This remains the closest visible match for the
@@ -5551,14 +5571,36 @@ impl CnCGameEngine {
         game_logic: &GameLogic,
         terrain_target: Vec3,
         fallback_ground_height: f32,
+        presentation: Option<&crate::presentation_frame::PresentationFrame>,
     ) -> (f32, f32) {
         const MAX_GROUND_LEVEL: f32 = 120.0;
         const TERRAIN_SAMPLE_SIZE: f32 = 40.0;
-        let (world_min, world_max) = game_logic.world_bounds();
 
-        let mut ground_height = game_logic
-            .terrain_height_at(terrain_target)
-            .unwrap_or(fallback_ground_height);
+        // Prefer presentation-frozen height grid / bounds when a frame is installed.
+        let (world_min, world_max) = if let Some(pres) = presentation {
+            pres.world_env.world_bounds_vec3()
+        } else {
+            game_logic.world_bounds()
+        };
+
+        let sample_one = |pos: Vec3| -> f32 {
+            let clamped = Vec3::new(
+                pos.x.clamp(world_min.x, world_max.x),
+                pos.y,
+                pos.z.clamp(world_min.z, world_max.z),
+            );
+            if let Some(pres) = presentation {
+                if let Some(h) = pres.world_env.sample_height(clamped.x, clamped.z) {
+                    return h.min(MAX_GROUND_LEVEL);
+                }
+            }
+            game_logic
+                .terrain_height_at(clamped)
+                .unwrap_or(fallback_ground_height)
+                .min(MAX_GROUND_LEVEL)
+        };
+
+        let mut ground_height = sample_one(terrain_target);
         if ground_height > MAX_GROUND_LEVEL {
             ground_height = MAX_GROUND_LEVEL;
         }
@@ -5572,16 +5614,8 @@ impl CnCGameEngine {
         ];
         let terrain_height_max = sample_positions
             .into_iter()
-            .filter_map(|sample| {
-                let clamped = Vec3::new(
-                    sample.x.clamp(world_min.x, world_max.x),
-                    sample.y,
-                    sample.z.clamp(world_min.z, world_max.z),
-                );
-                game_logic.terrain_height_at(clamped)
-            })
+            .map(sample_one)
             .fold(ground_height, f32::max);
-
         (ground_height, terrain_height_max)
     }
 
@@ -5605,8 +5639,12 @@ impl CnCGameEngine {
 
     fn compute_default_camera_zoom_for_target(&self, target: Vec3, max_height_scale: f32) -> f32 {
         let defaults = Self::configured_startup_camera_defaults();
-        let (ground_height, terrain_height_max) =
-            Self::sample_startup_camera_heights(&self.game_logic, target, target.y);
+        let (ground_height, terrain_height_max) = Self::sample_startup_camera_heights(
+            &self.game_logic,
+            target,
+            target.y,
+            self.last_presentation_frame.as_ref(),
+        );
         Self::compute_default_camera_zoom_from_heights(
             ground_height,
             terrain_height_max,
