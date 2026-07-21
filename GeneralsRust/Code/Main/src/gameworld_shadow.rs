@@ -18580,4 +18580,26 @@ mod tests {
             "inject path must document Main command ownership"
         );
     }
+
+    #[test]
+    fn game_client_keyboard_inject_source() {
+        let eng = include_str!("cnc_game_engine.rs");
+        assert!(
+            eng.contains("fn inject_game_client_key")
+                && eng.contains("fn to_game_client_key_code")
+                && eng.contains("inject_game_client_key(physical_key, pressed)"),
+            "Main KeyboardInput must inject into GameClient keyboard device"
+        );
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameClient/src/input/keyboard.rs"
+        );
+        let kb = std::fs::read_to_string(path).expect("keyboard.rs");
+        assert!(
+            kb.contains("fn the_keyboard")
+                && kb.contains("fn with_keyboard")
+                && kb.contains("fn handle_key_simple"),
+            "GameClient keyboard must expose the_keyboard/with_keyboard/handle_key_simple"
+        );
+    }
 }
