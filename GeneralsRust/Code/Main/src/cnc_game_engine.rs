@@ -11159,10 +11159,14 @@ impl CnCGameEngine {
     /// Do **not** average every local object — map-wide centroid pulls the camera
     /// between bases and frustum-culls everything.
     fn snap_camera_to_local_units_if_needed(&mut self) {
-        let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-            return;
+        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_team()
+        } else {
+            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+                return;
+            };
+            player.team
         };
-        let team = player.team;
         // Prefer host team base, else current camera target as proximity hint.
         let start_hint = self
             .game_logic
@@ -11175,44 +11179,94 @@ impl CnCGameEngine {
         let mut structure_sum = Vec3::ZERO;
         let mut structure_n = 0u32;
 
-        for obj in self.game_logic.get_objects().values() {
-            if obj.team != team || !obj.is_alive() {
-                continue;
-            }
-            let pos = obj.get_position();
-            let d2 = {
-                let dx = pos.x - start_hint.x;
-                let dz = pos.z - start_hint.z;
-                dx * dx + dz * dz
-            };
-            if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                structure_sum += pos;
-                structure_n += 1;
-                let name = obj.name.to_ascii_lowercase();
-                if name.contains("commandcenter") || name.contains("command_center") {
-                    // Prefer CC closest to the player's start slot.
-                    match command_center {
-                        None => command_center = Some(pos),
-                        Some(prev) => {
-                            let pdx = prev.x - start_hint.x;
-                            let pdz = prev.z - start_hint.z;
-                            if d2 < pdx * pdx + pdz * pdz {
-                                command_center = Some(pos);
+        // Prefer presentation poses when dual-tick snapshot is installed.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            use crate::presentation_frame::PresentationBuildingType;
+            for o in &frame.objects {
+                if o.team != team || o.destroyed {
+                    continue;
+                }
+                let pos = o.position;
+                let d2 = {
+                    let dx = pos.x - start_hint.x;
+                    let dz = pos.z - start_hint.z;
+                    dx * dx + dz * dz
+                };
+                if o.is_structure {
+                    structure_sum += pos;
+                    structure_n += 1;
+                    let is_cc = matches!(
+                        o.building_type,
+                        Some(PresentationBuildingType::CommandCenter)
+                    ) || {
+                        let name = o.template_name.to_ascii_lowercase();
+                        name.contains("commandcenter") || name.contains("command_center")
+                    };
+                    if is_cc {
+                        match command_center {
+                            None => command_center = Some(pos),
+                            Some(prev) => {
+                                let pdx = prev.x - start_hint.x;
+                                let pdz = prev.z - start_hint.z;
+                                if d2 < pdx * pdx + pdz * pdz {
+                                    command_center = Some(pos);
+                                }
                             }
                         }
                     }
+                    nearest_structure = Some(match nearest_structure {
+                        None => (d2, pos),
+                        Some((best, _)) if d2 < best => (d2, pos),
+                        Some(other) => other,
+                    });
+                } else if o.is_mobile || o.is_unit {
+                    nearest_mobile = Some(match nearest_mobile {
+                        None => (d2, pos),
+                        Some((best, _)) if d2 < best => (d2, pos),
+                        Some(other) => other,
+                    });
                 }
-                nearest_structure = Some(match nearest_structure {
-                    None => (d2, pos),
-                    Some((best, p)) if d2 < best => (d2, pos),
-                    Some(other) => other,
-                });
-            } else if obj.is_mobile() || obj.is_kind_of(crate::game_logic::KindOf::Infantry) {
-                nearest_mobile = Some(match nearest_mobile {
-                    None => (d2, pos),
-                    Some((best, p)) if d2 < best => (d2, pos),
-                    Some(other) => other,
-                });
+            }
+        } else {
+            // Boot residual only — presentation path owns InGame snap.
+            for obj in self.game_logic.get_objects().values() {
+                if obj.team != team || !obj.is_alive() {
+                    continue;
+                }
+                let pos = obj.get_position();
+                let d2 = {
+                    let dx = pos.x - start_hint.x;
+                    let dz = pos.z - start_hint.z;
+                    dx * dx + dz * dz
+                };
+                if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
+                    structure_sum += pos;
+                    structure_n += 1;
+                    let name = obj.name.to_ascii_lowercase();
+                    if name.contains("commandcenter") || name.contains("command_center") {
+                        match command_center {
+                            None => command_center = Some(pos),
+                            Some(prev) => {
+                                let pdx = prev.x - start_hint.x;
+                                let pdz = prev.z - start_hint.z;
+                                if d2 < pdx * pdx + pdz * pdz {
+                                    command_center = Some(pos);
+                                }
+                            }
+                        }
+                    }
+                    nearest_structure = Some(match nearest_structure {
+                        None => (d2, pos),
+                        Some((best, _)) if d2 < best => (d2, pos),
+                        Some(other) => other,
+                    });
+                } else if obj.is_mobile() || obj.is_kind_of(crate::game_logic::KindOf::Infantry) {
+                    nearest_mobile = Some(match nearest_mobile {
+                        None => (d2, pos),
+                        Some((best, _)) if d2 < best => (d2, pos),
+                        Some(other) => other,
+                    });
+                }
             }
         }
 
