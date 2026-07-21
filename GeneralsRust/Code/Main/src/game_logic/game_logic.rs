@@ -9753,7 +9753,10 @@ impl GameLogic {
         // Re-evaluate weapon choice every frame (C++ AIAttackState::update).
         let _ = self.choose_best_weapon_for_target(unit_id, Some(victim_id), current_time);
 
-        if let Some(u) = self.objects.get_mut(&unit_id) {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+        } else if let Some(u) = self.objects.get_mut(&unit_id) {
             u.target = Some(victim_id);
             u.set_status_attacking(true);
             u.set_ai_state(AIState::Attacking);
@@ -10228,7 +10231,12 @@ impl GameLogic {
                 return AttackAimResult::Failure;
             }
             u.set_status_aiming_weapon(true);
-            u.target = Some(victim_id);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                // Log after drop — mark for post path via record here is ok (no u borrow conflict with free fn)
+                crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
+            } else {
+                u.target = Some(victim_id);
+            }
             let slot = u.active_weapon_slot;
             let body_aimed = u.turn_toward_position(victim_pos, slot, max_turn_rad.max(0.05));
             let us = u.get_position();
@@ -10340,9 +10348,14 @@ impl GameLogic {
                 return AttackFireResult::Failure;
             };
             u.set_status_firing_weapon(true);
-            u.target = Some(victim_id);
-            u.set_ai_state(AIState::Attacking);
-            u.set_status_attacking(true);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
+                crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+            } else {
+                u.target = Some(victim_id);
+                u.set_ai_state(AIState::Attacking);
+                u.set_status_attacking(true);
+            }
             u.fire_at(victim_id, current_time)
         };
 
@@ -11979,9 +11992,14 @@ impl GameLogic {
                                 if current_time + 1e-6 < attacker.pre_attack_ready_at {
                                     if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled()
                                     {
-                                        attacker.target = Some(target_id);
-                                        attacker.set_ai_state(AIState::Attacking);
-                                        attacker.set_status_attacking(true);
+                                        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                                            crate::game_logic::host_ai_decision_log::record_attack(attacker_id, target_id);
+                                            crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
+                                        } else {
+                                            attacker.target = Some(target_id);
+                                            attacker.set_ai_state(AIState::Attacking);
+                                            attacker.set_status_attacking(true);
+                                        }
                                     }
                                     true
                                 } else {
@@ -14289,6 +14307,33 @@ impl GameLogic {
     #[cfg(test)]
     pub fn stop_attack_decision_aware_for_test(&mut self, unit_id: ObjectId) {
         self.stop_attack_decision_aware(unit_id);
+    }
+
+    /// Set engagement (target + Attacking), honoring AI decision authority.
+    ///
+    /// Residual fire paths should use this instead of raw `target = Some` so
+    /// GameWorld apply/writeback is last-writer when authority is on. Does not
+    /// invoke full [`Object::attack_target`] (avoids takeoff/force-attack side effects).
+    fn apply_engagement_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+            crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2); // Attacking
+            return;
+        }
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.target = Some(target_id);
+            u.set_ai_state(AIState::Attacking);
+            u.set_status_attacking(true);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn apply_engagement_decision_aware_for_test(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) {
+        self.apply_engagement_decision_aware(unit_id, target_id);
     }
 
     fn engage_target_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
@@ -25141,11 +25186,16 @@ impl GameLogic {
                 // Non-mood fire residual: ensure flag stays clear.
                 attacker.turret_mood_target = false;
             }
-            attacker.target = Some(target_id);
-            attacker.target_location = None;
-            attacker.set_status_force_attack(false);
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_attack(center_id, target_id);
+                crate::game_logic::host_ai_decision_log::record_set_state(center_id, 2);
+            } else {
+                attacker.target = Some(target_id);
+                attacker.target_location = None;
+                attacker.set_status_force_attack(false);
+                attacker.set_ai_state(AIState::Attacking);
+                attacker.set_status_attacking(true);
+            }
             // Turret natural-position residual: aim pitch/yaw at target (FirePitch 45).
             let (aim_a, aim_p) =
                 crate::game_logic::host_strategy_center::strategy_center_turret_aim_at(
@@ -25382,11 +25432,16 @@ impl GameLogic {
             }
             // Track engagement for UI / subsequent frames without requiring
             // a player AttackObject. Structures stay immobile (no chase).
-            attacker.target = Some(target_id);
-            attacker.target_location = None;
-            attacker.set_status_force_attack(false);
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_attack(defense_id, target_id);
+                crate::game_logic::host_ai_decision_log::record_set_state(defense_id, 2);
+            } else {
+                attacker.target = Some(target_id);
+                attacker.target_location = None;
+                attacker.set_status_force_attack(false);
+                attacker.set_ai_state(AIState::Attacking);
+                attacker.set_status_attacking(true);
+            }
             if destroyed {
                 attacker.gain_experience(kill_xp);
                 self.stop_attack_decision_aware(defense_id);
@@ -25739,9 +25794,17 @@ impl GameLogic {
                 if let Some(w) = asst.weapon.as_mut() {
                     w.last_fire_time = frame as f32 * LOGIC_FRAME_TIMESTEP;
                 }
-                asst.target = Some(clip.victim_id);
-                asst.set_ai_state(AIState::Attacking);
-                asst.set_status_attacking(true);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    crate::game_logic::host_ai_decision_log::record_attack(
+                        clip.assistant_id,
+                        clip.victim_id,
+                    );
+                    crate::game_logic::host_ai_decision_log::record_set_state(clip.assistant_id, 2);
+                } else {
+                    asst.target = Some(clip.victim_id);
+                    asst.set_ai_state(AIState::Attacking);
+                    asst.set_status_attacking(true);
+                }
                 if destroyed {
                     asst.gain_experience(kill_xp);
                 }
@@ -33024,11 +33087,16 @@ impl GameLogic {
             if let Some(w) = attacker.weapon.as_mut() {
                 w.last_fire_time = current_time;
             }
-            attacker.target = Some(target_id);
-            attacker.target_location = None;
-            attacker.set_status_force_attack(false);
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
+                crate::game_logic::host_ai_decision_log::record_set_state(sentry_id, 2);
+            } else {
+                attacker.target = Some(target_id);
+                attacker.target_location = None;
+                attacker.set_status_force_attack(false);
+                attacker.set_ai_state(AIState::Attacking);
+                attacker.set_status_attacking(true);
+            }
             // STEALTH_NOT_WHILE_ATTACKING residual.
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
                 attacker.break_stealth();
@@ -33140,11 +33208,16 @@ impl GameLogic {
             if let Some(w) = attacker.weapon.as_mut() {
                 w.last_fire_time = current_time;
             }
-            attacker.target = Some(target_id);
-            attacker.target_location = None;
-            attacker.set_status_force_attack(false);
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                crate::game_logic::host_ai_decision_log::record_attack(hellfire_id, target_id);
+                crate::game_logic::host_ai_decision_log::record_set_state(hellfire_id, 2);
+            } else {
+                attacker.target = Some(target_id);
+                attacker.target_location = None;
+                attacker.set_status_force_attack(false);
+                attacker.set_ai_state(AIState::Attacking);
+                attacker.set_status_attacking(true);
+            }
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
                 attacker.break_stealth();
             }
@@ -34458,8 +34531,14 @@ impl GameLogic {
             }
             if let Some((tid, _, tx, tz)) = best {
                 let (aim_a, aim_p) = strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                    crate::game_logic::host_ai_decision_log::record_attack(cid, tid);
+                    crate::game_logic::host_ai_decision_log::record_set_state(cid, 2);
+                }
                 if let Some(o) = self.objects.get_mut(&cid) {
-                    o.target = Some(tid);
+                    if !crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        o.target = Some(tid);
+                    }
                     o.turret_mood_target = true;
                     o.turret_angle_deg = aim_a;
                     o.record_host_turret();
@@ -40501,8 +40580,13 @@ impl GameLogic {
                     ) {
                         continue;
                     }
-                    enemy.target = Some(rid);
-                    enemy.set_ai_state(AIState::Attacking);
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled() {
+                        crate::game_logic::host_ai_decision_log::record_attack(eid, rid);
+                        crate::game_logic::host_ai_decision_log::record_set_state(eid, 2);
+                    } else {
+                        enemy.target = Some(rid);
+                        enemy.set_ai_state(AIState::Attacking);
+                    }
                     self.camo_netting_order_idle_enemies_count =
                         self.camo_netting_order_idle_enemies_count.saturating_add(1);
                 }

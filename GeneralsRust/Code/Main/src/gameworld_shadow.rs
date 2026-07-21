@@ -15991,6 +15991,104 @@ mod tests {
     }
 
     #[test]
+    fn residual_defense_fire_engagement_decision_authority() {
+        // Source honesty: residual auto-fire paths gate host engagement.
+        let src = include_str!("game_logic/game_logic.rs");
+        for fn_name in [
+            "fn try_base_defense_residual_fire",
+            "fn try_sentry_drone_residual_fire",
+            "fn try_hellfire_drone_residual_fire",
+            "fn try_strategy_center_bombardment_turret_fire",
+            "fn update_pending_patriot_assists",
+            "fn attack_aim_at_target_update",
+            "fn attack_fire_weapon_update",
+            "fn tick_attack_state_machine",
+            "fn tick_strategy_center_turret_mood_target",
+            "fn update_stealth_and_detection",
+        ] {
+            let i = src
+                .find(fn_name)
+                .unwrap_or_else(|| panic!("missing {fn_name}"));
+            // Brace-match the full function body (large residuals exceed fixed windows).
+            let bytes = src.as_bytes();
+            let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+            let mut depth = 0i32;
+            let end = loop {
+                match bytes.get(j) {
+                    Some(b'{') => depth += 1,
+                    Some(b'}') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break j;
+                        }
+                    }
+                    Some(_) => {}
+                    None => panic!("unclosed {fn_name}"),
+                }
+                j += 1;
+            };
+            let w = &src[i..=end];
+            assert!(
+                w.contains("gameworld_ai_decision_authority_enabled")
+                    || w.contains("host_ai_decision_log::record_attack"),
+                "{fn_name} must honor AI decision authority for engagement"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_engagement_decision_aware_writeback() {
+        use crate::game_logic::host_ai_decision_log;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        host_ai_decision_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EngAw");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for name in ["EaU", "EaE"] {
+            if !logic.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Infantry);
+                t.add_kind_of(KindOf::Attackable);
+                logic.templates.insert(name.into(), t);
+            }
+        }
+        let uid = logic
+            .create_object("EaU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("u");
+        let vid = logic
+            .create_object("EaE", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("e");
+        logic.apply_engagement_decision_aware_for_test(uid, vid);
+        let events = host_ai_decision_log::drain();
+        assert!(
+            events.iter().any(|e| {
+                e.kind == host_ai_decision_log::AI_DECISION_ATTACK
+                    && e.host_object == uid
+                    && e.target_host == vid.0
+            }),
+            "must log AttackTarget; got {events:?}"
+        );
+        assert!(logic.get_objects().get(&uid).unwrap().target.is_none());
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        assert_eq!(logic.get_objects().get(&uid).unwrap().target, Some(vid));
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+        match prev_atk {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+    }
+
+    #[test]
     fn mood_auto_acquire_logs_decision_under_authority() {
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
