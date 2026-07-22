@@ -215,14 +215,19 @@ impl FireSpreadUpdate {
 
     pub fn update_simple(&mut self) -> UpdateSleepTime {
         let object_to_light = {
-            let Some(me_arc) = crate::object::OBJECT_REGISTRY.get_object(self.thing) else {
-                return UpdateSleepTime::Forever;
-            };
-            let Ok(me) = me_arc.read() else {
+            let Some((aflame, pos, orientation)) =
+                crate::object::OBJECT_REGISTRY.with_object(self.thing, |me| {
+                    (
+                        me.get_status_bits().test(ObjectStatus::Aflame),
+                        *me.get_position(),
+                        me.get_orientation(),
+                    )
+                })
+            else {
                 return UpdateSleepTime::Forever;
             };
 
-            if !me.get_status_bits().test(ObjectStatus::Aflame) {
+            if !aflame {
                 return UpdateSleepTime::Forever;
             }
 
@@ -234,20 +239,20 @@ impl FireSpreadUpdate {
                         )
                     {
                         let ctx = crate::object_creation_list::live_creation_context();
-                        let pos = *me.get_position();
-                        let _ = ocl.create_with_angle(
-                            &ctx,
-                            Some(&me),
-                            &pos,
-                            &pos,
-                            me.get_orientation(),
-                            0,
-                        );
+                        let _ = crate::object::OBJECT_REGISTRY.with_object(self.thing, |me| {
+                            ocl.create_with_angle(&ctx, Some(me), &pos, &pos, orientation, 0)
+                        });
                     }
                 }
             }
 
             if self.module_data.spread_try_range != 0.0 {
+                let Some(me_arc) = crate::object::OBJECT_REGISTRY.get_object(self.thing) else {
+                    return UpdateSleepTime::Forever;
+                };
+                let Ok(me) = me_arc.read() else {
+                    return UpdateSleepTime::Forever;
+                };
                 let partition = crate::helpers::ThePartitionManagerBridge;
                 partition.get_closest_object(
                     &me,

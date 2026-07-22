@@ -462,105 +462,123 @@ impl CommandButtonHuntUpdate {
         candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
 
         for (id, dist_sqr) in candidates {
-            let Some(other_arc) = OBJECT_REGISTRY.get_object(id) else {
-                continue;
-            };
-            let Ok(other) = other_arc.read() else {
-                continue;
-            };
-
-            if other.is_effectively_dead() {
-                continue;
+            enum HuntDecision {
+                Enter,
+                Skip,
+                Consider,
             }
-
-            if other.is_off_map() != object.is_off_map() {
-                continue;
-            }
-
-            if other.is_stealthed() && !other.is_detected() {
-                continue;
-            }
-
-            let relationship = object.relationship_to(&other);
-            if allow_neutral_only {
-                if relationship != Relationship::Neutral {
-                    continue;
-                }
-            } else if is_capture_building {
-                let object_player_index = object
-                    .get_controlling_player()
-                    .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()));
-                let other_player_index = other
-                    .get_controlling_player()
-                    .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()));
-                if object.get_controlling_player().is_some()
-                    && object_player_index == other_player_index
-                {
-                    continue;
-                }
-                if matches!(relationship, Relationship::Allies) {
-                    continue;
-                }
-            } else if relationship != Relationship::Enemies {
-                continue;
-            }
-
-            if is_black_lotus_vehicle_hack && other.is_disabled() {
-                continue;
-            }
-
-            if is_enter {
-                if Self::is_valid_enter_hunt_target(&object, &other, command_type) {
-                    return Some(id);
-                }
-                continue;
-            }
-
-            if let Some(template) = sp_template.as_ref() {
-                if let Some(store) = get_special_power_store() {
-                    if !store.can_use_special_power(object.get_id(), template) {
-                        continue;
+            let decision = OBJECT_REGISTRY
+                .with_object(id, |other| {
+                    if other.is_effectively_dead() {
+                        return HuntDecision::Skip;
                     }
-                }
 
-                if !Self::is_valid_special_power_hunt_target(&object, &other, template) {
-                    continue;
-                }
+                    if other.is_off_map() != object.is_off_map() {
+                        return HuntDecision::Skip;
+                    }
 
-                if is_place_explosive {
-                    let range = template.get_view_object_range();
-                    if let Some(partition) = ThePartitionManager::get() {
-                        let mut found_mine = false;
-                        for mine_id in
-                            partition.get_objects_in_range_boundary_2d(other.get_position(), range)
+                    if other.is_stealthed() && !other.is_detected() {
+                        return HuntDecision::Skip;
+                    }
+
+                    let relationship = object.relationship_to(other);
+                    if allow_neutral_only {
+                        if relationship != Relationship::Neutral {
+                            return HuntDecision::Skip;
+                        }
+                    } else if is_capture_building {
+                        let object_player_index =
+                            object.get_controlling_player().and_then(|player| {
+                                player.read().ok().map(|guard| guard.get_player_index())
+                            });
+                        let other_player_index =
+                            other.get_controlling_player().and_then(|player| {
+                                player.read().ok().map(|guard| guard.get_player_index())
+                            });
+                        if object.get_controlling_player().is_some()
+                            && object_player_index == other_player_index
                         {
-                            let same_player = OBJECT_REGISTRY
-                                .with_object(mine_id, |mine| {
-                                    if !mine.is_kind_of(KindOf::Mine) {
-                                        return false;
-                                    }
-                                    let mine_player_index =
-                                        mine.get_controlling_player().and_then(|player| {
-                                            player.read().ok().map(|guard| guard.get_player_index())
-                                        });
-                                    let object_player_index =
-                                        object.get_controlling_player().and_then(|player| {
-                                            player.read().ok().map(|guard| guard.get_player_index())
-                                        });
-                                    mine.get_controlling_player().is_some()
-                                        && mine_player_index == object_player_index
-                                })
-                                .unwrap_or(false);
-                            if same_player {
-                                found_mine = true;
-                                break;
+                            return HuntDecision::Skip;
+                        }
+                        if matches!(relationship, Relationship::Allies) {
+                            return HuntDecision::Skip;
+                        }
+                    } else if relationship != Relationship::Enemies {
+                        return HuntDecision::Skip;
+                    }
+
+                    if is_black_lotus_vehicle_hack && other.is_disabled() {
+                        return HuntDecision::Skip;
+                    }
+
+                    if is_enter {
+                        if Self::is_valid_enter_hunt_target(&object, other, command_type) {
+                            return HuntDecision::Enter;
+                        }
+                        return HuntDecision::Skip;
+                    }
+
+                    if let Some(template) = sp_template.as_ref() {
+                        if let Some(store) = get_special_power_store() {
+                            if !store.can_use_special_power(object.get_id(), template) {
+                                return HuntDecision::Skip;
                             }
                         }
-                        if found_mine {
-                            continue;
+
+                        if !Self::is_valid_special_power_hunt_target(&object, other, template) {
+                            return HuntDecision::Skip;
+                        }
+
+                        if is_place_explosive {
+                            let range = template.get_view_object_range();
+                            if let Some(partition) = ThePartitionManager::get() {
+                                let mut found_mine = false;
+                                for mine_id in partition
+                                    .get_objects_in_range_boundary_2d(other.get_position(), range)
+                                {
+                                    let same_player = OBJECT_REGISTRY
+                                        .with_object(mine_id, |mine| {
+                                            if !mine.is_kind_of(KindOf::Mine) {
+                                                return false;
+                                            }
+                                            let mine_player_index =
+                                                mine.get_controlling_player().and_then(|player| {
+                                                    player
+                                                        .read()
+                                                        .ok()
+                                                        .map(|guard| guard.get_player_index())
+                                                });
+                                            let object_player_index = object
+                                                .get_controlling_player()
+                                                .and_then(|player| {
+                                                    player
+                                                        .read()
+                                                        .ok()
+                                                        .map(|guard| guard.get_player_index())
+                                                });
+                                            mine.get_controlling_player().is_some()
+                                                && mine_player_index == object_player_index
+                                        })
+                                        .unwrap_or(false);
+                                    if same_player {
+                                        found_mine = true;
+                                        break;
+                                    }
+                                }
+                                if found_mine {
+                                    return HuntDecision::Skip;
+                                }
+                            }
                         }
                     }
-                }
+
+                    HuntDecision::Consider
+                })
+                .unwrap_or(HuntDecision::Skip);
+            match decision {
+                HuntDecision::Enter => return Some(id),
+                HuntDecision::Skip => continue,
+                HuntDecision::Consider => {}
             }
 
             let dist = dist_sqr.sqrt();
