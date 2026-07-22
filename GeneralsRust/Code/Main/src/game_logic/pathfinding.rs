@@ -150,7 +150,9 @@ impl PathfindingGrid {
     fn bit_test(bits: &[u64], idx: usize) -> bool {
         let w = idx >> 6;
         let b = idx & 63;
-        bits.get(w).map(|word| (word >> b) & 1 == 1).unwrap_or(false)
+        bits.get(w)
+            .map(|word| (word >> b) & 1 == 1)
+            .unwrap_or(false)
     }
 
     #[inline]
@@ -455,7 +457,10 @@ impl PathfindingGrid {
                 // Base ortho/diag cost (COST_ORTHOGONAL=1, COST_DIAGONAL≈1.414).
                 let mut movement_cost = if is_diag { 1.414_213_5 } else { 1.0 };
                 // C++ allyFixedCount soft cost: standing units prefer detour (~3*diag).
-                if self.bit_index(neighbor).is_some_and(|idx| Self::bit_test(&self.dynamic_bits, idx)) {
+                if self
+                    .bit_index(neighbor)
+                    .is_some_and(|idx| Self::bit_test(&self.dynamic_bits, idx))
+                {
                     movement_cost += 3.0 * 1.414_213_5;
                 }
 

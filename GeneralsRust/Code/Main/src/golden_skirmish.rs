@@ -2309,9 +2309,7 @@ mod tests {
         );
     }
 
-    
-
-#[test]
+    #[test]
     fn load_map_start_vision_allows_build_residual() {
         crate::gameworld_shadow::ensure_gate_damage_authority();
         set_verification_single_authority(true);
