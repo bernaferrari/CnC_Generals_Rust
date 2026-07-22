@@ -1029,8 +1029,7 @@ impl DumbProjectileBehavior {
         self.detonation_weapon = detonation_weapon;
         self.extra_bonus_flags = if launcher != OBJECT_INVALID_ID {
             OBJECT_REGISTRY
-                .get_object(launcher)
-                .and_then(|arc| arc.read().ok().map(|obj| obj.get_weapon_bonus_condition()))
+                .with_object(launcher, |obj| obj.get_weapon_bonus_condition())
                 .unwrap_or_else(WeaponBonusConditionFlags::none)
         } else {
             WeaponBonusConditionFlags::none()

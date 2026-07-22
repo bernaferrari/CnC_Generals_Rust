@@ -86,8 +86,8 @@ impl ProductionExitStrategy for DefaultProductionExit {
         );
 
         let team = crate::object::registry::OBJECT_REGISTRY
-            .get_object(producer_id)
-            .and_then(|producer| producer.read().ok().and_then(|o| o.get_team()));
+            .with_object(producer_id, |o| o.get_team())
+            .flatten();
         let created = crate::object::object_factory::get_object_factory()
             .write()
             .ok()
@@ -234,8 +234,8 @@ impl ProductionExitStrategy for QueueProductionExit {
 
         // Create unit at queue position (staging area)
         let team = crate::object::registry::OBJECT_REGISTRY
-            .get_object(producer_id)
-            .and_then(|producer| producer.read().ok().and_then(|o| o.get_team()));
+            .with_object(producer_id, |o| o.get_team())
+            .flatten();
 
         let created = crate::object::object_factory::get_object_factory()
             .write()
@@ -341,8 +341,8 @@ impl ProductionExitStrategy for SupplyCenterProductionExit {
         // Create supply truck at exit position
         // Matches C++ SupplyCenterProductionExitUpdate behavior
         let team = crate::object::registry::OBJECT_REGISTRY
-            .get_object(producer_id)
-            .and_then(|producer| producer.read().ok().and_then(|o| o.get_team()));
+            .with_object(producer_id, |o| o.get_team())
+            .flatten();
 
         let created = crate::object::object_factory::get_object_factory()
             .write()
@@ -466,8 +466,8 @@ impl ProductionExitStrategy for SpawnPointProductionExit {
         // Create unit at spawn position (potentially in air for parachute drops)
         // Matches C++ SpawnPointProductionExitUpdate behavior
         let team = crate::object::registry::OBJECT_REGISTRY
-            .get_object(producer_id)
-            .and_then(|producer| producer.read().ok().and_then(|o| o.get_team()));
+            .with_object(producer_id, |o| o.get_team())
+            .flatten();
 
         let created = crate::object::object_factory::get_object_factory()
             .write()

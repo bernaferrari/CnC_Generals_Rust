@@ -1294,14 +1294,13 @@ impl AI {
         info: Option<&AttackPriorityInfo>,
         optional_filter: Option<&dyn PartitionFilter>,
     ) -> Result<Option<ObjectId>, AiError> {
-        let Some(me_arc) = OBJECT_REGISTRY.get_object(me) else {
+        let Some((me_pos, can_attack)) = OBJECT_REGISTRY.with_object(me, |me_guard| {
+            (*me_guard.get_position(), me_guard.is_able_to_attack())
+        }) else {
             return Err(AiError::InvalidObject);
         };
-        let Ok(me_guard) = me_arc.read() else {
-            return Err(AiError::LockFailed);
-        };
 
-        if (qualifiers & search_qualifiers::CAN_ATTACK) != 0 && !me_guard.is_able_to_attack() {
+        if (qualifiers & search_qualifiers::CAN_ATTACK) != 0 && !can_attack {
             return Ok(None);
         }
 
@@ -1309,7 +1308,7 @@ impl AI {
             return Ok(None);
         };
 
-        let candidates = partition.get_objects_in_range(me_guard.get_position(), range);
+        let candidates = partition.get_objects_in_range(&me_pos, range);
         let mut closest_id = None;
         let mut closest_dist_sqr = range * range + 1.0;
 
@@ -1328,86 +1327,105 @@ impl AI {
             if target_id == me {
                 continue;
             }
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
+
+            // Collect candidate evaluation without retaining Arc handles.
+            let Some(eval) = OBJECT_REGISTRY
+                .with_object(me, |me_guard| {
+                    OBJECT_REGISTRY.with_object(target_id, |target| {
+                        if target.is_effectively_dead() {
+                            return None;
+                        }
+                        if me_guard.is_off_map() != target.is_off_map() {
+                            return None;
+                        }
+                        if me_guard.relationship_to(&target) != Relationship::Enemies {
+                            return None;
+                        }
+                        if (qualifiers & search_qualifiers::ATTACK_BUILDINGS) == 0
+                            && target.is_kind_of(KindOf::Structure)
+                            && !target.is_able_to_attack()
+                        {
+                            return None;
+                        }
+                        if (qualifiers & search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS) != 0
+                            && target.is_kind_of(KindOf::Structure)
+                            && !target.is_kind_of(KindOf::CountsForVictory)
+                        {
+                            return None;
+                        }
+                        if (qualifiers & search_qualifiers::CAN_SEE) != 0 {
+                            if let Some(player_id) = me_guard.get_controlling_player_id() {
+                                if !target.is_visible_to_player(player_id as u32) {
+                                    return None;
+                                }
+                            }
+                        }
+                        if (qualifiers & search_qualifiers::UNFOGGED) != 0 {
+                            if let Some(player_id) = me_guard.get_controlling_player_id() {
+                                if !target.is_visible_to_player(player_id as u32) {
+                                    return None;
+                                }
+                            }
+                        }
+                        if target.is_stealthed() && !target.is_detected() {
+                            return None;
+                        }
+
+                        let attack_result = if (qualifiers
+                            & (search_qualifiers::CAN_ATTACK
+                                | search_qualifiers::WITHIN_ATTACK_RANGE))
+                            != 0
+                        {
+                            Some(me_guard.get_able_to_attack_specific_object(
+                                AbleToAttackType::NewTarget,
+                                &target,
+                                CommandSourceType::FromAi,
+                            ))
+                        } else {
+                            None
+                        };
+
+                        if (qualifiers & search_qualifiers::CAN_ATTACK) != 0 {
+                            if matches!(
+                                attack_result,
+                                Some(CanAttackResult::NotPossible | CanAttackResult::InvalidShot)
+                            ) {
+                                return None;
+                            }
+                        }
+                        if (qualifiers & search_qualifiers::WITHIN_ATTACK_RANGE) != 0 {
+                            if !matches!(attack_result, Some(CanAttackResult::Possible)) {
+                                return None;
+                            }
+                        }
+
+                        let dist_sqr = ThePartitionManager::get_distance_squared(
+                            &me_guard,
+                            &target,
+                            FROM_BOUNDING_SPHERE_2D,
+                        );
+
+                        let template_name = target.get_template().get_name().to_string();
+                        let contained_ids = target
+                            .get_contain()
+                            .and_then(|contain| {
+                                contain
+                                    .lock()
+                                    .ok()
+                                    .map(|cg| cg.get_contained_objects().to_vec())
+                            })
+                            .unwrap_or_default();
+
+                        Some((dist_sqr, template_name, contained_ids))
+                    })
+                })
+                .flatten()
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(target) = target_arc.read() else {
-                continue;
-            };
 
-            if target.is_effectively_dead() {
-                continue;
-            }
-
-            if me_guard.is_off_map() != target.is_off_map() {
-                continue;
-            }
-
-            if me_guard.relationship_to(&target) != Relationship::Enemies {
-                continue;
-            }
-
-            if (qualifiers & search_qualifiers::ATTACK_BUILDINGS) == 0
-                && target.is_kind_of(KindOf::Structure)
-                && !target.is_able_to_attack()
-            {
-                continue;
-            }
-
-            if (qualifiers & search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS) != 0
-                && target.is_kind_of(KindOf::Structure)
-                && !target.is_kind_of(KindOf::CountsForVictory)
-            {
-                continue;
-            }
-
-            if (qualifiers & search_qualifiers::CAN_SEE) != 0 {
-                if let Some(player_id) = me_guard.get_controlling_player_id() {
-                    if !target.is_visible_to_player(player_id as u32) {
-                        continue;
-                    }
-                }
-            }
-
-            if (qualifiers & search_qualifiers::UNFOGGED) != 0 {
-                if let Some(player_id) = me_guard.get_controlling_player_id() {
-                    if !target.is_visible_to_player(player_id as u32) {
-                        continue;
-                    }
-                }
-            }
-
-            if target.is_stealthed() && !target.is_detected() {
-                continue;
-            }
-
-            let attack_result = if (qualifiers
-                & (search_qualifiers::CAN_ATTACK | search_qualifiers::WITHIN_ATTACK_RANGE))
-                != 0
-            {
-                Some(me_guard.get_able_to_attack_specific_object(
-                    AbleToAttackType::NewTarget,
-                    &target,
-                    CommandSourceType::FromAi,
-                ))
-            } else {
-                None
-            };
-
-            if (qualifiers & search_qualifiers::CAN_ATTACK) != 0 {
-                if matches!(
-                    attack_result,
-                    Some(CanAttackResult::NotPossible | CanAttackResult::InvalidShot)
-                ) {
-                    continue;
-                }
-            }
-
-            if (qualifiers & search_qualifiers::WITHIN_ATTACK_RANGE) != 0 {
-                if !matches!(attack_result, Some(CanAttackResult::Possible)) {
-                    continue;
-                }
-            }
+            let (dist_sqr, template_name, contained_ids) = eval;
 
             if let Some(filter) = optional_filter {
                 if !filter.allow(target_id) {
@@ -1416,11 +1434,6 @@ impl AI {
             }
 
             if !use_priority {
-                let dist_sqr = ThePartitionManager::get_distance_squared(
-                    &me_guard,
-                    &target,
-                    FROM_BOUNDING_SPHERE_2D,
-                );
                 if dist_sqr < closest_dist_sqr {
                     closest_dist_sqr = dist_sqr;
                     closest_id = Some(target_id);
@@ -1430,43 +1443,28 @@ impl AI {
 
             let priority_info = match info {
                 Some(info) => info,
-                None => {
-                    continue;
-                }
+                None => continue,
             };
-            let template_name = target.get_template().get_name().as_str();
-            let mut current_priority = priority_info.get_priority(template_name);
+            let mut current_priority = priority_info.get_priority(template_name.as_str());
             if current_priority == 0 {
                 continue;
             }
 
-            // C++ AI.cpp lines 669-679: Check for garrisoned buildings/vehicles
-            // and see if a higher priority unit is inside. This matches the C++
-            // behavior where contained objects (garrisoned infantry) can raise the
-            // effective attack priority of the container building/vehicle.
-            if let Some(contain) = target.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    for contained_id in contain_guard.get_contained_objects() {
-                        if let Some(contained_arc) = OBJECT_REGISTRY.get_object(*contained_id) {
-                            if let Ok(contained_obj) = contained_arc.read() {
-                                let contained_template_name =
-                                    contained_obj.get_template().get_name().as_str();
-                                let contained_priority =
-                                    priority_info.get_priority(contained_template_name);
-                                if contained_priority > current_priority {
-                                    current_priority = contained_priority;
-                                }
-                            }
-                        }
+            // C++ AI.cpp lines 669-679: garrisoned contents can raise priority.
+            for contained_id in contained_ids {
+                if let Some(contained_priority) =
+                    OBJECT_REGISTRY.with_object(contained_id, |contained_obj| {
+                        let contained_template_name =
+                            contained_obj.get_template().get_name().as_str();
+                        priority_info.get_priority(contained_template_name)
+                    })
+                {
+                    if contained_priority > current_priority {
+                        current_priority = contained_priority;
                     }
                 }
             }
 
-            let dist_sqr = ThePartitionManager::get_distance_squared(
-                &me_guard,
-                &target,
-                FROM_BOUNDING_SPHERE_2D,
-            );
             let dist = dist_sqr.sqrt();
             let modifier = if attack_priority_modifier > 0.0 {
                 (dist / attack_priority_modifier) as i32
@@ -1500,18 +1498,16 @@ impl AI {
         range: Real,
         qualifiers: u32,
     ) -> Result<Option<ObjectId>, AiError> {
-        let Some(me_arc) = OBJECT_REGISTRY.get_object(me) else {
+        let Some(me_pos) = OBJECT_REGISTRY.with_object(me, |me_guard| *me_guard.get_position())
+        else {
             return Err(AiError::InvalidObject);
-        };
-        let Ok(me_guard) = me_arc.read() else {
-            return Err(AiError::LockFailed);
         };
 
         let Some(partition) = ThePartitionManager::get() else {
             return Ok(None);
         };
 
-        let candidates = partition.get_objects_in_range(me_guard.get_position(), range);
+        let candidates = partition.get_objects_in_range(&me_pos, range);
         let mut closest_id = None;
         let mut closest_dist_sqr = range * range + 1.0;
 
@@ -1519,42 +1515,40 @@ impl AI {
             if target_id == me {
                 continue;
             }
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
+            let Some(dist_sqr) = OBJECT_REGISTRY
+                .with_object(me, |me_guard| {
+                    OBJECT_REGISTRY.with_object(target_id, |target| {
+                        if target.is_effectively_dead() {
+                            return None;
+                        }
+                        if me_guard.is_off_map() != target.is_off_map() {
+                            return None;
+                        }
+                        if !matches!(me_guard.relationship_to(&target), Relationship::Allies) {
+                            return None;
+                        }
+                        if target.is_kind_of(KindOf::Structure) && !target.is_able_to_attack() {
+                            return None;
+                        }
+                        if (qualifiers & search_qualifiers::CAN_SEE) != 0 {
+                            if let Some(player_id) = me_guard.get_controlling_player_id() {
+                                if !target.is_visible_to_player(player_id as u32) {
+                                    return None;
+                                }
+                            }
+                        }
+                        Some(ThePartitionManager::get_distance_squared(
+                            &me_guard,
+                            &target,
+                            FROM_BOUNDING_SPHERE_2D,
+                        ))
+                    })
+                })
+                .flatten()
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(target) = target_arc.read() else {
-                continue;
-            };
-
-            if target.is_effectively_dead() {
-                continue;
-            }
-
-            if me_guard.is_off_map() != target.is_off_map() {
-                continue;
-            }
-
-            if !matches!(me_guard.relationship_to(&target), Relationship::Allies) {
-                continue;
-            }
-
-            if target.is_kind_of(KindOf::Structure) && !target.is_able_to_attack() {
-                continue;
-            }
-
-            if (qualifiers & search_qualifiers::CAN_SEE) != 0 {
-                if let Some(player_id) = me_guard.get_controlling_player_id() {
-                    if !target.is_visible_to_player(player_id as u32) {
-                        continue;
-                    }
-                }
-            }
-
-            let dist_sqr = ThePartitionManager::get_distance_squared(
-                &me_guard,
-                &target,
-                FROM_BOUNDING_SPHERE_2D,
-            );
             if dist_sqr < closest_dist_sqr {
                 closest_dist_sqr = dist_sqr;
                 closest_id = Some(target_id);
@@ -1574,18 +1568,16 @@ impl AI {
             return Ok(None);
         }
 
-        let Some(me_arc) = OBJECT_REGISTRY.get_object(me) else {
+        let Some(me_pos) = OBJECT_REGISTRY.with_object(me, |me_guard| *me_guard.get_position())
+        else {
             return Err(AiError::InvalidObject);
-        };
-        let Ok(me_guard) = me_arc.read() else {
-            return Err(AiError::LockFailed);
         };
 
         let Some(partition) = ThePartitionManager::get() else {
             return Ok(None);
         };
 
-        let candidates = partition.get_objects_in_range(me_guard.get_position(), range);
+        let candidates = partition.get_objects_in_range(&me_pos, range);
         let mut closest_id = None;
         let mut closest_dist_sqr = range * range + 1.0;
 
@@ -1593,30 +1585,30 @@ impl AI {
             if target_id == me {
                 continue;
             }
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
+            let Some(dist_sqr) = OBJECT_REGISTRY
+                .with_object(me, |me_guard| {
+                    OBJECT_REGISTRY.with_object(target_id, |target| {
+                        if target.is_effectively_dead() {
+                            return None;
+                        }
+                        if !target.test_status(ObjectStatusTypes::Repulsor) {
+                            return None;
+                        }
+                        if target.is_stealthed() && !target.is_detected() {
+                            return None;
+                        }
+                        Some(ThePartitionManager::get_distance_squared(
+                            &me_guard,
+                            &target,
+                            FROM_BOUNDING_SPHERE_2D,
+                        ))
+                    })
+                })
+                .flatten()
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(target) = target_arc.read() else {
-                continue;
-            };
-
-            if target.is_effectively_dead() {
-                continue;
-            }
-
-            if !target.test_status(ObjectStatusTypes::Repulsor) {
-                continue;
-            }
-
-            if target.is_stealthed() && !target.is_detected() {
-                continue;
-            }
-
-            let dist_sqr = ThePartitionManager::get_distance_squared(
-                &me_guard,
-                &target,
-                FROM_BOUNDING_SPHERE_2D,
-            );
             if dist_sqr < closest_dist_sqr {
                 closest_dist_sqr = dist_sqr;
                 closest_id = Some(target_id);
