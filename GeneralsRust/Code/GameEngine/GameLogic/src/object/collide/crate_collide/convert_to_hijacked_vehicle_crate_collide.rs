@@ -244,11 +244,11 @@ pub struct ConvertToHijackedVehicleCrateCollide {
 impl ConvertToHijackedVehicleCrateCollide {
     /// Create new hijacker conversion crate collide module.
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object: &Arc<RwLock<Object>>,
         module_data: ConvertToHijackedVehicleCrateCollideModuleData,
     ) -> Self {
         Self {
-            base: LegacyCrateCollide::from_object_handle(object, module_data.base.clone()),
+            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
             module_data: Arc::new(Mutex::new(module_data)),
         }
     }
@@ -612,7 +612,7 @@ mod tests {
     fn hijacked_vehicle_crate_collide_identifies_like_cpp() {
         let object = Arc::new(RwLock::new(Object::new_test(77_200, 100.0)));
         let module = ConvertToHijackedVehicleCrateCollide::new(
-            object,
+            &object,
             ConvertToHijackedVehicleCrateCollideModuleData::default(),
         );
 

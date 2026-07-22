@@ -143,10 +143,7 @@ pub struct CrateCollide {
     module_data: CrateCollideModuleData,
     /// Thread-safe state
     state: Arc<Mutex<CrateCollideState>>,
-    /// Lifetime pin when constructed from a handle. Identity is always object_id;
-    /// the registry stores Weak, so production worlds must keep the owner Arc alive
-    /// (object store). This pin only covers handle-based construction.
-    owner_pin: Option<Arc<RwLock<Object>>>,
+    // Identity is object_id only; resolve via registry/TheGameLogic on demand.
 }
 
 impl fmt::Debug for CrateCollide {
@@ -166,14 +163,13 @@ impl CrateCollide {
                 is_collected: false,
                 creation_time: TheGameLogic::get_frame() as u64,
             })),
-            owner_pin: None,
         }
     }
 
     /// Legacy helper that constructs the crate from an object handle. Matches the C++ pattern
     /// where crate modules were handed the Thing pointer directly.
     pub fn from_object_handle(
-        thing: Arc<RwLock<Object>>,
+        thing: &Arc<RwLock<Object>>,
         module_data: CrateCollideModuleData,
     ) -> Self {
         let object_id = thing
@@ -181,7 +177,7 @@ impl CrateCollide {
             .map(|obj| obj.get_id())
             .unwrap_or(crate::common::INVALID_ID);
         if object_id != crate::common::INVALID_ID {
-            OBJECT_REGISTRY.register_object(object_id, &thing);
+            OBJECT_REGISTRY.register_object(object_id, thing);
         }
         Self {
             base_module: CollideModule::new(object_id, module_data.base.clone()),
@@ -190,7 +186,6 @@ impl CrateCollide {
                 is_collected: false,
                 creation_time: TheGameLogic::get_frame() as u64,
             })),
-            owner_pin: Some(thing),
         }
     }
 
@@ -199,12 +194,15 @@ impl CrateCollide {
     }
 
     pub fn get_object(&self) -> Result<Arc<RwLock<Object>>, CollisionError> {
-        if let Some(obj) = OBJECT_REGISTRY.get_object(self.base_module.get_object_id()) {
-            return Ok(obj);
-        }
-        self.owner_pin.clone().ok_or_else(|| {
-            CollisionError::InvalidObject("crate collide object handle unavailable".to_string())
-        })
+        let object_id = self.base_module.get_object_id();
+        TheGameLogic::find_object_by_id(object_id)
+            .or_else(|| OBJECT_REGISTRY.get_object(object_id))
+            .ok_or_else(|| {
+                CollisionError::InvalidObject(format!(
+                    "crate collide object {} unavailable",
+                    object_id
+                ))
+            })
     }
 
     pub fn is_collected(&self) -> Result<bool, CollisionError> {
@@ -629,10 +627,11 @@ mod tests {
     static CRATE_COLLIDE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn crate_collide_test_guard() -> std::sync::MutexGuard<'static, ()> {
-        CRATE_COLLIDE_TEST_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("crate collide test lock")
+        let lock = CRATE_COLLIDE_TEST_LOCK.get_or_init(|| Mutex::new(()));
+        match lock.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
     }
 
     fn set_logic_frame(frame: u64) {
@@ -677,7 +676,7 @@ mod tests {
         let object = Object::new_with_id(template, 8, ObjectStatusMaskType::none(), None)
             .expect("crate object");
 
-        let collide = CrateCollide::from_object_handle(object, CrateCollideModuleData::default());
+        let collide = CrateCollide::from_object_handle(&object, CrateCollideModuleData::default());
 
         assert_eq!(collide.get_creation_time().expect("creation time"), 654);
         OBJECT_REGISTRY.unregister_object(8);
@@ -706,7 +705,7 @@ mod tests {
         data.execute_animation_display_time_seconds = 2.5;
         data.execute_animation_z_rise_per_second = 4.0;
         data.execute_animation_fades = true;
-        let collide = CrateCollide::from_object_handle(object, data);
+        let collide = CrateCollide::from_object_handle(&object, data);
 
         collide
             .play_execution_animation()
@@ -743,7 +742,7 @@ mod tests {
         let mut data = CrateCollideModuleData::default();
         data.execution_animation_template = "CratePickupZeroDurationAnimTest".to_string();
         data.execute_animation_display_time_seconds = 0.0;
-        let collide = CrateCollide::from_object_handle(object, data);
+        let collide = CrateCollide::from_object_handle(&object, data);
 
         collide
             .play_execution_animation()
@@ -776,7 +775,7 @@ mod tests {
         let mut data = CrateCollideModuleData::default();
         data.execution_animation_template = "CratePickupDrawIconDisabledTest".to_string();
         data.execute_animation_display_time_seconds = 1.0;
-        let collide = CrateCollide::from_object_handle(object, data);
+        let collide = CrateCollide::from_object_handle(&object, data);
 
         collide
             .play_execution_animation()

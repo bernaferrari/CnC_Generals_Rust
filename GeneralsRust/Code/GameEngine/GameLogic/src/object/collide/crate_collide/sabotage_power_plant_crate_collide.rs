@@ -256,11 +256,11 @@ pub struct SabotagePowerPlantCrateCollide {
 impl SabotagePowerPlantCrateCollide {
     /// Create new sabotage power plant crate collide module
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object: &Arc<RwLock<Object>>,
         module_data: SabotagePowerPlantCrateCollideModuleData,
     ) -> Self {
         Self {
-            base: LegacyCrateCollide::from_object_handle(object, module_data.base.clone()),
+            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
             module_data: Arc::new(Mutex::new(module_data)),
         }
     }
