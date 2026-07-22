@@ -968,7 +968,14 @@ impl RiderChangeContain {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         });
-        if super::should_cancel_containment_after_booby_trap(owner.as_ref(), &rider) {
+        if super::should_cancel_containment_after_booby_trap(
+            owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
+            rider
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        ) {
             return Ok(());
         }
 
