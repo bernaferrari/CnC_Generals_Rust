@@ -939,9 +939,10 @@ impl ClassicState for AIGuardInnerState {
                     .map_err(|_| "guard inner machine lock poisoned".to_string())?;
                 AIEnterState::new(&machine_guard)
             };
+            let nemesis_id = nemesis.read().ok().map(|g| g.get_id());
             let _ = self
                 .base
-                .with_machine(|machine| machine.set_goal_object(Some(Arc::downgrade(&nemesis))));
+                .with_machine(|machine| machine.set_goal_object_by_id(nemesis_id));
 
             self.is_attacking = false;
             self.attack_machine = None;
@@ -1146,16 +1147,13 @@ impl ClassicState for AIGuardIdleState {
                 if team_guard.attack_common_target() {
                     let team_target = team_guard.get_team_target_object();
                     if team_target != crate::common::INVALID_ID {
-                        if let Some(target_arc) = get_legacy_object(team_target) {
-                            self.base.set_nemesis_to_attack(team_target);
-                            if let Ok(machine) = self.base.state().get_machine() {
-                                if let Ok(mut machine_guard) = machine.lock() {
-                                    machine_guard
-                                        .set_goal_object(Some(Arc::downgrade(&target_arc)));
-                                }
+                        self.base.set_nemesis_to_attack(team_target);
+                        if let Ok(machine) = self.base.state().get_machine() {
+                            if let Ok(mut machine_guard) = machine.lock() {
+                                machine_guard.set_goal_object_by_id(Some(team_target));
                             }
-                            return Ok(StateReturnType::Success);
                         }
+                        return Ok(StateReturnType::Success);
                     }
                 }
             }
@@ -1186,7 +1184,7 @@ impl ClassicState for AIGuardIdleState {
                 self.base.set_nemesis_to_attack(target_id);
                 if let Ok(machine) = self.base.state().get_machine() {
                     if let Ok(mut machine_guard) = machine.lock() {
-                        machine_guard.set_goal_object(Some(Arc::downgrade(&target_arc)));
+                        machine_guard.set_goal_object_by_id(Some(target_id));
                     }
                 }
                 return Ok(StateReturnType::Success);
@@ -1532,12 +1530,10 @@ impl ClassicState for AIGuardReturnState {
                 area.as_deref(),
             ) {
                 self.base.set_nemesis_to_attack(target);
-                if let Some(target_arc) = get_legacy_object(target) {
-                    let _ = self.base.with_machine(|machine| {
-                        machine.set_goal_object(Some(Arc::downgrade(&target_arc)))
-                    });
-                    return Ok(StateReturnType::Failure);
-                }
+                let _ = self
+                    .base
+                    .with_machine(|machine| machine.set_goal_object_by_id(Some(target)));
+                return Ok(StateReturnType::Failure);
             }
         }
 
@@ -1626,10 +1622,11 @@ impl ClassicState for AIGuardPickUpCrateState {
             return Ok(StateReturnType::Success);
         };
 
+        let crate_id = crate_obj.read().ok().map(|g| g.get_id());
         let _ = self
             .base
             .shared
-            .with_machine(|machine| machine.set_goal_object(Some(Arc::downgrade(&crate_obj))));
+            .with_machine(|machine| machine.set_goal_object_by_id(crate_id));
 
         if let Ok(crate_guard) = crate_obj.read() {
             ai.ai_move_to_position(crate_guard.get_position(), false, CommandSourceType::FromAi);
@@ -1742,8 +1739,9 @@ impl ClassicState for AIGuardAttackAggressorState {
                         if let Some(info) = body_guard.get_last_damage_info() {
                             nemesis = get_legacy_object(info.source_id);
                             if let Some(target) = nemesis.as_ref() {
+                                let target_id = target.read().ok().map(|g| g.get_id());
                                 let _ = self.base.with_machine(|machine| {
-                                    machine.set_goal_object(Some(Arc::downgrade(target)))
+                                    machine.set_goal_object_by_id(target_id)
                                 });
                             }
                         }
