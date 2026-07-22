@@ -978,6 +978,11 @@ pub struct Object {
     #[serde(default)]
     pub is_listening_outpost_transport: bool,
 
+    /// Host residual: America Pathfinder unit class (StealthDetector + InnateStealth).
+    /// Cached at spawn so stealth ticks avoid template-name scans on dense maps.
+    #[serde(default)]
+    pub is_pathfinder_unit: bool,
+
     /// Host residual: China Troop Crawler TransportContain (Slots=8 + assault deploy).
     /// Passengers exit to fight (do not fire from inside). Fail-closed vs full
     /// AssaultTransportAIUpdate wounded-retrieve / multi-exit path matrix.
@@ -1587,6 +1592,7 @@ impl Object {
             faerie_fire_until_frame: 0,
             is_humvee_transport: false,
             is_listening_outpost_transport: false,
+            is_pathfinder_unit: false,
             is_troop_crawler_transport: false,
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,
@@ -1881,6 +1887,7 @@ impl Object {
             faerie_fire_until_frame: 0,
             is_humvee_transport: false,
             is_listening_outpost_transport: false,
+            is_pathfinder_unit: false,
             is_troop_crawler_transport: false,
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,

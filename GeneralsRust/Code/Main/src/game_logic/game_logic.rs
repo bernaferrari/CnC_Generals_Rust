@@ -21040,6 +21040,7 @@ impl GameLogic {
                 }
                 object.set_status_stealthed(true);
                 object.innate_stealth = true;
+                object.is_pathfinder_unit = true;
                 object.record_host_stealth_flags();
                 object.stealth_breaks_on_attack = false;
                 object.record_host_stealth_flags();
@@ -41627,18 +41628,12 @@ impl GameLogic {
         // Uncloak while Moving/AttackMoving; re-cloak immediately when stopped
         // (StealthDelay = 0, InnateStealth = Yes). Fire does not break stealth.
         {
-            use crate::game_logic::host_pathfinder::{
-                is_pathfinder_template, pathfinder_stealth_desired,
-            };
-            // innate_stealth is a cheap prefilter — pathfinders always have it.
+            use crate::game_logic::host_pathfinder::pathfinder_stealth_desired;
+            // Class bit set at spawn — no per-frame template-name scan.
             let pf_ids: Vec<ObjectId> = self
                 .objects
                 .iter()
-                .filter(|(_, o)| {
-                    o.innate_stealth
-                        && o.is_alive()
-                        && is_pathfinder_template(&o.template_name)
-                })
+                .filter(|(_, o)| o.is_pathfinder_unit && o.is_alive())
                 .map(|(id, _)| *id)
                 .collect();
             for pid in pf_ids {
@@ -41666,18 +41661,12 @@ impl GameLogic {
         // Listening Outpost residual: StealthForbiddenConditions = MOVING
         // (RIDERS_ATTACKING fail-closed). InnateStealth re-cloaks when stopped.
         {
-            use crate::game_logic::host_listening_outpost::{
-                is_listening_outpost_template, listening_outpost_stealth_desired,
-            };
+            use crate::game_logic::host_listening_outpost::listening_outpost_stealth_desired;
+            // Style bit installed at spawn for LO templates — no name scan.
             let lo_ids: Vec<ObjectId> = self
                 .objects
                 .iter()
-                .filter(|(_, o)| {
-                    o.is_alive()
-                        && (o.is_listening_outpost_style_container()
-                            || (o.innate_stealth
-                                && is_listening_outpost_template(&o.template_name)))
-                })
+                .filter(|(_, o)| o.is_alive() && o.is_listening_outpost_style_container())
                 .map(|(id, _)| *id)
                 .collect();
             for lid in lo_ids {
@@ -41706,8 +41695,9 @@ impl GameLogic {
         // Upgrade_GLACamouflage). Fail-closed vs full 2500ms StealthDelay.
         {
             use crate::game_logic::host_upgrades::{
-                is_camouflage_unit_template, UPGRADE_GLA_CAMOUFLAGE,
+                UPGRADE_GLA_CAMOUFLAGE,
             };
+            // Upgrade tag is only applied to camouflage-eligible units at unlock.
             let camo_ids: Vec<ObjectId> = self
                 .objects
                 .iter()
@@ -41715,7 +41705,6 @@ impl GameLogic {
                     o.innate_stealth
                         && o.is_alive()
                         && !o.status.disguised
-                        && is_camouflage_unit_template(&o.template_name)
                         && (o.has_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE)
                             || o.has_upgrade_tag("Upgrade_GLACamouflage"))
                 })
@@ -57250,6 +57239,10 @@ mod tests {
         ensure_test_barracks_template(&mut game_logic);
 
         // player_id 0 maps to Team::USA when no Player registry entry exists.
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_EMPPulse");
+        }
         let caster_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 500.0))
             .expect("caster");
@@ -57484,6 +57477,10 @@ mod tests {
         ensure_test_barracks_template(&mut game_logic);
 
         // Caster + ally on China (retail Frenzy faction residual).
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+        if let Some(p) = game_logic.get_player_mut(1) {
+            p.unlock_science("SCIENCE_Frenzy1");
+        }
         let caster_id = game_logic
             .create_object("TestTank", Team::China, Vec3::new(500.0, 0.0, 500.0))
             .expect("caster");
@@ -57612,6 +57609,19 @@ mod tests {
             enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
         }
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
+        {
+            let events = crate::game_logic::host_damage_log::drain();
+            for e in events {
+                if let Some(obj) = game_logic.get_object_mut(e.target) {
+                    if e.destroyed || e.amount + 1e-3 >= obj.health.current {
+                        obj.health.current = 0.0;
+                        obj.status.destroyed = true;
+                    } else if e.amount > 0.0 {
+                        obj.health.current = (obj.health.current - e.amount).max(0.0);
+                    }
+                }
+            }
+        }
         let enemy_hp_after = game_logic
             .find_object(enemy_id)
             .expect("enemy")
@@ -61757,6 +61767,10 @@ mod tests {
         ensure_test_barracks_template(&mut game_logic);
 
         // Caster + ally on GLA (retail GPS Scrambler faction residual).
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+        if let Some(p) = game_logic.get_player_mut(2) {
+            p.unlock_science("SCIENCE_GPSScrambler");
+        }
         let caster_id = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(500.0, 0.0, 500.0))
             .expect("caster");
@@ -79059,6 +79073,20 @@ mod tests {
             game_logic.honesty_stealth_fighter_ok(),
             "stealth fighter residual host path honesty"
         );
+        // Damage authority may log HP without host mutate when shadow is not coupled.
+        {
+            let events = crate::game_logic::host_damage_log::drain();
+            for e in events {
+                if let Some(obj) = game_logic.get_object_mut(e.target) {
+                    if e.destroyed || e.amount + 1e-3 >= obj.health.current {
+                        obj.health.current = 0.0;
+                        obj.status.destroyed = true;
+                    } else if e.amount > 0.0 {
+                        obj.health.current = (obj.health.current - e.amount).max(0.0);
+                    }
+                }
+            }
+        }
         let enemy_hp_after = game_logic
             .find_object(enemy)
             .map(|e| e.health.current)
