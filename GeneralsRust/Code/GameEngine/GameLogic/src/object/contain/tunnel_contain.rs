@@ -134,7 +134,7 @@ impl TunnelContain {
                 .map_err(|_| "Player lock poisoned")?;
             player_guard.init_tunnel_tracker();
             if let Some(tunnel_system) = player_guard.get_tunnel_system_mut() {
-                tunnel_system.add_to_contain_list(obj.clone())?;
+                tunnel_system.add_to_contain_list(obj_id)?;
             }
         }
 
@@ -220,7 +220,7 @@ impl TunnelContain {
                 .map_err(|_| "Player lock poisoned")?;
 
             if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                if !tunnel_system.is_in_container(&obj)? {
+                if !tunnel_system.is_in_container(obj_id) {
                     return Ok(());
                 }
             }
@@ -230,7 +230,7 @@ impl TunnelContain {
                 .write()
                 .map_err(|_| "Player lock poisoned")?;
             if let Some(tunnel_system_mut) = player_write.get_tunnel_system_mut() {
-                tunnel_system_mut.remove_from_contain(obj.clone(), expose_stealth_units)?;
+                tunnel_system_mut.remove_from_contain(obj_id, expose_stealth_units)?;
             }
         }
 
