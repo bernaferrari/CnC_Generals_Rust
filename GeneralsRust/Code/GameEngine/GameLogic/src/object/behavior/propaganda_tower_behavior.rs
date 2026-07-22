@@ -192,7 +192,6 @@ const PROPAGANDA_TOWER_FIELDS: &[FieldParse<PropagandaTowerBehaviorModuleData>] 
 
 /// Propaganda tower behavior module that provides area-of-effect bonuses
 pub struct PropagandaTowerBehavior {
-    object: Weak<RwLock<Object>>,
     object_id: ObjectID,
     module_data: Arc<PropagandaTowerBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -218,8 +217,11 @@ impl PropagandaTowerBehavior {
         TheGameLogic::set_wake_frame(object_id, UpdateSleepTime::None);
 
         Ok(Self {
-            object: Arc::downgrade(&object),
-            object_id,
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             last_scan_frame: 0,
@@ -231,9 +233,12 @@ impl PropagandaTowerBehavior {
     fn resolve_object(
         &self,
     ) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.object
-            .upgrade()
-            .ok_or("PropagandaTowerBehavior object not set".into())
+        if self.object_id == crate::common::INVALID_ID {
+            return Err("PropagandaTowerBehavior object not set".into());
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            .ok_or_else(|| "PropagandaTowerBehavior object not set".into())
     }
 
     fn handle_object_created(&mut self) {
@@ -387,7 +392,11 @@ impl PropagandaTowerBehavior {
                 self.module_data.pulse_fx.as_ref()
             };
             if let Some(fx) = fx {
-                if let Some(tower_arc) = self.object.upgrade() {
+                if let Some(tower_arc) =
+                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                    })
+                {
                     let _ = fx.do_fx_obj(&tower_arc, None);
                 }
             }

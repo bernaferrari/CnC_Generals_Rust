@@ -212,14 +212,16 @@ impl DieModuleInterface for InstantDeathBehavior {
 
         if let Some(ref object_arc) = object_arc {
             if !self.base.module_data.fx.is_empty() {
-                let idx = GameLogicRandomValue(0, self.base.module_data.fx.len() as i32 - 1) as usize;
+                let idx =
+                    GameLogicRandomValue(0, self.base.module_data.fx.len() as i32 - 1) as usize;
                 if let Some(fx) = self.base.module_data.fx.get(idx) {
                     let _ = fx.do_fx_obj(object_arc, None);
                 }
             }
 
             if !self.base.module_data.ocls.is_empty() {
-                let idx = GameLogicRandomValue(0, self.base.module_data.ocls.len() as i32 - 1) as usize;
+                let idx =
+                    GameLogicRandomValue(0, self.base.module_data.ocls.len() as i32 - 1) as usize;
                 if let Some(ocl) = self.base.module_data.ocls.get(idx) {
                     let _ = ObjectCreationList::create(ocl, object_arc, None);
                 }

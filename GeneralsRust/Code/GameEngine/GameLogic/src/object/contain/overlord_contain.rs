@@ -105,7 +105,7 @@ pub struct OverlordContain {
     /// Base functionality from TransportContain
     pub base: TransportContain,
     /// Reference to the owning object (the Overlord tank)
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     /// Module configuration
     module_data: OverlordContainModuleData,
     /// Whether redirection to bunker is currently active
@@ -123,7 +123,10 @@ impl OverlordContain {
 
         Ok(Self {
             base,
-            object,
+            object_id: object
+                .upgrade()
+                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: module_data.clone(),
             redirection_activated: false,
         })
@@ -131,7 +134,12 @@ impl OverlordContain {
 
     /// Get the object this module belongs to
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     /// Check if this is a garrisonable container (depends on redirection).

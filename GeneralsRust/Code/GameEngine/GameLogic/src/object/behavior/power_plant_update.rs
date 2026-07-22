@@ -5,7 +5,7 @@
 //! Rust conversion: 2025
 
 use crate::common::types::ModelConditionFlags;
-use crate::common::{AsciiString, Bool, ModuleData, UnsignedInt};
+use crate::common::{AsciiString, Bool, ModuleData, ObjectID, UnsignedInt};
 use crate::modules::{
     BehaviorModuleInterface, PowerPlantUpdateInterface, UpdateModuleInterface, UpdateSleepTime,
 };
@@ -83,7 +83,7 @@ impl Snapshotable for PowerPlantUpdateModuleData {
 
 /// PowerPlantUpdate behavior module
 pub struct PowerPlantUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<PowerPlantUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     extended: Bool,
@@ -102,7 +102,11 @@ impl PowerPlantUpdate {
             .ok_or("Invalid module data type for PowerPlantUpdate")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             extended: false,
@@ -122,7 +126,13 @@ impl PowerPlantUpdate {
                 self.extend_done_frame = current_frame + self.module_data.rods_extend_time;
                 self.extended = true;
 
-                if let Some(object) = self.object.upgrade() {
+                if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+                    None
+                } else {
+                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                    })
+                }) {
                     if let Ok(mut obj) = object.write() {
                         // Set upgrading model condition so the animation plays while extending
                         obj.set_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
@@ -133,7 +143,12 @@ impl PowerPlantUpdate {
             self.extended = false;
             self.extend_done_frame = 0;
 
-            if let Some(object) = self.object.upgrade() {
+            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(mut obj) = object.write() {
                     // Clear both upgrading and upgraded visual flags immediately
                     obj.clear_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
@@ -151,7 +166,12 @@ impl PowerPlantUpdate {
 
 impl UpdateModuleInterface for PowerPlantUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut obj) = object.write() {
                 let current_frame = get_game_logic()
                     .lock()
@@ -310,7 +330,7 @@ mod tests {
     fn power_plant_retract_cancels_pending_extension_before_completion() {
         let module_data = Arc::new(PowerPlantUpdateModuleData::default());
         let mut update = PowerPlantUpdate {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data,
             next_call_frame_and_phase: 0,
             extended: false,
@@ -330,7 +350,7 @@ mod tests {
             ..PowerPlantUpdateModuleData::default()
         });
         let mut update = PowerPlantUpdate {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data,
             next_call_frame_and_phase: 0,
             extended: false,
@@ -347,7 +367,7 @@ mod tests {
     fn power_plant_update_xfer_preserves_cpp_runtime_fields_only() {
         let module_data = Arc::new(PowerPlantUpdateModuleData::default());
         let mut saved = PowerPlantUpdate {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data: module_data.clone(),
             next_call_frame_and_phase: 0x1234,
             extended: true,
@@ -364,7 +384,7 @@ mod tests {
         }
 
         let mut loaded = PowerPlantUpdate {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data,
             next_call_frame_and_phase: 0,
             extended: false,

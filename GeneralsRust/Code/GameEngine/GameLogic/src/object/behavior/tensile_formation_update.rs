@@ -113,7 +113,7 @@ impl Default for TensileFormationLink {
 
 #[allow(dead_code)]
 pub struct TensileFormationUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     #[allow(dead_code)]
     module_data: Arc<TensileFormationUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -143,7 +143,11 @@ impl TensileFormationUpdate {
         crack_sound.set_object_id(owner_id);
 
         let instance = Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             enabled: specific_data.enabled,
@@ -167,7 +171,12 @@ impl TensileFormationUpdate {
     }
 
     fn set_pathfinding_wall(&self, enable: Bool) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(obj_guard) = object_arc.read() else {
@@ -214,7 +223,12 @@ impl TensileFormationUpdate {
     fn init_links(&mut self) {
         self.links_inited = true;
 
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(obj_guard) = object_arc.read() else {
@@ -256,7 +270,12 @@ impl TensileFormationUpdate {
     }
 
     fn propagate_dislodgement(&self) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(obj_guard) = object_arc.read() else {
@@ -310,7 +329,12 @@ impl UpdateModuleInterface for TensileFormationUpdate {
         }
 
         if !self.enabled {
-            let Some(object_arc) = self.object.upgrade() else {
+            let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) else {
                 return UpdateSleepTime::Frames(30);
             };
             let Ok(obj_guard) = object_arc.read() else {
@@ -342,7 +366,12 @@ impl UpdateModuleInterface for TensileFormationUpdate {
             }
         }
 
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UPDATE_SLEEP_NONE;
         };
         let drawable = {

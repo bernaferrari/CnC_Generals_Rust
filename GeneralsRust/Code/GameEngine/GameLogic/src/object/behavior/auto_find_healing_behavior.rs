@@ -7,7 +7,7 @@
 //! FILE: AutoFindHealingUpdate.cpp line 1-205
 
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
-use crate::common::{Bool, Int, KindOf, ModuleData, Real, UnsignedInt, FROM_CENTER_2D};
+use crate::common::{ObjectID, Bool, Int, KindOf, ModuleData, Real, UnsignedInt, FROM_CENTER_2D};
 use crate::helpers::ThePartitionManager;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::BehaviorModuleData;
@@ -48,7 +48,7 @@ crate::impl_behavior_module_data_via_base!(AutoFindHealingUpdateModuleData, base
 ///
 /// Matches C++ AutoFindHealingUpdate.cpp lines 56-205
 pub struct AutoFindHealingUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<AutoFindHealingUpdateModuleData>,
     /// Countdown to next scan. Matches C++ line 58
     next_scan_frames: Int,
@@ -66,7 +66,7 @@ impl AutoFindHealingUpdate {
             .ok_or("Invalid module data for AutoFindHealingUpdate")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_scan_frames: 0, // Matches C++ line 58
         })
@@ -114,7 +114,7 @@ impl AutoFindHealingUpdate {
 impl UpdateModuleInterface for AutoFindHealingUpdate {
     /// Main update loop. Matches C++ lines 78-123
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let object = match self.object.upgrade() {
+        let object = match (if self.object_id == crate::common::INVALID_ID { None } else { crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)) }) {
             Some(obj) => obj,
             None => return 0, // UPDATE_SLEEP_NONE
         };

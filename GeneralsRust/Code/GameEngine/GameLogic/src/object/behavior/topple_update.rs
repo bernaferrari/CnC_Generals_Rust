@@ -4,7 +4,7 @@
 use crate::ai::integration::with_ai_integration_mut;
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, ICoord2D, Matrix3D, ModuleData, Real, UnsignedInt, XferVersion,
+    AsciiString, Coord3D, ICoord2D, Matrix3D, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
     INVALID_ID,
 };
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
@@ -240,7 +240,7 @@ enum ToppleState {
 }
 
 pub struct ToppleUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<ToppleUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     angular_velocity: Real,
@@ -270,7 +270,11 @@ impl ToppleUpdate {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             angular_velocity: 0.0,
@@ -291,7 +295,11 @@ impl ToppleUpdate {
         module_data: Arc<ToppleUpdateModuleData>,
     ) -> Self {
         Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             angular_velocity: 0.0,
@@ -376,7 +384,12 @@ impl ToppleUpdate {
         topple_speed: Real,
         options: u32,
     ) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(mut obj) = object_arc.write() else {
@@ -508,7 +521,12 @@ impl UpdateModuleInterface for ToppleUpdate {
             return UpdateSleepTime::Forever;
         }
 
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::Forever;
         };
         let Ok(mut obj) = object_arc.write() else {
@@ -607,7 +625,12 @@ impl CollideModuleInterface for ToppleUpdate {
             return;
         }
 
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(obj) = object_arc.read() else {

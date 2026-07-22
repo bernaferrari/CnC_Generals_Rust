@@ -330,7 +330,7 @@ pub struct TransportContain {
     /// Transport configuration retained for C++ behavior hooks.
     module_data: TransportContainModuleData,
     /// Reference to the owning object
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     /// Whether payload has been created
     payload_created: bool,
     /// Extra slots in use (for units that take multiple slots)
@@ -350,7 +350,10 @@ impl TransportContain {
         Ok(Self {
             base,
             module_data: module_data.clone(),
-            object,
+            object_id: object
+                .upgrade()
+                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::common::INVALID_ID),
             payload_created: false,
             extra_slots_in_use: 0,
             frame_exit_not_busy: 0,
@@ -359,7 +362,12 @@ impl TransportContain {
 
     /// Get the object this module belongs to
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     /// Check if this container is valid for the given object
@@ -505,7 +513,12 @@ impl TransportContain {
         self.let_riders_upgrade_weapon_set()?;
 
         // Track transport occupancy on the unit itself for quick validation elsewhere.
-        if let Some(owner_transport) = self.object.upgrade() {
+        if let Some(owner_transport) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut transport_guard) = owner_transport.write() {
                 transport_guard.set_is_transporting(true);
             }
@@ -583,7 +596,12 @@ impl TransportContain {
         }
 
         // Update transport tracking
-        if let Some(owner_transport) = self.object.upgrade() {
+        if let Some(owner_transport) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut transport_guard) = owner_transport.write() {
                 let still_contains = self.base.get_contain_count() > 0;
                 transport_guard.set_is_transporting(still_contains);

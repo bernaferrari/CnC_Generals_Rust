@@ -101,7 +101,6 @@ const TECH_BUILDING_BEHAVIOR_FIELDS: &[FieldParse<TechBuildingBehaviorModuleData
 /// Main TechBuildingBehavior implementation
 #[derive(Debug)]
 pub struct TechBuildingBehavior {
-    object: Weak<RwLock<Object>>,
     object_id: ObjectID,
     module_data: Arc<TechBuildingBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -124,15 +123,24 @@ impl TechBuildingBehavior {
         TheGameLogic::set_wake_frame(object_id, UpdateSleepTime::None);
 
         Ok(Self {
-            object: Arc::downgrade(&thing),
-            object_id,
+            object_id: thing
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data),
             next_call_frame_and_phase: 0,
         })
     }
 
     fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.object.upgrade().ok_or("Object not set".into())
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .ok_or("Object not set".into())
     }
 
     /// Handle capture events (when ownership changes)

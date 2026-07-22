@@ -186,7 +186,7 @@ const SPECTRE_GUNSHIP_DEPLOYMENT_FIELDS: &[FieldParse<SpectreGunshipDeploymentUp
     ];
 
 pub struct SpectreGunshipDeploymentUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<SpectreGunshipDeploymentUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     initial_target_position: Coord3D,
@@ -204,7 +204,11 @@ impl SpectreGunshipDeploymentUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data.clone()),
             next_call_frame_and_phase: 0,
             initial_target_position: Coord3D::ZERO,
@@ -217,7 +221,12 @@ impl SpectreGunshipDeploymentUpdate {
         F: FnOnce(&mut dyn SpecialPowerModuleInterface) -> R,
     {
         let mut func = Some(func);
-        let obj_arc = self.object.upgrade()?;
+        let obj_arc = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })?;
         let obj = obj_arc.read().ok()?;
         let template = self.module_data.special_power_template.as_ref()?;
         obj.with_special_power_module_mut_by_name(template.get_name(), |module| {
@@ -250,7 +259,12 @@ impl SpectreGunshipDeploymentUpdate {
 
 impl UpdateModuleInterface for SpectreGunshipDeploymentUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(UpdateSleepTime::None);
         };
         let Ok(obj) = obj_arc.read() else {
@@ -277,7 +291,12 @@ impl UpdateModuleInterface for SpectreGunshipDeploymentUpdate {
 
 impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
     fn does_special_power_update_pass_science_test(&self) -> bool {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(obj) = obj_arc.read() else {
@@ -320,7 +339,12 @@ impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
             self.initial_target_position = *target_pos;
         }
 
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(obj) = obj_arc.read() else {
@@ -462,7 +486,12 @@ impl BehaviorModuleInterface for SpectreGunshipDeploymentUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(());
         };
         let obj = obj_arc.read().ok();

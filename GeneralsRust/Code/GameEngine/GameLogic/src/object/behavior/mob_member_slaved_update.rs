@@ -129,7 +129,7 @@ const MOB_MEMBER_SLAVED_UPDATE_FIELDS: &[FieldParse<MobMemberSlavedUpdateModuleD
 ];
 
 pub struct MobMemberSlavedUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<MobMemberSlavedUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     mob_leader: ObjectID,
@@ -153,7 +153,11 @@ impl MobMemberSlavedUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             mob_leader: OBJECT_INVALID_ID,
@@ -204,7 +208,12 @@ impl MobMemberSlavedUpdate {
 
 impl UpdateModuleInterface for MobMemberSlavedUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let obj_arc = match self.object.upgrade() {
+        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(arc) => arc,
             None => return UpdateSleepTime::None,
         };
@@ -416,7 +425,12 @@ impl SlavedUpdateInterface for MobMemberSlavedUpdate {
         &mut self,
         _damage_info: Option<&crate::damage::DamageInfo>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut obj_guard) = obj_arc.write() {
                 self.stop_slaved_effects(&mut obj_guard);
             }
@@ -428,7 +442,12 @@ impl SlavedUpdateInterface for MobMemberSlavedUpdate {
         &mut self,
         damage_info: &mut crate::damage::DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj_guard) = obj_arc.read() {
                 if let Some(ai) = obj_guard.get_ai_update_interface() {
                     ai.ai_go_prone(damage_info, CommandSourceType::FromAi);
@@ -593,7 +612,7 @@ mod tests {
     fn slaver_id_reports_current_mob_leader() {
         let data = Arc::new(MobMemberSlavedUpdateModuleData::default());
         let mut update = MobMemberSlavedUpdate {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data: data,
             next_call_frame_and_phase: 0,
             mob_leader: OBJECT_INVALID_ID,

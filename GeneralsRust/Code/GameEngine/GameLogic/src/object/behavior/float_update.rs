@@ -5,7 +5,7 @@
 //! Rust conversion: 2025
 
 use crate::common::xfer::XferExt;
-use crate::common::{AsciiString, Bool, ModuleData, Real, UnsignedInt, XferVersion};
+use crate::common::{AsciiString, Bool, ModuleData, ObjectID, Real, UnsignedInt, XferVersion};
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
@@ -66,7 +66,7 @@ const FLOAT_UPDATE_FIELDS: &[FieldParse<FloatUpdateModuleData>] = &[FieldParse {
 }];
 
 pub struct FloatUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     #[allow(dead_code)]
     module_data: Arc<FloatUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -84,7 +84,11 @@ impl FloatUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             enabled: specific_data.enabled,
@@ -94,7 +98,12 @@ impl FloatUpdate {
 
 impl UpdateModuleInterface for FloatUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let me_arc = match self.object.upgrade() {
+        let me_arc = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(arc) => arc,
             None => return UPDATE_SLEEP_NONE,
         };

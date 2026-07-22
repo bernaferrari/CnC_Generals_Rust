@@ -4,7 +4,7 @@
 //! Author: EA Pacific (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{AsciiString, Bool, ModuleData, Real, UnsignedInt, XferVersion};
+use crate::common::{AsciiString, Bool, ModuleData, ObjectID, Real, UnsignedInt, XferVersion};
 use crate::damage::DamageType;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
@@ -155,7 +155,7 @@ const FLAMMABLE_UPDATE_FIELDS: &[FieldParse<FlammableUpdateModuleData>] = &[
 ];
 
 pub struct FlammableUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<FlammableUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     status: FlammabilityStatus,
@@ -179,7 +179,11 @@ impl FlammableUpdate {
         let flame_limit = specific_data.flame_damage_limit;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             status: FlammabilityStatus::Normal,
@@ -215,7 +219,12 @@ impl FlammableUpdate {
         };
 
         // Set object status and model condition
-        if let Some(object_arc) = self.object.upgrade() {
+        if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut obj) = object_arc.write() {
                 obj.set_status(crate::common::ObjectStatusMaskType::AFLAME, true);
                 obj.set_model_condition_state(crate::common::ModelConditionFlags::Aflame);
@@ -274,7 +283,12 @@ impl FlammableUpdate {
 
     /// Apply aflame damage to the object - C++ doAflameDamage()
     fn do_aflame_damage(&self) {
-        if let Some(object_arc) = self.object.upgrade() {
+        if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut obj) = object_arc.write() {
                 let damage = self.module_data.aflame_damage_amount;
                 let current_health = obj.get_health();
@@ -332,7 +346,12 @@ impl UpdateModuleInterface for FlammableUpdate {
 
         // Check burned timer (sets permanent burned status)
         if self.burned_end_frame > 0 && current_frame >= self.burned_end_frame {
-            if let Some(object_arc) = self.object.upgrade() {
+            if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(mut obj) = object_arc.write() {
                     obj.set_status(crate::common::ObjectStatusMaskType::BURNED, true);
                     obj.set_model_condition_state(crate::common::ModelConditionFlags::SMOLDERING);
@@ -344,7 +363,12 @@ impl UpdateModuleInterface for FlammableUpdate {
         // Check aflame timer (fire goes out)
         if self.aflame_end_frame > 0 && current_frame >= self.aflame_end_frame {
             // Determine final state
-            if let Some(object_arc) = self.object.upgrade() {
+            if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(mut obj) = object_arc.write() {
                     let is_burned = obj
                         .get_status_bits()

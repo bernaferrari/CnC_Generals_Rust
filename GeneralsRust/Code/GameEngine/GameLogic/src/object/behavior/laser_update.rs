@@ -90,7 +90,7 @@ const LASER_UPDATE_FIELDS: &[FieldParse<LaserUpdateModuleData>] = &[
 ];
 
 pub struct LaserUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<LaserUpdateModuleData>,
     current_target: ObjectID,
     laser_active: Bool,
@@ -110,7 +110,11 @@ impl LaserUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             current_target: OBJECT_INVALID_ID,
             laser_active: false,
@@ -154,11 +158,14 @@ impl UpdateModuleInterface for LaserUpdate {
             return UpdateSleepTime::Forever;
         }
 
-        let owner_id = self
-            .object
-            .upgrade()
-            .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()))
-            .unwrap_or(OBJECT_INVALID_ID);
+        let owner_id = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()))
+        .unwrap_or(OBJECT_INVALID_ID);
 
         let Some(target_arc) = TheGameLogic::find_object_by_id(self.current_target) else {
             self.deactivate_laser();

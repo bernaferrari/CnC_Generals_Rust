@@ -1,7 +1,7 @@
 //! AnimationSteeringUpdate - Steers animation based on movement
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
-use crate::common::{ModelConditionFlags, ModuleData, UnsignedInt};
+use crate::common::{ModelConditionFlags, ModuleData, ObjectID, UnsignedInt};
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
@@ -54,7 +54,7 @@ const ANIMATION_STEERING_UPDATE_FIELDS: &[FieldParse<AnimationSteeringUpdateModu
     }];
 
 pub struct AnimationSteeringUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<AnimationSteeringUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     current_turn_anim: ModelConditionFlags,
@@ -72,7 +72,11 @@ impl AnimationSteeringUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             current_turn_anim: ModelConditionFlags::Invalid,
@@ -83,7 +87,12 @@ impl AnimationSteeringUpdate {
 
 impl UpdateModuleInterface for AnimationSteeringUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::Forever;
         };
         let Ok(object_guard) = object_arc.read() else {

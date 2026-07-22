@@ -5,7 +5,9 @@
 //! Author: Graham Smallwood, April 2002 (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{AABox, Coord3D, GeometryInfo, ModuleData, Real, UnsignedInt, XferVersion};
+use crate::common::{
+    AABox, Coord3D, GeometryInfo, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
+};
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
@@ -318,7 +320,7 @@ pub(crate) fn xfer_dynamic_geometry_info_update_logic(
 
 /// DynamicGeometryInfoUpdate - smoothly transitions object geometry over time
 pub struct DynamicGeometryInfoUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     pub logic: DynamicGeometryInfoUpdateLogic,
 }
 
@@ -333,7 +335,11 @@ impl DynamicGeometryInfoUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             logic: DynamicGeometryInfoUpdateLogic::new(data),
         })
     }
@@ -341,7 +347,12 @@ impl DynamicGeometryInfoUpdate {
 
 impl UpdateModuleInterface for DynamicGeometryInfoUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut obj) = obj_arc.write() {
                 return self.logic.update_step(&mut obj);
             }

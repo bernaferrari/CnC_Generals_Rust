@@ -97,7 +97,7 @@ pub struct HelixContain {
     /// Base functionality from TransportContain
     pub base: TransportContain,
     /// Reference to the owning object
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     /// Module configuration
     module_data: HelixContainModuleData,
     /// Portable structure object ID
@@ -114,7 +114,10 @@ impl HelixContain {
 
         Ok(Self {
             base,
-            object,
+            object_id: object
+                .upgrade()
+                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: module_data.clone(),
             portable_structure_id: None,
         })
@@ -122,7 +125,12 @@ impl HelixContain {
 
     /// Get the object this module belongs to
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     /// Treat as open container

@@ -4,7 +4,7 @@
 
 use crate::ai::{search_qualifiers, THE_AI};
 use crate::common::{
-    AsciiString, Bool, ModuleData, UnsignedInt, XferVersion, LOGICFRAMES_PER_SECOND,
+    AsciiString, Bool, ModuleData, ObjectID, UnsignedInt, XferVersion, LOGICFRAMES_PER_SECOND,
     MODELCONDITION_ENEMYNEAR,
 };
 use crate::helpers::get_game_logic_random_value;
@@ -41,7 +41,7 @@ impl EnemyNearUpdateModuleData {
 }
 
 pub struct EnemyNearUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<EnemyNearUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     enemy_near: Bool,
@@ -65,7 +65,11 @@ impl EnemyNearUpdate {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data.clone()),
             next_call_frame_and_phase: 0,
             enemy_near: false,
@@ -76,7 +80,12 @@ impl EnemyNearUpdate {
     fn check_for_enemies(&mut self) {
         if self.enemy_scan_delay == 0 {
             self.enemy_scan_delay = self.module_data.enemy_scan_delay_time;
-            let Some(obj_arc) = self.object.upgrade() else {
+            let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) else {
                 self.enemy_near = false;
                 return;
             };
@@ -108,7 +117,12 @@ impl UpdateModuleInterface for EnemyNearUpdate {
         let enemy_was_near = self.enemy_near;
         self.check_for_enemies();
 
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::None;
         };
         let mut obj = match obj_arc.write() {

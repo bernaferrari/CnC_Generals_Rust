@@ -76,7 +76,7 @@ crate::impl_legacy_module_data_with_key_field!(POWTruckBehaviorModuleData, modul
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug)]
 pub struct POWTruckBehavior {
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     contain: OpenContain,
 }
 
@@ -88,13 +88,22 @@ impl POWTruckBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let contain = OpenContain::new(Arc::downgrade(&object), &module_data.base)?;
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             contain,
         })
     }
 
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     fn load_surrendered_prisoner(

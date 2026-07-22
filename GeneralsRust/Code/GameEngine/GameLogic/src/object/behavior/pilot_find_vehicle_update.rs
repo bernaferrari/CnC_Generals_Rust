@@ -2,7 +2,7 @@
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
 use crate::ai::integration::{with_ai_integration, IntegratedAiPlayer};
-use crate::common::{CommandSourceType, Coord3D, KindOf, ModuleData, Real, UnsignedInt};
+use crate::common::{CommandSourceType, Coord3D, KindOf, ModuleData, ObjectID, Real, UnsignedInt};
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
@@ -100,7 +100,7 @@ const PILOT_FIND_VEHICLE_UPDATE_FIELDS: &[FieldParse<PilotFindVehicleUpdateModul
 ];
 
 pub struct PilotFindVehicleUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<PilotFindVehicleUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     did_move_to_base: bool,
@@ -117,7 +117,11 @@ impl PilotFindVehicleUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             did_move_to_base: false,
@@ -139,7 +143,12 @@ impl PilotFindVehicleUpdate {
 
 impl UpdateModuleInterface for PilotFindVehicleUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(owner_arc) = self.object.upgrade() else {
+        let Some(owner_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::Forever;
         };
         let Ok(owner_guard) = owner_arc.read() else {

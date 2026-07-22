@@ -200,7 +200,7 @@ impl GrantStealthBehaviorModuleData {
 
 /// GrantStealthBehavior module
 pub struct GrantStealthBehavior {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<GrantStealthBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     radius_particle_system_id: ParticleSystemID,
@@ -228,7 +228,11 @@ impl GrantStealthBehavior {
         module_data: Arc<GrantStealthBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut behavior = Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             radius_particle_system_id: INVALID_PARTICLE_SYSTEM_ID,
@@ -260,7 +264,12 @@ impl GrantStealthBehavior {
     /// Matches C++ GrantStealthBehavior::grantStealthToObject lines 159-182
     fn grant_stealth_to_object(&mut self, target_id: ObjectID) {
         // Get self object for filtering (C++ line 162-163)
-        let Some(self_obj) = self.object.upgrade() else {
+        let Some(self_obj) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(self_guard) = self_obj.read() else {
@@ -329,7 +338,12 @@ impl GrantStealthBehavior {
     /// Matches C++ GrantStealthBehavior::update lines 124-145
     fn scan_for_objects(&mut self) {
         // Get self object
-        let Some(self_obj) = self.object.upgrade() else {
+        let Some(self_obj) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(self_guard) = self_obj.read() else {
@@ -423,7 +437,12 @@ impl GrantStealthBehavior {
 
 impl UpdateModuleInterface for GrantStealthBehavior {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(object) = self.object.upgrade() else {
+        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UPDATE_SLEEP_FOREVER;
         };
         let (object_id, is_dead) = match object.read() {
@@ -641,7 +660,7 @@ mod tests {
     fn grant_stealth_behavior_xfer_preserves_cpp_runtime_fields() {
         let module_data = Arc::new(GrantStealthBehaviorModuleData::default());
         let mut saved = GrantStealthBehavior {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data: module_data.clone(),
             next_call_frame_and_phase: 0,
             radius_particle_system_id: 0x1234_5678,
@@ -660,7 +679,7 @@ mod tests {
         saved.radius_particle_system_id = INVALID_PARTICLE_SYSTEM_ID;
 
         let mut loaded = GrantStealthBehavior {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data,
             next_call_frame_and_phase: 0,
             radius_particle_system_id: 0,

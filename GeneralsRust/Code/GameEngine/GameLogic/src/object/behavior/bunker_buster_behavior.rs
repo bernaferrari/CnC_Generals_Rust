@@ -206,7 +206,7 @@ impl BunkerBusterBehaviorModuleData {
 /// - Supports shockwave weapons and seismic effects
 pub struct BunkerBusterBehavior {
     /// Weak reference to owning object
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     /// Module data
     module_data: Arc<BunkerBusterBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -229,7 +229,11 @@ impl BunkerBusterBehavior {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             victim_id: OBJECT_INVALID_ID,
@@ -249,7 +253,11 @@ impl BunkerBusterBehavior {
             .get_object(object_id)
             .ok_or_else(|| format!("BunkerBusterBehavior missing object {}", object_id))?;
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             victim_id: OBJECT_INVALID_ID,
@@ -277,7 +285,12 @@ impl BunkerBusterBehavior {
     /// Matches C++ BunkerBusterBehavior::bustTheBunker (line 160)
     fn bust_the_bunker(&mut self) {
         let data = self.get_module_data();
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(object_guard) = object_arc.read() else {
@@ -381,7 +394,12 @@ impl BunkerBusterBehavior {
 
     /// Check if object has an AI update interface
     fn has_ai(&self) -> Bool {
-        let Some(object) = self.object.upgrade() else {
+        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(guard) = object.read() else {
@@ -392,7 +410,12 @@ impl BunkerBusterBehavior {
 
     /// Check if object has missile killing self status
     fn test_status_missile_killing_self(&self) -> Bool {
-        let Some(object) = self.object.upgrade() else {
+        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(guard) = object.read() else {
@@ -403,7 +426,12 @@ impl BunkerBusterBehavior {
 
     /// Get current victim from AI
     fn get_current_victim(&self) -> Option<ObjectID> {
-        let object = self.object.upgrade()?;
+        let object = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })?;
         let guard = object.read().ok()?;
         let ai = guard.get_ai()?;
         let ai_guard = ai.lock().ok()?;
@@ -459,8 +487,19 @@ impl UpdateModuleInterface for BunkerBusterBehavior {
                 // const FXList *crashFX = modData->m_crashThroughBunkerFX;
                 // if ( getObject()->testStatus( OBJECT_STATUS_MISSILE_KILLING_SELF ) && crashFX )
                 if self.test_status_missile_killing_self() {
-                    if let (Some(fx), Some(object_arc)) = (crash_fx.as_ref(), self.object.upgrade())
-                    {
+                    if let (Some(fx), Some(object_arc)) = (
+                        crash_fx.as_ref(),
+                        (if self.object_id == crate::common::INVALID_ID {
+                            None
+                        } else {
+                            crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
+                                || {
+                                    crate::object::registry::OBJECT_REGISTRY
+                                        .get_object(self.object_id)
+                                },
+                            )
+                        }),
+                    ) {
                         let _ = fx.do_fx_obj(&object_arc, None);
                     }
                 }
