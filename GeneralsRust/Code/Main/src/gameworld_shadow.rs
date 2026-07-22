@@ -8009,7 +8009,10 @@ mod tests {
         shadow.sync_from_host(&logic);
         let eid = shadow.entity_for_host(id).expect("map");
         let e = shadow.world().entity(eid).expect("e");
-        assert!(!e.engine_bridged, "dual-id bridge retired — engine_bridged stays false");
+        assert!(
+            !e.engine_bridged,
+            "dual-id bridge retired — engine_bridged stays false"
+        );
         let src = include_str!("gameworld_shadow.rs");
         assert!(
             src.contains("e.engine_bridged = false"),

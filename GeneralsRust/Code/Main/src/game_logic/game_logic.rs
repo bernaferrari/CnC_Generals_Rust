@@ -44,7 +44,6 @@ use gamelogic::ai::integration::{initialize_ai_integration, with_ai_integration_
 use gamelogic::ai::THE_AI;
 use gamelogic::common::CommandSourceType;
 use gamelogic::modules::AIUpdateInterfaceExt;
-use gamelogic::object::object_factory::{get_object_factory, ObjectCreationFlags};
 use gamelogic::player::{
     GameDifficulty as LogicGameDifficulty, Player as LogicPlayer, PlayerList as LogicPlayerList,
     PlayerTemplate as LogicPlayerTemplate, PlayerType as LogicPlayerType, ThePlayerList,
@@ -180,21 +179,6 @@ impl PendingSpecialAbility {
 
 /// Bridge Main's lightweight Team enum to GameEngine's Arc<RwLock<Team>>.
 /// Uses the global TeamFactory to look up teams by player/faction name.
-fn resolve_gamelogic_team(
-    team: &Team,
-) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::team::Team>>> {
-    let team_name = match team {
-        Team::USA => "America",
-        Team::China => "China",
-        Team::GLA => "GLA",
-        Team::Neutral => return None,
-    };
-    get_team_factory()
-        .lock()
-        .ok()
-        .and_then(|mut factory| factory.find_team(team_name))
-}
-
 /// Global GameLogic singleton instance
 static GAME_LOGIC: OnceLock<Arc<Mutex<GameLogic>>> = OnceLock::new();
 
@@ -3133,12 +3117,6 @@ impl GameLogic {
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
         log::debug!("GameLogic::reset() - resetting game state");
-        // Dual-world factory clear only when bridge is enabled (default host owns Main store).
-        if crate::gameworld_shadow::engine_object_bridge_enabled() {
-            if let Ok(mut factory) = get_object_factory().write() {
-                let _ = factory.clear_all_objects();
-            }
-        }
         self.objects.clear();
         self.players.clear();
         self.next_object_id = ObjectId(1);
@@ -22351,56 +22329,6 @@ impl GameLogic {
                 target_id
             );
         }
-    }
-
-    /// Bridge a move command to GameEngine's AI pipeline for ObjectFactory objects.
-    fn bridge_move_to_engine(&self, engine_id: u32, target: Vec3) {
-        let factory = get_object_factory();
-        let Ok(factory_guard) = factory.read() else {
-            return;
-        };
-        let Some(instance) = factory_guard.get_object(engine_id) else {
-            return;
-        };
-        let base = instance.get_base_object();
-        let Ok(obj_guard) = base.read() else {
-            return;
-        };
-        let Some(ai) = obj_guard.get_ai() else {
-            return;
-        };
-        drop(obj_guard);
-        drop(factory_guard);
-
-        let coord = glam::Vec3::new(target.x, target.y, target.z);
-        ai.ai_move_to_position(&coord, false, CommandSourceType::FromPlayer);
-    }
-
-    /// Bridge an attack command to GameEngine's AI pipeline for ObjectFactory objects.
-    fn bridge_attack_to_engine(&self, attacker_id: u32, target_id: u32) {
-        let factory = get_object_factory();
-        let Ok(factory_guard) = factory.read() else {
-            return;
-        };
-        let Some(attacker_instance) = factory_guard.get_object(attacker_id) else {
-            return;
-        };
-        let attacker_base = attacker_instance.get_base_object();
-
-        if factory_guard.get_object(target_id).is_none() {
-            return;
-        }
-        drop(factory_guard);
-
-        let Ok(attacker_guard) = attacker_base.read() else {
-            return;
-        };
-        let Some(ai) = attacker_guard.get_ai() else {
-            return;
-        };
-        drop(attacker_guard);
-
-        ai.ai_attack_object_id(target_id, -1, CommandSourceType::FromPlayer);
     }
 
     fn allocate_object_id(&mut self) -> ObjectId {
@@ -92412,12 +92340,12 @@ mod tests {
         let aend = src[astart + 1..]
             .find(
                 "
-    /// Bridge a move command",
+    fn allocate_object_id",
             )
             .or_else(|| {
                 src[astart + 1..].find(
                     "
-    fn bridge_move_to_engine",
+    pub fn process_destr",
                 )
             })
             .map(|i| astart + 1 + i)
