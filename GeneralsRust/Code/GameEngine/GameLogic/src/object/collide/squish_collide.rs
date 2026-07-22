@@ -200,39 +200,37 @@ impl SquishCollide {
     }
 
     fn apply_crush(&self, source_id: ObjectId) -> Result<(), CollisionError> {
-        let owner_arc = OBJECT_REGISTRY.get_object(self.owner_id).ok_or_else(|| {
-            CollisionError::InvalidObject(format!(
-                "SquishCollide owner {} missing from registry",
-                self.owner_id
-            ))
-        })?;
-
-        let mut owner = owner_arc.write().map_err(|_| {
-            CollisionError::InvalidObject("failed to lock owner for crush damage".into())
-        })?;
-
-        let mut damage_info = DamageInfo {
-            input: DamageInfoInput {
-                source_id,
+        let applied = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner| {
+            let mut damage_info = DamageInfo {
+                input: DamageInfoInput {
+                    source_id,
+                    damage_type: DamageType::Crush,
+                    death_type: DeathType::Crushed,
+                    amount: HUGE_DAMAGE_AMOUNT,
+                    ..DamageInfoInput::default()
+                },
+                output: DamageInfoOutput::default(),
+                // Compatibility fields
+                amount: HUGE_DAMAGE_AMOUNT,
                 damage_type: DamageType::Crush,
                 death_type: DeathType::Crushed,
-                amount: HUGE_DAMAGE_AMOUNT,
-                ..DamageInfoInput::default()
-            },
-            output: DamageInfoOutput::default(),
-            // Compatibility fields
-            amount: HUGE_DAMAGE_AMOUNT,
-            damage_type: DamageType::Crush,
-            death_type: DeathType::Crushed,
-            source_id,
-        };
+                source_id,
+            };
 
-        owner
-            .attempt_damage(&mut damage_info)
-            .map_err(|err| CollisionError::DamageApplicationFailed(err.to_string()))?;
+            owner
+                .attempt_damage(&mut damage_info)
+                .map_err(|err| CollisionError::DamageApplicationFailed(err.to_string()))?;
 
-        owner.friend_set_undetected_defector(false);
-        Ok(())
+            owner.friend_set_undetected_defector(false);
+            Ok(())
+        });
+
+        applied.unwrap_or_else(|| {
+            Err(CollisionError::InvalidObject(format!(
+                "SquishCollide owner {} missing from registry",
+                self.owner_id
+            )))
+        })
     }
 }
 
