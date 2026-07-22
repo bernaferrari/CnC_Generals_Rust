@@ -34,9 +34,13 @@ struct Clump {
 }
 
 impl Clump {
-    fn new(object: &Arc<RwLock<Object>>, numeric: Real) -> Self {
-        let object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+    fn new(object_id: ObjectID, numeric: Real) -> Self {
         Self { object_id, numeric }
+    }
+
+    fn from_object(object: &Arc<RwLock<Object>>, numeric: Real) -> Self {
+        let object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+        Self::new(object_id, numeric)
     }
 
     fn upgrade(&self) -> Option<Arc<RwLock<Object>>> {
@@ -76,9 +80,15 @@ impl SimpleObjectIterator {
         self.cursor = 0;
     }
 
-    /// Insert an object at the head of the iterator with an optional numeric sort key.
+    /// Insert an object ID at the head of the iterator with an optional numeric sort key.
+    pub fn insert_id(&mut self, object_id: ObjectID, numeric: Real) {
+        self.clumps.insert(0, Clump::new(object_id, numeric));
+        self.cursor = 0;
+    }
+
+    /// Prefer [`Self::insert_id`].
     pub fn insert(&mut self, object: &Arc<RwLock<Object>>, numeric: Real) {
-        self.clumps.insert(0, Clump::new(object, numeric));
+        self.clumps.insert(0, Clump::from_object(object, numeric));
         self.cursor = 0;
     }
 
@@ -92,6 +102,16 @@ impl SimpleObjectIterator {
         self.clumps.len()
     }
 
+    /// Convenience helper: reset and return the first live object ID (if any).
+    pub fn first_id(&mut self) -> Option<ObjectID> {
+        self.first_id_with_numeric().map(|(id, _)| id)
+    }
+
+    /// Convenience helper: return next live object ID without numeric value.
+    pub fn next_id(&mut self) -> Option<ObjectID> {
+        self.next_id_with_numeric().map(|(id, _)| id)
+    }
+
     /// Convenience helper: reset and return the first object (if any).
     pub fn first(&mut self) -> Option<Arc<RwLock<Object>>> {
         self.first_with_numeric().map(|(object, _)| object)
@@ -102,23 +122,41 @@ impl SimpleObjectIterator {
         self.next_with_numeric().map(|(object, _)| object)
     }
 
+    /// Reset and return the first live object ID alongside its numeric value.
+    pub fn first_id_with_numeric(&mut self) -> Option<(ObjectID, Real)> {
+        self.reset();
+        self.next_id_with_numeric()
+    }
+
+    /// Return next live object ID together with its numeric value.
+    pub fn next_id_with_numeric(&mut self) -> Option<(ObjectID, Real)> {
+        while self.cursor < self.clumps.len() {
+            let idx = self.cursor;
+            self.cursor += 1;
+            let clump = &self.clumps[idx];
+            if clump.object_id != INVALID_ID && clump.is_live() {
+                return Some((clump.object_id, clump.numeric));
+            }
+        }
+        None
+    }
+
     /// Reset and return the first object alongside its numeric value.
     pub fn first_with_numeric(&mut self) -> Option<(Arc<RwLock<Object>>, Real)> {
-        self.reset();
-        self.next_with_numeric()
+        self.first_id_with_numeric().and_then(|(id, numeric)| {
+            TheGameLogic::find_object_by_id(id)
+                .or_else(|| OBJECT_REGISTRY.get_object(id))
+                .map(|obj| (obj, numeric))
+        })
     }
 
     /// Return next object together with its numeric value.
     pub fn next_with_numeric(&mut self) -> Option<(Arc<RwLock<Object>>, Real)> {
-        while self.cursor < self.clumps.len() {
-            let idx = self.cursor;
-            self.cursor += 1;
-
-            if let Some(obj) = self.clumps[idx].upgrade() {
-                return Some((obj, self.clumps[idx].numeric));
-            }
-        }
-        None
+        self.next_id_with_numeric().and_then(|(id, numeric)| {
+            TheGameLogic::find_object_by_id(id)
+                .or_else(|| OBJECT_REGISTRY.get_object(id))
+                .map(|obj| (obj, numeric))
+        })
     }
 
     /// Sort according to the requested order.
