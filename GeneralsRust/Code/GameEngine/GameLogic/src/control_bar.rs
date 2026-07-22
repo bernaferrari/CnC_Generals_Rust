@@ -176,7 +176,7 @@ fn find_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplate
             .ok()
             .and_then(|object| {
                 object
-                    .base
+                    .base()
                     .read()
                     .ok()
                     .map(|base| base.get_command_set_string().to_string())

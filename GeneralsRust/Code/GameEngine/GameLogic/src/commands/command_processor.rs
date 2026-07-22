@@ -2556,7 +2556,7 @@ impl DefaultCommandHandler {
             let Ok(instance_guard) = instance.read() else {
                 continue;
             };
-            let obj_arc = instance_guard.base.clone();
+            let obj_arc = instance_guard.base();
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
@@ -2720,7 +2720,7 @@ impl DefaultCommandHandler {
             let Ok(instance_guard) = instance.read() else {
                 continue;
             };
-            let obj_arc = instance_guard.base.clone();
+            let obj_arc = instance_guard.base();
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };

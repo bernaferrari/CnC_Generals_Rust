@@ -1347,8 +1347,9 @@ impl ShroudManager {
         let all_object_ids = object_manager.all_object_ids();
         for obj_id in &all_object_ids {
             if let Some(viewer_arc) = object_manager.get_object(*obj_id) {
-                if let Ok(viewer_guard) = viewer_arc.read() {
-                    if let Ok(base_guard) = viewer_guard.base.read() {
+                let base_arc = viewer_arc.read().ok().map(|g| g.base());
+                if let Some(base_arc) = base_arc {
+                    if let Ok(base_guard) = base_arc.read() {
                         if base_guard.is_vision_spied_by_player(player_id) {
                             viewer_ids.push(*obj_id);
                         }
@@ -1374,7 +1375,7 @@ impl ShroudManager {
                 if let Ok(viewer_guard) = viewer_arc.read() {
                     let viewer_pos = viewer_guard.get_position();
                     let viewer_shroud_range = viewer_guard
-                        .base
+                        .base()
                         .read()
                         .map(|base| base.get_shroud_clearing_range())
                         .unwrap_or(0.0);
@@ -1683,7 +1684,7 @@ impl ShroudManager {
                 if let Ok(viewer_guard) = viewer_arc.read() {
                     let viewer_pos = viewer_guard.get_position();
                     let viewer_shroud_range = viewer_guard
-                        .base
+                        .base()
                         .read()
                         .map(|base| base.get_shroud_clearing_range())
                         .unwrap_or(0.0);
@@ -2237,7 +2238,8 @@ impl ShroudManager {
                 let Ok(instance_guard) = instance.read() else {
                     continue;
                 };
-                let Ok(obj_guard) = instance_guard.base.read() else {
+                let __base_arc = instance_guard.base();
+                let Ok(obj_guard) = __base_arc.read() else {
                     continue;
                 };
 
@@ -3381,7 +3383,8 @@ mod tests {
         ));
         {
             let viewer_guard = viewer.write().unwrap();
-            let mut base = viewer_guard.base.write().unwrap();
+            let __base_arc = viewer_guard.base();
+            let mut base = __base_arc.write().unwrap();
             base.set_vision_range(300.0);
             base.set_shroud_clearing_range(25.0);
         }

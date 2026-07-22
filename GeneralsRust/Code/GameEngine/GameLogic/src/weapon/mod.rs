@@ -3959,7 +3959,7 @@ impl Weapon {
         let Some((source_pos, vision_range)) = obj_mgr.with_object(source_id, |src| {
             let pos = src.get_position().clone();
             let vision = src
-                .base
+                .base()
                 .read()
                 .map(|base| base.get_vision_range())
                 .unwrap_or(0.0);
@@ -4552,7 +4552,8 @@ impl Weapon {
         let dealt = obj_mgr
             .with_object_mut(obj_id, |obj| -> Result<f32, WeaponError> {
                 let mut engine_damage_info = self.build_engine_damage_info(damage_info);
-                if let Ok(mut base) = obj.base.write() {
+                let __base_arc = obj.base();
+                if let Ok(mut base) = __base_arc.write() {
                     base.attempt_damage(&mut engine_damage_info).map_err(|e| {
                         WeaponError::SystemError(format!("Failed to apply damage: {}", e))
                     })?;

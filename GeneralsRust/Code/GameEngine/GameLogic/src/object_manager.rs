@@ -116,8 +116,10 @@ impl Default for ObjectCreationFlags {
 
 /// Complete object implementation with all systems - matches C++ Object class exactly
 pub struct GameObjectInstance {
-    /// Base object data
-    pub base: Arc<RwLock<Object>>,
+    /// Base object id (resolve for the duration of an op)
+    object_id: ObjectID,
+    /// Construction pin so resolve works before/without world insertion.
+    base_pin: Arc<RwLock<Object>>,
 
     /// Object template used for creation
     pub template: Option<Arc<dyn ThingTemplate>>,
@@ -166,7 +168,7 @@ pub struct GameObjectInstance {
 
 impl fmt::Debug for GameObjectInstance {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let id = self.base.read().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+        let id = self.object_id;
         f.debug_struct("GameObjectInstance")
             .field("id", &id)
             .field(
@@ -193,16 +195,31 @@ impl GameObjectInstance {
         list.get_player(player_index).cloned()
     }
 
+    /// Owned handle to the construction-pinned base object (transitional Arc pin).
+    pub fn base(&self) -> Arc<RwLock<Object>> {
+        Arc::clone(&self.base_pin)
+    }
+
+    pub fn object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    /// Option-shaped resolve API matching Unit/Structure wrappers.
+    pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
+        Some(self.base())
+    }
+
     /// Wrap an existing base object created elsewhere (ObjectFactory) into a manager instance.
     pub fn from_existing(
         base: Arc<RwLock<Object>>,
         template: Option<Arc<dyn ThingTemplate>>,
         team: Option<Arc<RwLock<Team>>>,
     ) -> Self {
-        let (status_bits, transform, position, current_health, max_health) = base
+        let (object_id, status_bits, transform, position, current_health, max_health) = base
             .read()
             .map(|guard| {
                 (
+                    guard.get_id(),
                     guard.get_status_bits(),
                     guard.get_transform_matrix(),
                     *guard.get_position(),
@@ -211,6 +228,7 @@ impl GameObjectInstance {
                 )
             })
             .unwrap_or((
+                INVALID_ID,
                 ObjectStatusMaskType::NONE,
                 Matrix3D::IDENTITY,
                 Coord3D::new(0.0, 0.0, 0.0),
@@ -218,10 +236,16 @@ impl GameObjectInstance {
                 0.0,
             ));
 
+        if object_id != INVALID_ID {
+            OBJECT_REGISTRY.register_object(object_id, &base);
+            register_legacy_object(&base);
+        }
+
         let player = Self::player_from_team(team.as_ref());
 
         Self {
-            base,
+            object_id,
+            base_pin: base,
             template,
             team,
             player,
@@ -259,8 +283,14 @@ impl GameObjectInstance {
         let base = Object::new_with_id(template.clone(), id, flags.status_mask, team.clone())
             .map_err(|err| GameLogicError::SystemNotInitialized(err.to_string()))?;
 
+        if id != INVALID_ID {
+            OBJECT_REGISTRY.register_object(id, &base);
+            register_legacy_object(&base);
+        }
+
         let mut instance = Self {
-            base,
+            object_id: id,
+            base_pin: base,
             template: Some(template.clone()),
             team: team.clone(),
             player: Self::player_from_team(team.as_ref()),
@@ -283,7 +313,8 @@ impl GameObjectInstance {
         instance.init_from_template(template.as_ref());
 
         {
-            let mut base_guard = instance.base.write().map_err(|_| {
+            let __base_arc = instance.base();
+            let mut base_guard = __base_arc.write().map_err(|_| {
                 GameLogicError::SystemNotInitialized("Object lock poisoned".to_string())
             })?;
             base_guard
@@ -316,7 +347,7 @@ impl GameObjectInstance {
 
     /// Retrieve behavior modules for this object (delegates to base Object).
     pub fn get_behavior_modules(&self) -> Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        self.base
+        self.base()
             .read()
             .map(|base| base.get_behavior_modules())
             .unwrap_or_default()
@@ -327,7 +358,7 @@ impl GameObjectInstance {
         // Extract position from transform matrix
         let cols = self.transform.to_cols_array();
         self.cached_position = Coord3D::new(cols[12], cols[13], cols[14]);
-        if let Ok(mut base) = self.base.write() {
+        if let Ok(mut base) = self.base_pin.write() {
             let _ = base.set_position(&self.cached_position);
         }
     }
@@ -337,7 +368,7 @@ impl GameObjectInstance {
         self.cached_position = position;
         self.transform =
             Matrix3D::from_translation(glam::Vec3::new(position.x, position.y, position.z));
-        if let Ok(mut base) = self.base.write() {
+        if let Ok(mut base) = self.base_pin.write() {
             let _ = base.set_position(&position);
         }
     }
@@ -349,7 +380,7 @@ impl GameObjectInstance {
 
     /// Get geometry info for this object (delegates to base Object).
     pub fn get_geometry_info(&self) -> crate::common::GeometryInfo {
-        self.base
+        self.base()
             .read()
             .map(|base| base.get_geometry_info().clone())
             .unwrap_or_default()
@@ -357,10 +388,14 @@ impl GameObjectInstance {
 
     /// Get object ID
     pub fn get_id(&self) -> ObjectID {
-        self.base
-            .read()
-            .map(|base| base.get_id())
-            .unwrap_or(INVALID_ID)
+        if self.object_id != INVALID_ID {
+            self.object_id
+        } else {
+            self.base_pin
+                .read()
+                .map(|base| base.get_id())
+                .unwrap_or(INVALID_ID)
+        }
     }
 
     /// Get owning team
@@ -370,7 +405,7 @@ impl GameObjectInstance {
 
     /// Check if object has specific status bit
     pub fn has_status(&self, status: ObjectStatusTypes) -> Bool {
-        if let Ok(base) = self.base.read() {
+        if let Ok(base) = self.base_pin.read() {
             return base.test_status(status);
         }
         let bit = ObjectStatusMaskType::from_bits_truncate(1u64 << (status as u32));
@@ -385,7 +420,7 @@ impl GameObjectInstance {
         } else {
             self.status_bits.remove(bit);
         }
-        if let Ok(mut base) = self.base.write() {
+        if let Ok(mut base) = self.base_pin.write() {
             base.set_status(bit, value);
         }
     }
@@ -474,7 +509,7 @@ impl GameObjectInstance {
     pub fn update(&mut self, current_frame: UnsignedInt) -> GameLogicResult<()> {
         self.last_update_frame = current_frame;
 
-        if let Ok(mut base) = self.base.write() {
+        if let Ok(mut base) = self.base_pin.write() {
             base.update(current_frame as f32)
                 .map_err(GameLogicError::ModuleError)?;
         }
@@ -491,7 +526,7 @@ impl GameObjectInstance {
         current_frame: UnsignedInt,
         sleep: UpdateSleepTime,
     ) {
-        if let Ok(mut base) = self.base.write() {
+        if let Ok(mut base) = self.base_pin.write() {
             base.wake_update_modules_after(current_frame, sleep);
         }
     }
@@ -502,7 +537,7 @@ impl GameObjectInstance {
     /// re-activate modules that were dormant, without disturbing modules that are intentionally
     /// sleeping for timing/performance reasons.
     pub fn wake_update_modules_sleeping_forever(&mut self, current_frame: UnsignedInt) {
-        if let Ok(mut base) = self.base.write() {
+        if let Ok(mut base) = self.base_pin.write() {
             base.wake_update_modules_after(current_frame, UPDATE_SLEEP_NONE);
         }
     }
@@ -512,7 +547,7 @@ impl GameObjectInstance {
         self.pending_destruction = true;
         self.set_status(ObjectStatusTypes::Destroyed, true);
 
-        if let Ok(mut base) = self.base.write() {
+        if let Ok(mut base) = self.base_pin.write() {
             base.on_destroy();
             base.set_status(
                 ObjectStatusMaskType::from_status(ObjectStatusTypes::Destroyed),
@@ -536,7 +571,7 @@ impl GameObjectInstance {
     /// Check if object is effectively dead (dead, dying, or under construction)
     /// Delegates to underlying Object implementation
     pub fn is_effectively_dead(&self) -> bool {
-        if let Ok(base) = self.base.read() {
+        if let Ok(base) = self.base_pin.read() {
             base.is_effectively_dead()
         } else {
             true // If lock fails, consider it dead
@@ -545,7 +580,7 @@ impl GameObjectInstance {
 
     /// Get status bits for this object
     pub fn get_status_bits(&self) -> ObjectStatusMaskType {
-        if let Ok(base) = self.base.read() {
+        if let Ok(base) = self.base_pin.read() {
             return base.get_status_bits();
         }
         self.status_bits
@@ -579,7 +614,7 @@ impl GameObjectInstance {
     /// Get the AI update interface for this object
     /// C++ Reference: Object::getAIUpdateInterface()
     pub fn get_ai_update_interface(&self) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
-        self.base
+        self.base()
             .read()
             .ok()
             .and_then(|base| base.get_ai_update_interface())
@@ -587,7 +622,7 @@ impl GameObjectInstance {
 
     /// Set the AI update interface for this object
     pub fn set_ai_update_interface(&mut self, ai: Option<Arc<Mutex<dyn AIUpdateInterface>>>) {
-        if let Ok(mut base) = self.base.write() {
+        if let Ok(mut base) = self.base_pin.write() {
             base.set_ai_update_interface(ai);
         }
     }
@@ -941,8 +976,8 @@ impl ObjectManager {
         }
 
         if let Ok(obj_guard) = object.read() {
-            OBJECT_REGISTRY.register_object(object_id, &obj_guard.base);
-            register_legacy_object(&obj_guard.base);
+            OBJECT_REGISTRY.register_object(object_id, &obj_guard.base());
+            register_legacy_object(&obj_guard.base());
         }
 
         if !self.update_order.contains(&object_id) {
@@ -1017,8 +1052,8 @@ impl ObjectManager {
             unregister_legacy_object(object_id);
         }
         if let Ok(obj_guard) = object.read() {
-            OBJECT_REGISTRY.register_object(object_id, &obj_guard.base);
-            register_legacy_object(&obj_guard.base);
+            OBJECT_REGISTRY.register_object(object_id, &obj_guard.base());
+            register_legacy_object(&obj_guard.base());
         }
         self.update_order.push(object_id);
         self.next_object_id = self.next_object_id.max(object_id.saturating_add(1));
@@ -1042,7 +1077,7 @@ impl ObjectManager {
             instance
                 .team
                 .clone()
-                .or_else(|| instance.base.read().ok().and_then(|base| base.get_team()))
+                .or_else(|| instance.base().read().ok().and_then(|base| base.get_team()))
         });
 
         let Some(team_arc) = team_arc else {
