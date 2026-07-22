@@ -948,17 +948,13 @@ impl AIUpdateInterface {
 
         if self.is_attack_path {
             let victim_id = self.requested_victim_id;
-            let victim = if victim_id == INVALID_ID {
-                None
-            } else {
-                OBJECT_REGISTRY.get_object(victim_id)
-            };
-            if self.compute_attack_path(victim.as_ref()) {
+            let victim = (victim_id != INVALID_ID).then_some(victim_id);
+            if self.compute_attack_path(victim) {
                 self.is_attack_path = true;
                 return;
             }
             self.is_attack_path = false;
-            if let Some(victim_id) = (victim_id != INVALID_ID).then_some(victim_id) {
+            if let Some(victim_id) = victim {
                 if let Some((pos, id)) = OBJECT_REGISTRY.with_object(victim_id, |victim_guard| {
                     (*victim_guard.get_position(), victim_guard.get_id())
                 }) {
@@ -975,7 +971,7 @@ impl AIUpdateInterface {
         }
     }
 
-    fn compute_attack_path(&mut self, victim: Option<&Arc<std::sync::RwLock<Object>>>) -> bool {
+    fn compute_attack_path(&mut self, victim_id: Option<ObjectID>) -> bool {
         let now = TheGameLogic::get_frame();
         if self.path_timestamp_is_recent(now) && self.path.is_some() && self.is_blocked_and_stuck {
             self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
@@ -985,72 +981,64 @@ impl AIUpdateInterface {
             return true;
         }
 
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(self.owner_object_id) else {
+        if OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |_| ())
+            .is_none()
+        {
             return false;
-        };
+        }
         let land_bound = (self.current_locomotor_set_surfaces() & SURFACE_AIR) == 0;
-        let target_pos = victim
-            .and_then(|victim| victim.read().ok().map(|guard| *guard.get_position()))
+        let target_pos = victim_id
+            .and_then(|id| OBJECT_REGISTRY.with_object(id, |guard| *guard.get_position()))
             .unwrap_or(self.requested_destination);
 
         let attack_in_range_and_visible = {
-            let Ok(owner_guard) = owner_arc.read() else {
+            let Some((owner_id, owner_pos, in_range)) = OBJECT_REGISTRY
+                .with_object(self.owner_object_id, |owner_guard| {
+                    let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+                        return None;
+                    };
+                    let in_range = if let Some(vid) = victim_id {
+                        weapon.is_within_attack_range(owner_guard.get_id(), Some(vid), None)
+                    } else {
+                        weapon.is_within_attack_range(owner_guard.get_id(), None, Some(&target_pos))
+                    };
+                    Some((owner_guard.get_id(), *owner_guard.get_position(), in_range))
+                })
+                .flatten()
+            else {
                 return false;
-            };
-            let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
-                return false;
-            };
-            let in_range = if let Some(victim) = victim {
-                if let Ok(victim_guard) = victim.read() {
-                    weapon.is_within_attack_range(
-                        owner_guard.get_id(),
-                        Some(victim_guard.get_id()),
-                        None,
-                    )
-                } else {
-                    false
-                }
-            } else {
-                weapon.is_within_attack_range(owner_guard.get_id(), None, Some(&target_pos))
             };
             if !in_range {
                 false
-            } else {
-                let view_blocked = if self.is_doing_ground_movement() {
-                    crate::ai::THE_AI
+            } else if self.is_doing_ground_movement() {
+                let victim_above = victim_id
+                    .and_then(|vid| {
+                        OBJECT_REGISTRY.with_object(vid, |vg| vg.is_significantly_above_terrain())
+                    })
+                    .unwrap_or(false);
+                if victim_above {
+                    true
+                } else {
+                    let view_blocked = crate::ai::THE_AI
                         .read()
                         .ok()
                         .and_then(|ai| ai.pathfinder())
                         .and_then(|pathfinder| {
                             pathfinder.read().ok().map(|pf| {
-                                if let Some(victim) = victim {
-                                    victim.read().ok().map_or(false, |victim_guard| {
-                                        if victim_guard.is_significantly_above_terrain() {
-                                            false
-                                        } else {
-                                            pf.is_attack_view_blocked_by_obstacle(
-                                                &owner_guard,
-                                                owner_guard.get_position(),
-                                                Some(&victim_guard),
-                                                &target_pos,
-                                            )
-                                        }
-                                    })
-                                } else {
-                                    pf.is_attack_view_blocked_by_obstacle(
-                                        &owner_guard,
-                                        owner_guard.get_position(),
-                                        None,
-                                        &target_pos,
-                                    )
-                                }
+                                pf.is_attack_view_blocked_by_obstacle_ids(
+                                    owner_id,
+                                    &owner_pos,
+                                    victim_id,
+                                    &target_pos,
+                                )
                             })
                         })
-                        .unwrap_or(false)
-                } else {
-                    false
-                };
-                !view_blocked
+                        .unwrap_or(false);
+                    !view_blocked
+                }
+            } else {
+                true
             }
         };
         if attack_in_range_and_visible {
@@ -1058,18 +1046,20 @@ impl AIUpdateInterface {
             return true;
         }
 
-        let (is_contact_weapon, owner_pos, owner_above_terrain) = {
-            let Ok(owner_guard) = owner_arc.read() else {
-                return false;
-            };
-            let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
-                return false;
-            };
-            (
-                weapon.is_contact_weapon(),
-                *owner_guard.get_position(),
-                owner_guard.is_above_terrain(),
-            )
+        let Some((is_contact_weapon, owner_pos, owner_above_terrain)) = OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner_guard| {
+                let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+                    return None;
+                };
+                Some((
+                    weapon.is_contact_weapon(),
+                    *owner_guard.get_position(),
+                    owner_guard.is_above_terrain(),
+                ))
+            })
+            .flatten()
+        else {
+            return false;
         };
 
         if is_contact_weapon {
@@ -1129,20 +1119,19 @@ impl AIUpdateInterface {
         let Some(goal) = self.path.as_ref().and_then(|path| path.last()).copied() else {
             return false;
         };
-        let goal_in_range = {
-            let Ok(owner_guard) = owner_arc.read() else {
-                return false;
-            };
-            let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
-                return false;
-            };
-            weapon.is_source_object_with_goal_position_within_attack_range(
-                owner_guard.get_id(),
-                &goal,
-                victim.and_then(|victim| victim.read().ok().map(|guard| guard.get_id())),
-                Some(&target_pos),
-            )
-        };
+        let goal_in_range = OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner_guard| {
+                let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+                    return false;
+                };
+                weapon.is_source_object_with_goal_position_within_attack_range(
+                    owner_guard.get_id(),
+                    &goal,
+                    victim_id,
+                    Some(&target_pos),
+                )
+            })
+            .unwrap_or(false);
         if !goal_in_range {
             let dx = goal.x - owner_pos.x;
             let dy = goal.y - owner_pos.y;

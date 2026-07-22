@@ -1445,18 +1445,14 @@ impl BodyModuleInterface for ActiveBody {
             }
 
             if !should_overwrite_last_damage {
-                let src2_is_preferred = OBJECT_REGISTRY
-                    .get_object(damage_info.input.source_id)
-                    .and_then(|obj| {
-                        obj.read().ok().map(|guard| {
-                            guard.is_kind_of(crate::common::KindOf::Vehicle)
-                                || guard.is_kind_of(crate::common::KindOf::Infantry)
-                                || guard.is_kind_of(crate::common::KindOf::Structure)
-                        })
+                let src2_is_preferred =
+                    OBJECT_REGISTRY.with_object(damage_info.input.source_id, |guard| {
+                        guard.is_kind_of(crate::common::KindOf::Vehicle)
+                            || guard.is_kind_of(crate::common::KindOf::Infantry)
+                            || guard.is_kind_of(crate::common::KindOf::Structure)
                     });
                 let src1_exists = OBJECT_REGISTRY
-                    .get_object(existing_source_id)
-                    .and_then(|obj| obj.read().ok().map(|_| ()))
+                    .with_object(existing_source_id, |_| ())
                     .is_some();
 
                 if let Some(src2_is_preferred) = src2_is_preferred {
