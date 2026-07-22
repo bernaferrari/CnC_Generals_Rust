@@ -102,8 +102,10 @@ pub enum CombatMode {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Unit {
-    /// Base object functionality
-    base_object: Arc<RwLock<Object>>,
+    /// Base object id (resolve for the duration of an op)
+    object_id: ObjectID,
+    /// Construction pin so resolve works before world insertion (tests / factory).
+    base_pin: Arc<RwLock<Object>>,
 
     /// Movement and pathfinding
     locomotor_set: LocomotorSet,
@@ -257,7 +259,19 @@ impl Unit {
         let current_locomotor = locomotor_set.get_default_locomotor();
 
         Ok(Unit {
-            base_object,
+            object_id: {
+                let id = base_object
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(INVALID_ID);
+                if id != INVALID_ID {
+                    crate::object::registry::OBJECT_REGISTRY.register_object(id, &base_object);
+                    crate::ai::object_registry::register_legacy_object(&base_object);
+                }
+                id
+            },
+            base_pin: Arc::clone(&base_object),
             locomotor_set,
             current_locomotor,
             movement_state: MovementState::Idle,
@@ -379,20 +393,37 @@ impl Unit {
         self.transported_units.len()
     }
 
-    pub fn base_object(&self) -> Arc<RwLock<Object>> {
-        Arc::clone(&self.base_object)
+    pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
+        self.get_base_object()
+    }
+
+    pub fn object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Construction pin is authoritative while the Unit wrapper lives.
+        Some(Arc::clone(&self.base_pin))
+    }
+
+    fn base_arc(&self) -> Arc<RwLock<Object>> {
+        Arc::clone(&self.base_pin)
     }
 
     pub fn get_id(&self) -> ObjectID {
-        self.base_object
-            .read()
-            .ok()
-            .map(|guard| guard.get_id())
-            .unwrap_or(INVALID_ID)
+        if self.object_id != INVALID_ID {
+            self.object_id
+        } else {
+            self.base_pin
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(INVALID_ID)
+        }
     }
 
     pub fn get_orientation(&self) -> Real {
-        self.base_object
+        self.base_arc()
             .read()
             .ok()
             .map(|guard| guard.get_orientation())
@@ -400,14 +431,15 @@ impl Unit {
     }
 
     pub fn set_orientation(&mut self, angle: Real) -> Result<(), String> {
-        let Ok(mut guard) = self.base_object.write() else {
+        let base = self.base_arc();
+        let Ok(mut guard) = base.write() else {
             return Err("Unit base object lock poisoned".to_string());
         };
         guard.set_orientation(angle)
     }
 
     pub fn get_unit_direction_vector_2d(&self) -> (f32, f32) {
-        self.base_object
+        self.base_arc()
             .read()
             .ok()
             .map(|guard| guard.get_unit_direction_vector_2d())
@@ -415,14 +447,14 @@ impl Unit {
     }
 
     pub fn get_ai_update_interface(&self) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
-        self.base_object
+        self.base_arc()
             .read()
             .ok()
             .and_then(|guard| guard.get_ai_update_interface())
     }
 
     pub(crate) fn forward_command_to_flight_deck(&self, params: &crate::ai::AiCommandParams) {
-        if let Ok(guard) = self.base_object.read() {
+        if let Ok(guard) = self.base_arc().read() {
             guard.forward_command_to_flight_deck(params);
         }
     }
@@ -451,7 +483,7 @@ impl Unit {
         self.update_animation_state()?;
 
         // Update per-unit AI module (matches C++ AIUpdateInterface::update call per frame).
-        if let Ok(base_guard) = self.base_object.read() {
+        if let Ok(base_guard) = self.base_arc().read() {
             if let Some(ai) = base_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.lock() {
                     let _ = ai_guard.update();
@@ -612,7 +644,7 @@ impl Unit {
         let mut completed_move = false;
 
         let should_stop_for_dead_ai = self
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .and_then(|obj_guard| obj_guard.get_ai_update_interface())
@@ -655,7 +687,7 @@ impl Unit {
                     let mut speed = FAST_AS_POSSIBLE;
                     let mut body_condition = BodyDamageType::Pristine;
                     let mut blocked = false;
-                    if let Ok(obj_guard) = self.base_object.read() {
+                    if let Ok(obj_guard) = self.base_arc().read() {
                         if let Some(ai) = obj_guard.get_ai_update_interface() {
                             if let Ok(mut ai_guard) = ai.lock() {
                                 speed = ai_guard.get_desired_speed();
@@ -679,6 +711,9 @@ impl Unit {
                 ) {
                     // Clone the locomotor Arc so we don't keep borrowing self
                     let locomotor_clone = locomotor.clone();
+                    // Field-disjoint: object_id / base_pin vs path_following_state
+                    let unit_object_id = self.object_id;
+                    let base_pin = &self.base_pin;
 
                     if let Ok(ai_guard) = THE_AI.read() {
                         if let Some(pathfinding) = ai_guard.pathfinding_system() {
@@ -688,10 +723,7 @@ impl Unit {
                                     (delta_time * self.movement_speed_multiplier) as f32;
 
                                 match update_movement_with_pathfinding(
-                                    self.base_object
-                                        .read()
-                                        .map(|obj| obj.get_id())
-                                        .unwrap_or(INVALID_ID),
+                                    unit_object_id,
                                     &mut loc_guard,
                                     path_state,
                                     &current_pos,
@@ -704,7 +736,7 @@ impl Unit {
                                     pathfinding,
                                 ) {
                                     Ok(Some((new_pos, new_angle, new_speed))) => {
-                                        if let Ok(mut obj_guard) = self.base_object.write() {
+                                        if let Ok(mut obj_guard) = base_pin.write() {
                                             let _ = obj_guard.set_position(&new_pos);
                                             let _ = obj_guard.set_orientation(new_angle as Real);
                                             if let Some(physics) = obj_guard.get_physics() {
@@ -937,7 +969,7 @@ impl Unit {
                                     effective_delta,
                                 );
                                 self.current_speed = new_speed;
-                                if let Ok(mut obj_guard) = self.base_object.write() {
+                                if let Ok(mut obj_guard) = self.base_arc().write() {
                                     let _ = obj_guard.set_position(&new_pos);
                                     let _ = obj_guard.set_orientation(new_angle as Real);
                                     if let Some(physics) = obj_guard.get_physics() {
@@ -1163,7 +1195,7 @@ impl Unit {
             const ATTACK_MOVE_SHOT_GRACE: u32 = 15;
             let current_frame = TheGameLogic::get_frame() as u32;
             let last_shot = self
-                .base_object
+                .base_arc()
                 .read()
                 .map(|guard| guard.get_last_shot_fired_frame())
                 .unwrap_or(0);
@@ -1329,7 +1361,7 @@ impl Unit {
 
     /// Get current position
     pub fn get_position(&self) -> Coord3D {
-        if let Ok(obj_guard) = self.base_object.read() {
+        if let Ok(obj_guard) = self.base_arc().read() {
             *obj_guard.get_position()
         } else {
             Coord3D::new(0.0, 0.0, 0.0)
@@ -1338,7 +1370,7 @@ impl Unit {
 
     /// Get current health percentage
     pub fn get_health_percentage(&self) -> Real {
-        if let Ok(obj_guard) = self.base_object.read() {
+        if let Ok(obj_guard) = self.base_arc().read() {
             let current = obj_guard.get_health();
             let max = obj_guard.get_max_health();
             if max > 0.0 {
@@ -1353,7 +1385,7 @@ impl Unit {
 
     /// Check if unit has weapons
     pub fn has_weapons(&self) -> bool {
-        if let Ok(obj_guard) = self.base_object.read() {
+        if let Ok(obj_guard) = self.base_arc().read() {
             obj_guard.has_any_weapon()
         } else {
             false
@@ -1424,7 +1456,7 @@ impl Unit {
     }
 
     pub fn get_crusher_level(&self) -> u32 {
-        self.base_object
+        self.base_arc()
             .read()
             .map(|guard| guard.get_crusher_level())
             .unwrap_or(0)
@@ -1612,7 +1644,8 @@ impl Unit {
             return Ok(());
         }
         self.garrison_building = Some(building);
-        let enter_command = self.base_object.read().ok().and_then(|obj_guard| {
+        let base = self.base_arc();
+        let enter_command = base.read().ok().and_then(|obj_guard| {
             let ai = obj_guard.get_ai_update_interface()?;
             let cmd_source = ai
                 .lock()
@@ -1631,7 +1664,7 @@ impl Unit {
             if let Ok(container_guard) = container.read() {
                 if let Some(contain) = container_guard.get_contain() {
                     if let Ok(mut contain_guard) = contain.lock() {
-                        if let Ok(base_guard) = self.base_object.read() {
+                        if let Ok(base_guard) = self.base_arc().read() {
                             let _ = contain_guard.on_object_wants_to_enter_or_exit(
                                 &*base_guard,
                                 crate::modules::ContainWant::WantsToEnter,
@@ -1651,11 +1684,11 @@ impl Unit {
         exit_position: Option<Coord3D>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let container_id = self
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .and_then(|guard| guard.get_contained_by());
-        if let Ok(obj_guard) = self.base_object.read() {
+        if let Ok(obj_guard) = self.base_arc().read() {
             if let Some(ai) = obj_guard.get_ai_update_interface() {
                 let cmd_source = ai
                     .lock()
@@ -1676,7 +1709,7 @@ impl Unit {
                 if let Ok(container_guard) = container.read() {
                     if let Some(contain) = container_guard.get_contain() {
                         if let Ok(mut contain_guard) = contain.lock() {
-                            if let Ok(base_guard) = self.base_object.read() {
+                            if let Ok(base_guard) = self.base_arc().read() {
                                 let _ = contain_guard.on_object_wants_to_enter_or_exit(
                                     &*base_guard,
                                     crate::modules::ContainWant::WantsToExit,
@@ -1716,7 +1749,8 @@ impl Unit {
         };
 
         let (unit_pos, unit_radius, unit_player_id) = {
-            let Ok(unit_guard) = self.base_object.read() else {
+            let base = self.base_arc();
+            let Ok(unit_guard) = base.read() else {
                 return Ok(());
             };
             let player_id = unit_guard.get_player_id();
@@ -1732,7 +1766,7 @@ impl Unit {
                 .get_geometry_info()
                 .get_bounding_circle_radius();
             let can_capture = TheActionManager::can_capture_building(
-                &*self.base_object.read().map_err(|_| "Unit lock poisoned")?,
+                &*self.base_pin.read().map_err(|_| "Unit lock poisoned")?,
                 &*building_guard,
                 CommandSourceType::FromAi,
             );
@@ -1800,7 +1834,7 @@ impl Unit {
 
         if !self.auto_acquire_while_stealthed
             && self
-                .base_object
+                .base_arc()
                 .read()
                 .map(|guard| guard.is_stealthed())
                 .unwrap_or(false)
@@ -1862,7 +1896,7 @@ impl Unit {
         let adjust = delta.clamp(-max_turn, max_turn);
         let new_angle = current + adjust;
         self.facing_direction = new_angle;
-        if let Ok(mut obj_guard) = self.base_object.write() {
+        if let Ok(mut obj_guard) = self.base_arc().write() {
             let _ = obj_guard.set_orientation(new_angle as Real);
         }
         Ok(())
@@ -1872,7 +1906,7 @@ impl Unit {
         _delta_time: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let contained_by = self
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .and_then(|guard| guard.get_contained_by());
@@ -1894,7 +1928,7 @@ impl Unit {
         Ok(())
     }
     fn update_animation_state(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Ok(mut obj_guard) = self.base_object.write() {
+        if let Ok(mut obj_guard) = self.base_arc().write() {
             match self.movement_state {
                 MovementState::Moving
                 | MovementState::TurningToFace
@@ -1993,7 +2027,7 @@ impl Unit {
             .with_object(target_id, |g| {
                 let pos = Some(*g.get_position());
                 let rel = self
-                    .base_object
+                    .base_arc()
                     .read()
                     .ok()
                     .map(|me| me.relationship_to(g))
@@ -2070,7 +2104,7 @@ impl Unit {
         const TARGET_LOCK_GRACE: u32 = 30;
 
         let current_frame = TheGameLogic::get_frame() as u32;
-        if let Ok(guard) = self.base_object.read() {
+        if let Ok(guard) = self.base_arc().read() {
             let last_shot = guard.get_last_shot_fired_frame();
             if current_frame.saturating_sub(last_shot) < TARGET_LOCK_GRACE {
                 return false;
@@ -2084,7 +2118,7 @@ impl Unit {
             if crate::object::registry::OBJECT_REGISTRY
                 .with_object(target_id, |target_guard| {
                     let is_enemy = self
-                        .base_object
+                        .base_arc()
                         .read()
                         .ok()
                         .map(|guard| guard.relationship_to(target_guard))
@@ -2124,7 +2158,7 @@ impl Unit {
         }
         let all_objects = crate::object::registry::OBJECT_REGISTRY.get_all_objects();
         let self_id = self
-            .base_object
+            .base_arc()
             .read()
             .map(|guard| guard.get_id())
             .unwrap_or(0);
@@ -2134,7 +2168,7 @@ impl Unit {
             if let Some(dist_to_self) = crate::object::registry::OBJECT_REGISTRY
                 .with_object(current_target, |target_guard| {
                     let is_enemy = self
-                        .base_object
+                        .base_arc()
                         .read()
                         .ok()
                         .map(|guard| guard.relationship_to(target_guard))
@@ -2181,7 +2215,7 @@ impl Unit {
             }
 
             if !matches!(
-                self.base_object
+                self.base_arc()
                     .read()
                     .ok()
                     .map(|guard| guard.relationship_to(&obj_guard)),
@@ -2250,7 +2284,7 @@ impl Unit {
         }
         let all_objects = crate::object::registry::OBJECT_REGISTRY.get_all_objects();
         let self_id = self
-            .base_object
+            .base_arc()
             .read()
             .map(|guard| guard.get_id())
             .unwrap_or(0);
@@ -2274,7 +2308,7 @@ impl Unit {
             }
 
             if !matches!(
-                self.base_object
+                self.base_arc()
                     .read()
                     .ok()
                     .map(|guard| guard.relationship_to(&obj_guard)),
@@ -2335,7 +2369,7 @@ impl Unit {
 
     fn can_detect_target_distance(&self, distance: Real) -> bool {
         let base_range = self
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|guard| guard.get_stealth_detection_range() as Real)
@@ -2350,7 +2384,7 @@ impl Unit {
     }
     fn is_under_attack(&self) -> bool {
         let Some(body) = self
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .and_then(|guard| guard.get_body_module())
@@ -2400,7 +2434,7 @@ impl Unit {
 
         if !self.auto_acquire_while_stealthed {
             let stealthed = self
-                .base_object
+                .base_arc()
                 .read()
                 .map(|guard| guard.is_stealthed())
                 .unwrap_or(false);
@@ -2685,7 +2719,7 @@ impl UnitAIUpdate {
             let owner = unit_arc
                 .read()
                 .ok()
-                .map(|guard| Arc::downgrade(&guard.base_object))?;
+                .map(|guard| Arc::downgrade(&guard.base_arc()))?;
             Some(Arc::new(Mutex::new(AIStateMachine::new(
                 owner,
                 "AIStateMachine",
@@ -2806,7 +2840,7 @@ impl UnitAIUpdate {
         self.unit.upgrade().and_then(|unit| {
             unit.read()
                 .ok()
-                .and_then(|guard| guard.base_object.read().ok().map(|object| object.get_id()))
+                .and_then(|guard| guard.base_arc().read().ok().map(|object| object.get_id()))
         })
     }
 
@@ -3125,7 +3159,8 @@ impl UnitAIUpdate {
         };
         let unit_guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
         let owner_id = unit_guard.get_id();
-        let Ok(owner_guard) = unit_guard.base_object.read() else {
+        let owner_base = unit_guard.base_arc();
+        let Ok(owner_guard) = owner_base.read() else {
             return Ok(false);
         };
         let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
@@ -3252,8 +3287,8 @@ impl UnitAIUpdate {
             .upgrade()
             .ok_or_else(|| "unit no longer available".to_string())?;
         let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
-        let obj_guard = guard
-            .base_object
+        let base_arc = guard.base_arc();
+            let obj_guard = base_arc
             .read()
             .map_err(|_| "unit base object lock poisoned".to_string())?;
         let owner_pos = *obj_guard.get_position();
@@ -3430,8 +3465,8 @@ impl UnitAIUpdate {
             .upgrade()
             .ok_or_else(|| "unit no longer available".to_string())?;
         let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
-        let obj_guard = guard
-            .base_object
+        let base_arc = guard.base_arc();
+            let obj_guard = base_arc
             .read()
             .map_err(|_| "unit base object lock poisoned".to_string())?;
         let surfaces = guard
@@ -3492,7 +3527,7 @@ impl UnitAIUpdate {
 
     fn build_turret_machine(&self, turret: TurretType) -> Option<TurretStateMachine> {
         let unit = self.unit.upgrade()?;
-        let base_object = unit.read().ok().map(|guard| guard.base_object())?;
+        let base_object = unit.read().ok().map(|guard| guard.base_arc())?;
         let owner = Arc::downgrade(&base_object);
         let turret_ai = Arc::new(Mutex::new(TurretAI::new(Arc::downgrade(&base_object))));
         if let Ok(mut guard) = turret_ai.lock() {
@@ -3538,7 +3573,7 @@ impl UnitAIUpdate {
 
     fn start_rappel_state(&mut self, target_id: Option<ObjectID>) -> Result<(), String> {
         let unit = self.unit.upgrade().ok_or("unit no longer available")?;
-        let base_object = unit.read().map_err(|_| "unit lock poisoned")?.base_object();
+        let base_object = unit.read().map_err(|_| "unit lock poisoned")?.base_arc();
 
         let mut obj_guard = base_object
             .write()
@@ -3611,7 +3646,7 @@ impl UnitAIUpdate {
     fn finish_rappel_state(&mut self) {
         let unit = self.unit.upgrade();
         if let Some(unit) = unit {
-            let base = unit.read().ok().map(|guard| guard.base_object());
+            let base = unit.read().ok().map(|guard| guard.base_arc());
             if let Some(base) = base {
                 if let Ok(mut obj_guard) = base.write() {
                     obj_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
@@ -3637,7 +3672,7 @@ impl UnitAIUpdate {
 
         let base_object = {
             let unit_guard = unit.read().ok();
-            unit_guard.map(|guard| guard.base_object())
+            unit_guard.map(|guard| guard.base_arc())
         };
 
         let Some(base_object) = base_object else {
@@ -3847,14 +3882,14 @@ impl UnitAIUpdate {
 
         let mut fudge = PATHFIND_CELL_SIZE_F * 0.5;
         let is_aircraft = guard
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| obj.is_kind_of(KindOf::Aircraft))
             .unwrap_or(false);
         if is_aircraft {
             let above_terrain = guard
-                .base_object
+                .base_arc()
                 .read()
                 .ok()
                 .map(|obj| obj.is_significantly_above_terrain())
@@ -3887,7 +3922,7 @@ impl UnitAIUpdate {
 
     fn compute_pathfind_radius_and_center(unit: &Unit) -> (i32, bool) {
         let radius = unit
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| obj.get_geometry_info().get_bounding_circle_radius())
@@ -4059,7 +4094,7 @@ impl UnitAIUpdate {
 
         if let Some(unit) = self.unit.upgrade() {
             if let Ok(guard) = unit.read() {
-                if let Ok(mut object) = guard.base_object.write() {
+                if let Ok(mut object) = guard.base_arc().write() {
                     object.clear_model_condition_state(ModelConditionFlags::MOVING);
                 }
             }
@@ -4413,7 +4448,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let update_turrets = self
             .unit
             .upgrade()
-            .and_then(|unit| unit.read().ok().map(|guard| guard.base_object()))
+            .and_then(|unit| unit.read().ok().map(|guard| guard.base_arc()))
             .and_then(|base| {
                 base.read().ok().map(|obj| {
                     !obj.is_effectively_dead()
@@ -4525,7 +4560,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 let producer_id = self
                     .unit
                     .upgrade()
-                    .and_then(|unit| unit.read().ok().map(|guard| guard.base_object()))
+                    .and_then(|unit| unit.read().ok().map(|guard| guard.base_arc()))
                     .and_then(|obj| obj.read().ok().map(|guard| guard.get_producer_id()))
                     .unwrap_or(crate::common::INVALID_ID);
                 if producer_id != crate::common::INVALID_ID {
@@ -4599,7 +4634,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             return false;
         };
         guard
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| obj.test_status(ObjectStatusTypes::OBJECT_STATUS_IS_ATTACKING))
@@ -5419,7 +5454,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                         params.pos = clipped;
                         machine.clear();
                         let _ = machine.ai_do_command(&params);
-                        if let Ok(mut obj_guard) = guard.base_object.write() {
+                        if let Ok(mut obj_guard) = guard.base_arc().write() {
                             obj_guard.set_current_weapon_max_shot_count(command.int_value);
                         }
                         return Ok(());
@@ -5427,12 +5462,12 @@ impl AIUpdateInterface for UnitAIUpdate {
                 }
 
                 guard.process_attack_move_order(clipped, true)?;
-                if let Ok(mut obj_guard) = guard.base_object.write() {
+                if let Ok(mut obj_guard) = guard.base_arc().write() {
                     obj_guard.set_current_weapon_max_shot_count(command.int_value);
                 }
             }
             crate::ai::AiCommandType::AttackPosition => {
-                let base_object = guard.base_object.clone();
+                let base_object = guard.base_arc().clone();
                 let mut local_pos =
                     self.clip_goal_position(&guard, command.pos, command.cmd_source);
                 let mut max_shots = command.int_value;
@@ -5487,7 +5522,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                                 attack_params.int_value = max_shots;
                                 machine.clear();
                                 let _ = machine.ai_do_command(&attack_params);
-                                if let Ok(mut obj_guard) = guard.base_object.write() {
+                                if let Ok(mut obj_guard) = guard.base_arc().write() {
                                     obj_guard.set_current_weapon_max_shot_count(max_shots);
                                 }
                                 if let Some(chinook_ai) = self.chinook_ai.as_ref() {
@@ -5509,7 +5544,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                         }
 
                         guard.give_attack_order(target_id, true, false)?;
-                        if let Ok(mut obj_guard) = guard.base_object.write() {
+                        if let Ok(mut obj_guard) = guard.base_arc().write() {
                             obj_guard.set_current_weapon_max_shot_count(max_shots);
                         }
                         if let Some(chinook_ai) = self.chinook_ai.as_ref() {
@@ -5608,7 +5643,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                         params.int_value = max_shots;
                         machine.clear();
                         let _ = machine.ai_do_command(&params);
-                        if let Ok(mut obj_guard) = guard.base_object.write() {
+                        if let Ok(mut obj_guard) = guard.base_arc().write() {
                             obj_guard.set_current_weapon_max_shot_count(max_shots);
                         }
                         if let Some(chinook_ai) = self.chinook_ai.as_ref() {
@@ -5630,7 +5665,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 }
 
                 guard.process_attack_move_order(local_pos, true)?;
-                if let Ok(mut obj_guard) = guard.base_object.write() {
+                if let Ok(mut obj_guard) = guard.base_arc().write() {
                     obj_guard.set_current_weapon_max_shot_count(max_shots);
                 }
                 if let Some(chinook_ai) = self.chinook_ai.as_ref() {
@@ -5647,7 +5682,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                         if let Ok(mut machine) = state_machine.lock() {
                             machine.clear();
                             let _ = machine.ai_do_command(command);
-                            if let Ok(mut obj_guard) = guard.base_object.write() {
+                            if let Ok(mut obj_guard) = guard.base_arc().write() {
                                 obj_guard.set_current_weapon_max_shot_count(command.int_value);
                             }
                             if let Some(chinook_ai) = self.chinook_ai.as_ref() {
@@ -5685,7 +5720,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                     }
 
                     guard.give_attack_order(target_id, true, false)?;
-                    if let Ok(mut obj_guard) = guard.base_object.write() {
+                    if let Ok(mut obj_guard) = guard.base_arc().write() {
                         obj_guard.set_current_weapon_max_shot_count(command.int_value);
                     }
                     if let Some(chinook_ai) = self.chinook_ai.as_ref() {
@@ -5725,7 +5760,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                     if let Ok(mut machine) = state_machine.lock() {
                         machine.clear();
                         let _ = machine.ai_do_command(command);
-                        if let Ok(mut obj_guard) = guard.base_object.write() {
+                        if let Ok(mut obj_guard) = guard.base_arc().write() {
                             obj_guard.set_current_weapon_max_shot_count(command.int_value);
                         }
                         return Ok(());
@@ -5748,7 +5783,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                                 };
                                 if target_id != INVALID_ID {
                                     guard.give_attack_order(target_id, true, false)?;
-                                    if let Ok(mut obj_guard) = guard.base_object.write() {
+                                    if let Ok(mut obj_guard) = guard.base_arc().write() {
                                         obj_guard
                                             .set_current_weapon_max_shot_count(command.int_value);
                                     }
@@ -5766,7 +5801,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             return Ok(());
                         }
                         let is_projectile = guard
-                            .base_object
+                            .base_arc()
                             .read()
                             .ok()
                             .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
@@ -5794,7 +5829,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             return Ok(());
                         }
                         let is_projectile = guard
-                            .base_object
+                            .base_arc()
                             .read()
                             .ok()
                             .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
@@ -5828,7 +5863,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             return Ok(());
                         }
                         let is_projectile = guard
-                            .base_object
+                            .base_arc()
                             .read()
                             .ok()
                             .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
@@ -5855,7 +5890,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             return Ok(());
                         }
                         let is_projectile = guard
-                            .base_object
+                            .base_arc()
                             .read()
                             .ok()
                             .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
@@ -5875,7 +5910,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                         if let Ok(mut machine) = state_machine.lock() {
                             machine.clear();
                             let _ = machine.ai_do_command(command);
-                            if let Ok(mut obj_guard) = guard.base_object.write() {
+                            if let Ok(mut obj_guard) = guard.base_arc().write() {
                                 obj_guard.set_current_weapon_max_shot_count(command.int_value);
                             }
                             return Ok(());
@@ -5888,7 +5923,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                     });
                     guard.order_queue.clear();
                     guard.give_attack_order(target_id, true, false)?;
-                    if let Ok(mut obj_guard) = guard.base_object.write() {
+                    if let Ok(mut obj_guard) = guard.base_arc().write() {
                         obj_guard.set_current_weapon_max_shot_count(command.int_value);
                     }
                 }
@@ -5915,7 +5950,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                                 if let Ok(mut contain_guard) = contain.lock() {
                                     if let Some(unit) = self.unit.upgrade() {
                                         if let Ok(unit_guard) = unit.read() {
-                                            let base_arc = unit_guard.base_object();
+                                            let base_arc = unit_guard.base_arc();
                                             drop(unit_guard);
                                             let base_lock = base_arc.read();
                                             if let Ok(base_guard) = base_lock {
@@ -5945,7 +5980,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 let container_id = command.obj.or_else(|| {
                     self.unit.upgrade().and_then(|unit| {
                         let unit_guard = unit.read().ok()?;
-                        let base_arc = unit_guard.base_object();
+                        let base_arc = unit_guard.base_arc();
                         drop(unit_guard);
                         let base_guard = base_arc.read().ok()?;
                         base_guard.get_contained_by()
@@ -5958,7 +5993,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                                 if let Ok(mut contain_guard) = contain.lock() {
                                     if let Some(unit) = self.unit.upgrade() {
                                         if let Ok(unit_guard) = unit.read() {
-                                            let base_arc = unit_guard.base_object();
+                                            let base_arc = unit_guard.base_arc();
                                             drop(unit_guard);
                                             let base_lock = base_arc.read();
                                             if let Ok(base_guard) = base_lock {
@@ -5987,7 +6022,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 let container_id = command.obj.or_else(|| {
                     self.unit.upgrade().and_then(|unit| {
                         let unit_guard = unit.read().ok()?;
-                        let base_arc = unit_guard.base_object();
+                        let base_arc = unit_guard.base_arc();
                         drop(unit_guard);
                         let base_guard = base_arc.read().ok()?;
                         base_guard.get_contained_by()
@@ -6000,7 +6035,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                                 if let Ok(mut contain_guard) = contain.lock() {
                                     if let Some(unit) = self.unit.upgrade() {
                                         if let Ok(unit_guard) = unit.read() {
-                                            let base_arc = unit_guard.base_object();
+                                            let base_arc = unit_guard.base_arc();
                                             drop(unit_guard);
                                             let base_lock = base_arc.read();
                                             if let Ok(base_guard) = base_lock {
@@ -6065,7 +6100,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                         let _ = existing.halt();
                     }
 
-                    let owner_object = guard.base_object();
+                    let owner_object = guard.base_arc();
                     let dock_machine =
                         AIDockMachine::new(owner_object.clone()).map_err(|err| err.to_string())?;
                     if let Ok(mut machine) = dock_machine.state_machine.lock() {
@@ -6090,7 +6125,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             }
             crate::ai::AiCommandType::Evacuate | crate::ai::AiCommandType::EvacuateInstantly => {
                 let instantly = command.cmd == crate::ai::AiCommandType::EvacuateInstantly;
-                if let Ok(obj_guard) = guard.base_object.write() {
+                if let Ok(obj_guard) = guard.base_arc().write() {
                     if let Some(contain) = obj_guard.get_contain() {
                         if let Ok(mut contain_guard) = contain.lock() {
                             let _ = contain_guard
@@ -6117,7 +6152,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             crate::ai::AiCommandType::GetHealed => {
                 if let Some(target_id) = command.obj {
                     let can_heal = guard
-                        .base_object
+                        .base_arc()
                         .read()
                         .ok()
                         .and_then(|base_guard| {
@@ -6157,7 +6192,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                                     if let Ok(mut contain_guard) = contain.lock() {
                                         if let Some(unit) = self.unit.upgrade() {
                                             if let Ok(unit_guard) = unit.read() {
-                                                let base_arc = unit_guard.base_object();
+                                                let base_arc = unit_guard.base_arc();
                                                 drop(unit_guard);
                                                 let base_lock = base_arc.read();
                                                 if let Ok(base_guard) = base_lock {
@@ -6187,7 +6222,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
                 if let Some(target_id) = command.obj {
                     let can_repair = guard
-                        .base_object
+                        .base_arc()
                         .read()
                         .ok()
                         .and_then(|base_guard| {
@@ -6250,7 +6285,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             let _ = existing.halt();
                         }
 
-                        let owner_object = guard.base_object();
+                        let owner_object = guard.base_arc();
                         let dock_machine = AIDockMachine::new(owner_object.clone())
                             .map_err(|err| err.to_string())?;
                         if let Ok(mut machine) = dock_machine.state_machine.lock() {
@@ -6332,7 +6367,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             return Ok(());
                         }
                         let is_projectile = guard
-                            .base_object
+                            .base_arc()
                             .read()
                             .ok()
                             .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
@@ -6359,7 +6394,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             return Ok(());
                         }
                         let is_projectile = guard
-                            .base_object
+                            .base_arc()
                             .read()
                             .ok()
                             .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
@@ -6392,7 +6427,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             crate::ai::AiCommandType::AttackFollowWaypointPath
                                 | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam
                         ) {
-                            if let Ok(mut obj_guard) = guard.base_object.write() {
+                            if let Ok(mut obj_guard) = guard.base_arc().write() {
                                 obj_guard.set_current_weapon_max_shot_count(command.int_value);
                             }
                         }
@@ -6440,7 +6475,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                     crate::ai::AiCommandType::AttackFollowWaypointPath
                         | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam
                 ) {
-                    if let Ok(mut obj_guard) = guard.base_object.write() {
+                    if let Ok(mut obj_guard) = guard.base_arc().write() {
                         obj_guard.set_current_weapon_max_shot_count(command.int_value);
                     }
                 }
@@ -6885,7 +6920,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
 
         let owner_id = guard
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| obj.get_id())
@@ -6920,7 +6955,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
             let mut dest_layer = layer;
             if layer != crate::common::PathfindLayerEnum::Ground {
-                if let Ok(obj_guard) = guard.base_object.read() {
+                if let Ok(obj_guard) = guard.base_arc().read() {
                     interacts_with_bridge_end =
                         terrain.object_interacts_with_bridge_layer(&obj_guard, terrain_layer, true);
                 }
@@ -6928,7 +6963,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             if layer != crate::common::PathfindLayerEnum::Ground && !interacts_with_bridge_end {
                 dest_layer = crate::common::PathfindLayerEnum::Ground;
             }
-            if let Ok(mut obj_guard) = guard.base_object.write() {
+            if let Ok(mut obj_guard) = guard.base_arc().write() {
                 obj_guard.set_destination_layer(dest_layer);
             }
         }
@@ -6948,7 +6983,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
 
         let is_immobile = guard
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| obj.is_kind_of(KindOf::Immobile))
@@ -6964,7 +6999,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let (radius, center_in_cell) = Self::compute_pathfind_radius_and_center(&guard);
         let new_cell = Self::compute_goal_cell(&adjusted, center_in_cell);
         let is_unmanned_heli = guard
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| {
@@ -7021,7 +7056,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let surfaces = loc_guard.get_legal_surfaces();
         let mut is_crusher = false;
         drop(loc_guard);
-        if let Ok(obj_guard) = guard.base_object.read() {
+        if let Ok(obj_guard) = guard.base_arc().read() {
             is_crusher = obj_guard.get_crusher_level() > 0;
         }
         let ignore_obstacle_id = if self.ignore_obstacle_id != INVALID_ID {
@@ -7030,19 +7065,19 @@ impl AIUpdateInterface for UnitAIUpdate {
             None
         };
         let owner_id = guard
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| obj.get_id())
             .unwrap_or(INVALID_ID);
         let from_pos = guard
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| *obj.get_position())
             .unwrap_or(*goal);
         let unit_radius = guard
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| obj.get_geometry_info().get_bounding_circle_radius())
@@ -7293,7 +7328,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
         let obj_pos = guard.get_position();
         let is_projectile = guard
-            .base_object()
+            .base_arc()
             .read()
             .ok()
             .map(|obj| obj.is_kind_of(KindOf::Projectile))
@@ -7411,7 +7446,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let obj = guard.base_object();
+        let obj = guard.base_arc();
         let Ok(obj_guard) = obj.read() else {
             return false;
         };
@@ -7551,7 +7586,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.ai_dead = true;
         if let Some(unit) = self.unit.upgrade() {
             if let Ok(unit_guard) = unit.read() {
-                if let Ok(mut object_guard) = unit_guard.base_object.write() {
+                if let Ok(mut object_guard) = unit_guard.base_arc().write() {
                     object_guard.set_effectively_dead(true);
                 }
             }
@@ -7627,7 +7662,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 return;
             };
             let self_id = g.get_id();
-            let base = g.base_object();
+            let base = g.base_arc();
             let Ok(obj) = base.read() else {
                 return;
             };
@@ -8052,7 +8087,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             return 0.0;
         };
         let body_state = guard
-            .base_object()
+            .base_arc()
             .read()
             .ok()
             .and_then(|obj| obj.get_body_module())
@@ -8146,7 +8181,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             return;
         };
         let base_object = match unit_arc.read() {
-            Ok(guard) => guard.base_object(),
+            Ok(guard) => guard.base_arc(),
             Err(_) => return,
         };
         let Ok(mut obj_guard) = base_object.write() else {
@@ -8457,7 +8492,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 {
                     if let Ok(existing_guard) = existing_arc.read() {
                         let relationship = guard
-                            .base_object
+                            .base_arc()
                             .read()
                             .ok()
                             .map(|base| base.relationship_to(&existing_guard))
@@ -8544,7 +8579,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let Ok(unit_guard) = unit_arc.read() else {
             return 0;
         };
-        let owner_arc = unit_guard.base_object();
+        let owner_arc = unit_guard.base_arc();
         let Ok(owner_guard) = owner_arc.read() else {
             return 0;
         };
@@ -8591,7 +8626,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let Ok(unit_guard) = unit_arc.read() else {
             return mood_matrix_adjustment::ACTION_OK;
         };
-        let owner_arc = unit_guard.base_object();
+        let owner_arc = unit_guard.base_arc();
         let Ok(owner_guard) = owner_arc.read() else {
             return mood_matrix_adjustment::ACTION_OK;
         };
@@ -8880,7 +8915,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let Ok(unit_guard) = unit.read() else {
             return;
         };
-        let obj_arc = unit_guard.base_object();
+        let obj_arc = unit_guard.base_arc();
         let module = {
             let Ok(obj_guard) = obj_arc.read() else {
                 return;
@@ -8908,13 +8943,13 @@ impl Drop for UnitAIUpdate {
             return;
         };
         let owner_id = guard
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| obj.get_id())
             .unwrap_or(INVALID_ID);
         let is_immobile = guard
-            .base_object
+            .base_arc()
             .read()
             .ok()
             .map(|obj| obj.is_kind_of(KindOf::Immobile))
