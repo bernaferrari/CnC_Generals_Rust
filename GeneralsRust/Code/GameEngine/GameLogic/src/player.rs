@@ -2231,16 +2231,22 @@ impl Player {
 
     /// Called when a structure under construction is completed.
     /// Matches C++ Player::onStructureConstructionComplete.
-    pub fn on_structure_construction_complete(
+    pub fn on_structure_construction_complete_id(
         &mut self,
-        builder: Option<&Arc<RwLock<Object>>>,
-        structure: &Arc<RwLock<Object>>,
+        builder_id: Option<ObjectID>,
+        structure_id: ObjectID,
         is_rebuild: Bool,
     ) {
         crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
 
+        let Some(structure) = crate::object::registry::OBJECT_REGISTRY
+            .get_object(structure_id)
+            .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(structure_id))
+        else {
+            return;
+        };
+
         let (
-            structure_id,
             structure_pos,
             structure_layer,
             is_superweapon_particle,
@@ -2251,7 +2257,6 @@ impl Player {
                 return;
             };
             (
-                structure_guard.get_id(),
                 *structure_guard.get_position(),
                 structure_guard.get_layer(),
                 structure_guard.has_special_power(
@@ -2295,10 +2300,8 @@ impl Player {
             structure_guard.adjust_power_for_player(true);
         }
 
-        if let Some(builder_arc) = builder {
+        if let Some(factory_id) = builder_id.filter(|id| *id != INVALID_ID) {
             let player_id = self.player_index as u32;
-            let factory_id = builder_arc.read().map(|b| b.get_id()).unwrap_or(INVALID_ID);
-            let structure_id = structure.read().map(|s| s.get_id()).unwrap_or(INVALID_ID);
             let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
                 manager.with_ai_player_mut(player_id, |ai_player| {
                     let _ = ai_player.on_structure_produced(factory_id, structure_id);
@@ -2312,7 +2315,10 @@ impl Player {
             .read()
             .ok()
             .and_then(|list| list.get_local_player().cloned());
-        if let (Some(local_player), Ok(structure_guard)) = (local_player, structure.read()) {
+        let Ok(structure_guard) = structure.read() else {
+            return;
+        };
+        if let Some(local_player) = local_player {
             let relation = structure_guard
                 .get_team()
                 .and_then(|team| {
@@ -2377,6 +2383,22 @@ impl Player {
                 }
             }
         }
+    }
+
+    /// Prefer [`Self::on_structure_construction_complete_id`].
+    pub fn on_structure_construction_complete(
+        &mut self,
+        builder: Option<&Arc<RwLock<Object>>>,
+        structure: &Arc<RwLock<Object>>,
+        is_rebuild: Bool,
+    ) {
+        let builder_id = builder.and_then(|b| b.read().ok().map(|g| g.get_id()));
+        let structure_id = structure
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(INVALID_ID);
+        self.on_structure_construction_complete_id(builder_id, structure_id, is_rebuild);
     }
 
     /// Set units vision spied state
