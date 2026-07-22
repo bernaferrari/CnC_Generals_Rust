@@ -387,13 +387,8 @@ impl StealthController {
         if let Some(template_name) = template_name {
             self.disguise_as_template_name = Some(template_name);
             self.disguise_as_player_index = OBJECT_REGISTRY
-                .get_object(self.object_id)
-                .and_then(|object| {
-                    object
-                        .read()
-                        .ok()
-                        .and_then(|guard| guard.get_controlling_player_id())
-                })
+                .with_object(self.object_id, |guard| guard.get_controlling_player_id())
+                .flatten()
                 .map(|player_id| player_id as Int)
                 .unwrap_or(0);
             self.enabled = true;

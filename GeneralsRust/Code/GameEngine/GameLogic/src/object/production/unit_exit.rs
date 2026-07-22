@@ -321,8 +321,7 @@ impl UnitExitManager {
             // Create emergency exit path
             // Get actual building position from object registry
             let building_pos = crate::object::registry::OBJECT_REGISTRY
-                .get_object(self.building_id)
-                .and_then(|obj| obj.read().ok().map(|o| o.get_position().clone()))
+                .with_object(self.building_id, |o| o.get_position().clone())
                 .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
             let spawn_pos = self.stuck_handler.force_spawn_at_alternate(&building_pos);
@@ -379,8 +378,7 @@ impl UnitExitManager {
                 // Get object position from object ID
                 if let Some(target_id) = rally_point.target_object() {
                     crate::object::registry::OBJECT_REGISTRY
-                        .get_object(target_id)
-                        .and_then(|obj| obj.read().ok().map(|o| o.get_position().clone()))
+                        .with_object(target_id, |o| o.get_position().clone())
                         .unwrap_or(door_pos.clone())
                 } else {
                     door_pos.clone()
