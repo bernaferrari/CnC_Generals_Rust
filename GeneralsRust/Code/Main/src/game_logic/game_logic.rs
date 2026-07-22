@@ -5584,6 +5584,8 @@ impl GameLogic {
     /// Line 3799: m_frame++                            [increment]
     /// ```
     fn update_simulation(&mut self, dt: f32) {
+        // Pathfinding dynamic obstacles rebuild once per host logic frame.
+        self.pathfinding_system.note_logic_frame(self.frame as u64);
         // -----------------------------------------------------------------------
         // Phase 1: Early Scripting (C++ line 3600)
         // -----------------------------------------------------------------------
