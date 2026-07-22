@@ -343,14 +343,17 @@ impl HelixContain {
     }
 
     /// Add object to containment
-    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        let (is_portable, obj_id) = match obj.read() {
-            Ok(guard) => (
+    pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let obj = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Helix contain object not found")?;
+
+        let is_portable = match obj.read() {
+            Ok(guard) => {
                 guard.is_kind_of(crate::common::KindOf::PortableStructure)
-                    && self.portable_structure_id.is_none(),
-                guard.get_id(),
-            ),
-            Err(_) => (false, 0),
+                    && self.portable_structure_id.is_none()
+            }
+            Err(_) => false,
         };
 
         if is_portable {
@@ -373,10 +376,7 @@ impl HelixContain {
         let owner = self.get_object();
         if super::should_cancel_containment_after_booby_trap(
             owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            obj_id,
         ) {
             return Ok(());
         }
@@ -398,12 +398,7 @@ impl HelixContain {
             }
         }
 
-        self.base.add_to_contain_list(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )?;
+        self.base.add_to_contain_list(obj_id)?;
         let should_remove_from_world = obj
             .read()
             .map(|obj_guard| self.is_enclosing_container_for(&*obj_guard))
@@ -415,19 +410,22 @@ impl HelixContain {
                 .add_or_remove_obj_from_world(obj.clone(), false);
         }
         self.redeploy_occupants()?;
-        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
+        self.on_containing(obj_id, was_selected)?;
         Ok(())
     }
 
     /// Add object to contain list
-    pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        let (is_portable, obj_id) = match obj.read() {
-            Ok(guard) => (
+    pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let obj = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Helix contain object not found")?;
+
+        let is_portable = match obj.read() {
+            Ok(guard) => {
                 guard.is_kind_of(crate::common::KindOf::PortableStructure)
-                    && self.portable_structure_id.is_none(),
-                guard.get_id(),
-            ),
-            Err(_) => (false, 0),
+                    && self.portable_structure_id.is_none()
+            }
+            Err(_) => false,
         };
 
         if is_portable {
@@ -447,24 +445,25 @@ impl HelixContain {
             return Ok(());
         }
 
-        self.base.add_to_contain_list(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
+        self.base.add_to_contain_list(obj_id)
     }
 
     /// Remove object from containment
     pub fn remove_from_contain(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
+        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if let Ok(obj_guard) = obj.read() {
             if obj_guard.is_kind_of(crate::common::KindOf::PortableStructure) {
                 if let Some(portable_id) = self.portable_structure_id {
-                    if obj_guard.get_id() == portable_id {
+                    if obj_id == portable_id {
                         self.portable_structure_id = None;
                         return Ok(());
                     }
@@ -472,13 +471,7 @@ impl HelixContain {
             }
         }
 
-        self.base.remove_from_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            expose_stealth_units,
-        )
+        self.base.remove_from_contain(obj_id, expose_stealth_units)
     }
 
     /// Check if this is an enclosing container for the given object
@@ -637,7 +630,12 @@ impl HelixContain {
                 .map(|payload_guard| self.is_valid_container_for(&*payload_guard, true))
                 .unwrap_or(false);
             if can_add {
-                if let Err(err) = self.add_to_contain(payload) {
+                let payload_id = payload
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                if let Err(err) = self.add_to_contain(payload_id) {
                     log::warn!(
                         "HelixContain::createPayload: failed to add payload {} to {}: {}",
                         template_name,
@@ -755,17 +753,11 @@ impl ContainModuleInterface for HelixContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.add_to_contain(obj).map_err(|e| e.to_string())
+        self.add_to_contain(object_id).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = match TheGameLogic::find_object_by_id(object_id) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
-        self.remove_from_contain(obj, false)
+        self.remove_from_contain(object_id, false)
             .map_err(|e| e.to_string())
     }
 
@@ -966,11 +958,22 @@ impl ContainerInterface for HelixContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(obj)
+        self.add_to_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(obj, false)
+        self.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            false,
+        )
     }
 
     fn get_usage(&self) -> (u32, u32) {
