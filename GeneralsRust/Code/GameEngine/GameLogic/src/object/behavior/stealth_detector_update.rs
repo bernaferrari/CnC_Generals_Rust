@@ -704,25 +704,24 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                 // Check if contained and whether we can detect while contained (C++ lines 139-162)
                 if let Some(contained_by_id) = obj.get_contained_by() {
                     // Get the container object
-                    if let Some(container) =
-                        crate::object::registry::OBJECT_REGISTRY.get_object(contained_by_id)
+                    if crate::object::registry::OBJECT_REGISTRY
+                        .with_object(contained_by_id, |_| ())
+                        .is_some()
                     {
-                        if let Ok(_container_obj) = container.read() {
-                            // Check if container has contain module
-                            // C++ lines 143-161 check if garrisonable or regular transport
-                            // For now, we assume we can check the container type
-                            //
-                            // If garrisonable (C++ lines 147-154)
-                            if !self.module_data.can_detect_while_garrisoned {
-                                // Can't detect while garrisoned
-                                return UpdateSleepTime::from_u32(self.module_data.update_rate);
-                            }
+                        // Check if container has contain module
+                        // C++ lines 143-161 check if garrisonable or regular transport
+                        // For now, we assume we can check the container type
+                        //
+                        // If garrisonable (C++ lines 147-154)
+                        if !self.module_data.can_detect_while_garrisoned {
+                            // Can't detect while garrisoned
+                            return UpdateSleepTime::from_u32(self.module_data.update_rate);
+                        }
 
-                            // If transported (C++ lines 156-160)
-                            if !self.module_data.can_detect_while_transported {
-                                // Can't detect while transported
-                                return UpdateSleepTime::from_u32(self.module_data.update_rate);
-                            }
+                        // If transported (C++ lines 156-160)
+                        if !self.module_data.can_detect_while_transported {
+                            // Can't detect while transported
+                            return UpdateSleepTime::from_u32(self.module_data.update_rate);
                         }
                     }
                 }

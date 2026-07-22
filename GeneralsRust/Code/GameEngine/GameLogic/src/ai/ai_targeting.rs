@@ -641,9 +641,10 @@ impl AITargeting {
             None
         };
 
-        let visibility = if let Some(attacker_arc) = OBJECT_REGISTRY.get_object(context.attacker_id) {
-            let attacker_guard = attacker_arc.read().map_err(|_| AiError::LockFailed)?;
-            if let Some(player_id) = attacker_guard.get_controlling_player_id() {
+        let visibility = match OBJECT_REGISTRY.with_object(context.attacker_id, |attacker_guard| {
+            attacker_guard.get_controlling_player_id()
+        }) {
+            Some(Some(player_id)) => {
                 if target_guard.is_visible_to_player(player_id) {
                     TargetVisibility::Visible
                 } else {
@@ -654,11 +655,8 @@ impl AITargeting {
                         ObjectShroudStatus::Clear => TargetVisibility::Visible,
                     }
                 }
-            } else {
-                TargetVisibility::Visible
             }
-        } else {
-            TargetVisibility::Visible
+            _ => TargetVisibility::Visible,
         };
 
         let target_info = TargetInfo {

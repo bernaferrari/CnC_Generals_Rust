@@ -448,13 +448,13 @@ impl CommandButtonHuntUpdate {
             .get_objects_in_range(&me_pos, scan_range)
             .into_iter()
             .filter_map(|id| {
-                let other_arc = OBJECT_REGISTRY.get_object(id)?;
-                let other = other_arc.read().ok()?;
-                let dist_sqr = ThePartitionManager::get_distance_squared(
-                    &object,
-                    &other,
-                    crate::common::FROM_BOUNDING_SPHERE_2D,
-                );
+                let dist_sqr = OBJECT_REGISTRY.with_object(id, |other| {
+                    ThePartitionManager::get_distance_squared(
+                        &object,
+                        other,
+                        crate::common::FROM_BOUNDING_SPHERE_2D,
+                    )
+                })?;
                 Some((id, dist_sqr))
             })
             .collect();
