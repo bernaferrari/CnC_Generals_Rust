@@ -371,24 +371,26 @@ impl PlayerEnergy {
     }
 
     pub fn add_power_bonus(&mut self, obj: ObjectID) {
-        if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(obj) {
-            if let Ok(object_guard) = object.read() {
-                let bonus = object_guard.get_template().get_energy_bonus();
-                if bonus != 0 {
-                    self.add_power_production(bonus);
-                }
+        if let Some(bonus) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj, |object_guard| {
+                object_guard.get_template().get_energy_bonus()
+            })
+        {
+            if bonus != 0 {
+                self.add_power_production(bonus);
             }
         }
         self.touch();
     }
 
     pub fn remove_power_bonus(&mut self, obj: ObjectID) {
-        if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(obj) {
-            if let Ok(object_guard) = object.read() {
-                let bonus = object_guard.get_template().get_energy_bonus();
-                if bonus != 0 {
-                    self.add_power_production(-bonus);
-                }
+        if let Some(bonus) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj, |object_guard| {
+                object_guard.get_template().get_energy_bonus()
+            })
+        {
+            if bonus != 0 {
+                self.add_power_production(-bonus);
             }
         }
     }
