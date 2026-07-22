@@ -46,7 +46,8 @@ use log::warn;
 
 /// Unified object wrapper that can hold any object type
 pub enum GameObjectInstance {
-    Unit(Arc<RwLock<Unit>>),
+    /// Owned by the factory registry (borrow via get_object / get_object_mut).
+    Unit(Unit),
     /// Owned by the factory registry (borrow via get_object_mut).
     Structure(Structure),
     /// Owned by the factory registry (borrow via get_object_mut).
@@ -69,10 +70,7 @@ impl GameObjectInstance {
     /// Get the base object reference
     pub fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
         match self {
-            GameObjectInstance::Unit(unit) => unit
-                .read()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .base_object(),
+            GameObjectInstance::Unit(unit) => unit.base_object(),
             GameObjectInstance::Structure(structure) => structure.base_object(),
             GameObjectInstance::SimpleObject(simple_object) => simple_object.base_object(),
             GameObjectInstance::BaseObject(object) => Some(object.clone()),
@@ -93,9 +91,7 @@ impl GameObjectInstance {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match self {
             GameObjectInstance::Unit(unit) => {
-                if let Ok(mut unit_guard) = unit.write() {
-                    unit_guard.update(delta_time)?;
-                }
+                unit.update(delta_time)?;
             }
             GameObjectInstance::Structure(structure) => {
                 structure.update(delta_time)?;
@@ -250,8 +246,7 @@ impl ObjectFactory {
         // Create appropriate specialized object
         let game_object = match object_type {
             ObjectType::Unit => {
-                let unit = Unit::new(base_object.clone(), &template)?;
-                let unit_arc = Arc::new(RwLock::new(unit));
+                let mut unit = Unit::new(base_object.clone(), &template)?;
 
                 if !flags.contains(ObjectCreationFlags::NO_AI) {
                     let needs_supply_ai = template.is_kind_of(KindOf::Harvester);
@@ -643,7 +638,6 @@ impl ObjectFactory {
                             .map(|data| data.base.clone())
                     });
 
-                    crate::object::unit::register_unit(object_id, &unit_arc);
                     let ai_update = Arc::new(Mutex::new(UnitAIUpdate::new(
                         object_id,
                         supply_ai,
@@ -673,7 +667,7 @@ impl ObjectFactory {
                     }
                 }
 
-                GameObjectInstance::Unit(unit_arc)
+                GameObjectInstance::Unit(unit)
             }
 
             ObjectType::Structure => {
