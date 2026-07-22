@@ -1093,9 +1093,10 @@ impl StealthUpdateController {
         let owned_objects = manager_guard.get_objects_owned_by_player(player_id);
         for object_id in owned_objects {
             if let Some(market_obj) = manager_guard.get_object(object_id) {
-                if let Ok(market_guard) = market_obj.read() {
+                let base_arc = market_obj.read().ok().map(|g| g.base());
+                if let Some(base_arc) = base_arc {
                     // Work with the base Object for template and status queries
-                    if let Ok(base) = market_guard.base.read() {
+                    if let Ok(base) = base_arc.read() {
                         // Heuristic: match template name to Black Market building
                         let template_name = base.get_template_name().to_ascii_lowercase();
                         let is_black_market = template_name.contains("blackmarket")

@@ -601,7 +601,8 @@ impl ScriptCondition for PlayerHasUnitsCondition {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            let Ok(base_guard) = obj_guard.base.read() else {
+            let __base_arc = obj_guard.base();
+            let Ok(base_guard) = __base_arc.read() else {
                 continue;
             };
             if base_guard.is_destroyed() {
@@ -691,7 +692,8 @@ impl ScriptCondition for PlayerHasBuildingsCondition {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            let Ok(base_guard) = obj_guard.base.read() else {
+            let __base_arc = obj_guard.base();
+            let Ok(base_guard) = __base_arc.read() else {
                 continue;
             };
             if base_guard.is_destroyed() {
@@ -945,7 +947,8 @@ impl ScriptCondition for ObjectInAreaCondition {
         let Ok(obj_guard) = obj_arc.read() else {
             return Ok(false);
         };
-        let Ok(base_guard) = obj_guard.base.read() else {
+        let __base_arc = obj_guard.base();
+        let Ok(base_guard) = __base_arc.read() else {
             return Ok(false);
         };
         if base_guard.is_destroyed() {
@@ -1019,7 +1022,9 @@ impl ScriptCondition for ObjectNearObjectCondition {
         let (Ok(obj1), Ok(obj2)) = (obj1_arc.read(), obj2_arc.read()) else {
             return Ok(false);
         };
-        let (Ok(base1), Ok(base2)) = (obj1.base.read(), obj2.base.read()) else {
+        let __b1 = obj1.base();
+        let __b2 = obj2.base();
+        let (Ok(base1), Ok(base2)) = (__b1.read(), __b2.read()) else {
             return Ok(false);
         };
         if base1.is_destroyed() || base2.is_destroyed() {
@@ -1144,7 +1149,8 @@ impl ScriptCondition for AreaClearCondition {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            let Ok(base_guard) = obj_guard.base.read() else {
+            let __base_arc = obj_guard.base();
+            let Ok(base_guard) = __base_arc.read() else {
                 continue;
             };
             if base_guard.is_destroyed() {
@@ -1244,7 +1250,8 @@ impl ScriptCondition for AreaControlledByPlayerCondition {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            let Ok(base_guard) = obj_guard.base.read() else {
+            let __base_arc = obj_guard.base();
+            let Ok(base_guard) = __base_arc.read() else {
                 continue;
             };
             if base_guard.is_destroyed() {
@@ -1336,7 +1343,8 @@ impl ScriptCondition for UnitsInAreaCondition {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            let Ok(base_guard) = obj_guard.base.read() else {
+            let __base_arc = obj_guard.base();
+            let Ok(base_guard) = __base_arc.read() else {
                 continue;
             };
             if base_guard.is_destroyed() {
@@ -2532,15 +2540,20 @@ impl ScriptCondition for StructureBuiltCondition {
             let owned_objects = manager.get_objects_owned_by_player(player as u32);
             for obj_id in owned_objects {
                 if let Some(obj_arc) = manager.get_object(obj_id) {
-                    if let Ok(obj) = obj_arc.read() {
-                        if let Ok(base) = obj.base.read() {
+                    let (template_name, base_arc) = match obj_arc.read() {
+                        Ok(obj) => (
+                            obj.template.as_ref().map(|t| t.get_name().to_string()),
+                            Some(obj.base()),
+                        ),
+                        Err(_) => (None, None),
+                    };
+                    if let (Some(template_name), Some(base_arc)) = (template_name, base_arc) {
+                        if let Ok(base) = base_arc.read() {
                             // Check if it's a structure and matches the building type
-                            if let Some(template) = &obj.template {
-                                if template.get_name().eq_ignore_ascii_case(&building_type) {
-                                    use crate::common::KindOf;
-                                    if base.is_kind_of(KindOf::Structure) {
-                                        return Ok(true);
-                                    }
+                            if template_name.eq_ignore_ascii_case(&building_type) {
+                                use crate::common::KindOf;
+                                if base.is_kind_of(KindOf::Structure) {
+                                    return Ok(true);
                                 }
                             }
                         }

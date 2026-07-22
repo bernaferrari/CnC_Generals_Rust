@@ -2061,7 +2061,7 @@ impl Player {
             for obj_id in object_ids {
                 if let Some(obj_arc) = manager.get_object(obj_id) {
                     if let Ok(obj_instance) = obj_arc.read() {
-                        objects.push(obj_instance.base.clone());
+                        objects.push(obj_instance.base());
                     }
                 }
             }
@@ -2133,8 +2133,9 @@ impl Player {
             let object_ids = manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
             for obj_id in object_ids {
                 if let Some(obj_arc) = manager.get_object(obj_id) {
-                    if let Ok(obj_instance) = obj_arc.read() {
-                        if let Ok(base_obj) = obj_instance.base.read() {
+                    let base_arc = obj_arc.read().ok().map(|g| g.base());
+                    if let Some(base_arc) = base_arc {
+                        if let Ok(base_obj) = base_arc.read() {
                             if base_obj.is_kind_of(KindOf::Structure)
                                 && base_obj.is_kind_of(KindOf::CountsForVictory)
                             {
@@ -2499,7 +2500,8 @@ impl Player {
                 let Ok(obj_instance) = obj_arc.write() else {
                     continue;
                 };
-                let Ok(mut base_obj) = obj_instance.base.write() else {
+                let __base_arc = obj_instance.base();
+                let Ok(mut base_obj) = __base_arc.write() else {
                     continue;
                 };
                 if base_obj.is_kind_of(KindOf::Powered) {
@@ -2863,7 +2865,7 @@ impl Player {
                     // Call the function with the object
                     // Note: We need to get the GameObjectInstance's base Object
                     if let Ok(obj_instance) = obj_arc.read() {
-                        let base_obj = obj_instance.base.clone();
+                        let base_obj = obj_instance.base();
                         func(base_obj)?;
                     }
                 }
@@ -5259,7 +5261,7 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
                     if let Some(obj_arc) = manager.get_object(obj_id) {
                         // Call the function with the object
                         if let Ok(obj_instance) = obj_arc.read() {
-                            let base_obj = obj_instance.base.clone();
+                            let base_obj = obj_instance.base();
                             func(base_obj)?;
                         }
                     }

@@ -1346,7 +1346,8 @@ impl AISkirmishPlayer {
                 let Ok(obj_instance) = obj_arc.read() else {
                     continue;
                 };
-                let Ok(base_obj) = obj_instance.base.read() else {
+                let __base_arc = obj_instance.base();
+                let Ok(base_obj) = __base_arc.read() else {
                     continue;
                 };
                 if base_obj.is_kind_of(KindOf::CommandCenter) {
@@ -1718,7 +1719,8 @@ impl AISkirmishPlayer {
             let Ok(obj_instance) = obj_arc.read() else {
                 continue;
             };
-            let Ok(base_obj) = obj_instance.base.read() else {
+            let __base_arc = obj_instance.base();
+            let Ok(base_obj) = __base_arc.read() else {
                 continue;
             };
             if !base_obj.is_kind_of(KindOf::Structure) {

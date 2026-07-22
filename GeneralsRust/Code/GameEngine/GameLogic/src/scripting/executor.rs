@@ -14778,7 +14778,7 @@ impl ScriptConditionEvaluator {
                             return false;
                         }
                         let owner = obj_guard
-                            .base
+                            .base()
                             .read()
                             .ok()
                             .and_then(|base| base.get_controlling_player_id())
@@ -18969,7 +18969,8 @@ mod tests {
 
         {
             let instance = attacker.write().unwrap();
-            let mut base = instance.base.write().unwrap();
+            let __base_arc = instance.base();
+            let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
@@ -19025,7 +19026,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            attacker.read().unwrap().base.read().unwrap().get_group_id(),
+            attacker.read().unwrap().base().read().unwrap().get_group_id(),
             None
         );
     }
@@ -19073,7 +19074,7 @@ mod tests {
         {
             let instance = attacker.write().unwrap();
             instance
-                .base
+                .base()
                 .write()
                 .unwrap()
                 .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
@@ -19163,7 +19164,8 @@ mod tests {
 
         {
             let instance = attacker.write().unwrap();
-            let mut base = instance.base.write().unwrap();
+            let __base_arc = instance.base();
+            let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
@@ -19211,7 +19213,7 @@ mod tests {
             )
         );
         assert_eq!(
-            attacker.read().unwrap().base.read().unwrap().get_group_id(),
+            attacker.read().unwrap().base().read().unwrap().get_group_id(),
             None
         );
     }
@@ -19250,7 +19252,8 @@ mod tests {
 
         {
             let instance = attacker.write().unwrap();
-            let mut base = instance.base.write().unwrap();
+            let __base_arc = instance.base();
+            let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
@@ -19298,7 +19301,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            attacker.read().unwrap().base.read().unwrap().get_group_id(),
+            attacker.read().unwrap().base().read().unwrap().get_group_id(),
             None
         );
     }
@@ -19338,7 +19341,7 @@ mod tests {
         {
             let instance = member.write().unwrap();
             instance
-                .base
+                .base()
                 .write()
                 .unwrap()
                 .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
@@ -19406,7 +19409,8 @@ mod tests {
 
         {
             let instance = hunter.write().unwrap();
-            let mut base = instance.base.write().unwrap();
+            let __base_arc = instance.base();
+            let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
@@ -19448,7 +19452,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            hunter.read().unwrap().base.read().unwrap().get_group_id(),
+            hunter.read().unwrap().base().read().unwrap().get_group_id(),
             Some(95)
         );
     }
@@ -19474,7 +19478,7 @@ mod tests {
         {
             let instance = stopper.write().unwrap();
             instance
-                .base
+                .base()
                 .write()
                 .unwrap()
                 .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
@@ -19537,7 +19541,8 @@ mod tests {
 
         {
             let instance = guard.write().unwrap();
-            let mut base = instance.base.write().unwrap();
+            let __base_arc = instance.base();
+            let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
@@ -19579,7 +19584,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            guard.read().unwrap().base.read().unwrap().get_group_id(),
+            guard.read().unwrap().base().read().unwrap().get_group_id(),
             None
         );
     }
@@ -19618,7 +19623,7 @@ mod tests {
         {
             let instance = member.write().unwrap();
             instance
-                .base
+                .base()
                 .write()
                 .unwrap()
                 .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
@@ -19700,7 +19705,7 @@ mod tests {
         {
             let instance = member.write().unwrap();
             instance
-                .base
+                .base()
                 .write()
                 .unwrap()
                 .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
@@ -19787,7 +19792,7 @@ mod tests {
         {
             let instance = member.write().unwrap();
             instance
-                .base
+                .base()
                 .write()
                 .unwrap()
                 .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
@@ -19952,7 +19957,7 @@ mod tests {
         {
             let instance = member.write().unwrap();
             instance
-                .base
+                .base()
                 .write()
                 .unwrap()
                 .set_ai_update_interface(Some(Arc::new(Mutex::new(RecruitableRecordingAi {
@@ -19997,7 +20002,7 @@ mod tests {
             &member
                 .read()
                 .unwrap()
-                .base
+                .base()
                 .read()
                 .unwrap()
                 .get_team()
@@ -20045,7 +20050,7 @@ mod tests {
         {
             let instance = member.write().unwrap();
             instance
-                .base
+                .base()
                 .write()
                 .unwrap()
                 .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
