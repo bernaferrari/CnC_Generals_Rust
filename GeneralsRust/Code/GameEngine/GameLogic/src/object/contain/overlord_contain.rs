@@ -436,67 +436,53 @@ impl OverlordContain {
     }
 
     /// Add object to contain list.
-    pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+    pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
         if let Some(redirected) = self.get_redirected_contain() {
             if let Ok(mut guard) = redirected.lock() {
-                if let Ok(obj_guard) = obj.read() {
-                    guard.add_to_contain_list(&*obj_guard)?;
+                if let Some(obj) = TheGameLogic::find_object_by_id(obj_id) {
+                    if let Ok(obj_guard) = obj.read() {
+                        guard.add_to_contain_list(&*obj_guard)?;
+                    }
                 }
             }
             return Ok(());
         }
 
-        self.base.add_to_contain_list(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
+        self.base.add_to_contain_list(obj_id)
     }
 
     /// Add object to containment.
-    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+    pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
         if let Some(redirected) = self.get_redirected_contain() {
             if let Ok(mut guard) = redirected.lock() {
-                if let Ok(obj_guard) = obj.read() {
-                    let _ = guard.add_to_contain(&*obj_guard);
+                if let Some(obj) = TheGameLogic::find_object_by_id(obj_id) {
+                    if let Ok(obj_guard) = obj.read() {
+                        let _ = guard.add_to_contain(&*obj_guard);
+                    }
                 }
             }
             return Ok(());
         }
 
-        self.base.add_to_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
+        self.base.add_to_contain(obj_id)
     }
 
     /// Remove object from containment.
     pub fn remove_from_contain(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
         if let Some(redirected) = self.get_redirected_contain() {
             if let Ok(mut guard) = redirected.lock() {
-                if let Ok(obj_guard) = obj.read() {
-                    guard.release_object(obj_guard.get_id()).map_err(
-                        |e: String| -> Box<dyn std::error::Error + Send + Sync> { e.into() },
-                    )?;
-                }
+                guard.release_object(obj_id).map_err(
+                    |e: String| -> Box<dyn std::error::Error + Send + Sync> { e.into() },
+                )?;
             }
             return Ok(());
         }
 
-        self.base.remove_from_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            expose_stealth_units,
-        )
+        self.base.remove_from_contain(obj_id, expose_stealth_units)
     }
 
     /// Remove all contained objects.
@@ -510,7 +496,7 @@ impl OverlordContain {
 
             for obj_id in ids {
                 if let Some(obj) = TheGameLogic::find_object_by_id(obj_id) {
-                    self.remove_from_contain(obj, expose_stealth_units)?;
+                    self.remove_from_contain(obj_id, expose_stealth_units)?;
                 }
             }
             return Ok(());
@@ -930,9 +916,7 @@ impl ContainModuleInterface for OverlordContain {
         obj: &Object,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let object_id = obj.get_id();
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        OverlordContain::add_to_contain_list(self, obj).map_err(|e| e.into())
+        OverlordContain::add_to_contain_list(self, object_id).map_err(|e| e.into())
     }
 
     fn enable_load_sounds(
@@ -1058,11 +1042,22 @@ impl ContainerInterface for OverlordContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(obj)
+        self.add_to_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(obj, false)
+        self.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            false,
+        )
     }
 
     fn get_usage(&self) -> (u32, u32) {
