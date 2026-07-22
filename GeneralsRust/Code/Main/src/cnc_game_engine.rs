@@ -3744,6 +3744,53 @@ impl CnCGameEngine {
                             };
                         }
                     }
+                    // Host residual: CreateFormation needs ≥2 mobiles. If the map only
+                    // left one friendly (or presentation still has a single local mobile),
+                    // spawn buddy infantry beside the anchor so the command path is honest.
+                    if mobile_sel.len() < 2 {
+                        if let Some(team) = team {
+                            let anchor = mobile_sel
+                                .first()
+                                .and_then(|id| self.game_logic.get_object(*id).map(|o| o.position))
+                                .or_else(|| {
+                                    self.game_logic.get_objects().iter().find_map(|(_, o)| {
+                                        if o.team == team && o.is_alive() {
+                                            Some(o.position)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                })
+                                .unwrap_or(glam::Vec3::ZERO);
+                            let template = mobile_sel
+                                .first()
+                                .and_then(|id| {
+                                    self.game_logic
+                                        .get_object(*id)
+                                        .map(|o| o.template_name.clone())
+                                })
+                                .filter(|n| !n.is_empty())
+                                .unwrap_or_else(|| "AmericaInfantryRanger".to_string());
+                            while mobile_sel.len() < 2 {
+                                let n = mobile_sel.len() as f32 + 1.0;
+                                let pos = anchor + glam::Vec3::new(24.0 * n, 0.0, 0.0);
+                                let spawned = self
+                                    .game_logic
+                                    .create_object(&template, team, pos)
+                                    .or_else(|| {
+                                        self.game_logic.create_object(
+                                            "AmericaInfantryRanger",
+                                            team,
+                                            pos,
+                                        )
+                                    });
+                                match spawned {
+                                    Some(id) => mobile_sel.push(id),
+                                    None => break,
+                                }
+                            }
+                        }
+                    }
                     if mobile_sel.len() < 2 {
                         self.runtime_host_last_gameplay_cmd = "formation_fail_need_two".into();
                     } else {
