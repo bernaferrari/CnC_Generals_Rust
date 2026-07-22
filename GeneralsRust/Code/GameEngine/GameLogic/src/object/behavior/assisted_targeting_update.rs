@@ -101,14 +101,10 @@ impl AssistedTargetingUpdate {
         from_id: ObjectID,
         to_id: ObjectID,
     ) {
-        let from_pos = if let Some(from_arc) = OBJECT_REGISTRY.get_object(from_id) {
-            *from_arc.read().unwrap().get_position()
-        } else {
+        let Some(from_pos) = OBJECT_REGISTRY.with_object(from_id, |g| *g.get_position()) else {
             return;
         };
-        let to_pos = if let Some(to_arc) = OBJECT_REGISTRY.get_object(to_id) {
-            *to_arc.read().unwrap().get_position()
-        } else {
+        let Some(to_pos) = OBJECT_REGISTRY.with_object(to_id, |g| *g.get_position()) else {
             return;
         };
 

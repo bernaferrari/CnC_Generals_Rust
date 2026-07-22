@@ -128,24 +128,13 @@ impl UpgradeModuleInterface for WeaponBonusUpgrade {
         // Matches C++ WeaponBonusUpgrade::upgradeImplementation from WeaponBonusUpgrade.cpp lines 62-69
         use crate::object::registry::OBJECT_REGISTRY;
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
+            // C++ code: obj->setWeaponBonusCondition(WEAPONBONUSCONDITION_PLAYER_UPGRADE);
+            object_guard.set_weapon_bonus_condition(WeaponBonusConditionType::PlayerUpgrade);
+        }) else {
             log::warn!("WeaponBonusUpgrade: Object {} not found", self.object_id);
             return false;
         };
-
-        let mut object_guard = match object.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "WeaponBonusUpgrade: Failed to lock object {}",
-                    self.object_id
-                );
-                return false;
-            }
-        };
-
-        // C++ code: obj->setWeaponBonusCondition(WEAPONBONUSCONDITION_PLAYER_UPGRADE);
-        object_guard.set_weapon_bonus_condition(WeaponBonusConditionType::PlayerUpgrade);
 
         self.applied = true;
         true

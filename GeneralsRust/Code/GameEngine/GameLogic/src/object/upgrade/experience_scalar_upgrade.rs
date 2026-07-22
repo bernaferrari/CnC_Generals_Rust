@@ -134,34 +134,24 @@ impl UpgradeModuleInterface for ExperienceScalarUpgrade {
         }
         use crate::object::registry::OBJECT_REGISTRY;
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let add = self.data.add_xp_scalar();
+        let Some(found) = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+            let Some(tracker) = object_guard.get_experience_tracker() else {
+                return false;
+            };
+            if let Ok(mut tracker_guard) = tracker.lock() {
+                let current_scalar = tracker_guard.get_experience_scalar();
+                tracker_guard.set_experience_scalar(current_scalar + add);
+            }
+            true
+        }) else {
             log::warn!(
                 "ExperienceScalarUpgrade: Object {} not found",
                 self.object_id
             );
             return false;
         };
-
-        let object_guard = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "ExperienceScalarUpgrade: Failed to lock object {}",
-                    self.object_id
-                );
-                return false;
-            }
-        };
-
-        let Some(tracker) = object_guard.get_experience_tracker() else {
-            self.applied = true;
-            return true;
-        };
-
-        if let Ok(mut tracker_guard) = tracker.lock() {
-            let current_scalar = tracker_guard.get_experience_scalar();
-            tracker_guard.set_experience_scalar(current_scalar + self.data.add_xp_scalar());
-        }
+        let _ = found;
 
         self.applied = true;
         true

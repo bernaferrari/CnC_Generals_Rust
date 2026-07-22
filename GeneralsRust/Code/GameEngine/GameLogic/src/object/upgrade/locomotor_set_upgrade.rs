@@ -126,27 +126,16 @@ impl UpgradeModuleInterface for LocomotorSetUpgrade {
         }
         use crate::object::registry::OBJECT_REGISTRY;
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let Some(()) = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+            if let Some(ai) = object_guard.get_ai_update_interface() {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    let _ = ai_guard.set_locomotor_upgrade(true);
+                }
+            }
+        }) else {
             log::warn!("LocomotorSetUpgrade: Object {} not found", self.object_id);
             return false;
         };
-
-        let object_guard = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "LocomotorSetUpgrade: Failed to lock object {}",
-                    self.object_id
-                );
-                return false;
-            }
-        };
-
-        if let Some(ai) = object_guard.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let _ = ai_guard.set_locomotor_upgrade(true);
-            }
-        }
 
         self.applied = true;
         true

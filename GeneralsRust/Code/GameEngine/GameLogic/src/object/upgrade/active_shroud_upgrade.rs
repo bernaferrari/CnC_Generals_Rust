@@ -146,21 +146,18 @@ impl ActiveShroudUpgrade {
     }
 
     fn apply_shroud_upgrade(&mut self) -> Result<(), String> {
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return Err(format!(
+        let range = self.data.new_shroud_range();
+        let object_id = self.object_id;
+        match OBJECT_REGISTRY.with_object_mut(self.object_id, |object| {
+            object.set_shroud_range(range);
+            object.handle_partition_cell_maintenance();
+        }) {
+            Some(()) => Ok(()),
+            None => Err(format!(
                 "ActiveShroudUpgrade could not find object {} in registry",
-                self.object_id
-            ));
-        };
-
-        let mut object = object
-            .write()
-            .map_err(|_| "ActiveShroudUpgrade failed to lock object for writing".to_string())?;
-
-        object.set_shroud_range(self.data.new_shroud_range());
-        object.handle_partition_cell_maintenance();
-
-        Ok(())
+                object_id
+            )),
+        }
     }
 }
 

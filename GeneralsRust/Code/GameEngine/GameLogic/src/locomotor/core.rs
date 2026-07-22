@@ -2542,21 +2542,28 @@ impl Locomotor {
         // Create path request
         let mut move_allies = false;
         let mut ignore_obstacle_id = None;
-        let unit_size = if let Some(obj) = OBJECT_REGISTRY.get_object(requester) {
-            if let Ok(guard) = obj.read() {
+        let unit_size = if let Some((radius, can_path, ignored)) =
+            OBJECT_REGISTRY.with_object(requester, |guard| {
+                let mut can_path = false;
+                let mut ignored = None;
                 if let Some(ai) = guard.get_ai_update_interface() {
                     if let Ok(ai_guard) = ai.lock() {
-                        move_allies = ai_guard.get_can_path_through_units();
-                        let ignored = ai_guard.get_ignored_obstacle_id();
-                        if ignored != crate::common::INVALID_ID {
-                            ignore_obstacle_id = Some(ignored);
+                        can_path = ai_guard.get_can_path_through_units();
+                        let ignored_id = ai_guard.get_ignored_obstacle_id();
+                        if ignored_id != crate::common::INVALID_ID {
+                            ignored = Some(ignored_id);
                         }
                     }
                 }
-                guard.get_geometry_info().get_major_radius()
-            } else {
-                self.template.close_enough_dist
-            }
+                (
+                    guard.get_geometry_info().get_major_radius(),
+                    can_path,
+                    ignored,
+                )
+            }) {
+            move_allies = can_path;
+            ignore_obstacle_id = ignored;
+            radius
         } else {
             self.template.close_enough_dist
         };
@@ -2660,10 +2667,10 @@ impl Locomotor {
         mut capabilities: MovementCapabilities,
         requester: ObjectID,
     ) -> MovementCapabilities {
-        if let Some(obj) = OBJECT_REGISTRY.get_object(requester) {
-            if let Ok(guard) = obj.read() {
-                capabilities.crusher = guard.get_crusher_level() > 0;
-            }
+        if let Some(is_crusher) =
+            OBJECT_REGISTRY.with_object(requester, |guard| guard.get_crusher_level() > 0)
+        {
+            capabilities.crusher = is_crusher;
         }
         capabilities
     }

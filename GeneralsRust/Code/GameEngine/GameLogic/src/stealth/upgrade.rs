@@ -149,28 +149,32 @@ impl StealthUpgrade {
             return Ok(()); // Already applied
         }
 
-        let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return Err("Object not found".to_string());
-        };
-
-        let mut guard = obj.write().map_err(|_| "Failed to lock object")?;
-
-        match self.data.upgrade_type() {
-            StealthUpgradeType::GrantStealth => {
-                self.grant_stealth(&mut *guard)?;
-            }
-            StealthUpgradeType::ImproveConcealment => {
-                self.improve_concealment(&mut *guard)?;
-            }
-            StealthUpgradeType::ImproveDetection => {
-                self.improve_detection(&mut *guard)?;
-            }
-            StealthUpgradeType::AllowStealthWhileMoving => {
-                self.allow_stealth_while_moving(&mut *guard)?;
-            }
-            StealthUpgradeType::AllowStealthWhileAttacking => {
-                self.allow_stealth_while_attacking(&mut *guard)?;
-            }
+        let upgrade_type = self.data.upgrade_type();
+        let applied =
+            OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| -> Result<(), String> {
+                match upgrade_type {
+                    StealthUpgradeType::GrantStealth => {
+                        self.grant_stealth(guard)?;
+                    }
+                    StealthUpgradeType::ImproveConcealment => {
+                        self.improve_concealment(guard)?;
+                    }
+                    StealthUpgradeType::ImproveDetection => {
+                        self.improve_detection(guard)?;
+                    }
+                    StealthUpgradeType::AllowStealthWhileMoving => {
+                        self.allow_stealth_while_moving(guard)?;
+                    }
+                    StealthUpgradeType::AllowStealthWhileAttacking => {
+                        self.allow_stealth_while_attacking(guard)?;
+                    }
+                }
+                Ok(())
+            });
+        match applied {
+            Some(Ok(())) => {}
+            Some(Err(e)) => return Err(e),
+            None => return Err("Object not found".to_string()),
         }
 
         self.is_applied = true;
@@ -192,40 +196,42 @@ impl StealthUpgrade {
         // Reverse the changes made by apply_upgrade
         // Matches C++ UpgradeModule.cpp:191-201 resetUpgrade() logic
 
-        let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return Err("Object not found".to_string());
-        };
+        let upgrade_type = self.data.upgrade_type();
+        let detection_bonus = self.data.detection_range_bonus();
+        let object_id = self.object_id;
+        let removed = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            match upgrade_type {
+                StealthUpgradeType::GrantStealth => {
+                    // Remove CAN_STEALTH status
+                    guard.set_status(ObjectStatusMaskType::CAN_STEALTH, false);
 
-        let mut guard = obj.write().map_err(|_| "Failed to lock object")?;
-
-        match self.data.upgrade_type() {
-            StealthUpgradeType::GrantStealth => {
-                // Remove CAN_STEALTH status
-                guard.set_status(ObjectStatusMaskType::CAN_STEALTH, false);
-
-                // Deactivate stealth if active
-                if let Some(stealth_module) = guard.get_stealth() {
-                    if let Ok(mut stealth_guard) = stealth_module.lock() {
-                        // Force reveal by attempting to end stealth
-                        let _ = stealth_guard.end_stealth();
+                    // Deactivate stealth if active
+                    if let Some(stealth_module) = guard.get_stealth() {
+                        if let Ok(mut stealth_guard) = stealth_module.lock() {
+                            // Force reveal by attempting to end stealth
+                            let _ = stealth_guard.end_stealth();
+                        }
                     }
                 }
-            }
-            StealthUpgradeType::ImproveConcealment => {
-                // Reversal handled by upgrade system tracking
-            }
-            StealthUpgradeType::ImproveDetection => {
-                // Revert detection range bonus
-                // Note: Detection range is handled by module data and queried by detection system
-                // No direct state modification needed - removal of upgrade removes the bonus
-                if self.data.detection_range_bonus() > 0.0 {
-                    debug!("Reverted detection bonus for object {}", self.object_id);
+                StealthUpgradeType::ImproveConcealment => {
+                    // Reversal handled by upgrade system tracking
+                }
+                StealthUpgradeType::ImproveDetection => {
+                    // Revert detection range bonus
+                    // Note: Detection range is handled by module data and queried by detection system
+                    // No direct state modification needed - removal of upgrade removes the bonus
+                    if detection_bonus > 0.0 {
+                        debug!("Reverted detection bonus for object {}", object_id);
+                    }
+                }
+                StealthUpgradeType::AllowStealthWhileMoving
+                | StealthUpgradeType::AllowStealthWhileAttacking => {
+                    // Reversal handled by upgrade system tracking
                 }
             }
-            StealthUpgradeType::AllowStealthWhileMoving
-            | StealthUpgradeType::AllowStealthWhileAttacking => {
-                // Reversal handled by upgrade system tracking
-            }
+        });
+        if removed.is_none() {
+            return Err("Object not found".to_string());
         }
 
         self.is_applied = false;

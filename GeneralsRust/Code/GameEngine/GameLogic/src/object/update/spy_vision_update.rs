@@ -168,16 +168,14 @@ impl SpyVisionController {
     fn do_activation_work_for_current_owner(&mut self, setting: bool) {
         self.currently_active = setting;
 
-        let Some(owner_obj_arc) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let Some(spying_player_id) = OBJECT_REGISTRY
+            .with_object(self.object_id, |owner_obj_guard| {
+                owner_obj_guard.get_controlling_player_id()
+            })
+            .flatten()
+        else {
             return;
         };
-        let Ok(owner_obj_guard) = owner_obj_arc.read() else {
-            return;
-        };
-        let Some(spying_player_id) = owner_obj_guard.get_controlling_player_id() else {
-            return;
-        };
-        drop(owner_obj_guard);
 
         let Ok(list_guard) = player_list().read() else {
             return;
@@ -343,19 +341,20 @@ impl SpyVisionUpdate {
             return;
         }
 
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return;
-        };
-        let Ok(mut obj_guard) = obj_arc.write() else {
-            return;
-        };
-        let upgrade_mask = self.build_upgrade_mask(&obj_guard);
-        if self.upgrade_mux.would_upgrade(upgrade_mask) {
-            self.upgrade_mux.data.perform_upgrade_fx(&mut obj_guard);
-            self.upgrade_mux
-                .data
-                .process_upgrade_removal(&mut obj_guard);
-            self.activate_spy_vision(self.data.self_powered_duration);
+        let duration = self.data.self_powered_duration;
+        let mux_data = self.upgrade_mux.data.clone();
+        let would = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj_guard| {
+            let upgrade_mask = self.build_upgrade_mask(obj_guard);
+            if self.upgrade_mux.would_upgrade(upgrade_mask) {
+                mux_data.perform_upgrade_fx(obj_guard);
+                mux_data.process_upgrade_removal(obj_guard);
+                true
+            } else {
+                false
+            }
+        });
+        if would == Some(true) {
+            self.activate_spy_vision(duration);
             self.upgrade_mux.set_upgrade_executed(true);
         }
     }
