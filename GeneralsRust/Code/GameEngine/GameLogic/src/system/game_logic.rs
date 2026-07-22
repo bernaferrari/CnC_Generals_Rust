@@ -3669,10 +3669,13 @@ impl GameLogic {
     }
 
     /// Get the first object (for iteration)
+    pub fn get_first_object_id(&self) -> Option<ObjectID> {
+        self.all_objects.first().copied()
+    }
+
     pub fn get_first_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.all_objects
-            .first()
-            .and_then(|id| self.objects.get(id).cloned())
+        self.get_first_object_id()
+            .and_then(|id| self.objects.get(&id).cloned())
     }
 
     /// Stable object IDs in list order (no Arc retention).
