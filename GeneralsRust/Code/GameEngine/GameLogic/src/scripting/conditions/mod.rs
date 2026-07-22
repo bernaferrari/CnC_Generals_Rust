@@ -6238,24 +6238,20 @@ impl ScriptCondition for UnitEmptiedCondition {
             None => return Ok(false),
         };
 
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-
-        let obj_id = obj.get_id();
-        let num_peeps = if let Some(contain_arc) = obj.get_contain() {
-            if let Ok(contain_guard) = contain_arc.lock() {
-                contain_guard.get_contained_count() as i32
+        let Some((obj_id, num_peeps)) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            let obj_id = obj.get_id();
+            let num_peeps = if let Some(contain_arc) = obj.get_contain() {
+                if let Ok(contain_guard) = contain_arc.lock() {
+                    contain_guard.get_contained_count() as i32
+                } else {
+                    0
+                }
             } else {
                 0
-            }
-        } else {
-            0
+            };
+            (obj_id, num_peeps)
+        }) else {
+            return Ok(false);
         };
 
         let frame_num = TheGameLogic::get_frame();
@@ -6583,21 +6579,15 @@ impl ScriptCondition for UnitHealthCondition {
             GameLogicError::Configuration(format!("Unit '{}' not found", unit_name))
         })?;
 
-        let obj_arc = OBJECT_REGISTRY.get_object(object_id).ok_or_else(|| {
-            GameLogicError::Configuration(format!(
-                "Unit '{}' (id={}) not in registry",
-                unit_name, object_id
-            ))
-        })?;
-
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object '{}': {}", unit_name, e))
-        })?;
-
-        // Get body module
-        let body = obj.get_body_module().ok_or_else(|| {
-            GameLogicError::Configuration(format!("Unit '{}' has no body module", unit_name))
-        })?;
+        let body = OBJECT_REGISTRY
+            .with_object(object_id, |obj| obj.get_body_module())
+            .flatten()
+            .ok_or_else(|| {
+                GameLogicError::Configuration(format!(
+                    "Unit '{}' (id={}) missing or has no body module",
+                    unit_name, object_id
+                ))
+            })?;
 
         let body_guard = body
             .lock()
@@ -6675,18 +6665,18 @@ impl ScriptCondition for EnemySightedCondition {
             None => return Ok(false),
         };
 
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
+        let Some((unit_pos, vision_range, source_player_arc)) =
+            OBJECT_REGISTRY.with_object(object_id, |obj| {
+                // Get the unit's position and vision range
+                (
+                    *obj.get_position(),
+                    obj.get_vision_range(),
+                    obj.get_controlling_player(),
+                )
+            })
+        else {
+            return Ok(false);
         };
-
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object '{}': {}", unit_name, e))
-        })?;
-
-        // Get the unit's position and vision range
-        let unit_pos = obj.get_position().clone();
-        let vision_range = obj.get_vision_range();
 
         // Get objects in range via partition manager
         let objects_in_range = match ThePartitionManager::get() {
@@ -6694,33 +6684,23 @@ impl ScriptCondition for EnemySightedCondition {
             None => Vec::new(),
         };
 
-        // Get source player (the one who owns the sighting unit) for relationship check
-        let source_player_arc = obj.get_controlling_player();
-
         for candidate_id in objects_in_range {
             if candidate_id == object_id {
                 continue; // Skip self
             }
 
-            let candidate_arc = match OBJECT_REGISTRY.get_object(candidate_id) {
-                Some(arc) => arc,
-                None => continue,
-            };
-
-            let candidate = match candidate_arc.read() {
-                Ok(g) => g,
-                Err(_) => continue,
-            };
-
-            // Must be alive
-            if !candidate.is_alive() {
+            let Some(candidate_player_id) = OBJECT_REGISTRY
+                .with_object(candidate_id, |candidate| {
+                    // Must be alive
+                    if !candidate.is_alive() {
+                        return None;
+                    }
+                    // Check if candidate belongs to the target player
+                    candidate.get_controlling_player_id().map(|id| id as i32)
+                })
+                .flatten()
+            else {
                 continue;
-            }
-
-            // Check if candidate belongs to the target player
-            let candidate_player_id = match candidate.get_controlling_player_id() {
-                Some(id) => id as i32,
-                None => continue,
             };
 
             if candidate_player_id != player_id {

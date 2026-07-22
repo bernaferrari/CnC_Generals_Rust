@@ -108,38 +108,28 @@ impl DrawModule for W3DOverlordTruckDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         self.base.do_draw_module(transform_mtx);
 
-        let Some(owner) = self
-            .owner_id
-            .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        let Some(((tint, tint_status), rider_id)) = self.owner_id.and_then(|id| {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(id, |owner_guard| {
+                    let tint = owner_guard
+                        .get_drawable()
+                        .as_ref()
+                        .and_then(|d| d.read().ok())
+                        .map(|g| (g.get_tint_color(), g.get_tint_status()))
+                        .unwrap_or((Color::white(), TintStatus::NONE));
+                    let rider_id = owner_guard.get_contain().and_then(|contain| {
+                        contain.lock().ok().and_then(|cg| cg.friend_get_rider())
+                    })?;
+                    Some((tint, rider_id))
+                })
+                .flatten()
+        }) else {
+            return;
+        };
+        let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(rider_id, |rider_guard| rider_guard.get_drawable())
+            .flatten()
         else {
-            return;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-        let (tint, tint_status) = owner_guard
-            .get_drawable()
-            .as_ref()
-            .and_then(|d| d.read().ok())
-            .map(|g| (g.get_tint_color(), g.get_tint_status()))
-            .unwrap_or((Color::white(), TintStatus::NONE));
-        let Some(contain) = owner_guard.get_contain() else {
-            return;
-        };
-        let Ok(contain_guard) = contain.lock() else {
-            return;
-        };
-        let Some(rider_id) = contain_guard.friend_get_rider() else {
-            return;
-        };
-        drop(contain_guard);
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
-            return;
-        };
-        let Ok(rider_guard) = rider.read() else {
-            return;
-        };
-        let Some(drawable) = rider_guard.get_drawable() else {
             return;
         };
         let drawable = drawable.clone();
@@ -168,35 +158,23 @@ impl DrawModule for W3DOverlordTruckDraw {
     fn set_hidden(&mut self, hidden: bool) {
         DrawModule::set_hidden(&mut self.base, hidden);
 
-        let Some(owner) = self
-            .owner_id
-            .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        else {
+        let Some(rider_id) = self.owner_id.and_then(|id| {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(id, |owner_guard| {
+                    owner_guard.get_contain().and_then(|contain| {
+                        contain.lock().ok().and_then(|cg| cg.friend_get_rider())
+                    })
+                })
+                .flatten()
+        }) else {
             return;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-        let Some(contain) = owner_guard.get_contain() else {
-            return;
-        };
-        let Ok(contain_guard) = contain.lock() else {
-            return;
-        };
-        let Some(rider_id) = contain_guard.friend_get_rider() else {
-            return;
-        };
-        drop(contain_guard);
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
-            return;
-        };
-        let Ok(rider_guard) = rider.read() else {
-            return;
-        };
-        let Some(drawable) = rider_guard.get_drawable() else {
-            return;
-        };
-        let _ = drawable.set_drawable_hidden(hidden);
+        if let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(rider_id, |rider_guard| rider_guard.get_drawable())
+            .flatten()
+        {
+            let _ = drawable.set_drawable_hidden(hidden);
+        }
     }
     fn is_visible(&self) -> bool {
         self.base.is_visible()
