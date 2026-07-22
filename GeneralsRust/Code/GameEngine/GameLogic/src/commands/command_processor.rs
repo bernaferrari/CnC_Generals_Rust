@@ -849,19 +849,16 @@ impl DefaultCommandHandler {
         let mut group = crate::ai::group::AIGroup::new(0);
         let mut valid_count = 0;
         for object_id in &selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(*object_id) else {
-                continue;
-            };
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if guard.is_destroyed()
-                || guard.get_controlling_player_id() != Some(context.player_id as u32)
-            {
+            let controllable = OBJECT_REGISTRY
+                .with_object(*object_id, |guard| {
+                    !guard.is_destroyed()
+                        && guard.get_controlling_player_id() == Some(context.player_id as u32)
+                })
+                .unwrap_or(false);
+            if !controllable {
                 continue;
             }
-            drop(guard);
-            if group.add(obj).is_ok() {
+            if group.add_by_id(*object_id).is_ok() {
                 valid_count += 1;
             }
         }
@@ -3336,10 +3333,7 @@ impl DefaultCommandHandler {
 
         let mut group = crate::ai::group::AIGroup::new(0);
         for object_id in &selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(*object_id) else {
-                continue;
-            };
-            let _ = group.add(obj);
+            let _ = group.add_by_id(*object_id);
         }
 
         group.group_cheer(CommandSourceType::FromPlayer);
@@ -3685,22 +3679,22 @@ impl DefaultCommandHandler {
             .unwrap_or_default();
 
         for object_id in selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(ai) = OBJECT_REGISTRY
+                .with_object(object_id, |guard| {
+                    if guard.is_destroyed() {
+                        return None;
+                    }
+                    if guard.get_controlling_player_id().map(|id| id as Int)
+                        != Some(context.player_id)
+                    {
+                        return None;
+                    }
+                    guard.get_ai_update_interface()
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
-            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-                continue;
-            }
-            let Some(ai) = guard.get_ai_update_interface() else {
-                continue;
-            };
-            drop(guard);
 
             let ai_lock = ai.lock();
             if let Ok(mut ai_guard) = ai_lock {
@@ -3815,19 +3809,16 @@ impl DefaultCommandHandler {
             .unwrap_or_default();
 
         for object_id in selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
-            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-                continue;
-            }
-            let _ = guard.queue_upgrade(&upgrade);
+            let _ = OBJECT_REGISTRY.with_object(object_id, |guard| {
+                if guard.is_destroyed() {
+                    return;
+                }
+                if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id)
+                {
+                    return;
+                }
+                let _ = guard.queue_upgrade(&upgrade);
+            });
         }
 
         CommandExecutionResult::Success
@@ -4275,28 +4266,30 @@ impl DefaultCommandHandler {
         let mut formation_id: Option<FormationID> = None;
 
         for object_id in &selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(*object_id) else {
+            let Some(cur_id) = OBJECT_REGISTRY
+                .with_object(*object_id, |guard| {
+                    if guard.is_destroyed() {
+                        return None;
+                    }
+                    if guard.is_disabled_by_type(crate::common::DisabledType::Held) {
+                        return None;
+                    }
+                    if guard.get_ai_update_interface().is_none() {
+                        return None;
+                    }
+
+                    let pos = guard.get_position();
+                    center.x += pos.x;
+                    center.y += pos.y;
+                    center.z += pos.z;
+
+                    Some(guard.get_formation_id())
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
-            if guard.is_disabled_by_type(crate::common::DisabledType::Held) {
-                continue;
-            }
-            if guard.get_ai_update_interface().is_none() {
-                continue;
-            }
 
-            let pos = guard.get_position();
-            center.x += pos.x;
-            center.y += pos.y;
-            center.z += pos.z;
-
-            let cur_id = guard.get_formation_id();
             if count == 0 {
                 formation_id = Some(cur_id);
             } else if formation_id.map_or(false, |id| id != cur_id) {
