@@ -305,20 +305,25 @@ impl BridgeTowerBehavior {
                 continue;
             }
 
-            if let Some(tower_object) = OBJECT_REGISTRY.get_object(*tower_id) {
-                let mut tower_write = tower_object
-                    .write()
-                    .map_err(|e| format!("tower lock poisoned: {}", e))?;
+            if let Some(result) = OBJECT_REGISTRY.with_object_mut(*tower_id, |tower_write| {
                 if let Some(body) = tower_write.get_body_module() {
-                    let body_guard = body
-                        .lock()
-                        .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
+                    let body_guard = match body.lock() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            return Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                                "BridgeTowerBehavior: body lock poisoned",
+                            ));
+                        }
+                    };
                     let max_health = body_guard.get_max_health();
                     if max_health > 0.0 {
                         let amount = healing_percentage * max_health;
                         tower_write.attempt_healing(amount, Some(&*source_guard))?;
                     }
                 }
+                Ok(())
+            }) {
+                result?;
             }
         }
 
