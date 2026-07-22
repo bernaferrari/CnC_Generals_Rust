@@ -501,10 +501,10 @@ pub struct AICommandParms {
     pub cmd_source: CommandSourceType,
     /// Target position
     pub pos: Coord3D,
-    /// Target object
-    pub obj: Option<Arc<RwLock<Object>>>,
-    /// Other object parameter
-    pub other_obj: Option<Arc<RwLock<Object>>>,
+    /// Target object id (resolve for the duration of an op)
+    pub obj: ObjectID,
+    /// Other object parameter id
+    pub other_obj: ObjectID,
     /// Target team
     pub team: Option<Arc<RwLock<Team>>>,
     /// Waypoint path
@@ -530,8 +530,8 @@ impl AICommandParms {
             cmd,
             cmd_source,
             pos: Coord3D::new(0.0, 0.0, 0.0),
-            obj: None,
-            other_obj: None,
+            obj: INVALID_ID,
+            other_obj: INVALID_ID,
             team: None,
             waypoint: None,
             polygon: None,
@@ -569,24 +569,8 @@ impl AICommandParmsStorage {
         self.cmd = parms.cmd;
         self.cmd_source = parms.cmd_source;
         self.pos = parms.pos;
-        self.obj = parms
-            .obj
-            .as_ref()
-            .map(|o| {
-                o.try_read()
-                    .map(|obj_ref| obj_ref.get_id())
-                    .unwrap_or(INVALID_ID)
-            })
-            .unwrap_or(INVALID_ID);
-        self.other_obj = parms
-            .other_obj
-            .as_ref()
-            .map(|o| {
-                o.try_read()
-                    .map(|obj_ref| obj_ref.get_id())
-                    .unwrap_or(INVALID_ID)
-            })
-            .unwrap_or(INVALID_ID);
+        self.obj = parms.obj;
+        self.other_obj = parms.other_obj;
         self.team_name = parms
             .team
             .as_ref()
@@ -611,8 +595,8 @@ impl AICommandParmsStorage {
         parms.cmd = self.cmd;
         parms.cmd_source = self.cmd_source;
         parms.pos = self.pos;
-        parms.obj = get_legacy_object(self.obj);
-        parms.other_obj = get_legacy_object(self.other_obj);
+        parms.obj = self.obj;
+        parms.other_obj = self.other_obj;
         parms.team = if self.team_name.is_empty() {
             None
         } else {
