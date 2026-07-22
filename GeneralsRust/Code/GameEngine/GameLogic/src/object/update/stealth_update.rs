@@ -289,33 +289,43 @@ impl StealthUpdateController {
             return Ok(());
         }
 
-        let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        if OBJECT_REGISTRY
+            .with_object(self.object_id, |_| ())
+            .is_none()
+        {
             return Err("Object not found".to_string());
-        };
+        }
 
         if active && !self.enabled {
             // Turn ON stealth
-            let mut guard = obj.write().map_err(|_| "Lock failed")?;
-            guard.set_status(ObjectStatusMaskType::CAN_STEALTH, true);
-            guard.set_status(ObjectStatusMaskType::STEALTHED, true);
-            drop(guard);
+            OBJECT_REGISTRY
+                .with_object_mut(self.object_id, |guard| {
+                    guard.set_status(ObjectStatusMaskType::CAN_STEALTH, true);
+                    guard.set_status(ObjectStatusMaskType::STEALTHED, true);
+                })
+                .ok_or_else(|| "Lock failed".to_string())?;
 
             self.stealth_allowed_frame = current_frame;
             self.frames_granted = frames;
             self.enabled = true;
         } else if !active && self.enabled {
             // Turn OFF stealth
-            let mut guard = obj.write().map_err(|_| "Lock failed")?;
-            guard.set_status(ObjectStatusMaskType::CAN_STEALTH, false);
-            guard.set_status(ObjectStatusMaskType::STEALTHED, false);
-            drop(guard);
+            OBJECT_REGISTRY
+                .with_object_mut(self.object_id, |guard| {
+                    guard.set_status(ObjectStatusMaskType::CAN_STEALTH, false);
+                    guard.set_status(ObjectStatusMaskType::STEALTHED, false);
+                })
+                .ok_or_else(|| "Lock failed".to_string())?;
 
             self.stealth_allowed_frame = u32::MAX; // FOREVER
             self.frames_granted = 0;
             self.enabled = false;
 
             // Reset opacity
-            if let Some(drawable) = obj.read().ok().and_then(|g| g.get_drawable()) {
+            if let Some(drawable) = OBJECT_REGISTRY
+                .with_object(self.object_id, |g| g.get_drawable())
+                .flatten()
+            {
                 if let Ok(mut d) = drawable.write() {
                     d.set_effective_opacity(1.0, None);
                 }
@@ -323,18 +333,21 @@ impl StealthUpdateController {
         }
 
         // Propagate to rider if applicable (lines 216-226)
-        if let Ok(obj_guard) = obj.read() {
-            if let Some(contain) = obj_guard.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    if let Some(&rider_id) = contain_guard.get_contained_objects().first() {
-                        let _ = OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
-                            if let Some(stealth) = rider_guard.get_stealth() {
-                                let _ = stealth.receive_grant(active, frames, current_frame);
-                            }
-                        });
-                    }
+        if let Some(rider_id) = OBJECT_REGISTRY
+            .with_object(self.object_id, |obj_guard| {
+                obj_guard.get_contain().and_then(|contain| {
+                    contain.lock().ok().and_then(|contain_guard| {
+                        contain_guard.get_contained_objects().first().copied()
+                    })
+                })
+            })
+            .flatten()
+        {
+            let _ = OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
+                if let Some(stealth) = rider_guard.get_stealth() {
+                    let _ = stealth.receive_grant(active, frames, current_frame);
                 }
-            }
+            });
         }
 
         Ok(())
@@ -347,166 +360,165 @@ impl StealthUpdateController {
         stealth_owner_id: ObjectID,
         current_frame: UnsignedInt,
     ) -> bool {
-        let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return false;
-        };
+        let allowed = OBJECT_REGISTRY
+            .with_object(self.object_id, |obj_guard| {
+                let status = obj_guard.get_status_bits();
 
-        let Ok(obj_guard) = obj.read() else {
-            return false;
-        };
-
-        let status = obj_guard.get_status_bits();
-
-        // Get stealth level from owner (could be self or rider)
-        let flags = if stealth_owner_id == self.object_id {
-            self.data.stealth_level
-        } else {
-            // Get stealth level from rider (C++ lines 244-258)
-            let mut rider_level = None;
-            if let Some(level) = OBJECT_REGISTRY
-                .with_object(stealth_owner_id, |owner_guard| {
-                    let Some(stealth) = owner_guard.get_stealth() else {
-                        return None;
-                    };
-                    stealth
-                        .lock()
-                        .ok()
-                        .map(|stealth_guard| stealth_guard.get_stealth_level())
-                })
-                .flatten()
-            {
-                rider_level = Some(level);
-            }
-            rider_level.unwrap_or(self.data.stealth_level)
-        };
-
-        // Check STEALTH_NOT_WHILE_ATTACKING (line 268)
-        if (flags & STEALTH_NOT_WHILE_ATTACKING) != 0
-            && status.contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
-        {
-            return false;
-        }
-
-        // Check STEALTH_NOT_WHILE_USING_ABILITY (line 274)
-        if (flags & STEALTH_NOT_WHILE_USING_ABILITY) != 0
-            && status.contains(ObjectStatusMaskType::IS_USING_ABILITY)
-        {
-            return false;
-        }
-
-        // Check STEALTH_ONLY_WITH_BLACK_MARKET (line 280)
-        if (flags & STEALTH_ONLY_WITH_BLACK_MARKET) != 0 {
-            // Only recheck periodically to avoid performance hit (lines 281-291)
-            if self.next_black_market_check_frame < current_frame {
-                let has_black_market = self.check_for_black_market(&obj_guard);
-
-                // Update next check frame
-                let check_delay = self.data.black_market_check_frames;
-                if check_delay > 0 {
-                    // Cast to avoid overflow on addition
-                    self.next_black_market_check_frame = current_frame.saturating_add(check_delay);
+                // Get stealth level from owner (could be self or rider)
+                let flags = if stealth_owner_id == self.object_id {
+                    self.data.stealth_level
                 } else {
-                    self.next_black_market_check_frame = current_frame.saturating_add(30);
-                    // Default 30 frames
-                }
+                    // Get stealth level from rider (C++ lines 244-258)
+                    let mut rider_level = None;
+                    if let Some(level) = OBJECT_REGISTRY
+                        .with_object(stealth_owner_id, |owner_guard| {
+                            let Some(stealth) = owner_guard.get_stealth() else {
+                                return None;
+                            };
+                            stealth
+                                .lock()
+                                .ok()
+                                .map(|stealth_guard| stealth_guard.get_stealth_level())
+                        })
+                        .flatten()
+                    {
+                        rider_level = Some(level);
+                    }
+                    rider_level.unwrap_or(self.data.stealth_level)
+                };
 
-                if !has_black_market {
+                // Check STEALTH_NOT_WHILE_ATTACKING (line 268)
+                if (flags & STEALTH_NOT_WHILE_ATTACKING) != 0
+                    && status.contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
+                {
                     return false;
                 }
-            }
-        }
 
-        // Check CAN_STEALTH status bit (line 294)
-        if !status.contains(ObjectStatusMaskType::CAN_STEALTH) {
-            return false;
-        }
+                // Check STEALTH_NOT_WHILE_USING_ABILITY (line 274)
+                if (flags & STEALTH_NOT_WHILE_USING_ABILITY) != 0
+                    && status.contains(ObjectStatusMaskType::IS_USING_ABILITY)
+                {
+                    return false;
+                }
 
-        // Check STEALTH_NOT_WHILE_TAKING_DAMAGE (line 299)
-        if (flags & STEALTH_NOT_WHILE_TAKING_DAMAGE) != 0 {
-            if let Some(body) = obj_guard.get_body_module() {
-                if let Ok(body_guard) = body.lock() {
-                    let last = body_guard.get_last_damage_timestamp();
-                    if last != u32::MAX && last >= current_frame.saturating_sub(2) {
-                        if let Some(info) = body_guard.get_last_damage_info() {
-                            if info.input.damage_type != DamageType::Healing {
-                                return false;
-                            }
+                // Check STEALTH_ONLY_WITH_BLACK_MARKET (line 280)
+                if (flags & STEALTH_ONLY_WITH_BLACK_MARKET) != 0 {
+                    // Only recheck periodically to avoid performance hit (lines 281-291)
+                    if self.next_black_market_check_frame < current_frame {
+                        let has_black_market = self.check_for_black_market(&obj_guard);
+
+                        // Update next check frame
+                        let check_delay = self.data.black_market_check_frames;
+                        if check_delay > 0 {
+                            // Cast to avoid overflow on addition
+                            self.next_black_market_check_frame =
+                                current_frame.saturating_add(check_delay);
                         } else {
+                            self.next_black_market_check_frame = current_frame.saturating_add(30);
+                            // Default 30 frames
+                        }
+
+                        if !has_black_market {
                             return false;
                         }
                     }
                 }
-            }
-        }
 
-        // Check required status (line 315)
-        if self.data.required_status.any() && !status.contains(self.data.required_status) {
-            return false;
-        }
+                // Check CAN_STEALTH status bit (line 294)
+                if !status.contains(ObjectStatusMaskType::CAN_STEALTH) {
+                    return false;
+                }
 
-        // Check forbidden status (line 319)
-        if status.intersects(self.data.forbidden_status) {
-            return false;
-        }
-
-        // Check weapon firing restrictions (line 324)
-        if (flags & STEALTH_NOT_WHILE_FIRING_WEAPON) != 0
-            && status.contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
-        {
-            // Check specific weapons if needed (lines 332-363)
-            // For now, simple check
-            return false;
-        }
-
-        // Check if contained (line 365)
-        if obj_guard.get_container().is_some() {
-            // If contained, rely on status bits to decide; more precise containment rules
-            // can be added once the contain module exposes its state here.
-        }
-
-        // Check STEALTH_NOT_WHILE_RIDERS_ATTACKING (line 376)
-        if (flags & STEALTH_NOT_WHILE_RIDERS_ATTACKING) != 0 {
-            if let Some(contain) = obj_guard.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    for contained_id in contain_guard.get_contained_objects() {
-                        let attacking = OBJECT_REGISTRY
-                            .with_object(*contained_id, |rider_guard| {
-                                let rider_status = rider_guard.get_status_bits();
-                                rider_status.contains(ObjectStatusMaskType::IS_ATTACKING)
-                                    || rider_status.contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
-                            })
-                            .unwrap_or(false);
-                        if attacking {
-                            return false;
+                // Check STEALTH_NOT_WHILE_TAKING_DAMAGE (line 299)
+                if (flags & STEALTH_NOT_WHILE_TAKING_DAMAGE) != 0 {
+                    if let Some(body) = obj_guard.get_body_module() {
+                        if let Ok(body_guard) = body.lock() {
+                            let last = body_guard.get_last_damage_timestamp();
+                            if last != u32::MAX && last >= current_frame.saturating_sub(2) {
+                                if let Some(info) = body_guard.get_last_damage_info() {
+                                    if info.input.damage_type != DamageType::Healing {
+                                        return false;
+                                    }
+                                } else {
+                                    return false;
+                                }
+                            }
                         }
                     }
                 }
-            }
-        }
 
-        // Check STEALTH_NOT_WHILE_MOVING (line 390)
-        if (flags & STEALTH_NOT_WHILE_MOVING) != 0 {
-            // Prefer physics velocity if available, otherwise fall back to attacking proxy.
-            let mut moving = status.contains(ObjectStatusMaskType::IS_ATTACKING);
-            if let Some(physics) = obj_guard.get_physics() {
-                if let Ok(phys_guard) = physics.lock() {
-                    let vel = phys_guard.get_velocity();
-                    if vel.length() > self.data.stealth_speed {
-                        moving = true;
+                // Check required status (line 315)
+                if self.data.required_status.any() && !status.contains(self.data.required_status) {
+                    return false;
+                }
+
+                // Check forbidden status (line 319)
+                if status.intersects(self.data.forbidden_status) {
+                    return false;
+                }
+
+                // Check weapon firing restrictions (line 324)
+                if (flags & STEALTH_NOT_WHILE_FIRING_WEAPON) != 0
+                    && status.contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
+                {
+                    // Check specific weapons if needed (lines 332-363)
+                    // For now, simple check
+                    return false;
+                }
+
+                // Check if contained (line 365)
+                if obj_guard.get_container().is_some() {
+                    // If contained, rely on status bits to decide; more precise containment rules
+                    // can be added once the contain module exposes its state here.
+                }
+
+                // Check STEALTH_NOT_WHILE_RIDERS_ATTACKING (line 376)
+                if (flags & STEALTH_NOT_WHILE_RIDERS_ATTACKING) != 0 {
+                    if let Some(contain) = obj_guard.get_contain() {
+                        if let Ok(contain_guard) = contain.lock() {
+                            for contained_id in contain_guard.get_contained_objects() {
+                                let attacking = OBJECT_REGISTRY
+                                    .with_object(*contained_id, |rider_guard| {
+                                        let rider_status = rider_guard.get_status_bits();
+                                        rider_status.contains(ObjectStatusMaskType::IS_ATTACKING)
+                                            || rider_status
+                                                .contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
+                                    })
+                                    .unwrap_or(false);
+                                if attacking {
+                                    return false;
+                                }
+                            }
+                        }
                     }
                 }
-            }
-            if moving {
-                return false;
-            }
-        }
 
-        // Check script unstealthed status (line 394)
-        if obj_guard.test_script_status_bit(ObjectScriptStatusBit::ScriptUnstealthed) {
-            return false;
-        }
+                // Check STEALTH_NOT_WHILE_MOVING (line 390)
+                if (flags & STEALTH_NOT_WHILE_MOVING) != 0 {
+                    // Prefer physics velocity if available, otherwise fall back to attacking proxy.
+                    let mut moving = status.contains(ObjectStatusMaskType::IS_ATTACKING);
+                    if let Some(physics) = obj_guard.get_physics() {
+                        if let Ok(phys_guard) = physics.lock() {
+                            let vel = phys_guard.get_velocity();
+                            if vel.length() > self.data.stealth_speed {
+                                moving = true;
+                            }
+                        }
+                    }
+                    if moving {
+                        return false;
+                    }
+                }
 
-        true
+                // Check script unstealthed status (line 394)
+                if obj_guard.test_script_status_bit(ObjectScriptStatusBit::ScriptUnstealthed) {
+                    return false;
+                }
+
+                true
+            })
+            .unwrap_or(false);
+        allowed
     }
 
     /// Mark object as detected
@@ -683,25 +695,26 @@ impl StealthUpdateController {
     /// Calculate stealth look type for a player
     /// Matches C++ StealthUpdate::calcStealthedStatusForPlayer lines 436-528
     pub fn calc_stealth_look_for_player(&self, player_id: u32) -> StealthLookType {
-        let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return StealthLookType::None;
-        };
-
-        let Ok(obj_guard) = obj.read() else {
+        let Some((dead, status_bits, object_team)) =
+            OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
+                (
+                    obj_guard.is_effectively_dead(),
+                    obj_guard.get_status_bits(),
+                    obj_guard.get_team(),
+                )
+            })
+        else {
             return StealthLookType::None;
         };
 
         // Dead objects are always visible (line 475)
-        if obj_guard.is_effectively_dead() {
+        if dead {
             return StealthLookType::None;
         }
 
-        let status_bits = obj_guard.get_status_bits();
         if !status_bits.contains(ObjectStatusMaskType::STEALTHED) {
             return StealthLookType::None;
         }
-        let object_team = obj_guard.get_team();
-        drop(obj_guard);
 
         let relationship = player_list()
             .read()
@@ -769,13 +782,12 @@ impl StealthUpdateController {
             .unwrap_or(false);
 
         if is_mine {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                if let Ok(guard) = obj.read() {
-                    if let Some(drawable) = guard.get_drawable() {
-                        if let Ok(mut drawable) = drawable.write() {
-                            drawable.set_effective_opacity(0.0, Some(0.0));
-                        }
-                    }
+            if let Some(drawable) = OBJECT_REGISTRY
+                .with_object(self.object_id, |guard| guard.get_drawable())
+                .flatten()
+            {
+                if let Ok(mut drawable) = drawable.write() {
+                    drawable.set_effective_opacity(0.0, Some(0.0));
                 }
             }
         } else if self.disguise_transition_frames > 0 {
@@ -798,37 +810,33 @@ impl StealthUpdateController {
             // Calculate transition opacity (lines 653-656)
             let opacity = (1.0 - (factor * 2.0)).abs();
             let override_opacity = if opacity < 1.0 { 0.0 } else { 1.0 };
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                if let Ok(guard) = obj.read() {
-                    if let Some(drawable) = guard.get_drawable() {
-                        if let Ok(mut drawable) = drawable.write() {
-                            drawable.set_effective_opacity(opacity, Some(override_opacity));
-                        }
-                    }
+            if let Some(drawable) = OBJECT_REGISTRY
+                .with_object(self.object_id, |guard| guard.get_drawable())
+                .flatten()
+            {
+                if let Ok(mut drawable) = drawable.write() {
+                    drawable.set_effective_opacity(opacity, Some(override_opacity));
                 }
             }
 
             // Finished removing disguise? (lines 657-664)
             if self.disguise_transition_frames == 0 && !self.transitioning_to_disguise {
                 self.enabled = false;
-                if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                    if let Ok(mut guard) = obj.write() {
-                        guard.set_status(ObjectStatusMaskType::STEALTHED, false);
-                        guard.set_status(ObjectStatusMaskType::DETECTED, false);
-                    }
-                }
+                let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+                    guard.set_status(ObjectStatusMaskType::STEALTHED, false);
+                    guard.set_status(ObjectStatusMaskType::DETECTED, false);
+                });
                 return Ok(());
             }
         } else {
             // Pulse animation (lines 668-670)
             let opacity = 0.5 + (self.pulse_phase.sin() * 0.5);
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                if let Ok(guard) = obj.read() {
-                    if let Some(drawable) = guard.get_drawable() {
-                        if let Ok(mut drawable) = drawable.write() {
-                            drawable.set_effective_opacity(opacity, None);
-                        }
-                    }
+            if let Some(drawable) = OBJECT_REGISTRY
+                .with_object(self.object_id, |guard| guard.get_drawable())
+                .flatten()
+            {
+                if let Ok(mut drawable) = drawable.write() {
+                    drawable.set_effective_opacity(opacity, None);
                 }
             }
             self.pulse_phase += self.pulse_phase_rate;
@@ -847,18 +855,13 @@ impl StealthUpdateController {
 
             // Check if last AI command was from player - if so, lose stealth (lines 703-708)
             // This prevents exploiting temporary stealth by giving player commands
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                if let Ok(guard) = obj.read() {
-                    if let Some(ai) = guard.get_ai() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            // C++ checks CMD_FROM_PLAYER (StealthUpdate.cpp:704)
-                            // AI module tracks command source, check it here
-                            // For now, we'll rely on the frames_granted timer
-                            drop(ai_guard);
-                        }
-                    }
+            // C++ checks CMD_FROM_PLAYER (StealthUpdate.cpp:704)
+            // AI module tracks command source; rely on frames_granted timer for now.
+            let _ = OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+                if let Some(ai) = guard.get_ai() {
+                    drop(ai.lock());
                 }
-            }
+            });
 
             if self.frames_granted == 0 {
                 self.receive_grant(false, 0, current_frame)?;
@@ -873,53 +876,51 @@ impl StealthUpdateController {
             }
 
             // Transition to stealthed (lines 727-735)
-            let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
-                return Ok(());
-            };
-
-            let mut guard = obj.write().map_err(|_| "Lock failed")?;
-            if !guard
-                .get_status_bits()
-                .contains(ObjectStatusMaskType::STEALTHED)
-            {
-                // Play stealth ON sound (lines 729-731)
-                // Audio handled by audio system via STEALTHED status bit change
-                guard.set_status(ObjectStatusMaskType::STEALTHED, true);
-            }
+            OBJECT_REGISTRY
+                .with_object_mut(self.object_id, |guard| {
+                    if !guard
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::STEALTHED)
+                    {
+                        // Play stealth ON sound (lines 729-731)
+                        // Audio handled by audio system via STEALTHED status bit change
+                        guard.set_status(ObjectStatusMaskType::STEALTHED, true);
+                    }
+                })
+                .ok_or_else(|| "Lock failed".to_string())?;
         } else {
             // Break stealth (lines 738-752)
             self.stealth_allowed_frame = current_frame + self.data.stealth_delay;
 
-            let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
-                return Ok(());
-            };
-
-            let mut guard = obj.write().map_err(|_| "Lock failed")?;
-            if guard
-                .get_status_bits()
-                .contains(ObjectStatusMaskType::STEALTHED)
-            {
-                // Play stealth OFF sound (lines 744-746)
-                // Audio handled by audio system via STEALTHED status bit change
-                guard.set_status(ObjectStatusMaskType::STEALTHED, false);
-            }
-
-            // Hint detectable - set subtle visibility for breaking stealth conditions (line 751)
-            let current_status = guard.get_status_bits();
-            if self.data.hint_detectable_states.any()
-                && current_status.intersects(self.data.hint_detectable_states)
-            {
-                // Set second material pass opacity for hint detection (C++ StealthUpdate.cpp:407-421)
-                // This makes the unit slightly visible when conditions are broken
-                // Drawable material pass is managed by the rendering system
-                // The hint_detectable_states are checked by the renderer
-                if let Some(drawable) = guard.get_drawable() {
-                    if let Ok(drawable_guard) = drawable.write() {
-                        // Renderer will apply hint opacity based on status bits
-                        drop(drawable_guard);
+            OBJECT_REGISTRY
+                .with_object_mut(self.object_id, |guard| {
+                    if guard
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::STEALTHED)
+                    {
+                        // Play stealth OFF sound (lines 744-746)
+                        // Audio handled by audio system via STEALTHED status bit change
+                        guard.set_status(ObjectStatusMaskType::STEALTHED, false);
                     }
-                }
-            }
+
+                    // Hint detectable - set subtle visibility for breaking stealth conditions (line 751)
+                    let current_status = guard.get_status_bits();
+                    if self.data.hint_detectable_states.any()
+                        && current_status.intersects(self.data.hint_detectable_states)
+                    {
+                        // Set second material pass opacity for hint detection (C++ StealthUpdate.cpp:407-421)
+                        // This makes the unit slightly visible when conditions are broken
+                        // Drawable material pass is managed by the rendering system
+                        // The hint_detectable_states are checked by the renderer
+                        if let Some(drawable) = guard.get_drawable() {
+                            if let Ok(drawable_guard) = drawable.write() {
+                                // Renderer will apply hint opacity based on status bits
+                                drop(drawable_guard);
+                            }
+                        }
+                    }
+                })
+                .ok_or_else(|| "Lock failed".to_string())?;
         }
 
         // Handle detection status (lines 754-803)
@@ -927,35 +928,43 @@ impl StealthUpdateController {
 
         if self.detection_expires_frame > current_frame {
             // Being detected
-            let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
-                return Ok(());
-            };
-
-            let mut guard = obj.write().map_err(|_| "Lock failed")?;
-            if !guard
-                .get_status_bits()
-                .contains(ObjectStatusMaskType::DETECTED)
-            {
+            let changed = OBJECT_REGISTRY
+                .with_object_mut(self.object_id, |guard| {
+                    if !guard
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::DETECTED)
+                    {
+                        // Play stealth OFF sound (lines 761-763)
+                        // Audio handled by audio system via DETECTED status bit change
+                        guard.set_status(ObjectStatusMaskType::DETECTED, true);
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .ok_or_else(|| "Lock failed".to_string())?;
+            if changed {
                 detection_status_changed = true;
-                // Play stealth OFF sound (lines 761-763)
-                // Audio handled by audio system via DETECTED status bit change
-                guard.set_status(ObjectStatusMaskType::DETECTED, true);
             }
         } else {
             // No longer detected
-            let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
-                return Ok(());
-            };
-
-            let mut guard = obj.write().map_err(|_| "Lock failed")?;
-            if guard
-                .get_status_bits()
-                .contains(ObjectStatusMaskType::DETECTED)
-            {
+            let changed = OBJECT_REGISTRY
+                .with_object_mut(self.object_id, |guard| {
+                    if guard
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::DETECTED)
+                    {
+                        // Play stealth ON sound if locally controlled (lines 776-779)
+                        // Audio handled by audio system based on controlling player check
+                        guard.set_status(ObjectStatusMaskType::DETECTED, false);
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .ok_or_else(|| "Lock failed".to_string())?;
+            if changed {
                 detection_status_changed = true;
-                // Play stealth ON sound if locally controlled (lines 776-779)
-                // Audio handled by audio system based on controlling player check
-                guard.set_status(ObjectStatusMaskType::DETECTED, false);
             }
         }
 
@@ -963,33 +972,36 @@ impl StealthUpdateController {
         // The contain module (GarrisonContain/CaveContain) has recalc_apparent_controlling_player
         if detection_status_changed {
             // Access container's ContainModule and recalc apparent controlling player (C++ lines 786-802)
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                if let Ok(guard) = obj.read() {
-                    if let Some(container_obj) = guard.get_container() {
-                        if let Ok(container_guard) = container_obj.read() {
-                            if let Some(contain) = container_guard.get_contain() {
-                                if let Ok(contain_guard) = contain.lock() {
-                                    // ContainModule will recalculate apparent controlling player
-                                    // based on detection status of contained units
-                                    drop(contain_guard);
-                                }
+            let _ = OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+                if let Some(container_obj) = guard.get_container() {
+                    if let Ok(container_guard) = container_obj.read() {
+                        if let Some(contain) = container_guard.get_contain() {
+                            if let Ok(contain_guard) = contain.lock() {
+                                // ContainModule will recalculate apparent controlling player
+                                // based on detection status of contained units
+                                drop(contain_guard);
                             }
                         }
                     }
                 }
-            }
+            });
         }
 
         // Set stealth look (lines 807-811)
-        if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(guard) = obj.read() {
-                if let Some(drawable) = guard.get_drawable() {
-                    if let Ok(mut drawable) = drawable.write() {
-                        let player_id = guard.get_controlling_player_id().unwrap_or(0) as u32;
-                        let look = self.calc_stealth_look_for_player(player_id);
-                        self.apply_stealth_look(&mut drawable, look);
-                    }
-                }
+        if let Some((drawable, player_id)) = OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| {
+                guard.get_drawable().map(|drawable| {
+                    (
+                        drawable,
+                        guard.get_controlling_player_id().unwrap_or(0) as u32,
+                    )
+                })
+            })
+            .flatten()
+        {
+            if let Ok(mut drawable) = drawable.write() {
+                let look = self.calc_stealth_look_for_player(player_id);
+                self.apply_stealth_look(&mut drawable, look);
             }
         }
 
