@@ -6822,7 +6822,8 @@ impl AIUpdateInterface for UnitAIUpdate {
         if let Some(machine) = self.ensure_turret_machine(turret) {
             if let Some(turret_ai) = machine.get_turret_ai() {
                 if let Ok(mut guard) = turret_ai.lock() {
-                    guard.set_current_target_with_force(target.cloned(), force_attacking);
+                    let target_id = target.and_then(|arc| arc.read().ok().map(|g| g.get_id()));
+                    guard.set_current_target_with_force(target_id, force_attacking);
                 }
             }
         }
