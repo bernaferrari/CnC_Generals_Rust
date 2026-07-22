@@ -9493,10 +9493,7 @@ impl Object {
     }
 
     /// Find live enemy objects within 2D radius using the global partition registry.
-    pub async fn find_enemies_in_radius(
-        &self,
-        radius: f32,
-    ) -> Result<Vec<Arc<RwLock<Object>>>, String> {
+    pub fn find_enemy_ids_in_radius(&self, radius: f32) -> Result<Vec<ObjectID>, String> {
         let Some(partition) = ThePartitionManager::get() else {
             return Ok(Vec::new());
         };
@@ -9513,16 +9510,25 @@ impl Object {
                 }
                 self.relationship_to(candidate) == Relationship::Enemies
             });
-            if !is_enemy.unwrap_or(false) {
-                continue;
+            if is_enemy.unwrap_or(false) {
+                enemies.push(object_id);
             }
-            // Arc retained for caller that needs shared handles.
-            let Some(object) = registry::OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            enemies.push(object);
         }
 
+        Ok(enemies)
+    }
+
+    /// Compatibility wrapper: resolves enemy IDs to handles at the call boundary.
+    pub fn find_enemies_in_radius(
+        &self,
+        radius: f32,
+    ) -> Result<Vec<Arc<RwLock<Object>>>, String> {
+        let mut enemies = Vec::new();
+        for object_id in self.find_enemy_ids_in_radius(radius)? {
+            if let Some(object) = registry::OBJECT_REGISTRY.get_object(object_id) {
+                enemies.push(object);
+            }
+        }
         Ok(enemies)
     }
 

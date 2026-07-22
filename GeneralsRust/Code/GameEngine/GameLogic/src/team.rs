@@ -986,85 +986,72 @@ impl Team {
             .unwrap_or(Int::MAX);
 
         let mut dist_sqr = max_dist * max_dist;
-        let mut recruit: Option<Arc<RwLock<crate::object::Object>>> = None;
-        let mut current = crate::system::game_logic::get_game_logic()
-            .lock()
-            .ok()
-            .and_then(|logic| logic.get_first_object());
+        let mut recruit_id: Option<ObjectID> = None;
 
-        while let Some(object_arc) = current.clone() {
-            let (next, obj_template, obj_player, obj_team, is_dead, held, pos, candidate_name) = {
-                let Ok(object_guard) = object_arc.read() else {
-                    break;
+        for object_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let Some(decision) = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                let obj_template = object_guard.get_template().clone();
+                let candidate_name = object_guard.get_template().get_name().to_string();
+                let template_matches = obj_template.is_equivalent_to(template.as_ref())
+                    || TheThingFactory::has_build_variation_name(template, &candidate_name);
+                if !template_matches {
+                    return None;
+                }
+                if object_guard.get_controlling_player_id() != Some(controller_id) {
+                    return None;
+                }
+                if object_guard.is_effectively_dead()
+                    || object_guard.is_disabled_by_type(DisabledType::Held)
+                {
+                    return None;
+                }
+                let source_team_arc = object_guard.get_team()?;
+                let Ok(source_team_guard) = source_team_arc.read() else {
+                    return None;
                 };
-                (
-                    object_guard.get_next_object(),
-                    object_guard.get_template().clone(),
-                    object_guard.get_controlling_player_id(),
-                    object_guard.get_team(),
-                    object_guard.is_effectively_dead(),
-                    object_guard.is_disabled_by_type(DisabledType::Held),
-                    *object_guard.get_position(),
-                    object_guard.get_template().get_name().to_string(),
-                )
+                if !source_team_guard.is_active() {
+                    return None;
+                }
+
+                let source_priority = get_team_factory()
+                    .lock()
+                    .ok()
+                    .and_then(|factory| {
+                        factory
+                            .find_team_prototype(source_team_guard.get_name().as_str())
+                            .map(|prototype| prototype.get_production_priority())
+                    })
+                    .unwrap_or(Int::MAX);
+                if source_priority >= my_priority {
+                    return None;
+                }
+
+                let is_default_team = default_team_id == Some(source_team_guard.get_id());
+                let mut team_is_recruitable = is_default_team;
+                if source_team_guard.is_recruitable() {
+                    team_is_recruitable = true;
+                }
+                if source_team_guard.is_recruitability_set() {
+                    team_is_recruitable = source_team_guard.is_recruitable();
+                }
+                if !team_is_recruitable {
+                    return None;
+                }
+
+                let pos = *object_guard.get_position();
+                let dx = team_home.x - pos.x;
+                let dy = team_home.y - pos.y;
+                let this_dist_sqr = dx * dx + dy * dy;
+                Some((is_default_team, this_dist_sqr))
+            })
+            .flatten() else {
+                continue;
             };
-            current = next;
 
-            let template_matches = obj_template.is_equivalent_to(template.as_ref())
-                || TheThingFactory::has_build_variation_name(template, &candidate_name);
-            if !template_matches {
-                continue;
-            }
-            if obj_player != Some(controller_id) {
-                continue;
-            }
-            if is_dead || held {
-                continue;
-            }
+            let (is_default_team, this_dist_sqr) = decision;
 
-            let Some(source_team_arc) = obj_team else {
-                continue;
-            };
-            let Ok(source_team_guard) = source_team_arc.read() else {
-                continue;
-            };
-            if !source_team_guard.is_active() {
-                continue;
-            }
-
-            let source_priority = get_team_factory()
-                .lock()
-                .ok()
-                .and_then(|factory| {
-                    factory
-                        .find_team_prototype(source_team_guard.get_name().as_str())
-                        .map(|prototype| prototype.get_production_priority())
-                })
-                .unwrap_or(Int::MAX);
-            if source_priority >= my_priority {
-                continue;
-            }
-
-            let is_default_team = default_team_id == Some(source_team_guard.get_id());
-            let mut team_is_recruitable = is_default_team;
-            if source_team_guard.is_recruitable() {
-                team_is_recruitable = true;
-            }
-            if source_team_guard.is_recruitability_set() {
-                team_is_recruitable = source_team_guard.is_recruitable();
-            }
-            if !team_is_recruitable {
-                continue;
-            }
-
-            // C++ also checks AIUpdateInterface::isRecruitable(). This runtime does not expose a
-            // getter on the trait yet, so we currently mirror all available checks.
-            let dx = team_home.x - pos.x;
-            let dy = team_home.y - pos.y;
-            let this_dist_sqr = dx * dx + dy * dy;
-
-            if is_default_team && recruit.is_none() {
-                recruit = Some(object_arc.clone());
+            if is_default_team && recruit_id.is_none() {
+                recruit_id = Some(object_id);
                 dist_sqr = this_dist_sqr;
             }
 
@@ -1073,10 +1060,10 @@ impl Team {
             }
 
             dist_sqr = this_dist_sqr;
-            recruit = Some(object_arc);
+            recruit_id = Some(object_id);
         }
 
-        recruit
+        recruit_id.and_then(|id| OBJECT_REGISTRY.get_object(id))
     }
 
     /// Count objects with specific kind flags

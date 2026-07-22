@@ -120,6 +120,16 @@ impl ObjectRegistry {
         }
     }
 
+    /// Object IDs currently registered (no Arc clones).
+    pub fn get_all_object_ids(&self) -> Vec<ObjectID> {
+        if let Ok(mut guard) = self.store.write() {
+            guard.objects.retain(|_, handle| handle.strong_count() > 0);
+            guard.objects.keys().copied().collect()
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Clear all registered handles.
     pub fn clear(&self) {
         if let Ok(mut guard) = self.store.write() {
