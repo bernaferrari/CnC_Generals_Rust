@@ -275,26 +275,22 @@ impl GrantStealthBehavior {
         }
 
         // Get target object
-        let Some(target_obj) = OBJECT_REGISTRY.get_object(target_id) else {
+        let Some((stealth_handle, target_drawable)) = OBJECT_REGISTRY
+            .with_object(target_id, |target_guard| {
+                // Check if target matches KindOf requirements (C++ line 167-168)
+                if !self.matches_kind_of(target_guard) {
+                    return None;
+                }
+
+                // Find StealthUpdate module on target (C++ line 170)
+                let stealth_handle = target_guard.get_stealth()?;
+                let target_drawable = target_guard.get_drawable();
+                Some((stealth_handle, target_drawable))
+            })
+            .flatten()
+        else {
             return;
         };
-        let Ok(target_guard) = target_obj.read() else {
-            return;
-        };
-
-        // Check if target matches KindOf requirements (C++ line 167-168)
-        if !self.matches_kind_of(&*target_guard) {
-            return;
-        }
-
-        // Find StealthUpdate module on target (C++ line 170)
-        let stealth_handle = match target_guard.get_stealth() {
-            Some(handle) => handle,
-            None => return,
-        };
-        let target_drawable = target_guard.get_drawable();
-
-        drop(target_guard);
 
         // Call receive_grant() on the stealth module (C++ line 173)
         // C++ calls stealth->receiveGrant() with no parameters (defaults to active=TRUE, frames=0)

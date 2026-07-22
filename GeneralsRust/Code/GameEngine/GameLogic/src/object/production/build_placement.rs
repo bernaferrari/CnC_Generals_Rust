@@ -314,23 +314,23 @@ impl BuildPlacementMode {
         let scan_radius = 500.0; // Search radius for dozers
 
         for obj_id in partition.get_objects_in_range(&self.cursor_position, scan_radius) {
-            let Some(obj_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-
-            // Check if it's a dozer/worker
-            if !obj_guard.is_kind_of(KindOf::Dozer) {
-                continue;
-            }
-
-            // Check ownership
-            let Some(controller_id) = obj_guard.get_controlling_player_id() else {
-                continue;
-            };
-            if controller_id as ObjectID != self.player_id {
+            let player_id = self.player_id;
+            let is_candidate = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                if !obj_guard.is_kind_of(KindOf::Dozer) {
+                    return false;
+                }
+                let Some(controller_id) = obj_guard.get_controlling_player_id() else {
+                    return false;
+                };
+                if controller_id as ObjectID != player_id {
+                    return false;
+                }
+                if obj_guard.is_destroyed() || obj_guard.is_under_construction() {
+                    return false;
+                }
+                true
+            });
+            if is_candidate != Some(true) {
                 continue;
             }
 
@@ -340,11 +340,6 @@ impl BuildPlacementMode {
                 if mgr.is_dozer_busy(obj_id) {
                     continue;
                 }
-            }
-
-            // Check if dozer is not destroyed and not under construction
-            if obj_guard.is_destroyed() || obj_guard.is_under_construction() {
-                continue;
             }
 
             return obj_id;
@@ -357,21 +352,19 @@ impl BuildPlacementMode {
                     if let Some(team) = player_guard.get_default_team() {
                         if let Ok(team_guard) = team.read() {
                             for member_id in team_guard.get_members() {
-                                let Some(member_arc) =
-                                    crate::object::registry::OBJECT_REGISTRY.get_object(member_id)
-                                else {
-                                    continue;
-                                };
-                                let Ok(member_guard) = member_arc.read() else {
-                                    continue;
-                                };
-
-                                if !member_guard.is_kind_of(KindOf::Dozer) {
-                                    continue;
-                                }
-                                if member_guard.is_destroyed()
-                                    || member_guard.is_under_construction()
-                                {
+                                let is_candidate = crate::object::registry::OBJECT_REGISTRY
+                                    .with_object(member_id, |member_guard| {
+                                        if !member_guard.is_kind_of(KindOf::Dozer) {
+                                            return false;
+                                        }
+                                        if member_guard.is_destroyed()
+                                            || member_guard.is_under_construction()
+                                        {
+                                            return false;
+                                        }
+                                        true
+                                    });
+                                if is_candidate != Some(true) {
                                     continue;
                                 }
 
