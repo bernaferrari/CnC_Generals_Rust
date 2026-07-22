@@ -45,7 +45,6 @@ use game_engine::common::thing::module_factory::{
 use log::warn;
 
 /// Unified object wrapper that can hold any object type
-#[derive(Debug)]
 pub enum GameObjectInstance {
     Unit(Arc<RwLock<Unit>>),
     /// Owned by the factory registry (borrow via get_object_mut).
@@ -53,6 +52,17 @@ pub enum GameObjectInstance {
     /// Owned by the factory registry (borrow via get_object_mut).
     SimpleObject(SimpleObject),
     BaseObject(Arc<RwLock<Object>>),
+}
+
+impl std::fmt::Debug for GameObjectInstance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GameObjectInstance::Unit(_) => f.write_str("GameObjectInstance::Unit(..)"),
+            GameObjectInstance::Structure(_) => f.write_str("GameObjectInstance::Structure(..)"),
+            GameObjectInstance::SimpleObject(_) => f.write_str("GameObjectInstance::SimpleObject(..)"),
+            GameObjectInstance::BaseObject(_) => f.write_str("GameObjectInstance::BaseObject(..)"),
+        }
+    }
 }
 
 impl GameObjectInstance {
@@ -633,8 +643,9 @@ impl ObjectFactory {
                             .map(|data| data.base.clone())
                     });
 
+                    crate::object::unit::register_unit(object_id, &unit_arc);
                     let ai_update = Arc::new(Mutex::new(UnitAIUpdate::new(
-                        Arc::downgrade(&unit_arc),
+                        object_id,
                         supply_ai,
                         chinook_ai,
                         jet_ai,
