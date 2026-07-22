@@ -23,8 +23,8 @@ pub struct TunnelTracker {
     tunnel_ids: Vec<ObjectID>,
     /// Number of active tunnels
     tunnel_count: u32,
-    /// Objects currently in the tunnel network
-    contained_objects: Vec<Arc<RwLock<Object>>>,
+    /// Objects currently in the tunnel network (stable IDs; resolve for op duration).
+    contained_ids: Vec<ObjectID>,
     /// Object IDs read from a save before load post-processing resolves them.
     xfer_contain_list: Vec<ObjectID>,
     /// Size of contained list (maintained separately for save/load)
@@ -44,7 +44,7 @@ impl TunnelTracker {
         Self {
             tunnel_ids: Vec::new(),
             tunnel_count: 0,
-            contained_objects: Vec::new(),
+            contained_ids: Vec::new(),
             xfer_contain_list: Vec::new(),
             contain_list_size: 0,
             cur_nemesis_id: INVALID_ID,
@@ -157,22 +157,26 @@ impl TunnelTracker {
     /// Add an object to the contained list.
     /// Matches C++ TunnelTracker::addToContainList (TunnelTracker.cpp:153-157)
     pub fn add_to_contain_list(&mut self, object: Arc<RwLock<Object>>) -> GameResult<()> {
-        // Check if already in list
-        if self
-            .contained_objects
-            .iter()
-            .any(|candidate| Arc::ptr_eq(candidate, &object))
-        {
+        let object_id = object
+            .read()
+            .map_err(|_| "TunnelTracker::add_to_contain_list object lock poisoned")?
+            .get_id();
+        self.add_to_contain_list_id(object_id)
+    }
+
+    /// ID-first contain membership.
+    pub fn add_to_contain_list_id(&mut self, object_id: ObjectID) -> GameResult<()> {
+        if object_id == INVALID_ID {
             return Ok(());
         }
-
-        // Check capacity
-        if self.max_capacity > 0 && (self.contained_objects.len() as i32) >= self.max_capacity {
+        if self.contained_ids.contains(&object_id) {
+            return Ok(());
+        }
+        if self.max_capacity > 0 && (self.contained_ids.len() as i32) >= self.max_capacity {
             return Err("TunnelTracker capacity reached".into());
         }
-
-        self.contained_objects.push(object);
-        self.contain_list_size += 1;
+        self.contained_ids.push(object_id);
+        self.contain_list_size = self.contained_ids.len();
         Ok(())
     }
 
@@ -183,25 +187,34 @@ impl TunnelTracker {
         object: Arc<RwLock<Object>>,
         _expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let initial_len = self.contained_objects.len();
-        self.contained_objects
-            .retain(|candidate| !Arc::ptr_eq(candidate, &object));
+        let object_id = object
+            .read()
+            .map_err(|_| "TunnelTracker::remove_from_contain object lock poisoned")?
+            .get_id();
+        self.remove_from_contain_id(object_id)
+    }
 
-        // Update size if something was removed
-        if self.contained_objects.len() < initial_len {
-            self.contain_list_size = self.contained_objects.len();
+    pub fn remove_from_contain_id(&mut self, object_id: ObjectID) -> GameResult<()> {
+        let initial_len = self.contained_ids.len();
+        self.contained_ids.retain(|&id| id != object_id);
+        if self.contained_ids.len() < initial_len {
+            self.contain_list_size = self.contained_ids.len();
         }
-
         Ok(())
     }
 
     /// Check whether the specified object is contained.
     /// Matches C++ TunnelTracker::isInContainer (TunnelTracker.cpp:174-177)
     pub fn is_in_container(&self, object: &Arc<RwLock<Object>>) -> GameResult<bool> {
-        Ok(self
-            .contained_objects
-            .iter()
-            .any(|candidate| Arc::ptr_eq(candidate, object)))
+        let object_id = object
+            .read()
+            .map_err(|_| "TunnelTracker::is_in_container object lock poisoned")?
+            .get_id();
+        Ok(self.is_in_container_id(object_id))
+    }
+
+    pub fn is_in_container_id(&self, object_id: ObjectID) -> bool {
+        self.contained_ids.contains(&object_id)
     }
 
     /// Register that a tunnel object has been created.
@@ -233,23 +246,25 @@ impl TunnelTracker {
 
         if self.tunnel_count == 0 {
             // Kill everyone in the contain list - cave in! (Matches C++ lines 192-198)
-            // Clone the list to avoid iterator invalidation
-            let objects_to_destroy: Vec<_> = self.contained_objects.iter().cloned().collect();
+            // Snapshot IDs to avoid iterator invalidation
+            let objects_to_destroy: Vec<ObjectID> = self.contained_ids.clone();
 
-            for obj in objects_to_destroy {
+            for object_id in objects_to_destroy {
                 // C++ lines 217-220: Notify object before destruction
                 // obj->onRemovedFrom(obj->getContainedBy())
-                if let Ok(mut obj_guard) = obj.write() {
-                    if let Some(container_id) = obj_guard.get_contained_by() {
-                        if let Some(container) = find_object_by_id(container_id)? {
-                            let _ = obj_guard.on_removed_from(container);
+                if let Some(obj) = find_object_by_id(object_id)? {
+                    if let Ok(mut obj_guard) = obj.write() {
+                        if let Some(container_id) = obj_guard.get_contained_by() {
+                            if let Some(container) = find_object_by_id(container_id)? {
+                                let _ = obj_guard.on_removed_from(container);
+                            }
                         }
                     }
+                    destroy_object(obj)?;
                 }
-                destroy_object(obj)?;
             }
 
-            self.contained_objects.clear();
+            self.contained_ids.clear();
             self.contain_list_size = 0;
         } else {
             // C++ lines 200-211: Make sure nobody inside remembers the dead tunnel as the one they entered
@@ -257,12 +272,14 @@ impl TunnelTracker {
             if let Some(&valid_tunnel_id) = self.tunnel_ids.first() {
                 if let Some(valid_tunnel) = find_object_by_id(valid_tunnel_id)? {
                     // C++ lines 204-210: Update contained objects to point to valid tunnel
-                    for obj in &self.contained_objects {
-                        if let Ok(mut obj_guard) = obj.write() {
-                            // C++ line 208-209: if(obj->getContainedBy() == deadTunnel) obj->onContainedBy(validTunnel)
-                            if let Some(container_id) = obj_guard.get_contained_by() {
-                                if container_id == dead_tunnel_id {
-                                    let _ = obj_guard.on_contained_by(valid_tunnel.clone());
+                    for &object_id in &self.contained_ids {
+                        if let Some(obj) = find_object_by_id(object_id)? {
+                            if let Ok(mut obj_guard) = obj.write() {
+                                // C++ line 208-209: if(obj->getContainedBy() == deadTunnel) obj->onContainedBy(validTunnel)
+                                if let Some(container_id) = obj_guard.get_contained_by() {
+                                    if container_id == dead_tunnel_id {
+                                        let _ = obj_guard.on_contained_by(valid_tunnel.clone());
+                                    }
                                 }
                             }
                         }
@@ -277,10 +294,11 @@ impl TunnelTracker {
     /// Heal all objects within the tunnel network.
     /// Matches C++ TunnelTracker::healObjects (TunnelTracker.cpp:224-228)
     pub fn heal_objects(&mut self, frames: f32) -> GameResult<()> {
-        // Clone the list to allow modification during iteration
-        let objects: Vec<_> = self.contained_objects.iter().cloned().collect();
-        for obj in objects {
-            self.heal_object(obj, frames)?;
+        let ids = self.contained_ids.clone();
+        for object_id in ids {
+            if let Some(obj) = find_object_by_id(object_id)? {
+                self.heal_object(obj, frames)?;
+            }
         }
         Ok(())
     }
@@ -342,23 +360,40 @@ impl TunnelTracker {
     where
         F: FnMut(Arc<RwLock<Object>>) -> GameResult<()>,
     {
-        // Clone list to handle iterator invalidation during callback
+        // Snapshot IDs to handle iterator invalidation during callback
         // (matches C++ note about handling deletion via callback, lines 46-47)
-        let mut objects: Vec<_> = self.contained_objects.iter().cloned().collect();
+        let mut ids = self.contained_ids.clone();
         if reverse {
-            objects.reverse();
+            ids.reverse();
         }
 
-        for object in objects {
-            func(object)?;
+        for object_id in ids {
+            if let Some(object) = find_object_by_id(object_id)? {
+                func(object)?;
+            }
         }
 
         Ok(())
     }
 
+    /// ID-first contained iteration.
+    pub fn iterate_contained_ids<F>(&self, mut func: F, reverse: bool) -> GameResult<()>
+    where
+        F: FnMut(ObjectID) -> GameResult<()>,
+    {
+        let mut ids = self.contained_ids.clone();
+        if reverse {
+            ids.reverse();
+        }
+        for object_id in ids {
+            func(object_id)?;
+        }
+        Ok(())
+    }
+
     /// Number of contained objects.
     pub fn get_contain_count(&self) -> GameResult<u32> {
-        Ok(self.contained_objects.len() as u32)
+        Ok(self.contained_ids.len() as u32)
     }
 
     /// Maximum capacity allowed for this tracker.
@@ -373,8 +408,16 @@ impl TunnelTracker {
     }
 
     /// Retrieve a reference to the contained objects list.
-    pub fn get_contained_items_list(&self) -> &Vec<Arc<RwLock<Object>>> {
-        &self.contained_objects
+    /// Resolve contained members for the duration of the caller (owned Arc vec, not stored).
+    pub fn get_contained_items_list(&self) -> Vec<Arc<RwLock<Object>>> {
+        self.contained_ids
+            .iter()
+            .filter_map(|&id| find_object_by_id(id).ok().flatten())
+            .collect()
+    }
+
+    pub fn get_contained_item_ids(&self) -> &[ObjectID] {
+        &self.contained_ids
     }
 
     /// Obtain the list of tunnel container IDs.
@@ -417,23 +460,20 @@ impl Snapshotable for TunnelTracker {
         }
         xfer_io(xfer.xfer_stl_object_id_list(&mut self.tunnel_ids))?;
 
-        let mut contain_list_size = self.contained_objects.len() as i32;
+        let mut contain_list_size = self.contained_ids.len() as i32;
         xfer_io(xfer.xfer_int(&mut contain_list_size))?;
         if xfer.get_xfer_mode() == XferMode::Load {
             self.contain_list_size = contain_list_size.max(0) as usize;
             self.xfer_contain_list.clear();
-            self.contained_objects.clear();
+            self.contained_ids.clear();
         } else {
-            self.contain_list_size = self.contained_objects.len();
+            self.contain_list_size = self.contained_ids.len();
         }
 
         match xfer.get_xfer_mode() {
             XferMode::Save | XferMode::Crc => {
-                for object in &self.contained_objects {
-                    let mut object_id = object
-                        .read()
-                        .map_err(|_| "TunnelTracker::xfer object lock poisoned".to_string())?
-                        .get_id();
+                for &object_id in &self.contained_ids {
+                    let mut object_id = object_id;
                     xfer_io(xfer.xfer_object_id(&mut object_id))?;
                 }
             }
@@ -455,7 +495,7 @@ impl Snapshotable for TunnelTracker {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        if !self.contained_objects.is_empty() {
+        if !self.contained_ids.is_empty() {
             return Err(
                 "TunnelTracker::loadPostProcess - contain list should be empty but is not"
                     .to_string(),
@@ -489,10 +529,10 @@ impl Snapshotable for TunnelTracker {
                 }
             }
 
-            self.contained_objects.push(object);
+            self.contained_ids.push(object_id);
         }
 
-        self.contain_list_size = self.contained_objects.len();
+        self.contain_list_size = self.contained_ids.len();
         Ok(())
     }
 }

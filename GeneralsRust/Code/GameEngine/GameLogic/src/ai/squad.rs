@@ -50,35 +50,33 @@ impl Squad {
     /// Add an object to the squad
     pub fn add_object(&mut self, object: &Arc<RwLock<Object>>) {
         if let Ok(obj_ref) = object.try_read() {
-            self.object_ids.push(obj_ref.get_id());
+            self.add_object_id(obj_ref.get_id());
         }
-        self.objects_cached.push(object.clone());
         register_legacy_object(object);
     }
 
     /// Add an object by ID to the squad
     pub fn add_object_id(&mut self, object_id: ObjectID) {
-        self.object_ids.push(object_id);
-        if let Some(obj) = get_legacy_object(object_id) {
-            self.objects_cached.push(obj);
+        if self.object_ids.contains(&object_id) {
+            return;
         }
+        self.object_ids.push(object_id);
+        // Drop stale Arc cache; rebuild on demand from IDs.
+        self.objects_cached.clear();
     }
 
     /// Remove an object from the squad
     pub fn remove_object(&mut self, object: &Arc<RwLock<Object>>) {
         if let Ok(obj_ref) = object.try_read() {
-            let obj_id = obj_ref.get_id();
-            self.object_ids.retain(|&id| id != obj_id);
-            unregister_legacy_object(obj_id);
+            self.remove_object_id(obj_ref.get_id());
         }
-        self.objects_cached
-            .retain(|cached| !Arc::ptr_eq(cached, object));
     }
 
     /// Remove an object by ID from the squad
     pub fn remove_object_id(&mut self, object_id: ObjectID) {
         self.object_ids.retain(|&id| id != object_id);
         unregister_legacy_object(object_id);
+        self.objects_cached.clear();
     }
 
     /// Clear all objects from the squad
@@ -87,36 +85,20 @@ impl Squad {
         self.objects_cached.clear();
     }
 
-    /// Get all objects in the squad that haven't been deleted
-    /// This will also prune dead objects from the squad
+    /// Get all objects in the squad that haven't been deleted.
+    /// Always rebuilds from stored ObjectIDs (ID-first membership).
     pub fn get_all_objects(&mut self) -> &Vec<Arc<RwLock<Object>>> {
-        if self.objects_cached.is_empty() {
-            // Rebuild from IDs when no cached objects exist.
-            let mut valid_ids = Vec::new();
+        self.objects_cached.clear();
+        let mut valid_ids = Vec::new();
 
-            for &obj_id in &self.object_ids {
-                if let Some(obj) = self.find_object_by_id(obj_id) {
-                    self.objects_cached.push(obj);
-                    valid_ids.push(obj_id);
-                }
+        for &obj_id in &self.object_ids {
+            if let Some(obj) = self.find_object_by_id(obj_id) {
+                self.objects_cached.push(obj);
+                valid_ids.push(obj_id);
             }
-
-            self.object_ids = valid_ids;
-            return &self.objects_cached;
         }
 
-        // Prune cached objects that are no longer valid.
-        let mut valid_ids = Vec::new();
-        self.objects_cached.retain(|obj| {
-            if let Ok(obj_ref) = obj.try_read() {
-                valid_ids.push(obj_ref.get_id());
-                true
-            } else {
-                false
-            }
-        });
         self.object_ids = valid_ids;
-
         &self.objects_cached
     }
 
@@ -140,16 +122,10 @@ impl Squad {
 
     /// Get all live object IDs (best effort when object handles are missing)
     pub fn get_live_object_ids(&mut self) -> Vec<ObjectID> {
-        if !self.objects_cached.is_empty() {
-            let ids: Vec<_> = self
-                .get_live_objects()
-                .into_iter()
-                .filter_map(|obj| obj.try_read().ok().map(|guard| guard.get_id()))
-                .collect();
-            return ids;
-        }
-
-        self.object_ids.clone()
+        self.get_live_objects()
+            .into_iter()
+            .filter_map(|obj| obj.try_read().ok().map(|guard| guard.get_id()))
+            .collect()
     }
 
     /// Get the current number of objects, including dead objects
@@ -182,14 +158,8 @@ impl Squad {
             self.clear_squad();
         }
 
-        let ids: Vec<ObjectID> = team.get_members().iter().copied().collect();
-        self.object_ids = ids.clone();
+        self.object_ids = team.get_members().iter().copied().collect();
         self.objects_cached.clear();
-        for member_id in ids {
-            if let Some(obj) = get_legacy_object(member_id) {
-                self.objects_cached.push(obj);
-            }
-        }
     }
 
     /// Fill this squad with members of an AIGroup
@@ -198,14 +168,8 @@ impl Squad {
             self.clear_squad();
         }
 
-        let ids = ai_group.get_all_ids_snapshot();
-        self.object_ids = ids.clone();
+        self.object_ids = ai_group.get_all_ids_snapshot();
         self.objects_cached.clear();
-        for object_id in ids {
-            if let Some(obj) = get_legacy_object(object_id) {
-                self.objects_cached.push(obj);
-            }
-        }
     }
 
     /// Create an AIGroup from this squad
@@ -215,8 +179,8 @@ impl Squad {
         // Implementation would clear the AI group first
 
         // Add all live squad members to the AI group
-        for obj in self.get_live_objects() {
-            ai_group.add(obj)?;
+        for object_id in self.get_live_object_ids() {
+            ai_group.add_by_id(object_id)?;
         }
 
         Ok(())
