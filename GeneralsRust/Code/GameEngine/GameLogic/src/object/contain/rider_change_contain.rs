@@ -1087,10 +1087,7 @@ impl RiderChangeContain {
             .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
             .unwrap_or(false);
         if should_remove_from_world {
-            let _ = self
-                .base
-                .base
-                .add_or_remove_obj_from_world(rider.clone(), false);
+            let _ = self.base.base.add_or_remove_obj_from_world(rider_id, false);
         }
         self.base.redeploy_occupants()?;
         self.on_containing(rider_id, was_selected)?;
@@ -1124,10 +1121,7 @@ impl RiderChangeContain {
             .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
             .unwrap_or(false);
         if should_add_to_world {
-            let _ = self
-                .base
-                .base
-                .add_or_remove_obj_from_world(rider.clone(), true);
+            let _ = self.base.base.add_or_remove_obj_from_world(rider_id, true);
             if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
                 None
             } else {

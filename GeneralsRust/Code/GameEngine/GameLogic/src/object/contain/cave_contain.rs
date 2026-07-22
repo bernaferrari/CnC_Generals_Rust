@@ -302,7 +302,7 @@ impl CaveContain {
             .map(|obj_guard| self.base.is_enclosing_container_for(&obj_guard))
             .unwrap_or(false);
         if is_enclosing {
-            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), false);
+            let _ = self.base.add_or_remove_obj_from_world(obj_id, false);
         }
 
         let contained = self.get_contained_items_list()?;
