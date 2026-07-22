@@ -59,7 +59,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 1. PresentationFrame consumers (render/HUD) — stop locking live sim during GPU passes.
 2. Unify IDs across Main and crate.
 3. Flip crate `HashMap<ObjectID, Arc<RwLock<Object>>>` → owned store + IDs.
-4. Retire ObjectFactory dual registry / `engine_object_id` bridge.
+4. Retire ObjectFactory dual registry / `engine_object_id` bridge. **Host path done** (field + dual-create + dual-read removed; crate OM/factory Arc store remains).
 5. Rebind GameClient to Main authority + snapshot only.
 6. Promote `gamelogic` as sole authority; Main = event loop.
 
