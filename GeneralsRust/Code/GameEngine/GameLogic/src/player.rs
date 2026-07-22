@@ -1704,10 +1704,7 @@ impl Player {
     }
 
     /// Find a drone owned by this player that was produced by the given object ID.
-    pub fn find_drone_by_producer_id(
-        &self,
-        producer_id: ObjectID,
-    ) -> Result<Option<Arc<RwLock<Object>>>, String> {
+    pub fn find_drone_id_by_producer_id(&self, producer_id: ObjectID) -> Option<ObjectID> {
         for object_id in &self.owned_objects {
             let matches = crate::object::registry::OBJECT_REGISTRY
                 .with_object(*object_id, |obj_ref| {
@@ -1716,11 +1713,20 @@ impl Player {
                 })
                 .unwrap_or(false);
             if matches {
-                // Return type still Arc for legacy callers.
-                return Ok(crate::object::registry::OBJECT_REGISTRY.get_object(*object_id));
+                return Some(*object_id);
             }
         }
-        Ok(None)
+        None
+    }
+
+    /// Prefer [`Self::find_drone_id_by_producer_id`].
+    pub fn find_drone_by_producer_id(
+        &self,
+        producer_id: ObjectID,
+    ) -> Result<Option<Arc<RwLock<Object>>>, String> {
+        Ok(self
+            .find_drone_id_by_producer_id(producer_id)
+            .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id)))
     }
 
     /// Remove an object from this player's ownership
