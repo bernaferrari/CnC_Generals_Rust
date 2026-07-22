@@ -4,7 +4,7 @@ use super::{format_add_cash, format_cash_template};
 use crate::common::ModelConditionFlags;
 use crate::common::*;
 use crate::experience::ExperienceTracker;
-use crate::helpers::{TheAudio, TheInGameUI};
+use crate::helpers::{TheAudio, TheGameLogic, TheInGameUI};
 use crate::object::collide::crate_collide::crate_collide::{
     CrateCollide as BaseCrateCollide, CrateCollideBehavior, CrateCollideModuleData,
 };
@@ -17,6 +17,14 @@ use crate::weapon::WeaponSetType;
 use crate::{GameLogicRandomValue, GameLogicRandomValueReal};
 use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
 use std::sync::{Arc, Mutex, RwLock};
+
+fn resolve_crate_object(id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+    if id == crate::common::INVALID_ID {
+        return None;
+    }
+    TheGameLogic::find_object_by_id(id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+}
 
 /// INI configuration for salvage crates.
 #[derive(Debug, Clone)]
@@ -332,26 +340,33 @@ impl SalvageCrateCollide {
         })
     }
 
-    fn determine_salvage_type(
-        &self,
-        other: &Arc<RwLock<Object>>,
-    ) -> Result<SalvageType, CollisionError> {
-        if self.eligible_for_armor_set(other)? {
+    fn determine_salvage_type(&self, other_id: ObjectID) -> Result<SalvageType, CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Err(CollisionError::InvalidObject(
+                "collector unavailable".into(),
+            ));
+        };
+
+        if self.eligible_for_armor_set(other_id)? {
             return Ok(SalvageType::ArmorSet);
         }
 
-        if self.eligible_for_weapon_set(other)? && self.test_weapon_chance() {
+        if self.eligible_for_weapon_set(other_id)? && self.test_weapon_chance() {
             return Ok(SalvageType::WeaponSet);
         }
 
-        if self.eligible_for_level(other)? && self.test_level_chance() {
+        if self.eligible_for_level(other_id)? && self.test_level_chance() {
             return Ok(SalvageType::Level);
         }
 
         Ok(SalvageType::Money)
     }
 
-    fn eligible_for_weapon_set(&self, other: &Arc<RwLock<Object>>) -> Result<bool, CollisionError> {
+    fn eligible_for_weapon_set(&self, other_id: ObjectID) -> Result<bool, CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         let guard = other
             .read()
             .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
@@ -363,7 +378,11 @@ impl SalvageCrateCollide {
         Ok(!guard.test_weapon_set_flag(WeaponSetType::CrateUpgradeTwo))
     }
 
-    fn eligible_for_armor_set(&self, other: &Arc<RwLock<Object>>) -> Result<bool, CollisionError> {
+    fn eligible_for_armor_set(&self, other_id: ObjectID) -> Result<bool, CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         let guard = other
             .read()
             .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
@@ -375,7 +394,11 @@ impl SalvageCrateCollide {
         Ok(!guard.test_armor_set_flag(ArmorSetFlag::CrateUpgradeTwo))
     }
 
-    fn eligible_for_level(&self, other: &Arc<RwLock<Object>>) -> Result<bool, CollisionError> {
+    fn eligible_for_level(&self, other_id: ObjectID) -> Result<bool, CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         let tracker = {
             let guard = other
                 .read()
@@ -411,7 +434,11 @@ impl SalvageCrateCollide {
         GameLogicRandomValueReal(0.0, 1.0) < self.module_data.level_chance
     }
 
-    fn do_weapon_set(&self, other: &Arc<RwLock<Object>>) -> Result<(), CollisionError> {
+    fn do_weapon_set(&self, other_id: ObjectID) -> Result<(), CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(());
+        };
+
         let mut guard = other
             .write()
             .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
@@ -425,7 +452,11 @@ impl SalvageCrateCollide {
         Ok(())
     }
 
-    fn do_armor_set(&self, other: &Arc<RwLock<Object>>) -> Result<(), CollisionError> {
+    fn do_armor_set(&self, other_id: ObjectID) -> Result<(), CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(());
+        };
+
         let mut guard = other
             .write()
             .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
@@ -446,7 +477,11 @@ impl SalvageCrateCollide {
         Ok(())
     }
 
-    fn do_level_gain(&self, other: &Arc<RwLock<Object>>) -> Result<(), CollisionError> {
+    fn do_level_gain(&self, other_id: ObjectID) -> Result<(), CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(());
+        };
+
         let tracker = {
             let guard = other
                 .read()
@@ -474,7 +509,11 @@ impl SalvageCrateCollide {
         Ok(())
     }
 
-    fn do_money(&self, other: &Arc<RwLock<Object>>) -> Result<(), CollisionError> {
+    fn do_money(&self, other_id: ObjectID) -> Result<(), CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(());
+        };
+
         let payout = if self.module_data.minimum_money != self.module_data.maximum_money {
             GameLogicRandomValue(
                 self.module_data.minimum_money,
@@ -509,7 +548,7 @@ impl SalvageCrateCollide {
                 .add_money_earned(payout as u32);
         }
 
-        self.display_money_floating_text(payout as u32, other, &player_arc)?;
+        self.display_money_floating_text(payout as u32, &other, &player_arc)?;
         Ok(())
     }
 
@@ -520,7 +559,11 @@ impl SalvageCrateCollide {
         player: &Arc<RwLock<Player>>,
     ) -> Result<(), CollisionError> {
         let (position, color) = {
-            let position = self.money_floating_text_position(object)?;
+            let object_id = object
+                .read()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID);
+            let position = self.money_floating_text_position(object_id)?;
             let player_guard = player
                 .read()
                 .map_err(|_| CollisionError::InvalidObject("player lock poisoned".into()))?;
@@ -536,12 +579,18 @@ impl SalvageCrateCollide {
 
     fn money_floating_text_position(
         &self,
-        collector: &Arc<RwLock<Object>>,
+        collector_id: ObjectID,
     ) -> Result<Coord3D, CollisionError> {
+        let Some(collector) = resolve_crate_object(collector_id) else {
+            return Err(CollisionError::InvalidObject(
+                "collector unavailable".into(),
+            ));
+        };
+
         let source = self
             .base
             .get_object()
-            .unwrap_or_else(|_| Arc::clone(collector));
+            .unwrap_or_else(|_| Arc::clone(&collector));
         let mut position = *source
             .read()
             .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
@@ -550,7 +599,11 @@ impl SalvageCrateCollide {
         Ok(position)
     }
 
-    fn play_salvage_sound(&self, other: &Arc<RwLock<Object>>) -> Result<(), CollisionError> {
+    fn play_salvage_sound(&self, other_id: ObjectID) -> Result<(), CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(());
+        };
+
         let id = other
             .read()
             .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
@@ -563,7 +616,11 @@ impl SalvageCrateCollide {
         Ok(())
     }
 
-    fn play_money_sound(&self, other: &Arc<RwLock<Object>>) -> Result<(), CollisionError> {
+    fn play_money_sound(&self, other_id: ObjectID) -> Result<(), CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(());
+        };
+
         let id = other
             .read()
             .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
@@ -576,7 +633,11 @@ impl SalvageCrateCollide {
         Ok(())
     }
 
-    fn record_salvage_collected(&self, other: &Arc<RwLock<Object>>) -> Result<(), CollisionError> {
+    fn record_salvage_collected(&self, other_id: ObjectID) -> Result<(), CollisionError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(());
+        };
+
         let owner = {
             let guard = other
                 .read()
@@ -599,27 +660,31 @@ impl SalvageCrateCollide {
 impl CrateCollideBehavior for SalvageCrateCollide {
     fn execute_crate_behavior(&mut self, other: &dyn GameObject) -> Result<bool, CollisionError> {
         let handle = self.require_object_handle(other)?;
-        let salvage_type = self.determine_salvage_type(&handle)?;
+        let other_id = handle
+            .read()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        let salvage_type = self.determine_salvage_type(other_id)?;
 
         match salvage_type {
             SalvageType::ArmorSet => {
-                self.do_armor_set(&handle)?;
-                self.play_salvage_sound(&handle)?;
+                self.do_armor_set(other_id)?;
+                self.play_salvage_sound(other_id)?;
             }
             SalvageType::WeaponSet => {
-                self.do_weapon_set(&handle)?;
-                self.play_salvage_sound(&handle)?;
+                self.do_weapon_set(other_id)?;
+                self.play_salvage_sound(other_id)?;
             }
             SalvageType::Level => {
-                self.do_level_gain(&handle)?;
+                self.do_level_gain(other_id)?;
             }
             SalvageType::Money => {
-                self.do_money(&handle)?;
-                self.play_money_sound(&handle)?;
+                self.do_money(other_id)?;
+                self.play_money_sound(other_id)?;
             }
         }
 
-        self.record_salvage_collected(&handle)?;
+        self.record_salvage_collected(other_id)?;
 
         Ok(true)
     }
