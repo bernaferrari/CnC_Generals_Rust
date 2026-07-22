@@ -374,9 +374,7 @@ impl SabotageInternetCenterCrateCollide {
                 let contained_ids: Vec<ObjectID> = contain_guard.get_contained_objects().to_vec();
                 drop(contain_guard);
                 for object_id in contained_ids {
-                    if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
-                        disable_hacker(obj, disable_frame)?;
-                    }
+                    disable_hacker_id(object_id, disable_frame)?;
                 }
             }
         }
@@ -440,6 +438,16 @@ impl CrateCollideModule for SabotageInternetCenterCrateCollide {
 fn disable_hacker(obj: Arc<RwLock<Object>>, frame: u32) -> Result<(), GameError> {
     let mut obj_lock = obj.write().map_err(|_| GameError::LockError)?;
     obj_lock.set_disabled_until(DisabledType::DisabledHacked, frame);
+    Ok(())
+}
+
+fn disable_hacker_id(object_id: ObjectID, frame: u32) -> Result<(), GameError> {
+    let applied = OBJECT_REGISTRY.with_object_mut(object_id, |obj_lock| {
+        obj_lock.set_disabled_until(DisabledType::DisabledHacked, frame);
+    });
+    if applied.is_none() {
+        return Err(GameError::LockError);
+    }
     Ok(())
 }
 
