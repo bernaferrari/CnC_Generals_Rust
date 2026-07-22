@@ -2955,7 +2955,13 @@ impl Object {
                     }
                 }
             }
-            let _ = self.on_removed_from(container_arc);
+            let _ = self.on_removed_from(
+                container_arc
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(INVALID_ID),
+            );
         }
 
         self.upgrade_module_handles.clear();
@@ -11020,15 +11026,8 @@ impl Object {
     /// # Returns
     /// * `Ok(())` - Container reference set successfully
     /// * `Err(ObjectError)` - Failed to set container
-    pub fn set_contained_by(
-        &mut self,
-        container: Option<Arc<RwLock<Object>>>,
-    ) -> Result<(), ObjectError> {
-        let id = container
-            .as_ref()
-            .and_then(|c| c.read().ok().map(|g| g.get_id()))
-            .unwrap_or(INVALID_ID);
-        self.set_contained_by_id(id)
+    pub fn set_contained_by(&mut self, container_id: Option<ObjectID>) -> Result<(), ObjectError> {
+        self.set_contained_by_id(container_id.unwrap_or(INVALID_ID))
     }
 
     /// ID-first container association.
@@ -11074,7 +11073,7 @@ impl Object {
     /// # Returns
     /// * `Ok(())` - Containment handled successfully
     /// * `Err(ObjectError)` - Failed to handle containment
-    pub fn on_contained_by(&mut self, container: Arc<RwLock<Object>>) -> Result<(), ObjectError> {
+    pub fn on_contained_by(&mut self, container_id: ObjectID) -> Result<(), ObjectError> {
         use crate::common::types::ObjectStatusMaskType;
         use crate::modules::ContainModuleInterfaceExt;
 
@@ -11082,12 +11081,24 @@ impl Object {
         self.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
 
         // Check if container is enclosing - if so, set MASKED status (C++ lines 674-677)
-        let is_enclosing = container
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_contain())
-            .map(|contain| contain.is_enclosing_container_for(self))
-            .unwrap_or(true);
+        let is_enclosing = if container_id != INVALID_ID {
+            if let Some(container) = crate::helpers::TheGameLogic::find_object_by_id(container_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(container_id))
+            {
+                if let Ok(guard) = container.read() {
+                    guard
+                        .get_contain()
+                        .map(|contain| contain.is_enclosing_container_for(self))
+                        .unwrap_or(true)
+                } else {
+                    true
+                }
+            } else {
+                true
+            }
+        } else {
+            true
+        };
         if is_enclosing {
             self.set_status(ObjectStatusMaskType::MASKED, true);
         } else {
@@ -11095,11 +11106,7 @@ impl Object {
         }
 
         // Update contained_by reference (C++ line 678)
-        self.contained_by_id = container
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(INVALID_ID);
+        self.contained_by_id = container_id;
 
         // Update contained_by_frame (C++ line 679)
         self.contained_by_frame = crate::helpers::TheGameLogic::get_frame();
@@ -11126,7 +11133,7 @@ impl Object {
     /// # Returns
     /// * `Ok(())` - Removal handled successfully
     /// * `Err(ObjectError)` - Failed to handle removal
-    pub fn on_removed_from(&mut self, _container: Arc<RwLock<Object>>) -> Result<(), ObjectError> {
+    pub fn on_removed_from(&mut self, _container_id: ObjectID) -> Result<(), ObjectError> {
         use crate::common::types::ObjectStatusMaskType;
 
         // Clear MASKED and UNSELECTABLE status (C++ line 690)

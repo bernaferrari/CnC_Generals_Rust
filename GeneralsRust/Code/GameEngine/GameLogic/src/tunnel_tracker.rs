@@ -244,7 +244,13 @@ impl TunnelTracker {
                     if let Ok(mut obj_guard) = obj.write() {
                         if let Some(container_id) = obj_guard.get_contained_by() {
                             if let Some(container) = find_object_by_id(container_id)? {
-                                let _ = obj_guard.on_removed_from(container);
+                                let _ = obj_guard.on_removed_from(
+                                    container
+                                        .read()
+                                        .ok()
+                                        .map(|g| g.get_id())
+                                        .unwrap_or(crate::common::INVALID_ID),
+                                );
                             }
                         }
                     }
@@ -266,7 +272,13 @@ impl TunnelTracker {
                                 // C++ line 208-209: if(obj->getContainedBy() == deadTunnel) obj->onContainedBy(validTunnel)
                                 if let Some(container_id) = obj_guard.get_contained_by() {
                                     if container_id == dead_tunnel_id {
-                                        let _ = obj_guard.on_contained_by(valid_tunnel.clone());
+                                        let _ = obj_guard.on_contained_by(
+                                            valid_tunnel
+                                                .read()
+                                                .ok()
+                                                .map(|g| g.get_id())
+                                                .unwrap_or(crate::common::INVALID_ID),
+                                        );
                                     }
                                 }
                             }
