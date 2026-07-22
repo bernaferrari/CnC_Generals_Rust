@@ -1,6 +1,8 @@
 #![cfg(test)]
 
-use crate::playability_integration::{current_unresolved_blocker_examples, PlayabilityAuditSummary};
+use crate::playability_integration::{
+    current_unresolved_blocker_examples, PlayabilityAuditSummary,
+};
 
 #[test]
 fn playability_integration_summary_smoke() {

@@ -1,19 +1,19 @@
-use game_engine::common::frame_clock::FrameClock;
 use anyhow::Result;
+use game_engine::common::frame_clock::FrameClock;
 use glam::{Mat4, Vec3, Vec4};
-use log::{info, warn, error};
+use log::{error, info, warn};
 use std::sync::Arc;
 use std::sync::RwLock;
-use wgpu::{Surface, Device, Queue, SurfaceConfiguration};
-use ww3d_engine::FrameTiming;
-use ww3d_gpu::present_surface_texture;
+use wgpu::{Device, Queue, Surface, SurfaceConfiguration};
 use winit::{
     application::ApplicationHandler,
-    event::{Event, WindowEvent, KeyEvent, ElementState},
-    event_loop::{EventLoop, ControlFlow},
+    event::{ElementState, Event, KeyEvent, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
     keyboard::{Key, NamedKey},
     window::{Window, WindowBuilder},
 };
+use ww3d_engine::FrameTiming;
+use ww3d_gpu::present_surface_texture;
 
 // Audio imports
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
@@ -27,19 +27,19 @@ pub struct GameEngine {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     render_pipeline: wgpu::RenderPipeline,
-    
+
     // Audio system
     #[allow(dead_code)] // Kept alive to prevent audio stream from dropping
     audio_output: OutputStream,
     audio_handle: OutputStreamHandle,
     background_music: Option<Sink>,
     sound_effects: Vec<Sink>,
-    
+
     // Game state
     camera_pos: Vec3,
     camera_rotation: Vec3,
     models: Vec<GameModel>,
-    
+
     // Input state
     keys_pressed: std::collections::HashSet<Key>,
 }
@@ -84,36 +84,55 @@ impl Vertex {
 // Sample vertices for a colorful cube
 const VERTICES: &[Vertex] = &[
     // Front face
-    Vertex { position: [-1.0, -1.0,  1.0], color: [1.0, 0.0, 0.0] },
-    Vertex { position: [ 1.0, -1.0,  1.0], color: [0.0, 1.0, 0.0] },
-    Vertex { position: [ 1.0,  1.0,  1.0], color: [0.0, 0.0, 1.0] },
-    Vertex { position: [-1.0,  1.0,  1.0], color: [1.0, 1.0, 0.0] },
-    // Back face  
-    Vertex { position: [-1.0, -1.0, -1.0], color: [1.0, 0.0, 1.0] },
-    Vertex { position: [ 1.0, -1.0, -1.0], color: [0.0, 1.0, 1.0] },
-    Vertex { position: [ 1.0,  1.0, -1.0], color: [1.0, 1.0, 1.0] },
-    Vertex { position: [-1.0,  1.0, -1.0], color: [0.5, 0.5, 0.5] },
+    Vertex {
+        position: [-1.0, -1.0, 1.0],
+        color: [1.0, 0.0, 0.0],
+    },
+    Vertex {
+        position: [1.0, -1.0, 1.0],
+        color: [0.0, 1.0, 0.0],
+    },
+    Vertex {
+        position: [1.0, 1.0, 1.0],
+        color: [0.0, 0.0, 1.0],
+    },
+    Vertex {
+        position: [-1.0, 1.0, 1.0],
+        color: [1.0, 1.0, 0.0],
+    },
+    // Back face
+    Vertex {
+        position: [-1.0, -1.0, -1.0],
+        color: [1.0, 0.0, 1.0],
+    },
+    Vertex {
+        position: [1.0, -1.0, -1.0],
+        color: [0.0, 1.0, 1.0],
+    },
+    Vertex {
+        position: [1.0, 1.0, -1.0],
+        color: [1.0, 1.0, 1.0],
+    },
+    Vertex {
+        position: [-1.0, 1.0, -1.0],
+        color: [0.5, 0.5, 0.5],
+    },
 ];
 
 const INDICES: &[u16] = &[
     // Front face
-    0, 1, 2,  2, 3, 0,
-    // Back face
-    4, 6, 5,  6, 4, 7,
-    // Left face
-    4, 0, 3,  3, 7, 4,
-    // Right face
-    1, 5, 6,  6, 2, 1,
-    // Top face
-    3, 2, 6,  6, 7, 3,
-    // Bottom face
-    4, 5, 1,  1, 0, 4,
+    0, 1, 2, 2, 3, 0, // Back face
+    4, 6, 5, 6, 4, 7, // Left face
+    4, 0, 3, 3, 7, 4, // Right face
+    1, 5, 6, 6, 2, 1, // Top face
+    3, 2, 6, 6, 7, 3, // Bottom face
+    4, 5, 1, 1, 0, 4,
 ];
 
 impl GameEngine {
     pub async fn new(window: Arc<Window>) -> Result<Self> {
         info!("Initializing Game Engine with wgpu graphics and audio");
-        
+
         let size = window.inner_size();
 
         // Initialize wgpu
@@ -143,7 +162,9 @@ impl GameEngine {
             .await?;
 
         let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps.formats.iter()
+        let surface_format = surface_caps
+            .formats
+            .iter()
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
@@ -165,15 +186,15 @@ impl GameEngine {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../../shaders/basic.wgsl").into()),
-            
         });
 
         // Create render pipeline
-        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -240,7 +261,10 @@ impl GameEngine {
         };
 
         info!("Game Engine initialized successfully!");
-        info!("- Graphics: wgpu with {} surface", config.format.describe().long_name);
+        info!(
+            "- Graphics: wgpu with {} surface",
+            config.format.describe().long_name
+        );
         info!("- Audio: Rodio output stream initialized");
         info!("- Models: 1 cube loaded");
 
@@ -273,11 +297,12 @@ impl GameEngine {
     pub fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::KeyboardInput {
-                event: KeyEvent {
-                    logical_key: key,
-                    state,
-                    ..
-                },
+                event:
+                    KeyEvent {
+                        logical_key: key,
+                        state,
+                        ..
+                    },
                 ..
             } => {
                 match state {
@@ -343,11 +368,15 @@ impl GameEngine {
 
     pub fn render(&mut self) -> Result<()> {
         let output = self.surface.get_current_texture()?;
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -376,7 +405,8 @@ impl GameEngine {
             // Render each model
             for model in &self.models {
                 render_pass.set_vertex_buffer(0, model.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(model.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass
+                    .set_index_buffer(model.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..model.num_indices, 0, 0..1);
             }
         }
@@ -390,12 +420,12 @@ impl GameEngine {
     pub fn play_sound_effect(&mut self) {
         // Create a simple beep sound effect
         let sink = Sink::try_new(&self.audio_handle).unwrap();
-        
+
         // Create a simple sine wave beep
         let sample_rate = 44_100;
         let duration = 0.2; // 200ms
         let frequency = 440.0; // A note
-        
+
         let samples: Vec<f32> = (0..(sample_rate as f32 * duration) as usize)
             .map(|i| {
                 let t = i as f32 / sample_rate as f32;
@@ -420,7 +450,7 @@ impl GameEngine {
         } else {
             // Create background music - simple ambient tone
             let sink = Sink::try_new(&self.audio_handle).unwrap();
-            
+
             let sample_rate = 44_100;
             let duration = 10.0; // 10 seconds loop
             let samples: Vec<f32> = (0..(sample_rate as f32 * duration) as usize)
@@ -432,10 +462,10 @@ impl GameEngine {
                 })
                 .collect();
 
-            let source = rodio::buffer::SamplesBuffer::new(1, sample_rate, samples)
-                .repeat_infinite();
+            let source =
+                rodio::buffer::SamplesBuffer::new(1, sample_rate, samples).repeat_infinite();
             sink.append(source);
-            
+
             self.background_music = Some(sink);
             info!("Background music started");
         }
@@ -464,9 +494,9 @@ impl ApplicationHandler for GameApplication {
                     .create_window(
                         WindowBuilder::new()
                             .with_title("Command & Conquer Generals Zero Hour - Rust Edition")
-                            .with_inner_size(winit::dpi::LogicalSize::new(1024, 768))
+                            .with_inner_size(winit::dpi::LogicalSize::new(1024, 768)),
                     )
-                    .unwrap()
+                    .unwrap(),
             );
 
             // Initialize the engine asynchronously
@@ -500,11 +530,12 @@ impl ApplicationHandler for GameApplication {
             match event {
                 WindowEvent::CloseRequested
                 | WindowEvent::KeyboardInput {
-                    event: KeyEvent {
-                        state: ElementState::Pressed,
-                        logical_key: Key::Named(NamedKey::Escape),
-                        ..
-                    },
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            logical_key: Key::Named(NamedKey::Escape),
+                            ..
+                        },
                     ..
                 } => {
                     info!("Exit requested");
@@ -546,7 +577,7 @@ pub async fn run_game() -> Result<()> {
 
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
-    
+
     let mut app = GameApplication::new();
     event_loop.run_app(&mut app)?;
 
