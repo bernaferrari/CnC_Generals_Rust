@@ -2727,11 +2727,7 @@ impl ClassicState for AIFollowPathState {
 
             self.set_goal_position(self.path[0]);
             if let Some(ignore_id) = self.ignore_object_id {
-                if let Some(ignore_obj) =
-                    crate::object::registry::OBJECT_REGISTRY.get_object(ignore_id)
-                {
-                    let _ = ai_guard.ignore_obstacle(Some(&ignore_obj));
-                }
+                let _ = ai_guard.ignore_obstacle_id(ignore_id);
             }
             let _ = ai_guard.set_current_goal_path_index(self.index as i32);
             if self.follow_exit_production {

@@ -1369,6 +1369,15 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
+    /// Borrow-first ignored-obstacle setter (ObjectID only).
+    fn ignore_obstacle_id(
+        &mut self,
+        id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let _ = id;
+        Ok(())
+    }
+
     /// Get current ignored obstacle ID (matches AIUpdateInterface::getIgnoredObstacleID).
     fn get_ignored_obstacle_id(&self) -> ObjectID {
         crate::common::INVALID_ID
