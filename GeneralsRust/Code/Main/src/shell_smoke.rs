@@ -4043,9 +4043,22 @@ mod presentation_local_team_tests {
             assert!(
                 window.contains("local_team")
                     || window.contains("local_team()")
-                    || window.contains("Boot residual"),
-                "{needle} must prefer presentation local_team / Boot residual"
+                    || window.contains("pick_object_id_at_world_from_presentation")
+                    || window.contains("Boot residual")
+                    || window.contains("Presentation-only"),
+                "{needle} must prefer presentation local_team / presentation pick"
             );
+            if needle == "fn find_object_at_position" {
+                // Bound to this method only (next fn starts pathfollowing stub).
+                let end = window.find("fn update_unit_pathfinding").unwrap_or(window.len());
+                let body = &window[..end];
+                assert!(
+                    body.contains("Presentation-only")
+                        && body.contains("pick_object_id_at_world_from_presentation")
+                        && !body.contains("game_logic.get_objects()"),
+                    "engine find_object_at_position must be presentation-only"
+                );
+            }
         }
         assert!(
             eng.contains("fn handle_right_click")

@@ -17745,84 +17745,30 @@ impl CnCGameEngine {
         self.mouse_world_position = Vec3::new(world_x, 0.0, world_z);
     }
 
+    /// Presentation-only world pick. Returns `None` when no snapshot is installed
+    /// (no live GameLogic dual-read residual). InGame always seeds
+    /// `last_presentation_frame` before input.
     fn find_object_at_position(
         &self,
         position: Vec3,
-        game_logic: &GameLogic,
+        _game_logic: &GameLogic,
         command_context: bool,
     ) -> Option<ObjectId> {
         const BASE_SELECTION_RADIUS: f32 = 20.0;
+        // Presentation-only: no live object-store dual-read residual.
 
-        // Prefer presentation-frozen local_team when a frame is installed.
-        let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            Some(frame.local_team())
-        } else {
-            game_logic
-                .get_player(self.current_player_id)
-                .map(|p| p.team)
-        };
+        let frame = self.last_presentation_frame.as_ref()?;
+        let player_team = Some(frame.local_team());
         let has_selected_units = !self.selected_objects.is_empty();
         let prioritize_enemy_targets = command_context && has_selected_units;
 
-        // Prefer immutable presentation identity when the dual-tick snapshot is available.
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            return crate::unit_control::UnitControlSystem::pick_object_id_at_world_from_presentation(
-                frame,
-                position,
-                player_team,
-                prioritize_enemy_targets,
-                BASE_SELECTION_RADIUS,
-            );
-        }
-
-        // Boot residual only — pure priority residual acquire (presentation owns InGame).
-        let cands: Vec<_> = game_logic
-            .get_objects()
-            .iter()
-            .filter_map(|(&id, obj)| {
-                if !obj.is_alive() {
-                    return None;
-                }
-                let pos = obj.get_position();
-                let distance = pos.distance(position);
-                let radius = BASE_SELECTION_RADIUS.max(obj.selection_radius);
-                if distance > radius {
-                    return None;
-                }
-                let priority = if prioritize_enemy_targets {
-                    match player_team {
-                        Some(team) if obj.team != team && obj.is_attackable() => Some(0),
-                        Some(team) if obj.team == team && obj.is_selectable() => Some(1),
-                        _ if obj.is_attackable() => Some(2),
-                        _ if obj.is_selectable() => Some(3),
-                        _ => None,
-                    }
-                } else {
-                    match player_team {
-                        Some(team) if obj.team == team && obj.is_selectable() => Some(0),
-                        Some(_) => None,
-                        None if obj.is_selectable() => Some(0),
-                        None => None,
-                    }
-                };
-                Some(
-                    crate::game_logic::host_residual_acquire::PriorityAcquireCandidate {
-                        id,
-                        position: pos,
-                        is_alive: true,
-                        priority,
-                    },
-                )
-            })
-            .collect();
-        crate::game_logic::host_residual_acquire::pick_best_priority_residual_target(
-            ObjectId(0),
+        crate::unit_control::UnitControlSystem::pick_object_id_at_world_from_presentation(
+            frame,
             position,
-            (position.x, position.z),
-            f32::MAX,
-            cands,
+            player_team,
+            prioritize_enemy_targets,
+            BASE_SELECTION_RADIUS,
         )
-        .map(|(id, _, _)| id)
     }
 
     /// Path following is authoritative in `GameLogic::update_movement`.
