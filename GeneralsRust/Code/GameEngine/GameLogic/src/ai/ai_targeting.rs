@@ -681,27 +681,27 @@ impl AITargeting {
     }
 
     fn assess_strategic_value(&self, target_id: ObjectID, target_type: TargetType) -> f32 {
-        let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
-            return 0.0;
-        };
-        let Ok(guard) = target.read() else {
-            return 0.0;
-        };
-        let mut value = match target_type {
-            TargetType::Building => 0.7,
-            TargetType::Aircraft => 0.6,
-            TargetType::Vehicle => 0.5,
-            TargetType::Infantry => 0.3,
-            TargetType::Resource => 0.8,
-            TargetType::Special => 0.9,
-            TargetType::Projectile => 0.4,
-            TargetType::Naval => 0.6,
-            TargetType::Unknown => 0.4,
-        };
-        if guard.is_kind_of(KindOf::CommandCenter) || guard.is_kind_of(KindOf::KeyStructure) {
-            value = value.max(0.9);
-        }
-        value.clamp(0.0, 1.0)
+        OBJECT_REGISTRY
+            .with_object(target_id, |guard| {
+                let mut value = match target_type {
+                    TargetType::Building => 0.7,
+                    TargetType::Aircraft => 0.6,
+                    TargetType::Vehicle => 0.5,
+                    TargetType::Infantry => 0.3,
+                    TargetType::Resource => 0.8,
+                    TargetType::Special => 0.9,
+                    TargetType::Projectile => 0.4,
+                    TargetType::Naval => 0.6,
+                    TargetType::Unknown => 0.4,
+                };
+                if guard.is_kind_of(KindOf::CommandCenter)
+                    || guard.is_kind_of(KindOf::KeyStructure)
+                {
+                    value = value.max(0.9);
+                }
+                value.clamp(0.0, 1.0)
+            })
+            .unwrap_or(0.0)
     }
 
     /// Assess threat level of target
@@ -721,8 +721,8 @@ impl AITargeting {
         // - Health/condition
         // - Position/context
         
-        let threat_level = if let Some(target) = OBJECT_REGISTRY.get_object(target_id) {
-            if let Ok(guard) = target.read() {
+        let threat_level = OBJECT_REGISTRY
+            .with_object(target_id, |guard| {
                 let damage = guard.get_max_damage_potential();
                 let health = guard.get_health_percentage();
                 let mut threat = (damage / 500.0) * health.max(0.1);
@@ -730,12 +730,8 @@ impl AITargeting {
                     threat *= 1.3;
                 }
                 threat.clamp(0.0, 1.0)
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        };
+            })
+            .unwrap_or(0.0);
         
         // Cache the result
         self.threat_cache.insert(target_id, (threat_level, current_frame));

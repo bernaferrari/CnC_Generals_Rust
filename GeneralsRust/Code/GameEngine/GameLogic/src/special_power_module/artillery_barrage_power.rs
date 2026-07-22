@@ -194,10 +194,10 @@ impl ArtilleryBarragePower {
         );
         let mut target_coord = targeting.position;
         if let Some(target_id) = targeting.target_object {
-            if let Some(target) = OBJECT_REGISTRY.get_object(target_id) {
-                if let Ok(target_guard) = target.read() {
-                    target_coord = *target_guard.get_position();
-                }
+            if let Some(pos) =
+                OBJECT_REGISTRY.with_object(target_id, |target_guard| *target_guard.get_position())
+            {
+                target_coord = pos;
             }
         }
         self.target_position = target_coord;

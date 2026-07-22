@@ -205,28 +205,26 @@ impl StealthIntegrationLayer {
                     velocity: (0.0, 0.0, 0.0),
                 });
 
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    let prev_stealthed = state.is_stealthed;
-                    let pos = obj.get_position();
-                    state.position = (pos.x, pos.y, pos.z);
-                    state.can_stealth = obj.wants_to_stealth();
+            let _ = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                let prev_stealthed = state.is_stealthed;
+                let pos = obj.get_position();
+                state.position = (pos.x, pos.y, pos.z);
+                state.can_stealth = obj.wants_to_stealth();
 
-                    if let Some(handle) = obj.get_stealth() {
-                        if let Ok(stealth) = handle.lock() {
-                            state.is_stealthed = stealth.is_stealthed();
-                            state.stealth_strength = stealth.get_stealth_level() as u8;
-                        }
-                    } else {
-                        state.is_stealthed = false;
-                        state.stealth_strength = 0;
+                if let Some(handle) = obj.get_stealth() {
+                    if let Ok(stealth) = handle.lock() {
+                        state.is_stealthed = stealth.is_stealthed();
+                        state.stealth_strength = stealth.get_stealth_level() as u8;
                     }
-
-                    if state.is_stealthed != prev_stealthed {
-                        state.last_change_frame = self.frame_counter;
-                    }
+                } else {
+                    state.is_stealthed = false;
+                    state.stealth_strength = 0;
                 }
-            }
+
+                if state.is_stealthed != prev_stealthed {
+                    state.last_change_frame = self.frame_counter;
+                }
+            });
 
             trace!("📊 Updated stealth state for object {}", object_id);
         }
@@ -287,51 +285,46 @@ impl StealthIntegrationLayer {
                         continue;
                     }
 
-                    let Some(detector_arc) = OBJECT_REGISTRY.get_object(detector_id) else {
+                    let Some((detector_pos, stealth_pos, range)) = OBJECT_REGISTRY
+                        .with_object(detector_id, |detector_guard| {
+                            if !detector_guard.can_detect_stealth() {
+                                return None;
+                            }
+                            OBJECT_REGISTRY.with_object(stealthy_id, |stealthy_guard| {
+                                let relationship = detector_guard.relationship_to(stealthy_guard);
+                                if matches!(relationship, Relationship::Allies) {
+                                    return None;
+                                }
+                                let detector_pos = *detector_guard.get_position();
+                                let stealth_pos = *stealthy_guard.get_position();
+                                let distance = detector_pos.distance(stealth_pos);
+                                let detector_range = detector_guard.get_stealth_detection_range();
+                                let range = if detector_range > 0.0 {
+                                    detector_range
+                                } else {
+                                    self.config.detection_range * self.config.detection_multiplier
+                                };
+                                if distance > range {
+                                    return None;
+                                }
+                                Some((detector_pos, stealth_pos, range))
+                            })
+                        })
+                        .flatten()
+                        .flatten()
+                    else {
                         continue;
                     };
-                    let Some(stealthy_arc) = OBJECT_REGISTRY.get_object(stealthy_id) else {
-                        continue;
-                    };
-
-                    let Ok(detector_guard) = detector_arc.read() else {
-                        continue;
-                    };
-                    let Ok(stealthy_guard) = stealthy_arc.read() else {
-                        continue;
-                    };
-
-                    if !detector_guard.can_detect_stealth() {
-                        continue;
-                    }
-
-                    let relationship = detector_guard.relationship_to(&stealthy_guard);
-                    if matches!(relationship, Relationship::Allies) {
-                        continue;
-                    }
-
-                    let detector_pos = detector_guard.get_position();
-                    let stealth_pos = stealthy_guard.get_position();
-                    let distance = detector_pos.distance(*stealth_pos);
-                    let detector_range = detector_guard.get_stealth_detection_range();
-                    let range = if detector_range > 0.0 {
-                        detector_range
-                    } else {
-                        self.config.detection_range * self.config.detection_multiplier
-                    };
-
-                    if distance > range {
-                        continue;
-                    }
 
                     let los_clear = terrain
                         .read()
-                        .map(|logic| logic.is_clear_line_of_sight(detector_pos, stealth_pos))
+                        .map(|logic| logic.is_clear_line_of_sight(&detector_pos, &stealth_pos))
                         .unwrap_or(true);
                     if !los_clear {
                         continue;
                     }
 
+                    let _ = range;
                     detections.push(DetectionEventData {
                         detected_object: stealthy_id,
                         detector_id,
