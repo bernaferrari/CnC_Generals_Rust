@@ -855,15 +855,10 @@ impl AiGroup {
     pub fn set_attitude(&mut self, attitude: AttitudeType) -> Result<(), AiError> {
         let module_attitude = to_module_attitude(attitude);
         for obj_id in &self.member_list {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let ai = obj_guard.get_ai_update_interface();
-            drop(obj_guard);
-            let Some(ai) = ai else {
+            let Some(ai) = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
+                .flatten()
+            else {
                 continue;
             };
             let Ok(mut ai_guard) = ai.lock() else {
@@ -876,15 +871,10 @@ impl AiGroup {
 
     pub fn get_attitude(&self) -> Result<AttitudeType, AiError> {
         for obj_id in &self.member_list {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let ai = obj_guard.get_ai_update_interface();
-            drop(obj_guard);
-            let Some(ai) = ai else {
+            let Some(ai) = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
+                .flatten()
+            else {
                 continue;
             };
             let Ok(ai_guard) = ai.lock() else {
@@ -897,15 +887,10 @@ impl AiGroup {
 
     pub fn is_idle(&self) -> bool {
         for obj_id in &self.member_list {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let ai = obj_guard.get_ai_update_interface();
-            drop(obj_guard);
-            let Some(ai) = ai else {
+            let Some(ai) = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
+                .flatten()
+            else {
                 continue;
             };
             let Ok(ai_guard) = ai.lock() else {
@@ -920,15 +905,10 @@ impl AiGroup {
 
     pub fn is_busy(&self) -> bool {
         for obj_id in &self.member_list {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let ai = obj_guard.get_ai_update_interface();
-            drop(obj_guard);
-            let Some(ai) = ai else {
+            let Some(ai) = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
+                .flatten()
+            else {
                 continue;
             };
             let Ok(ai_guard) = ai.lock() else {
@@ -954,37 +934,41 @@ impl AiGroup {
 
         // Prefer AI-capable objects first.
         for obj_id in &self.member_list {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
+            let Some(pos) = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj_guard| {
+                    if obj_guard.is_disabled_by_type(DisabledType::Held) {
+                        return None;
+                    }
+                    if obj_guard.get_ai_update_interface().is_some() {
+                        Some(*obj_guard.get_position())
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_disabled_by_type(DisabledType::Held) {
-                continue;
-            }
-            if obj_guard.get_ai_update_interface().is_some() {
-                let pos = obj_guard.get_position();
-                center.x += pos.x;
-                center.y += pos.y;
-                center.z += pos.z;
-                count += 1;
-            }
+            center.x += pos.x;
+            center.y += pos.y;
+            center.z += pos.z;
+            count += 1;
         }
 
         // If none, use all members.
         if count == 0 {
             for obj_id in &self.member_list {
-                let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
+                let Some(pos) = OBJECT_REGISTRY
+                    .with_object(*obj_id, |obj_guard| {
+                        if obj_guard.is_disabled_by_type(DisabledType::Held) {
+                            return None;
+                        }
+                        Some(*obj_guard.get_position())
+                    })
+                    .flatten()
+                else {
                     continue;
                 };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                if obj_guard.is_disabled_by_type(DisabledType::Held) {
-                    continue;
-                }
-                let pos = obj_guard.get_position();
                 center.x += pos.x;
                 center.y += pos.y;
                 center.z += pos.z;
@@ -1069,15 +1053,10 @@ impl AiGroup {
 
     fn dispatch_command_to_members(&self, params: &AiCommandParams) {
         for obj_id in &self.member_list {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let ai = obj_guard.get_ai_update_interface();
-            drop(obj_guard);
-            let Some(ai) = ai else {
+            let Some(ai) = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
+                .flatten()
+            else {
                 continue;
             };
             let Ok(mut ai_guard) = ai.lock() else {
