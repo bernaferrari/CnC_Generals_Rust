@@ -477,10 +477,17 @@ impl BehaviorModuleRegistry {
 
         registry.register_factory(
             "SpawnBehavior",
-            Box::new(|thing, data| {
-                SpawnBehavior::new(thing, data)
-                    .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
-            }),
+            Box::new(
+                |thing: std::sync::Arc<std::sync::RwLock<crate::object::Object>>, data| {
+                    let object_id = thing
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID);
+                    SpawnBehavior::new(object_id, data)
+                        .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
+                },
+            ),
         );
 
         registry.register_factory(

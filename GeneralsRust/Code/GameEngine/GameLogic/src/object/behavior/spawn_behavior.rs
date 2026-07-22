@@ -447,7 +447,7 @@ pub struct SpawnBehavior {
 
 impl SpawnBehavior {
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = {
@@ -458,11 +458,11 @@ impl SpawnBehavior {
             data_ref.clone()
         };
 
-        Self::new_with_data(object, Arc::new(data))
+        Self::new_with_data(object_id, Arc::new(data))
     }
 
     pub fn new_with_data(
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         data: Arc<SpawnBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         if data.spawn_template_name_data.is_empty() {
@@ -481,7 +481,6 @@ impl SpawnBehavior {
             -1
         };
 
-        let object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
         Ok(Self {
             object_id,
             module_data: data.clone(),
@@ -501,8 +500,8 @@ impl SpawnBehavior {
         })
     }
 
-    pub fn set_object(&mut self, object: Arc<RwLock<Object>>) {
-        self.object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+    pub fn set_object(&mut self, object_id: ObjectID) {
+        self.object_id = object_id;
     }
 
     pub fn set_object_id(&mut self, object_id: ObjectID) {
@@ -520,13 +519,16 @@ impl SpawnBehavior {
 
     fn notify_slaved_update(
         &self,
-        spawned: &Arc<RwLock<Object>>,
-        master: &Arc<RwLock<Object>>,
+        spawned_id: ObjectID,
+        master_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let spawned = crate::helpers::TheGameLogic::find_object_by_id(spawned_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(spawned_id))
+            .ok_or("spawned object unavailable")?;
         let spawn_guard = spawned.read().map_err(|_| "Failed to read spawn")?;
-        if let Some(result) = spawn_guard.with_slaved_update_interface(|slaved| {
-            slaved.on_enslave(master.read().ok().map(|g| g.get_id()).unwrap_or(0))
-        }) {
+        if let Some(result) =
+            spawn_guard.with_slaved_update_interface(|slaved| slaved.on_enslave(master_id))
+        {
             return result;
         }
 
@@ -535,7 +537,7 @@ impl SpawnBehavior {
                 .lock()
                 .map_err(|_| "Failed to lock behavior module")?;
             if let Some(slaved) = behavior_guard.get_slaved_update_interface() {
-                slaved.on_enslave(master.read().ok().map(|g| g.get_id()).unwrap_or(0))?;
+                slaved.on_enslave(master_id)?;
                 break;
             }
         }
@@ -664,7 +666,19 @@ impl SpawnBehavior {
         }
 
         // If spawned object has a SlavedUpdate, tell them who their master is
-        self.notify_slaved_update(&new_spawn, &object)?;
+        {
+            let spawn_id = new_spawn
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(INVALID_ID);
+            let master_id = object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(self.object_id);
+            self.notify_slaved_update(spawn_id, master_id)?;
+        }
 
         // Add to spawn tracking
         let spawn_id = {
