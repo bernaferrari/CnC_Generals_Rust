@@ -3059,14 +3059,11 @@ impl DefaultCommandHandler {
         let mut issued = 0;
         if let Ok(mut factory) = get_object_factory().write() {
             for object_id in &object_ids {
-                let Some(GameObjectInstance::Unit(unit_arc)) = factory.get_object_mut(*object_id)
+                let Some(GameObjectInstance::Unit(unit)) = factory.get_object_mut(*object_id)
                 else {
                     continue;
                 };
 
-                let Ok(unit) = unit_arc.read() else {
-                    continue;
-                };
                 let Some(unit_base) = unit.base_object() else {
                     continue;
                 };
@@ -3082,8 +3079,8 @@ impl DefaultCommandHandler {
                     continue;
                 }
 
-                if let Ok(mut unit_guard) = unit_arc.write() {
-                    let _ = unit_guard.give_capture_order(target, false);
+                {
+                    let _ = unit.give_capture_order(target, false);
                     issued += 1;
                 }
             }

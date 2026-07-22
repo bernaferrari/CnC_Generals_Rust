@@ -866,13 +866,11 @@ impl AiStateMachine {
                 if let Some(GameObjectInstance::Unit(unit)) =
                     factory_guard.get_object(self.owner_id)
                 {
-                    if let Ok(unit_guard) = unit.read() {
-                        surfaces_from_locomotor = unit_guard.get_locomotor_surface_mask();
-                        layer = unit_guard.get_pathfind_layer();
-                        if unit_guard.get_crusher_level() > 0 {
-                            is_crusher = true;
-                            acceptable_surfaces |= SURFACE_RUBBLE;
-                        }
+                    surfaces_from_locomotor = unit.get_locomotor_surface_mask();
+                    layer = unit.get_pathfind_layer();
+                    if unit.get_crusher_level() > 0 {
+                        is_crusher = true;
+                        acceptable_surfaces |= SURFACE_RUBBLE;
                     }
                 }
             }
@@ -1716,13 +1714,10 @@ impl AiStateMachine {
             }
         }
 
-        if let Ok(factory_guard) = get_object_factory().read() {
-            if let Some(game_object) = factory_guard.get_object(self.owner_id) {
-                if let GameObjectInstance::Unit(unit) = game_object {
-                    if let Ok(mut unit_guard) = unit.write() {
-                        let _ = unit_guard.give_move_order(target, Vec::new(), false, false);
-                    }
-                }
+        if let Ok(mut factory_guard) = get_object_factory().write() {
+            if let Some(GameObjectInstance::Unit(unit)) = factory_guard.get_object_mut(self.owner_id)
+            {
+                let _ = unit.give_move_order(target, Vec::new(), false, false);
             }
         }
     }

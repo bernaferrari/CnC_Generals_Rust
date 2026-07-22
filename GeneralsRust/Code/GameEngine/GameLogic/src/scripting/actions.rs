@@ -2521,10 +2521,8 @@ impl ScriptAction for TeamCaptureBuildingAction {
                     continue;
                 };
 
-                if let Ok(mut unit_guard) = unit.write() {
-                    let _ = unit_guard.give_capture_order(building_id, false);
-                    issued += 1;
-                }
+                let _ = unit.give_capture_order(building_id, false);
+                issued += 1;
             }
         }
 

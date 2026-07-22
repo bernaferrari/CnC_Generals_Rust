@@ -157,6 +157,39 @@ fn get_unit_arc(id: ObjectID) -> Option<Arc<RwLock<Unit>>> {
     UNIT_REGISTRY.write().ok().and_then(|mut g| g.get(id))
 }
 
+/// Borrow unit by id: factory-owned first, then test/registry Arc.
+fn with_unit_ref<R>(id: ObjectID, f: impl FnOnce(&Unit) -> R) -> Option<R> {
+    if id == INVALID_ID {
+        return None;
+    }
+    if let Ok(factory) = crate::object::object_factory::get_object_factory().read() {
+        if let Some(crate::object::object_factory::GameObjectInstance::Unit(unit)) =
+            factory.get_object(id)
+        {
+            return Some(f(unit));
+        }
+    }
+    let arc = get_unit_arc(id)?;
+    let guard = arc.read().ok()?;
+    Some(f(&guard))
+}
+
+fn with_unit_mut<R>(id: ObjectID, f: impl FnOnce(&mut Unit) -> R) -> Option<R> {
+    if id == INVALID_ID {
+        return None;
+    }
+    if let Ok(mut factory) = crate::object::object_factory::get_object_factory().write() {
+        if let Some(crate::object::object_factory::GameObjectInstance::Unit(unit)) =
+            factory.get_object_mut(id)
+        {
+            return Some(f(unit));
+        }
+    }
+    let arc = get_unit_arc(id)?;
+    let mut guard = arc.write().ok()?;
+    Some(f(&mut guard))
+}
+
 pub struct Unit {
     /// Base object id (resolve for the duration of an op)
     object_id: ObjectID,
