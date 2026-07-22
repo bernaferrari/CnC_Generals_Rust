@@ -11,7 +11,7 @@
 
 use log::warn;
 use std::any::Any;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::common::{
     AsciiString, Bool, Coord3D, DisabledType, Int, ModelConditionFlags, ModuleData, ObjectID, Real,
@@ -525,7 +525,6 @@ const EMPTY_HULK_CHECK_DELAY: UnsignedInt = 15;
 pub struct BattleBusSlowDeathBehavior {
     module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
     object_id: ObjectID,
-    object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
     base_behavior: Option<SlowDeathBehavior>,
     last_damage_info: Option<DamageInfo>,
     is_real_death: Bool,
@@ -540,14 +539,9 @@ impl BattleBusSlowDeathBehavior {
         module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
         object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
-        let handle = object
-            .or_else(|| OBJECT_REGISTRY.get_object(object_id))
-            .map(|obj| Arc::downgrade(&obj));
-
         Self {
             module_data,
             object_id,
-            object_handle: Mutex::new(handle),
             base_behavior: None,
             last_damage_info: None,
             is_real_death: false,
@@ -586,25 +580,13 @@ impl BattleBusSlowDeathBehavior {
         if self.object_id == OBJECT_INVALID_ID {
             return Err("BattleBusSlowDeathBehavior missing owning object id".into());
         }
-
-        if let Ok(mut handle) = self.object_handle.lock() {
-            if let Some(weak) = handle.as_ref() {
-                if let Some(object) = weak.upgrade() {
-                    return Ok(object);
-                }
-            }
-
-            if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
-                *handle = Some(Arc::downgrade(&object));
-                return Ok(object);
-            }
-        }
-
-        Err(format!(
-            "BattleBusSlowDeathBehavior unable to upgrade handle for object {}",
-            self.object_id
-        )
-        .into())
+        OBJECT_REGISTRY.get_object(self.object_id).ok_or_else(|| {
+            format!(
+                "BattleBusSlowDeathBehavior object {} not registered",
+                self.object_id
+            )
+            .into()
+        })
     }
 
     fn get_current_frame(&self) -> UnsignedInt {

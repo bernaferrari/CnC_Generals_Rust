@@ -7,7 +7,7 @@
 //! machine scaffold. Remaining engine hooks are wired as dependent systems land.
 
 use std::any::Any;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock};
 
 use glam::Vec4;
 
@@ -485,7 +485,6 @@ impl Snapshotable for DumbProjectileBehaviorModuleData {
 pub struct DumbProjectileBehavior {
     module_data: Arc<DumbProjectileBehaviorModuleData>,
     object_id: ObjectID,
-    object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
     next_call_frame_and_phase: UnsignedInt,
     launcher_id: ObjectID,
     victim_id: ObjectID,
@@ -508,14 +507,9 @@ impl DumbProjectileBehavior {
         module_data: Arc<DumbProjectileBehaviorModuleData>,
         object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
-        let handle = object
-            .or_else(|| OBJECT_REGISTRY.get_object(object_id))
-            .map(|obj| Arc::downgrade(&obj));
-
         Self {
             module_data,
             object_id,
-            object_handle: Mutex::new(handle),
             next_call_frame_and_phase: 0,
             launcher_id: OBJECT_INVALID_ID,
             victim_id: OBJECT_INVALID_ID,
@@ -566,25 +560,13 @@ impl DumbProjectileBehavior {
         if self.object_id == OBJECT_INVALID_ID {
             return Err("DumbProjectileBehavior missing owning object id".into());
         }
-
-        if let Ok(mut handle) = self.object_handle.lock() {
-            if let Some(weak) = handle.as_ref() {
-                if let Some(object) = weak.upgrade() {
-                    return Ok(object);
-                }
-            }
-
-            if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
-                *handle = Some(Arc::downgrade(&object));
-                return Ok(object);
-            }
-        }
-
-        Err(format!(
-            "DumbProjectileBehavior unable to upgrade handle for object {}",
-            self.object_id
-        )
-        .into())
+        OBJECT_REGISTRY.get_object(self.object_id).ok_or_else(|| {
+            format!(
+                "DumbProjectileBehavior object {} not registered",
+                self.object_id
+            )
+            .into()
+        })
     }
 
     fn get_current_frame(&self) -> UnsignedInt {

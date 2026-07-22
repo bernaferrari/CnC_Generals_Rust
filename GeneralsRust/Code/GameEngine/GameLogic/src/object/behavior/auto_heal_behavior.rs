@@ -32,7 +32,7 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::any::Any;
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock};
 
 // Constants
 const UINT_MAX: UnsignedInt = u32::MAX;
@@ -577,7 +577,6 @@ pub struct AutoHealBehavior {
     pub next_call_frame_and_phase: UnsignedInt,
     pub upgrade_executed: Bool,
     object_id: ObjectID,
-    object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
     upgrade_masks: Mutex<Option<(UpgradeMaskType, UpgradeMaskType)>>,
 }
 
@@ -596,10 +595,6 @@ impl AutoHealBehavior {
         object_id: ObjectID,
         module_data: Arc<AutoHealBehaviorModuleData>,
     ) -> Self {
-        let initial_handle = OBJECT_REGISTRY
-            .get_object(object_id)
-            .map(|arc| Arc::downgrade(&arc));
-
         let mut behavior = Self {
             module_data,
             radius_particle_system_id: INVALID_PARTICLE_SYSTEM_ID,
@@ -608,7 +603,6 @@ impl AutoHealBehavior {
             next_call_frame_and_phase: 0,
             upgrade_executed: false,
             object_id,
-            object_handle: Mutex::new(initial_handle),
             upgrade_masks: Mutex::new(None),
         };
 
@@ -759,21 +753,7 @@ impl AutoHealBehavior {
         if self.object_id == OBJECT_INVALID_ID {
             return None;
         }
-
-        if let Ok(mut handle) = self.object_handle.lock() {
-            if let Some(weak) = handle.as_ref() {
-                if let Some(object) = weak.upgrade() {
-                    return Some(object);
-                }
-            }
-
-            if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
-                *handle = Some(Arc::downgrade(&object));
-                return Some(object);
-            }
-        }
-
-        None
+        OBJECT_REGISTRY.get_object(self.object_id)
     }
 
     /// Get current game frame
