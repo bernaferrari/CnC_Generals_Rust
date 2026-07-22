@@ -14319,7 +14319,7 @@ impl CnCGameEngine {
         };
         let unlocked = player.unlocked_sciences.clone();
         let spp = player.science_purchase_points;
-        drop(player);
+        let _ = player;
 
         let mut chosen = None;
         for &name in candidates {
