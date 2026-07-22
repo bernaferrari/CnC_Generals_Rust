@@ -1400,9 +1400,7 @@ impl AIStateMachine {
     }
 
     pub fn set_goal_object(&mut self, obj_id: ObjectID) {
-        let obj = get_legacy_object(obj_id);
-        self.base
-            .set_goal_object(obj.map(|value| Arc::downgrade(&value)));
+        self.base.set_goal_object_by_id(Some(obj_id));
     }
 
     pub fn set_goal_position(&mut self, pos: Coord3D) {
@@ -1618,9 +1616,7 @@ impl AiCommandInterface for AIStateMachine {
         );
         if !is_follow_path_cmd {
             if let Some(obj_id) = params.obj {
-                let obj = get_legacy_object(obj_id);
-                self.base
-                    .set_goal_object(obj.map(|value| Arc::downgrade(&value)));
+                self.base.set_goal_object_by_id(Some(obj_id));
             } else {
                 self.base.set_goal_object(None);
             }
@@ -5369,7 +5365,7 @@ impl ClassicState for AIAttackMoveToState {
         if let Some(machine) = self.attack_move_machine.as_mut() {
             if machine.is_in_idle_state() {
                 if let Some(crate_obj) = ai_guard.check_for_crate_to_pickup() {
-                    machine.set_goal_object(Some(Arc::downgrade(&crate_obj)));
+                    machine.set_goal_object_by_id(crate_obj.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return Ok(StateReturnType::Continue);
                 }
@@ -5378,7 +5374,7 @@ impl ClassicState for AIAttackMoveToState {
                     ai_guard.get_next_mood_target(!force_retarget_this_frame, false)
                 {
                     ai_guard.friend_ending_move();
-                    machine.set_goal_object(Some(Arc::downgrade(&target)));
+                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     ai_guard.set_last_command_source(CommandSourceType::FromAi);
                     return Ok(StateReturnType::Continue);
@@ -5547,7 +5543,7 @@ impl ClassicState for AIAttackFollowWaypointPathAsTeamState {
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if machine.is_in_idle_state() {
                 if let Some(crate_obj) = ai_guard.check_for_crate_to_pickup() {
-                    machine.set_goal_object(Some(Arc::downgrade(&crate_obj)));
+                    machine.set_goal_object_by_id(crate_obj.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return Ok(StateReturnType::Continue);
                 }
@@ -5555,7 +5551,7 @@ impl ClassicState for AIAttackFollowWaypointPathAsTeamState {
                 if let Some(target) =
                     ai_guard.get_next_mood_target(!force_retarget_this_frame, false)
                 {
-                    machine.set_goal_object(Some(Arc::downgrade(&target)));
+                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     return Ok(StateReturnType::Continue);
                 }
@@ -5690,7 +5686,7 @@ impl ClassicState for AIAttackFollowWaypointPathAsIndividualsState {
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if machine.is_in_idle_state() {
                 if let Some(crate_obj) = ai_guard.check_for_crate_to_pickup() {
-                    machine.set_goal_object(Some(Arc::downgrade(&crate_obj)));
+                    machine.set_goal_object_by_id(crate_obj.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return Ok(StateReturnType::Continue);
                 }
@@ -5698,7 +5694,7 @@ impl ClassicState for AIAttackFollowWaypointPathAsIndividualsState {
                 if let Some(target) =
                     ai_guard.get_next_mood_target(!force_retarget_this_frame, false)
                 {
-                    machine.set_goal_object(Some(Arc::downgrade(&target)));
+                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     return Ok(StateReturnType::Continue);
                 }
@@ -6801,8 +6797,8 @@ impl AIAttackThenIdleStateMachine {
     }
 
     pub fn set_goal_object(&mut self, obj: Option<&Arc<RwLock<Object>>>) {
-        self.base
-            .set_goal_object(obj.map(|value| Arc::downgrade(value)));
+        let id = obj.and_then(|a| a.read().ok().map(|g| g.get_id()));
+        self.base.set_goal_object_by_id(id);
     }
 
     pub fn set_state(&mut self, state: AIStateType) -> StateReturnType {
@@ -7973,7 +7969,7 @@ impl ClassicState for AIDockState {
 
         let dock_machine = AIDockMachine::new(owner.clone())?;
         let init_result = if let Ok(mut machine) = dock_machine.state_machine.lock() {
-            machine.set_goal_object(Some(Arc::downgrade(&goal)));
+            machine.set_goal_object_by_id(goal.read().ok().map(|g| g.get_id()));
             Some(machine.init_default_state())
         } else {
             None
@@ -9817,7 +9813,9 @@ impl ClassicState for AIAttackFireWeaponState {
                                 if let Some(new_target) =
                                     crate::helpers::TheGameLogic::find_object_by_id(current_victim)
                                 {
-                                    self.base.set_goal_object(Some(Arc::downgrade(&new_target)));
+                                    self.base.set_goal_object_by_id(
+                                        new_target.read().ok().map(|g| g.get_id()),
+                                    );
                                     ai_guard.notify_new_victim_chosen(current_victim);
                                 }
                             }
@@ -9892,8 +9890,9 @@ impl ClassicState for AIAttackFireWeaponState {
                                     if let Some(new_target) =
                                         crate::helpers::TheGameLogic::find_object_by_id(new_id)
                                     {
-                                        self.base
-                                            .set_goal_object(Some(Arc::downgrade(&new_target)));
+                                        self.base.set_goal_object_by_id(
+                                            new_target.read().ok().map(|g| g.get_id()),
+                                        );
                                         if let Some(ai) = owner_guard.get_ai_update_interface() {
                                             if let Ok(mut ai_guard) = ai.lock() {
                                                 ai_guard.notify_new_victim_chosen(new_id);
@@ -10998,6 +10997,10 @@ impl AIAttackMoveStateMachine {
 
     pub fn set_goal_object(&mut self, obj: Option<Weak<RwLock<Object>>>) {
         self.base.set_goal_object(obj);
+    }
+
+    pub fn set_goal_object_by_id(&mut self, object_id: Option<ObjectID>) {
+        self.base.set_goal_object_by_id(object_id);
     }
 
     pub fn update(&mut self) -> StateReturnType {
