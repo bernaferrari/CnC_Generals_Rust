@@ -306,9 +306,9 @@ fn ignored_obstacle_cells(ignore_obstacle_id: Option<ObjectID>) -> Option<HashSe
         return None;
     }
 
-    let obj = OBJECT_REGISTRY.get_object(object_id)?;
-    let guard = obj.read().ok()?;
-    let positions = object_footprint_positions(&guard)?;
+    let positions = OBJECT_REGISTRY
+        .with_object(object_id, |guard| object_footprint_positions(guard))
+        .flatten()?;
     let mut cells = HashSet::with_capacity(positions.len());
     for pos in positions {
         cells.insert(GridCoord::from_world(&pos));
@@ -589,19 +589,17 @@ impl PathfindingSystem {
         if object_id == INVALID_ID {
             return false;
         }
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return false;
-        };
-        let Some(ai) = obj_guard.get_ai_update_interface() else {
-            return false;
-        };
-        let Ok(ai_guard) = ai.lock() else {
-            return false;
-        };
-        ai_guard.is_aircraft_that_adjusts_destination()
+        OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                let Some(ai) = obj_guard.get_ai_update_interface() else {
+                    return false;
+                };
+                ai.lock()
+                    .ok()
+                    .map(|ai_guard| ai_guard.is_aircraft_that_adjusts_destination())
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
 
     fn destination_only_result(from: Coord3D, to: Coord3D, layer: PathfindLayerEnum) -> PathResult {
@@ -820,14 +818,12 @@ impl PathfindingSystem {
                 drop(oq);
                 // C++: Object* obj = findObjectByID; if (ai) ai->doPathfind(this);
                 if id != INVALID_ID {
-                    if let Some(obj_arc) = OBJECT_REGISTRY.get_object(id) {
-                        if let Ok(obj_g) = obj_arc.read() {
-                            if let Some(ai) = obj_g.get_ai_update_interface() {
-                                drop(obj_g);
-                                if let Ok(mut ai_g) = ai.lock() {
-                                    ai_g.do_pathfind();
-                                }
-                            }
+                    if let Some(ai) = OBJECT_REGISTRY
+                        .with_object(id, |obj_g| obj_g.get_ai_update_interface())
+                        .flatten()
+                    {
+                        if let Ok(mut ai_g) = ai.lock() {
+                            ai_g.do_pathfind();
                         }
                     } else if let Ok(mut queue) = self.request_queue.lock() {
                         // Fallback: PathRequest residual for host/tests without registry object.
@@ -1916,25 +1912,20 @@ impl PathfindingSystem {
         let mut skip_count = 0i32;
         let mut layer = PathfindLayerEnum::Ground;
         if let Some(vid) = victim_id {
-            if let Some(varc) = OBJECT_REGISTRY.get_object(vid) {
-                if let Ok(vg) = varc.read() {
-                    layer = to_pf_layer(vg.get_layer());
-                }
+            if let Some(vlayer) = OBJECT_REGISTRY.with_object(vid, |vg| vg.get_layer()) {
+                layer = to_pf_layer(vlayer);
             }
         }
         if attacker_id != INVALID_ID {
-            if let Some(arc) = OBJECT_REGISTRY.get_object(attacker_id) {
-                if let Ok(g) = arc.read() {
-                    let al = g.get_layer();
-                    if !matches!(
-                        al,
-                        CommonPathfindLayerEnum::Ground | CommonPathfindLayerEnum::Invalid
-                    ) {
-                        // Magic 3: bridge/rooftop can see 3 cells off structure.
-                        skip_count = 3;
-                        if layer == PathfindLayerEnum::Ground {
-                            layer = to_pf_layer(al);
-                        }
+            if let Some(al) = OBJECT_REGISTRY.with_object(attacker_id, |g| g.get_layer()) {
+                if !matches!(
+                    al,
+                    CommonPathfindLayerEnum::Ground | CommonPathfindLayerEnum::Invalid
+                ) {
+                    // Magic 3: bridge/rooftop can see 3 cells off structure.
+                    skip_count = 3;
+                    if layer == PathfindLayerEnum::Ground {
+                        layer = to_pf_layer(al);
                     }
                 }
             }
@@ -2005,28 +1996,22 @@ impl PathfindingSystem {
         if object_id == INVALID_ID {
             return INVALID_ID;
         }
-        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return INVALID_ID;
-        };
-        let Ok(g) = arc.read() else {
-            return INVALID_ID;
-        };
-        g.get_contained_by().unwrap_or(INVALID_ID)
+        OBJECT_REGISTRY
+            .with_object(object_id, |g| g.get_contained_by().unwrap_or(INVALID_ID))
+            .unwrap_or(INVALID_ID)
     }
 
     fn object_slaver_id(object_id: ObjectID) -> ObjectID {
         if object_id == INVALID_ID {
             return INVALID_ID;
         }
-        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return INVALID_ID;
-        };
-        let Ok(g) = arc.read() else {
-            return INVALID_ID;
-        };
-        // C++ getSlaverID via SlavedUpdate / MobMemberSlavedUpdate.
-        g.with_slaved_update_interface(|s| s.slaver_id())
-            .flatten()
+        OBJECT_REGISTRY
+            .with_object(object_id, |g| {
+                // C++ getSlaverID via SlavedUpdate / MobMemberSlavedUpdate.
+                g.with_slaved_update_interface(|s| s.slaver_id())
+                    .flatten()
+                    .unwrap_or(INVALID_ID)
+            })
             .unwrap_or(INVALID_ID)
     }
 
@@ -3058,16 +3043,20 @@ impl PathfindingSystem {
             if oid == ignore_building || oid == INVALID_ID {
                 continue;
             }
-            let Some(arc) = OBJECT_REGISTRY.get_object(oid) else {
+            let Some((p, radius)) = OBJECT_REGISTRY
+                .with_object(oid, |g| {
+                    if !g.is_kind_of(KindOf::AircraftPathAround) {
+                        return None;
+                    }
+                    let p = *g.get_position();
+                    let radius = g.get_geometry_info().get_bounding_circle_radius()
+                        + 2.0 * PATHFIND_CELL_SIZE_F;
+                    Some((p, radius))
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(g) = arc.read() else {
-                continue;
-            };
-            if !g.is_kind_of(KindOf::AircraftPathAround) {
-                continue;
-            }
-            let p = *g.get_position();
             let dx = p.x - to.x;
             let dy = p.y - to.y;
             let d = (dx * dx + dy * dy).sqrt();
@@ -3075,8 +3064,7 @@ impl PathfindingSystem {
                 best_dist = d;
                 tall_id = Some(oid);
                 tall_pos = p;
-                tall_radius =
-                    g.get_geometry_info().get_bounding_circle_radius() + 2.0 * PATHFIND_CELL_SIZE_F;
+                tall_radius = radius;
             }
         }
         let Some(tall_id) = tall_id else {

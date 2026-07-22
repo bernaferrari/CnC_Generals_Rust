@@ -187,18 +187,19 @@ impl PartitionFilterRelationship {
 impl super::partition_manager::PartitionFilter for PartitionFilterRelationship {
     fn allow(&self, obj: &dyn GameObject) -> bool {
         // Resolve the source object and compute the relationship.
-        if let Some(src_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id) {
-            if let Ok(src_guard) = src_handle.read() {
-                if let Some(other_handle) = obj.as_object_handle() {
-                    if let Ok(other_guard) = other_handle.read() {
-                        let rel = src_guard.relationship_to(&other_guard);
-                        let bit = 1u32.checked_shl(rel as u32).unwrap_or(0);
-                        return (self.flags & bit) != 0;
-                    }
-                }
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.obj_id, |src_guard| {
+                let Some(other_handle) = obj.as_object_handle() else {
+                    return false;
+                };
+                let Ok(other_guard) = other_handle.read() else {
+                    return false;
+                };
+                let rel = src_guard.relationship_to(&other_guard);
+                let bit = 1u32.checked_shl(rel as u32).unwrap_or(0);
+                (self.flags & bit) != 0
+            })
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -298,16 +299,14 @@ impl PartitionFilterLineOfSight {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterLineOfSight {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        let Some(source_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id)
+        let Some(source_pos) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.obj_id, |source_guard| {
+                let source_raw_pos = source_guard.get_position();
+                Coord3D::new(source_raw_pos.x, source_raw_pos.y, source_raw_pos.z)
+            })
         else {
             return false;
         };
-        let Ok(source_guard) = source_handle.read() else {
-            return false;
-        };
-
-        let source_raw_pos = source_guard.get_position();
-        let source_pos = Coord3D::new(source_raw_pos.x, source_raw_pos.y, source_raw_pos.z);
         let target_pos = obj.get_position();
         let target_id = obj.as_object_handle().as_ref().map(|_| obj.get_id());
 
@@ -352,24 +351,25 @@ impl PartitionFilterPossibleToAttack {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToAttack {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(src_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id) {
-            if let Ok(src_guard) = src_handle.read() {
-                if let Some(other_handle) = obj.as_object_handle() {
-                    if let Ok(other_guard) = other_handle.read() {
-                        let result = src_guard.get_able_to_attack_specific_object(
-                            self.attack_type,
-                            &other_guard,
-                            self.command_source,
-                        );
-                        return matches!(
-                            result,
-                            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                        );
-                    }
-                }
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.obj_id, |src_guard| {
+                let Some(other_handle) = obj.as_object_handle() else {
+                    return false;
+                };
+                let Ok(other_guard) = other_handle.read() else {
+                    return false;
+                };
+                let result = src_guard.get_able_to_attack_specific_object(
+                    self.attack_type,
+                    &other_guard,
+                    self.command_source,
+                );
+                matches!(
+                    result,
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                )
+            })
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -399,21 +399,22 @@ impl PartitionFilterPossibleToEnter {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToEnter {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(src_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id) {
-            if let Ok(src_guard) = src_handle.read() {
-                if let Some(other_handle) = obj.as_object_handle() {
-                    if let Ok(other_guard) = other_handle.read() {
-                        return action_manager::TheActionManager::can_enter_object(
-                            &src_guard,
-                            &other_guard,
-                            self.command_source,
-                            CanEnterType::DontCheckCapacity,
-                        );
-                    }
-                }
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.obj_id, |src_guard| {
+                let Some(other_handle) = obj.as_object_handle() else {
+                    return false;
+                };
+                let Ok(other_guard) = other_handle.read() else {
+                    return false;
+                };
+                action_manager::TheActionManager::can_enter_object(
+                    src_guard,
+                    &other_guard,
+                    self.command_source,
+                    CanEnterType::DontCheckCapacity,
+                )
+            })
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -443,20 +444,21 @@ impl PartitionFilterPossibleToHijack {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToHijack {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(src_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id) {
-            if let Ok(src_guard) = src_handle.read() {
-                if let Some(other_handle) = obj.as_object_handle() {
-                    if let Ok(other_guard) = other_handle.read() {
-                        return action_manager::TheActionManager::can_hijack_vehicle(
-                            &src_guard,
-                            &other_guard,
-                            self.command_source,
-                        );
-                    }
-                }
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.obj_id, |src_guard| {
+                let Some(other_handle) = obj.as_object_handle() else {
+                    return false;
+                };
+                let Ok(other_guard) = other_handle.read() else {
+                    return false;
+                };
+                action_manager::TheActionManager::can_hijack_vehicle(
+                    src_guard,
+                    &other_guard,
+                    self.command_source,
+                )
+            })
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -476,27 +478,19 @@ pub struct PartitionFilterLastAttackedBy {
 
 impl PartitionFilterLastAttackedBy {
     pub fn new(obj_id: ObjectId) -> Self {
-        let last_attacked_by =
-            if let Some(handle) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
-                if let Ok(guard) = handle.read() {
-                    if let Some(body) = guard.get_body_module() {
-                        if let Ok(body_guard) = body.lock() {
-                            body_guard
-                                .get_last_damage_info()
-                                .map(|info| info.source_id)
-                                .unwrap_or(INVALID_ID)
-                        } else {
-                            INVALID_ID
-                        }
-                    } else {
-                        INVALID_ID
-                    }
-                } else {
-                    INVALID_ID
-                }
-            } else {
-                INVALID_ID
-            };
+        let last_attacked_by = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj_id, |guard| {
+                let Some(body) = guard.get_body_module() else {
+                    return INVALID_ID;
+                };
+                body.lock()
+                    .ok()
+                    .and_then(|body_guard| {
+                        body_guard.get_last_damage_info().map(|info| info.source_id)
+                    })
+                    .unwrap_or(INVALID_ID)
+            })
+            .unwrap_or(INVALID_ID);
         Self { last_attacked_by }
     }
 }
@@ -825,8 +819,8 @@ impl PartitionFilterRejectBehind {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterRejectBehind {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(src_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id) {
-            if let Ok(src_guard) = src_handle.read() {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.obj_id, |src_guard| {
                 let src_pos = src_guard.get_position();
                 let other_pos = obj.get_position();
 
@@ -841,10 +835,9 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBehind {
                 let v_z = other_pos.z - src_pos.z;
 
                 let dot = dir.x * v_x + dir.y * v_y + dir.z * v_z;
-                return dot > 0.0;
-            }
-        }
-        false
+                dot > 0.0
+            })
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -900,17 +893,18 @@ impl PartitionFilterSameMapStatus {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterSameMapStatus {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(src_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id) {
-            if let Ok(src_guard) = src_handle.read() {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.obj_id, |src_guard| {
                 let src_off_map = src_guard.is_off_map();
-                if let Some(other_handle) = obj.as_object_handle() {
-                    if let Ok(other_guard) = other_handle.read() {
-                        return other_guard.is_off_map() == src_off_map;
-                    }
-                }
-            }
-        }
-        false
+                let Some(other_handle) = obj.as_object_handle() else {
+                    return false;
+                };
+                let Ok(other_guard) = other_handle.read() else {
+                    return false;
+                };
+                other_guard.is_off_map() == src_off_map
+            })
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -966,20 +960,16 @@ pub struct PartitionFilterRejectBuildings {
 
 impl PartitionFilterRejectBuildings {
     pub fn new(obj_id: ObjectId) -> Self {
-        let acquire_enemies =
-            if let Some(handle) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
-                if let Ok(guard) = handle.read() {
-                    // Query ThePlayerList to check if the controlling player is human (C++ uses
-                    // Player::getPlayerType() == PLAYER_TYPE_COMPUTER). This replaces the
-                    // previous hardcoded `player_id != 0` approximation.
-                    if let Some(pid) = guard.get_player_id() {
-                        if let Ok(list) = ThePlayerList().read() {
-                            if let Some(player_arc) = list.get_player(pid.0 as i32) {
-                                if let Ok(player) = player_arc.read() {
-                                    player.get_player_type() != crate::player::PlayerType::Human
-                                } else {
-                                    false
-                                }
+        let acquire_enemies = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj_id, |guard| {
+                // Query ThePlayerList to check if the controlling player is human (C++ uses
+                // Player::getPlayerType() == PLAYER_TYPE_COMPUTER). This replaces the
+                // previous hardcoded `player_id != 0` approximation.
+                if let Some(pid) = guard.get_player_id() {
+                    if let Ok(list) = ThePlayerList().read() {
+                        if let Some(player_arc) = list.get_player(pid.0 as i32) {
+                            if let Ok(player) = player_arc.read() {
+                                player.get_player_type() != crate::player::PlayerType::Human
                             } else {
                                 false
                             }
@@ -992,9 +982,8 @@ impl PartitionFilterRejectBuildings {
                 } else {
                     false
                 }
-            } else {
-                false
-            };
+            })
+            .unwrap_or(false);
 
         Self {
             obj_id,
@@ -1012,10 +1001,8 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
                     return true;
                 }
 
-                if let Some(src_handle) =
-                    crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id)
-                {
-                    if let Ok(src_guard) = src_handle.read() {
+                let accept = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(self.obj_id, |src_guard| {
                         let Some(my_player) = src_guard.get_controlling_player() else {
                             return false;
                         };
@@ -1067,7 +1054,12 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
                         if other_guard.get_contain().is_some() && other_guard.is_able_to_attack() {
                             return true;
                         }
-                    }
+
+                        false
+                    })
+                    .unwrap_or(false);
+                if accept {
+                    return true;
                 }
 
                 return false;
@@ -1201,10 +1193,8 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRepulsor {
                     return false;
                 }
 
-                if let Some(src_handle) =
-                    crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id)
-                {
-                    if let Ok(src_guard) = src_handle.read() {
+                return crate::object::registry::OBJECT_REGISTRY
+                    .with_object(self.obj_id, |src_guard| {
                         let rel = src_guard.relationship_to(&other_guard);
                         if rel != Relationship::Enemies {
                             return false;
@@ -1221,9 +1211,9 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRepulsor {
                         }
 
                         // Only enemies that can attack
-                        return other_guard.is_able_to_attack();
-                    }
-                }
+                        other_guard.is_able_to_attack()
+                    })
+                    .unwrap_or(false);
             }
         }
         false
@@ -1629,25 +1619,24 @@ impl super::partition_manager::PartitionFilter for PartitionFilterValidCommandBu
                     && !target_guard.is_kind_of(KindOf::Projectile);
 
                 if valid_target {
-                    if let Some(source_handle) =
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.source_id)
-                    {
-                        if let Ok(source_guard) = source_handle.read() {
+                    valid_target = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(self.source_id, |source_guard| {
                             if let Some(control_bar) = crate::control_bar::get_control_bar_bridge()
                             {
                                 if let Some(command_button) =
                                     control_bar.get_command_button(self.command_button_id)
                                 {
-                                    valid_target = command_button.is_valid_to_use_on(
-                                        &source_guard,
+                                    return command_button.is_valid_to_use_on(
+                                        source_guard,
                                         Some(&target_guard),
                                         None,
                                         self.command_source,
                                     );
                                 }
                             }
-                        }
-                    }
+                            false
+                        })
+                        .unwrap_or(false);
                 }
             }
         }
