@@ -276,11 +276,6 @@ pub struct Object {
     /// Unique identifier
     pub id: ObjectId,
 
-    /// Optional dual-crate factory id (metadata only). Host properties never
-    /// dual-read OBJECT_REGISTRY — Main store is sole authority for pose/HP/alive.
-    /// Bridge create may still stamp this when GENERALS_BRIDGE_ENGINE_OBJECTS is set.
-    pub engine_object_id: Option<u32>,
-
     /// Team ownership
     pub team: Team,
 
@@ -1365,7 +1360,6 @@ impl Object {
         Self {
             thing: Thing::new(template),
             id,
-            engine_object_id: None,
             team,
             name: String::new(),
             status: ObjectStatus::default(),
@@ -1660,7 +1654,6 @@ impl Object {
         Self {
             thing: Thing::new(template),
             id,
-            engine_object_id: None,
             team,
             name: String::new(),
             status: ObjectStatus::default(),
