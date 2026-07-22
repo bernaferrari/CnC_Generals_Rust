@@ -754,7 +754,7 @@ impl ObjectFactory {
         id: ObjectID,
         team: Option<Arc<RwLock<Team>>>,
         flags: ObjectCreationFlags,
-    ) -> GameLogicResult<Arc<RwLock<GameObjectInstance>>> {
+    ) -> GameLogicResult<GameObjectInstance> {
         if !self.enabled {
             return Err(GameLogicError::SystemNotInitialized(
                 "Object factory disabled".to_string(),
@@ -776,7 +776,7 @@ impl ObjectFactory {
         *self.objects_created.entry(lookup_name.clone()).or_insert(0) += 1;
         self.total_created += 1;
 
-        Ok(Arc::new(RwLock::new(object)))
+        Ok(object)
     }
 
     /// Get template by name
@@ -910,7 +910,7 @@ impl SpatialPartition {
     }
 
     /// Rebuild the entire partition from the supplied object map.
-    pub fn rebuild(&mut self, objects: &HashMap<ObjectID, Arc<RwLock<GameObjectInstance>>>) {
+    pub fn rebuild(&mut self, objects: &HashMap<ObjectID, ObjectSlot>) {
         self.grid.clear();
         self.object_cells.clear();
         self.object_positions.clear();
@@ -924,6 +924,36 @@ impl SpatialPartition {
     }
 }
 
+/// Per-object slot: owned instance with interior mutability (no Arc sharing).
+#[derive(Debug)]
+pub struct ObjectSlot {
+    inner: Mutex<GameObjectInstance>,
+}
+
+impl ObjectSlot {
+    pub fn new(object: GameObjectInstance) -> Self {
+        Self {
+            inner: Mutex::new(object),
+        }
+    }
+
+    pub fn read(
+        &self,
+    ) -> std::sync::LockResult<std::sync::MutexGuard<'_, GameObjectInstance>> {
+        self.inner.lock()
+    }
+
+    pub fn write(
+        &self,
+    ) -> std::sync::LockResult<std::sync::MutexGuard<'_, GameObjectInstance>> {
+        self.inner.lock()
+    }
+
+    pub fn into_inner(self) -> GameObjectInstance {
+        self.inner.into_inner().unwrap_or_else(|p| p.into_inner())
+    }
+}
+
 /// Complete object manager - integrates all systems
 #[derive(Debug)]
 pub struct ObjectManager {
@@ -931,7 +961,7 @@ pub struct ObjectManager {
     factory: ObjectFactory,
 
     /// All active objects
-    objects: HashMap<ObjectID, Arc<RwLock<GameObjectInstance>>>,
+    objects: HashMap<ObjectID, ObjectSlot>,
 
     /// Objects pending destruction
     destroy_queue: Vec<ObjectID>,
@@ -1000,28 +1030,25 @@ impl ObjectManager {
     /// Register a pre-constructed object instance with this manager.
     pub fn register_object_instance(
         &mut self,
-        object: Arc<RwLock<GameObjectInstance>>,
+        mut object: GameObjectInstance,
         position: Coord3D,
     ) -> GameLogicResult<ObjectID> {
-        let object_id = object
-            .read()
-            .map_err(|_| GameLogicError::SystemNotInitialized("Object lock poisoned".to_string()))?
-            .get_id();
-
-        if let Ok(mut obj) = object.write() {
-            obj.set_position(position);
-        }
+        let object_id = object.get_id();
+        object.set_position(position);
 
         self.spatial_partition.add_object(object_id, position);
 
-        if self.objects.insert(object_id, object.clone()).is_some() {
+        if self.objects.insert(object_id, ObjectSlot::new(object)).is_some() {
             OBJECT_REGISTRY.unregister_object(object_id);
             unregister_legacy_object(object_id);
         }
 
-        if let Ok(obj_guard) = object.read() {
-            OBJECT_REGISTRY.register_object(object_id, &obj_guard.base());
-            register_legacy_object(&obj_guard.base());
+        if let Some(slot) = self.objects.get(&object_id) {
+            if let Ok(obj) = slot.read() {
+                OBJECT_REGISTRY.register_object(object_id, &obj.base());
+                register_legacy_object(&obj.base());
+                self.register_player_ownership(object_id, &obj);
+            }
         }
 
         if !self.update_order.contains(&object_id) {
@@ -1029,7 +1056,6 @@ impl ObjectManager {
         }
 
         self.next_object_id = self.next_object_id.max(object_id.saturating_add(1));
-        self.register_player_ownership(object_id, &object);
 
         Ok(object_id)
     }
@@ -1081,27 +1107,25 @@ impl ObjectManager {
                 crate::helpers::TheThingFactory::find_template(guard.get_name().as_str())
             })
             .or_else(|| crate::helpers::TheThingFactory::find_template(template_name));
-        let object = Arc::new(RwLock::new(GameObjectInstance::from_existing(
-            base_object,
-            template,
-            team,
-        )));
+        let object = GameObjectInstance::from_existing(base_object, template, team);
 
         // Add to spatial partition
         self.spatial_partition.add_object(object_id, position);
 
         // Add to object list
-        if self.objects.insert(object_id, object.clone()).is_some() {
+        if self.objects.insert(object_id, ObjectSlot::new(object)).is_some() {
             OBJECT_REGISTRY.unregister_object(object_id);
             unregister_legacy_object(object_id);
         }
-        if let Ok(obj_guard) = object.read() {
-            OBJECT_REGISTRY.register_object(object_id, &obj_guard.base());
-            register_legacy_object(&obj_guard.base());
+        if let Some(slot) = self.objects.get(&object_id) {
+            if let Ok(obj) = slot.read() {
+                OBJECT_REGISTRY.register_object(object_id, &obj.base());
+                register_legacy_object(&obj.base());
+                self.register_player_ownership(object_id, &obj);
+            }
         }
         self.update_order.push(object_id);
         self.next_object_id = self.next_object_id.max(object_id.saturating_add(1));
-        self.register_player_ownership(object_id, &object);
 
         if let Ok(mut engine_guard) = crate::scripting::engine::get_script_engine().write() {
             if let Some(ref mut engine) = *engine_guard {
@@ -1112,15 +1136,13 @@ impl ObjectManager {
         Ok(object_id)
     }
 
-    fn register_player_ownership(
-        &self,
-        object_id: ObjectID,
-        object: &Arc<RwLock<GameObjectInstance>>,
-    ) {
-        let team_arc = object.read().ok().and_then(|instance| {
-            instance
-                .get_team()
-                .or_else(|| instance.base().read().ok().and_then(|base| base.get_team()))
+    fn register_player_ownership(&self, object_id: ObjectID, object: &GameObjectInstance) {
+        let team_arc = object.get_team().or_else(|| {
+            object
+                .base()
+                .read()
+                .ok()
+                .and_then(|base| base.get_team())
         });
 
         let Some(team_arc) = team_arc else {
@@ -1149,15 +1171,8 @@ impl ObjectManager {
         player_guard.add_owned_object(object_id);
     }
 
-    fn unregister_player_ownership(
-        &self,
-        object_id: ObjectID,
-        object: &Arc<RwLock<GameObjectInstance>>,
-    ) {
-        let player_id = object
-            .read()
-            .ok()
-            .and_then(|instance| instance.get_controlling_player_id());
+    fn unregister_player_ownership(&self, object_id: ObjectID, object: &GameObjectInstance) {
+        let player_id = object.get_controlling_player_id();
 
         let Some(player_id) = player_id else {
             return;
@@ -1178,49 +1193,46 @@ impl ObjectManager {
     }
 
     /// Get object by ID
-    pub fn get_object(&self, object_id: ObjectID) -> Option<Arc<RwLock<GameObjectInstance>>> {
-        // Clone the Arc handle so callers can drop the ObjectManager lock.
-        // Prefer `for_each_object` / direct store walks when the manager stays borrowed.
-        self.objects.get(&object_id).cloned()
-    }
-
-    /// Borrow the stored Arc without cloning (manager must stay borrowed).
-    pub fn get_object_ref(&self, object_id: ObjectID) -> Option<&Arc<RwLock<GameObjectInstance>>> {
+    /// Lock slot by ID (prefer `with_object` / `with_object_mut`).
+    pub fn get_object(&self, object_id: ObjectID) -> Option<&ObjectSlot> {
         self.objects.get(&object_id)
     }
 
-    /// Borrow-first object access without cloning `Arc` (manager stays borrowed).
-    /// Prefer this over `get_object(id).read()` at call sites that do not need to
-    /// outlive the manager borrow. Intermediate step toward an owned object store.
+    /// Alias for transitional call sites.
+    pub fn get_object_ref(&self, object_id: ObjectID) -> Option<&ObjectSlot> {
+        self.get_object(object_id)
+    }
+
+    /// Borrow-first object access (locks object slot only).
     pub fn with_object<R>(
         &self,
         object_id: ObjectID,
         f: impl FnOnce(&GameObjectInstance) -> R,
     ) -> Option<R> {
-        let arc = self.objects.get(&object_id)?;
-        let guard = arc.read().ok()?;
+        let slot = self.objects.get(&object_id)?;
+        let guard = slot.read().ok()?;
         Some(f(&guard))
     }
 
-    /// Mutable borrow-first object access without cloning `Arc`.
+    /// Mutable borrow-first object access (locks object slot only; manager may stay shared).
     pub fn with_object_mut<R>(
         &self,
         object_id: ObjectID,
         f: impl FnOnce(&mut GameObjectInstance) -> R,
     ) -> Option<R> {
-        let arc = self.objects.get(&object_id)?;
-        let mut guard = arc.write().ok()?;
+        let slot = self.objects.get(&object_id)?;
+        let mut guard = slot.write().ok()?;
         Some(f(&mut guard))
     }
 
-    /// Iterate alive objects by direct instance borrow (no Arc clone per object).
+    /// Iterate alive objects by direct instance borrow.
     pub fn for_each_object_instance<F>(&self, mut f: F)
     where
         F: FnMut(ObjectID, &GameObjectInstance),
     {
         for &id in &self.update_order {
-            if let Some(arc) = self.objects.get(&id) {
-                if let Ok(guard) = arc.read() {
+            if let Some(slot) = self.objects.get(&id) {
+                if let Ok(guard) = slot.read() {
                     f(id, &guard);
                 }
             }
@@ -1269,12 +1281,11 @@ impl ObjectManager {
     fn process_destroy_queue(&mut self) {
         let pending: Vec<_> = self.destroy_queue.drain(..).collect();
         for object_id in pending {
-            if let Some(object) = self.objects.remove(&object_id) {
+            if let Some(slot) = self.objects.remove(&object_id) {
                 OBJECT_REGISTRY.unregister_object(object_id);
                 unregister_legacy_object(object_id);
-                if let Ok(mut obj) = object.write() {
-                    obj.destroy();
-                }
+                let mut object = slot.into_inner();
+                object.destroy();
                 self.unregister_player_ownership(object_id, &object);
 
                 // Remove from spatial partition
@@ -1342,7 +1353,7 @@ impl ObjectManager {
     ///
     /// # Arguments
     ///
-    /// * `f` - Closure to call for each object: `|id: ObjectID, obj: Arc<RwLock<GameObjectInstance>>| -> R`
+    /// * `f` - Closure to call for each object: `|id: ObjectID, obj: &Mutex<GameObjectInstance>|`
     ///
     /// # Example
     ///
@@ -1359,11 +1370,11 @@ impl ObjectManager {
     /// ```
     pub fn for_each_object<F>(&self, mut f: F)
     where
-        F: FnMut(ObjectID, &Arc<RwLock<GameObjectInstance>>),
+        F: FnMut(ObjectID, &ObjectSlot),
     {
         for &id in &self.update_order {
-            if let Some(obj_arc) = self.objects.get(&id) {
-                f(id, obj_arc);
+            if let Some(slot) = self.objects.get(&id) {
+                f(id, slot);
             }
         }
     }
@@ -1657,14 +1668,12 @@ mod tests {
         assert!(ids.is_empty(), "New manager should have no objects");
 
         // Create a few objects
-        let obj1 = Arc::new(RwLock::new(
-            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new())
-                .expect("failed to create object instance"),
-        ));
-        let obj2 = Arc::new(RwLock::new(
-            GameObjectInstance::new(2, None, None, ObjectCreationFlags::new())
-                .expect("failed to create object instance"),
-        ));
+        let obj1 = ObjectSlot::new(
+            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+        );
+        let obj2 = ObjectSlot::new(
+            GameObjectInstance::new(2, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+        );
 
         manager.objects.insert(1, obj1);
         manager.objects.insert(2, obj2);
@@ -1680,14 +1689,12 @@ mod tests {
         let mut manager = ObjectManager::new();
 
         // Create test objects
-        let obj1 = Arc::new(RwLock::new(
-            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new())
-                .expect("failed to create object instance"),
-        ));
-        let obj2 = Arc::new(RwLock::new(
-            GameObjectInstance::new(2, None, None, ObjectCreationFlags::new())
-                .expect("failed to create object instance"),
-        ));
+        let obj1 = ObjectSlot::new(
+            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+        );
+        let obj2 = ObjectSlot::new(
+            GameObjectInstance::new(2, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+        );
 
         manager.objects.insert(1, obj1);
         manager.objects.insert(2, obj2);
@@ -1695,7 +1702,7 @@ mod tests {
 
         // Iterate and collect IDs
         let mut collected_ids = Vec::new();
-        manager.for_each_object(|id, _obj_arc| {
+        manager.for_each_object(|id, _slot| {
             collected_ids.push(id);
         });
 
@@ -1709,10 +1716,9 @@ mod tests {
         let mut manager = ObjectManager::new();
 
         // Create object with no team
-        let obj = Arc::new(RwLock::new(
-            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new())
-                .expect("failed to create object instance"),
-        ));
+        let obj = ObjectSlot::new(
+            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+        );
         manager.objects.insert(1, obj);
 
         // Query for objects owned by player
@@ -1728,10 +1734,9 @@ mod tests {
         let mut manager = ObjectManager::new();
 
         // Create object with no team
-        let obj = Arc::new(RwLock::new(
-            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new())
-                .expect("failed to create object instance"),
-        ));
+        let obj = ObjectSlot::new(
+            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+        );
         manager.objects.insert(1, obj);
 
         // Check ownership
@@ -1749,10 +1754,9 @@ mod tests {
 
         // Create multiple objects
         for i in 1..=5 {
-            let obj = Arc::new(RwLock::new(
-                GameObjectInstance::new(i, None, None, ObjectCreationFlags::new())
-                    .expect("failed to create object instance"),
-            ));
+            let obj = ObjectSlot::new(
+            GameObjectInstance::new(i, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+            );
             manager.objects.insert(i, obj);
             manager.update_order.push(i);
         }

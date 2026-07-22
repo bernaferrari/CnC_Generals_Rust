@@ -3372,32 +3372,25 @@ mod tests {
         let viewer_template = Arc::new(DefaultThingTemplate::new("ShroudViewer".to_string()));
         let target_template = Arc::new(DefaultThingTemplate::new("ShroudTarget".to_string()));
 
-        let viewer = Arc::new(RwLock::new(
-            GameObjectInstance::new(
+        let viewer = GameObjectInstance::new(
                 300,
                 Some(viewer_template),
                 Some(team_player0),
                 ObjectCreationFlags::from_template(),
-            )
-            .expect("failed to create viewer object"),
-        ));
+            ).expect("failed to create viewer object");
         {
-            let viewer_guard = viewer.write().unwrap();
-            let __base_arc = viewer_guard.base();
+            let __base_arc = viewer.base();
             let mut base = __base_arc.write().unwrap();
             base.set_vision_range(300.0);
             base.set_shroud_clearing_range(25.0);
         }
 
-        let target = Arc::new(RwLock::new(
-            GameObjectInstance::new(
+        let target = GameObjectInstance::new(
                 301,
                 Some(target_template),
                 None,
                 ObjectCreationFlags::from_template(),
-            )
-            .expect("failed to create target object"),
-        ));
+            ).expect("failed to create target object");
 
         let viewer_pos = Coord3D::new(0.0, 0.0, 0.0);
         let target_pos = Coord3D::new(100.0, 0.0, 0.0);
@@ -3452,25 +3445,19 @@ mod tests {
         let viewer_template = Arc::new(DefaultThingTemplate::new("SpyViewer".to_string()));
         let target_template = Arc::new(DefaultThingTemplate::new("SpyTarget".to_string()));
 
-        let viewer = Arc::new(RwLock::new(
-            GameObjectInstance::new(
+        let viewer = GameObjectInstance::new(
                 100,
                 Some(viewer_template),
                 Some(team_player1),
                 ObjectCreationFlags::from_template(),
-            )
-            .expect("failed to create viewer object"),
-        ));
+            ).expect("failed to create viewer object");
 
-        let target = Arc::new(RwLock::new(
-            GameObjectInstance::new(
+        let target = GameObjectInstance::new(
                 200,
                 Some(target_template),
                 Some(team_player2),
                 ObjectCreationFlags::from_template(),
-            )
-            .expect("failed to create target object"),
-        ));
+            ).expect("failed to create target object");
 
         {
             let mut mgr = manager_arc.write().unwrap();
