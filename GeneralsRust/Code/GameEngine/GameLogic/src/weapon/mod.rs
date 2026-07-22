@@ -4501,28 +4501,23 @@ impl Weapon {
         let object_ids = obj_mgr.find_objects_in_radius(*center, radius);
         drop(obj_mgr);
 
-        // Keep source Arc only while scanning radius targets (relationship needs &Object).
-        let source_arc = OBJECT_REGISTRY.get_object(source_obj_id);
-        let source_guard = match source_arc.as_ref() {
-            Some(arc) => arc.read().ok(),
-            None => None,
-        };
-
         let mut results = Vec::new();
         for obj_id in object_ids {
-            // Borrow-first target access (no Arc clone kept beyond the callback).
-            let Some((pos, relationship_mask)) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
-                let pos = *obj.get_position();
-                let relationship_mask = source_guard
-                    .as_ref()
-                    .map(|source| match source.relationship_to(obj) {
-                        Relationship::Allies => WeaponAffectsMask::ALLIES,
-                        Relationship::Enemies => WeaponAffectsMask::ENEMIES,
-                        _ => WeaponAffectsMask::NEUTRALS,
+            // Nested borrow-first access keeps neither source nor target Arc at the call site.
+            let Some((pos, relationship_mask)) = OBJECT_REGISTRY
+                .with_object(source_obj_id, |source| {
+                    OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                        let pos = *obj.get_position();
+                        let relationship_mask = match source.relationship_to(obj) {
+                            Relationship::Allies => WeaponAffectsMask::ALLIES,
+                            Relationship::Enemies => WeaponAffectsMask::ENEMIES,
+                            _ => WeaponAffectsMask::NEUTRALS,
+                        };
+                        (pos, relationship_mask)
                     })
-                    .unwrap_or(WeaponAffectsMask::NEUTRALS);
-                (pos, relationship_mask)
-            }) else {
+                })
+                .flatten()
+            else {
                 continue;
             };
             results.push((obj_id, pos, relationship_mask));

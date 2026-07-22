@@ -8,7 +8,8 @@
 
 use crate::ai::CommandSourceType;
 use crate::common::{
-    Bool, KindOf, ModuleData, Real, Relationship, UnsignedInt, XferVersion, PLAYERMASK_ALL,
+    Bool, KindOf, ModuleData, ObjectID, Real, Relationship, UnsignedInt, XferVersion,
+    PLAYERMASK_ALL,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, ThePartitionManager};
@@ -107,62 +108,61 @@ impl NeutronBlastBehavior {
         })
     }
 
-    fn neutron_blast_to_object(
-        &self,
-        source_arc: &Arc<RwLock<GameObject>>,
-        target_arc: &Arc<RwLock<GameObject>>,
-    ) {
-        let Ok(mut target) = target_arc.write() else {
-            return;
-        };
-
-        if target.is_effectively_dead() {
-            return;
-        }
-
+    fn neutron_blast_to_object(&self, source_id: ObjectID, target_id: ObjectID) {
         if !self.module_data.affect_allies {
-            let Ok(source) = source_arc.read() else {
-                return;
-            };
-            if matches!(source.relationship_to(&target), Relationship::Allies) {
+            let is_ally = OBJECT_REGISTRY
+                .with_object(source_id, |source| {
+                    OBJECT_REGISTRY.with_object(target_id, |target| {
+                        matches!(source.relationship_to(target), Relationship::Allies)
+                    })
+                })
+                .flatten()
+                .unwrap_or(false);
+            if is_ally {
                 return;
             }
         }
 
-        if target.is_kind_of(KindOf::Infantry) {
-            target.kill(None, None);
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(target_id, |target| {
+            if target.is_effectively_dead() {
+                return;
+            }
 
-        if let Some(contain) = target.get_contain() {
-            if let Ok(contain_guard) = contain.lock() {
-                for contained_id in contain_guard.get_contained_objects() {
-                    let _ = OBJECT_REGISTRY.with_object_mut(*contained_id, |contained| {
-                        contained.kill(None, None);
-                    });
+            if target.is_kind_of(KindOf::Infantry) {
+                target.kill(None, None);
+            }
+
+            if let Some(contain) = target.get_contain() {
+                if let Ok(contain_guard) = contain.lock() {
+                    for contained_id in contain_guard.get_contained_objects() {
+                        let _ = OBJECT_REGISTRY.with_object_mut(*contained_id, |contained| {
+                            contained.kill(None, None);
+                        });
+                    }
                 }
             }
-        }
 
-        if target.is_kind_of(KindOf::Vehicle) && !target.is_kind_of(KindOf::Drone) {
-            if target.is_kind_of(KindOf::CliffJumper) {
-                target.kill(None, None);
-                return;
+            if target.is_kind_of(KindOf::Vehicle) && !target.is_kind_of(KindOf::Drone) {
+                if target.is_kind_of(KindOf::CliffJumper) {
+                    target.kill(None, None);
+                    return;
+                }
+
+                target.set_disabled_unmanned();
+
+                if let Some(ai) = target.get_ai() {
+                    ai.ai_idle(CommandSourceType::FromAi);
+                }
+
+                let _ = TheGameLogic::deselect_object(target, PLAYERMASK_ALL, true);
+
+                if let Some(drawable) = target.get_drawable() {
+                    drawable.set_terrain_decal(TerrainDecalType::None);
+                }
+
+                target.set_team_to_neutral();
             }
-
-            target.set_disabled_unmanned();
-
-            if let Some(ai) = target.get_ai() {
-                ai.ai_idle(CommandSourceType::FromAi);
-            }
-
-            let _ = TheGameLogic::deselect_object(&*target, PLAYERMASK_ALL, true);
-
-            if let Some(drawable) = target.get_drawable() {
-                drawable.set_terrain_decal(TerrainDecalType::None);
-            }
-
-            target.set_team_to_neutral();
-        }
+        });
     }
 }
 
@@ -199,24 +199,27 @@ impl DieModuleInterface for NeutronBlastBehavior {
             if id == source_id {
                 continue;
             }
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(id) else {
-                continue;
-            };
-            let Ok(target) = target_arc.read() else {
-                continue;
-            };
-            if target.is_effectively_dead() {
+            let passes = OBJECT_REGISTRY
+                .with_object(id, |target| {
+                    if target.is_effectively_dead() {
+                        return false;
+                    }
+                    if target.is_off_map() != source_off_map {
+                        return false;
+                    }
+                    if !hit_air
+                        && (target.is_kind_of(KindOf::Aircraft) || target.is_airborne_target())
+                    {
+                        return false;
+                    }
+                    true
+                })
+                .unwrap_or(false);
+            if !passes {
                 continue;
             }
-            if target.is_off_map() != source_off_map {
-                continue;
-            }
-            if !hit_air && (target.is_kind_of(KindOf::Aircraft) || target.is_airborne_target()) {
-                continue;
-            }
-            drop(target);
 
-            self.neutron_blast_to_object(&source_arc, &target_arc);
+            self.neutron_blast_to_object(source_id, id);
         }
 
         Ok(())
