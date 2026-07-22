@@ -412,19 +412,16 @@ impl UpdateModuleInterface for TensileFormationUpdate {
             let mut closest_id = None;
             let mut closest_dist_sqr = major_radius * major_radius + 1.0;
             for id in partition.get_objects_in_range(&new_pos, major_radius) {
-                let Some(obj_arc) = OBJECT_REGISTRY.get_object(id) else {
-                    continue;
-                };
-                let Ok(obj) = obj_arc.read() else {
-                    continue;
-                };
-                let obj_pos = obj.get_position();
-                let dx = obj_pos.x - new_pos.x;
-                let dy = obj_pos.y - new_pos.y;
-                let dist_sqr = dx * dx + dy * dy;
-                if dist_sqr < closest_dist_sqr {
-                    closest_dist_sqr = dist_sqr;
-                    closest_id = Some(id);
+                if let Some(dist_sqr) = OBJECT_REGISTRY.with_object(id, |obj| {
+                    let obj_pos = obj.get_position();
+                    let dx = obj_pos.x - new_pos.x;
+                    let dy = obj_pos.y - new_pos.y;
+                    dx * dx + dy * dy
+                }) {
+                    if dist_sqr < closest_dist_sqr {
+                        closest_dist_sqr = dist_sqr;
+                        closest_id = Some(id);
+                    }
                 }
             }
 

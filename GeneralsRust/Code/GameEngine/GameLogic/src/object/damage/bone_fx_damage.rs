@@ -34,35 +34,37 @@ impl BoneFXDamage {
     where
         F: FnOnce(&mut dyn BoneFxControlInterface) -> Result<(), String>,
     {
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return Err(format!("BoneFXDamage: Object {} not found", self.object_id));
-        };
-        let object_guard = object
-            .read()
-            .map_err(|_| "BoneFXDamage: Object lock failed")?;
-        if let Some(module) = object_guard.find_update_module("BoneFXUpdate") {
-            let mut func = Some(func);
-            let mut result = None;
-            module.with_module(|module| {
-                if let (Some(bone_fx), Some(func)) =
-                    (module.get_bone_fx_control_interface(), func.take())
-                {
-                    result = Some(func(bone_fx));
-                }
-            });
-            return result.unwrap_or_else(|| Err("BoneFXUpdate module type mismatch".to_string()));
-        }
+        let object_id = self.object_id;
+        let Some(result) = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+            if let Some(module) = object_guard.find_update_module("BoneFXUpdate") {
+                let mut func = Some(func);
+                let mut result = None;
+                module.with_module(|module| {
+                    if let (Some(bone_fx), Some(func)) =
+                        (module.get_bone_fx_control_interface(), func.take())
+                    {
+                        result = Some(func(bone_fx));
+                    }
+                });
+                return result
+                    .unwrap_or_else(|| Err("BoneFXUpdate module type mismatch".to_string()));
+            }
 
-        let Some(behavior) = object_guard.find_update_behavior("BoneFXUpdate") else {
-            return Err("BoneFXUpdate type mismatch".to_string());
+            let Some(behavior) = object_guard.find_update_behavior("BoneFXUpdate") else {
+                return Err("BoneFXUpdate type mismatch".to_string());
+            };
+            let mut behavior = match behavior.lock() {
+                Ok(b) => b,
+                Err(_) => return Err("BoneFXDamage: BoneFXUpdate lock failed".to_string()),
+            };
+            let Some(bone_fx) = behavior.get_bone_fx_control_interface() else {
+                return Err("BoneFXUpdate type mismatch".to_string());
+            };
+            func(bone_fx)
+        }) else {
+            return Err(format!("BoneFXDamage: Object {} not found", object_id));
         };
-        let mut behavior = behavior
-            .lock()
-            .map_err(|_| "BoneFXDamage: BoneFXUpdate lock failed")?;
-        let Some(bone_fx) = behavior.get_bone_fx_control_interface() else {
-            return Err("BoneFXUpdate type mismatch".to_string());
-        };
-        func(bone_fx)
+        result
     }
 }
 

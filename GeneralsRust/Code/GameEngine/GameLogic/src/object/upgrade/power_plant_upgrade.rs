@@ -122,17 +122,14 @@ impl Snapshotable for PowerPlantUpgrade {
 
         use crate::object::registry::OBJECT_REGISTRY;
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return Ok(());
-        };
-
-        if let Ok(object_guard) = object.read() {
+        let object_id = self.object_id;
+        let _ = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
             if let Some(player) = object_guard.get_controlling_player() {
                 if let Ok(mut player_guard) = player.write() {
-                    player_guard.add_power_bonus(self.object_id);
+                    player_guard.add_power_bonus(object_id);
                 }
             }
-        }
+        });
 
         Ok(())
     }
@@ -147,31 +144,21 @@ impl UpgradeModuleInterface for PowerPlantUpgrade {
         if self.applied {
             return false;
         }
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let object_id = self.object_id;
+        let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
+            if let Some(player) = object_guard.get_controlling_player() {
+                if let Ok(mut player_guard) = player.write() {
+                    player_guard.add_power_bonus(object_id);
+                }
+            }
+
+            let _ = object_guard.with_power_plant_update_interface(|ppui| {
+                ppui.extend_rods(true);
+            });
+        }) else {
             log::warn!("PowerPlantUpgrade: Object {} not found", self.object_id);
             return false;
         };
-
-        let object_guard = match object.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "PowerPlantUpgrade: Failed to lock object {}",
-                    self.object_id
-                );
-                return false;
-            }
-        };
-
-        if let Some(player) = object_guard.get_controlling_player() {
-            if let Ok(mut player_guard) = player.write() {
-                player_guard.add_power_bonus(self.object_id);
-            }
-        }
-
-        let _ = object_guard.with_power_plant_update_interface(|ppui| {
-            ppui.extend_rods(true);
-        });
 
         self.applied = true;
         true

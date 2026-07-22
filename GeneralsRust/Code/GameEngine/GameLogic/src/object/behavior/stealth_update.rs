@@ -419,18 +419,16 @@ impl StealthUpdate {
                     if let Ok(contain_guard) = contain.lock() {
                         // Check each contained unit for attacking status
                         for &rider_id in contain_guard.get_contained_objects() {
-                            if let Some(rider) =
-                                crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-                            {
-                                if let Ok(rider_guard) = rider.read() {
+                            if crate::object::registry::OBJECT_REGISTRY
+                                .with_object(rider_id, |rider_guard| {
                                     let rider_status = rider_guard.get_status_bits();
-                                    if rider_status.contains(ObjectStatusMaskType::IS_ATTACKING)
+                                    rider_status.contains(ObjectStatusMaskType::IS_ATTACKING)
                                         || rider_status
                                             .contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
-                                    {
-                                        return true;
-                                    }
-                                }
+                                })
+                                .unwrap_or(false)
+                            {
+                                return true;
                             }
                         }
                     }

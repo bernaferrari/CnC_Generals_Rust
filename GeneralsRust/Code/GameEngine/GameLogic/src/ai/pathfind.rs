@@ -1338,30 +1338,27 @@ impl Pathfinder {
             if obj_id == attack_id || obj_id == victim_id {
                 continue;
             }
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-
-            if obj_guard.is_significantly_above_terrain() {
-                continue;
-            }
-
-            if !(obj_guard.is_kind_of(KindOf::Structure)
-                || obj_guard.is_kind_of(KindOf::Building)
-                || obj_guard.is_kind_of(KindOf::Defense)
-                || obj_guard.is_kind_of(KindOf::Bridge))
+            if OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if obj_guard.is_significantly_above_terrain() {
+                        return false;
+                    }
+                    if !(obj_guard.is_kind_of(KindOf::Structure)
+                        || obj_guard.is_kind_of(KindOf::Building)
+                        || obj_guard.is_kind_of(KindOf::Defense)
+                        || obj_guard.is_kind_of(KindOf::Bridge))
+                    {
+                        return false;
+                    }
+                    let radius = obj_guard.get_geometry_info().get_bounding_circle_radius()
+                        + PATHFIND_CELL_SIZE_F;
+                    let pos = obj_guard.get_position();
+                    let dist_sqr =
+                        Self::distance_sq_point_to_segment_2d(pos, attacker_pos, victim_pos);
+                    dist_sqr <= radius * radius
+                })
+                .unwrap_or(false)
             {
-                continue;
-            }
-
-            let radius =
-                obj_guard.get_geometry_info().get_bounding_circle_radius() + PATHFIND_CELL_SIZE_F;
-            let pos = obj_guard.get_position();
-            let dist_sqr = Self::distance_sq_point_to_segment_2d(pos, attacker_pos, victim_pos);
-            if dist_sqr <= radius * radius {
                 return true;
             }
         }

@@ -1796,14 +1796,14 @@ impl TerrainLogic {
         };
 
         for object_id in partition.get_objects_in_range(&center, max_dist) {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let underwater = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                let pos = *obj_guard.get_position();
+                self.is_underwater(pos.x, pos.y, None, None)
+            });
+            if underwater != Some(true) {
                 continue;
-            };
-            let Ok(mut obj_guard) = obj_arc.write() else {
-                continue;
-            };
-            let pos = *obj_guard.get_position();
-            if self.is_underwater(pos.x, pos.y, None, None) {
+            }
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                 let mut damage = DamageInfo::with_simple(
                     damage_amount,
                     crate::common::INVALID_ID,
@@ -1811,7 +1811,7 @@ impl TerrainLogic {
                     DeathType::Normal,
                 );
                 let _ = obj_guard.attempt_damage(&mut damage);
-            }
+            });
         }
     }
 
