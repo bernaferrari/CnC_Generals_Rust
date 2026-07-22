@@ -436,45 +436,17 @@ impl UnitControlSystem {
         self.camera.screen_to_ray(screen_pos, self.window_size)
     }
 
-    /// Find object at screen position using 3D raycasting
+    /// Find object at screen position using 3D raycasting.
+    ///
+    /// Presentation-only: returns `None` when no snapshot is installed (no live
+    /// GameLogic dual-read residual). Callers must seed `set_presentation_frame`.
     pub fn pick_object_at_screen_pos(
         &self,
         screen_pos: Vec2,
-        game_logic: &GameLogic,
+        _game_logic: &GameLogic,
     ) -> Option<SelectionResult> {
-        // Prefer immutable presentation identity when available.
-        if let Some(frame) = self.presentation_frame.as_ref() {
-            return self.pick_object_at_screen_pos_from_presentation(screen_pos, frame);
-        }
-
-        let ray = self.screen_to_ray(screen_pos);
-        let mut closest_result: Option<SelectionResult> = None;
-        let mut closest_distance = f32::MAX;
-
-        // Live fallback when no presentation frame is installed.
-        for (object_id, object) in game_logic.get_objects().iter() {
-            // Only consider selectable objects
-            if !object.is_selectable() {
-                continue;
-            }
-
-            let object_position = object.get_position();
-            let radius = self.selection_radius.max(object.selection_radius);
-
-            // Check ray-sphere intersection (using selection radius as sphere radius)
-            if let Some(distance) = ray.intersects_sphere(object_position, radius) {
-                if distance < closest_distance {
-                    closest_distance = distance;
-                    closest_result = Some(SelectionResult {
-                        object_id: *object_id,
-                        distance,
-                        world_position: object_position,
-                    });
-                }
-            }
-        }
-
-        closest_result
+        let frame = self.presentation_frame.as_ref()?;
+        self.pick_object_at_screen_pos_from_presentation(screen_pos, frame)
     }
 
     /// Get ground position from screen coordinates
@@ -966,43 +938,27 @@ impl UnitControlSystem {
         self.selected_objects.contains(&object_id)
     }
 
-    /// Get selection center for camera focusing
-    pub fn get_selection_center(&self, game_logic: &GameLogic) -> Option<Vec3> {
+    /// Get selection center for camera focusing.
+    ///
+    /// Presentation-only poses when a snapshot is installed; `None` otherwise
+    /// (no live GameLogic dual-read residual).
+    pub fn get_selection_center(&self, _game_logic: &GameLogic) -> Option<Vec3> {
         if self.selected_objects.is_empty() {
             return None;
         }
-
-        // Prefer presentation poses when a snapshot is installed.
-        if let Some(frame) = self.presentation_frame.as_ref() {
-            let mut center = Vec3::ZERO;
-            let mut count = 0;
-            for &object_id in &self.selected_objects {
-                if let Some(o) = frame
-                    .objects
-                    .iter()
-                    .find(|o| o.id == object_id && !o.destroyed)
-                {
-                    center += o.position;
-                    count += 1;
-                }
-            }
-            if count > 0 {
-                return Some(center / count as f32);
-            }
-            // Selected ids may be stale vs snapshot; fall through to live boot residual.
-        }
-
-        // Boot residual only when presentation poses are unavailable.
+        let frame = self.presentation_frame.as_ref()?;
         let mut center = Vec3::ZERO;
         let mut count = 0;
-
         for &object_id in &self.selected_objects {
-            if let Some(object) = game_logic.get_object(object_id) {
-                center += object.get_position();
+            if let Some(o) = frame
+                .objects
+                .iter()
+                .find(|o| o.id == object_id && !o.destroyed)
+            {
+                center += o.position;
                 count += 1;
             }
         }
-
         if count > 0 {
             Some(center / count as f32)
         } else {
@@ -1292,14 +1248,17 @@ mod tests {
         ctl.set_presentation_frame(Some(frame.clone()));
         let picked =
             ctl.pick_object_at_screen_pos_from_presentation(Vec2::new(400.0, 300.0), &frame);
-        // May miss due to camera/projection; assert presentation path ignores live position
-        // by comparing pick against live-only system.
+        // May miss due to camera/projection; assert presentation path is required
+        // and live-only (no snapshot) returns None.
         let live_only = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
-        // No presentation on live_only.
+        // No presentation on live_only → presentation-only pick is empty.
         let live_pick = live_only.pick_object_at_screen_pos(Vec2::new(400.0, 300.0), &logic);
+        assert!(
+            live_pick.is_none(),
+            "pick without presentation frame must not dual-read live GameLogic"
+        );
         let pres_pick = ctl.pick_object_at_screen_pos(Vec2::new(400.0, 300.0), &logic);
-        // Snapshot still has unit at origin; live is at 5000. Prefer presentation when set.
-        // If camera hits origin sphere, presentation finds it while live does not (or different).
+        // Snapshot still has unit at origin; live is at 5000.
         if let Some(p) = pres_pick {
             assert_eq!(p.object_id, id);
             // world position from snapshot residual (origin), not live 5000.
@@ -1312,7 +1271,7 @@ mod tests {
                 frame.objects.iter().find(|o| o.id == id).unwrap(),
                 KindOf::Selectable
             ));
-            let _ = (picked, live_pick);
+            let _ = picked;
         }
     }
 
