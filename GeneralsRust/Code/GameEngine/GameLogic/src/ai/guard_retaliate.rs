@@ -757,9 +757,10 @@ impl StateImplementation for AIGuardRetaliateInnerState {
                 };
                 AIEnterState::new(&machine_guard)
             };
+            let nemesis_id = nemesis.read().ok().map(|g| g.get_id());
             let _ = self
                 .base
-                .with_machine(|machine| machine.set_goal_object(Some(Arc::downgrade(&nemesis))));
+                .with_machine(|machine| machine.set_goal_object_by_id(nemesis_id));
 
             self.is_attacking = false;
             self.attack_machine = None;
@@ -903,9 +904,7 @@ impl StateImplementation for AIGuardRetaliateIdleState {
                         self.base.set_nemesis_to_attack(team_target);
                         if let Ok(machine) = self.base.state().get_machine() {
                             if let Ok(mut machine_guard) = machine.lock() {
-                                if let Some(target) = get_legacy_object(team_target) {
-                                    machine_guard.set_goal_object(Some(Arc::downgrade(&target)));
-                                }
+                                machine_guard.set_goal_object_by_id(Some(team_target));
                             }
                         }
                         return StateReturnType::Success;
@@ -921,9 +920,7 @@ impl StateImplementation for AIGuardRetaliateIdleState {
             self.base.set_nemesis_to_attack(target_id);
             if let Ok(machine) = self.base.state().get_machine() {
                 if let Ok(mut machine_guard) = machine.lock() {
-                    if let Some(target) = get_legacy_object(target_id) {
-                        machine_guard.set_goal_object(Some(Arc::downgrade(&target)));
-                    }
+                    machine_guard.set_goal_object_by_id(Some(target_id));
                 }
             }
             return StateReturnType::Success;
@@ -1127,11 +1124,9 @@ impl StateImplementation for AIGuardRetaliateReturnState {
             if let Some(target_id) = scan_guard_retaliate_inner_target(&owner, &self.goal_position)
             {
                 self.base.set_nemesis_to_attack(target_id);
-                if let Some(target_arc) = get_legacy_object(target_id) {
-                    let _ = self.base.with_machine(|machine| {
-                        machine.set_goal_object(Some(Arc::downgrade(&target_arc)))
-                    });
-                }
+                let _ = self
+                    .base
+                    .with_machine(|machine| machine.set_goal_object_by_id(Some(target_id)));
                 return StateReturnType::Failure;
             }
         }
@@ -1191,7 +1186,8 @@ impl StateImplementation for AIGuardRetaliatePickUpCrateState {
 
         if let Ok(machine) = self.base.state().get_machine() {
             if let Ok(mut machine_guard) = machine.lock() {
-                machine_guard.set_goal_object(Some(Arc::downgrade(&crate_obj)));
+                let crate_id = crate_obj.read().ok().map(|g| g.get_id());
+                machine_guard.set_goal_object_by_id(crate_id);
             }
         }
 
@@ -1287,8 +1283,9 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
                                             self.base.set_nemesis_to_attack(info.source_id);
                                             nemesis = Some(target.clone());
                                             let _ = self.base.with_machine(|machine| {
-                                                machine
-                                                    .set_goal_object(Some(Arc::downgrade(&target)))
+                                                machine.set_goal_object_by_id(
+                                                    target.read().ok().map(|g| g.get_id()),
+                                                )
                                             });
                                         }
                                     }
