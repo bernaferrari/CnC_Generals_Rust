@@ -240,8 +240,10 @@ impl CaveContain {
     }
 
     /// Add object to contain list
-    pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        let obj_id = obj.read().map_err(|_| GameError::LockError)?.get_id();
+    pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Contain object not found")?;
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
@@ -259,14 +261,14 @@ impl CaveContain {
     }
 
     /// Add object to containment using CaveContain's tracker-backed storage.
-    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+    pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Contain object not found")?;
         let owner = self.get_object();
         if super::should_cancel_containment_after_booby_trap(
             owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            obj_id,
         ) {
             return Ok(());
         }
@@ -288,7 +290,12 @@ impl CaveContain {
             }
         }
 
-        self.add_to_contain_list(obj.clone())?;
+        self.add_to_contain_list(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )?;
 
         let is_enclosing = obj
             .read()
@@ -300,16 +307,19 @@ impl CaveContain {
 
         let contained = self.get_contained_items_list()?;
         self.base.redeploy_objects(&contained)?;
-        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
+        self.on_containing(obj_id, was_selected)?;
         Ok(())
     }
 
     /// Remove object from contain list
     pub fn remove_from_contain(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
+        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Contain object not found")?;
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
@@ -328,7 +338,7 @@ impl CaveContain {
             self.contained_object_ids.retain(|id| *id != guard.get_id());
         }
 
-        self.on_removing(obj.read().map(|g| g.get_id()).unwrap_or(0))?;
+        self.on_removing(obj_id)?;
 
         Ok(())
     }
@@ -347,7 +357,13 @@ impl CaveContain {
 
         // Now that the lock is released, iterate over the list
         for obj in full_list {
-            self.remove_from_contain(obj, expose_stealth_units)?;
+            self.remove_from_contain(
+                obj.read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                expose_stealth_units,
+            )?;
         }
 
         Ok(())
@@ -828,9 +844,7 @@ impl ContainModuleInterface for CaveContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.add_to_contain(obj).map_err(|e| e.to_string())
+        self.add_to_contain(object_id).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -838,8 +852,14 @@ impl ContainModuleInterface for CaveContain {
             Some(obj) => obj,
             None => return Ok(()),
         };
-        self.remove_from_contain(obj, true)
-            .map_err(|e| e.to_string())
+        self.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            true,
+        )
+        .map_err(|e| e.to_string())
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
@@ -989,11 +1009,22 @@ impl ContainerInterface for CaveContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(obj)
+        let oid = obj
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        self.add_to_contain(oid)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(obj, true)
+        self.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            true,
+        )
     }
 
     fn get_usage(&self) -> (u32, u32) {

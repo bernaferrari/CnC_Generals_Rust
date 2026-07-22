@@ -593,7 +593,15 @@ mod tests {
         let mut contain = rider_change_for(&owner);
 
         contain
-            .add_to_contain(first.clone(), false)
+            .add_to_contain(
+                first
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("first rider enters");
 
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
@@ -620,10 +628,26 @@ mod tests {
         let mut contain = rider_change_for(&owner);
 
         contain
-            .add_to_contain(first.clone(), false)
+            .add_to_contain(
+                first
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("first rider enters");
         contain
-            .add_to_contain(second.clone(), false)
+            .add_to_contain(
+                second
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("second rider replaces first");
 
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
@@ -660,11 +684,27 @@ mod tests {
         let mut contain = rider_change_for(&owner);
 
         contain
-            .add_to_contain(first.clone(), false)
+            .add_to_contain(
+                first
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("first rider enters");
         contain.base.set_payload_created(true);
         contain
-            .add_to_contain(second.clone(), false)
+            .add_to_contain(
+                second
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("second rider replaces first through payload branch");
 
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
@@ -703,7 +743,15 @@ mod tests {
         let _ = drain_messages();
 
         contain
-            .add_to_contain(rider.clone(), false)
+            .add_to_contain(
+                rider
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("selected rider enters");
 
         assert!(
@@ -735,7 +783,15 @@ mod tests {
         let mut contain = rider_change_for(&owner);
 
         contain
-            .add_to_contain(rider.clone(), false)
+            .add_to_contain(
+                rider
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("rider enters");
         let _ = drain_messages();
         owner_drawable
@@ -744,7 +800,15 @@ mod tests {
             .set_selected(true);
 
         contain
-            .remove_from_contain(rider.clone(), false)
+            .remove_from_contain(
+                rider
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("rider exits");
 
         assert!(
@@ -787,10 +851,26 @@ mod tests {
         let mut contain = rider_change_for(&owner);
 
         contain
-            .add_to_contain(rider.clone(), false)
+            .add_to_contain(
+                rider
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("rider enters");
         contain
-            .remove_from_contain(rider.clone(), false)
+            .remove_from_contain(
+                rider
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("rider exits");
 
         let owner_guard = owner.read().expect("owner read");
@@ -820,10 +900,26 @@ mod tests {
         });
 
         contain
-            .add_to_contain(rider.clone(), false)
+            .add_to_contain(
+                rider
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("rider enters");
         contain
-            .remove_from_contain(rider.clone(), false)
+            .remove_from_contain(
+                rider
+                    .clone()
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .expect("rider exits");
 
         assert!(
@@ -957,27 +1053,19 @@ impl RiderChangeContain {
         false
     }
 
-    pub fn add_to_contain(
-        &mut self,
-        rider: Arc<RwLock<Object>>,
-        was_selected: bool,
-    ) -> GameResult<()> {
-        let owner = (if self.object_id == crate::common::INVALID_ID {
+    pub fn add_to_contain(&mut self, rider_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        let owner_id = if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        });
-        if super::should_cancel_containment_after_booby_trap(
-            owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
-            rider
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        ) {
+            Some(self.object_id)
+        };
+        if super::should_cancel_containment_after_booby_trap(owner_id, rider_id) {
             return Ok(());
         }
+
+        let rider = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+            .ok_or("Rider object not found")?;
 
         let was_selected = was_selected
             || rider
@@ -997,13 +1085,7 @@ impl RiderChangeContain {
             }
         }
 
-        self.base.add_to_contain_list(
-            rider
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )?;
+        self.base.add_to_contain_list(rider_id)?;
         let should_remove_from_world = rider
             .read()
             .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
@@ -1015,60 +1097,64 @@ impl RiderChangeContain {
                 .add_or_remove_obj_from_world(rider.clone(), false);
         }
         self.base.redeploy_occupants()?;
-        self.on_containing(rider.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
+        self.on_containing(rider_id, was_selected)?;
         Ok(())
     }
 
     pub fn remove_from_contain(
         &mut self,
-        rider: Arc<RwLock<Object>>,
+        rider_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let rider_id = rider.read().map_err(|_| "Rider lock poisoned")?.get_id();
+        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+        else {
+            return Ok(());
+        };
 
-        if let Some(pos) = self
+        if !self
             .base
             .base
             .get_contained_items_list()?
             .iter()
-            .position(|obj| Arc::ptr_eq(obj, &rider))
+            .any(|obj| obj.read().ok().map(|g| g.get_id()) == Some(rider_id))
         {
-            let _ = pos;
-            self.base.base.remove_from_contain_list(rider_id);
-            let should_add_to_world = rider
-                .read()
-                .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
-                .unwrap_or(false);
-            if should_add_to_world {
-                let _ = self
-                    .base
-                    .base
-                    .add_or_remove_obj_from_world(rider.clone(), true);
-                if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
-                    None
-                } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    })
-                }) {
-                    if let (Ok(owner_guard), Ok(mut rider_guard)) = (owner.read(), rider.write()) {
-                        let _ = rider_guard.set_position(owner_guard.get_position());
-                        rider_guard.set_layer(owner_guard.get_layer());
-                    }
-                }
-            }
-            if expose_stealth_units {
-                if let Ok(rider_guard) = rider.read() {
-                    if let Some(stealth) = rider_guard.get_stealth() {
-                        if let Ok(mut stealth_guard) = stealth.lock() {
-                            stealth_guard.mark_as_detected();
-                        }
-                    }
-                }
-            }
-            self.base.base.do_unload_sound();
-            self.on_removing(rider.read().map(|g| g.get_id()).unwrap_or(0))?;
+            return Ok(());
         }
+
+        self.base.base.remove_from_contain_list(rider_id);
+        let should_add_to_world = rider
+            .read()
+            .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
+            .unwrap_or(false);
+        if should_add_to_world {
+            let _ = self
+                .base
+                .base
+                .add_or_remove_obj_from_world(rider.clone(), true);
+            if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
+                if let (Ok(owner_guard), Ok(mut rider_guard)) = (owner.read(), rider.write()) {
+                    let _ = rider_guard.set_position(owner_guard.get_position());
+                    rider_guard.set_layer(owner_guard.get_layer());
+                }
+            }
+        }
+        if expose_stealth_units {
+            if let Ok(rider_guard) = rider.read() {
+                if let Some(stealth) = rider_guard.get_stealth() {
+                    if let Ok(mut stealth_guard) = stealth.lock() {
+                        stealth_guard.mark_as_detected();
+                    }
+                }
+            }
+        }
+        self.base.base.do_unload_sound();
+        self.on_removing(rider_id)?;
 
         Ok(())
     }
@@ -1091,7 +1177,14 @@ impl RiderChangeContain {
             if Arc::ptr_eq(&existing, &rider) {
                 continue;
             }
-            let _ = self.remove_from_contain(existing, true);
+            let _ = self.remove_from_contain(
+                existing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                true,
+            );
         }
 
         self.transfer_selection_to_owner_on_entry(was_selected);
@@ -1503,17 +1596,12 @@ impl ContainModuleInterface for RiderChangeContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.add_to_contain(obj, false).map_err(|e| e.to_string())
+        self.add_to_contain(object_id, false)
+            .map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = match TheGameLogic::find_object_by_id(object_id) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
-        self.remove_from_contain(obj, false)
+        self.remove_from_contain(object_id, false)
             .map_err(|e| e.to_string())
     }
 
@@ -1639,11 +1727,23 @@ impl ContainerInterface for RiderChangeContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(obj, false)
+        self.add_to_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            false,
+        )
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(obj, false)
+        self.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            false,
+        )
     }
 
     fn get_usage(&self) -> (u32, u32) {
