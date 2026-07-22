@@ -504,12 +504,11 @@ impl State {
 pub struct StateMachine {
     state_map: HashMap<StateId, Box<dyn StateImplementation>>,
     state_meta: HashMap<StateId, StateMeta>,
-    owner: Option<Weak<RwLock<Object>>>,
+    owner_id: crate::common::ObjectID,
     sleep_till: u32,
     default_state_id: StateId,
     current_state_id: Option<StateId>,
     goal_object_id: crate::common::ObjectID,
-    goal_object: Option<Weak<RwLock<Object>>>,
     goal_squad: Option<Weak<Mutex<Squad>>>,
     goal_polygon: Option<Weak<PolygonTrigger>>,
     goal_waypoint: Option<WaypointId>,
@@ -538,15 +537,19 @@ impl StateMachine {
 
     /// Create a new state machine
     pub fn new(owner: Option<Weak<RwLock<Object>>>, name: &str) -> Self {
+        let owner_id = owner
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+            .unwrap_or(crate::common::INVALID_ID);
         Self {
             state_map: HashMap::new(),
             state_meta: HashMap::new(),
-            owner,
+            owner_id,
             sleep_till: 0,
             default_state_id: INVALID_STATE_ID,
             current_state_id: None,
             goal_object_id: crate::common::INVALID_ID,
-            goal_object: None,
             goal_squad: None,
             goal_polygon: None,
             goal_waypoint: None,
@@ -563,7 +566,6 @@ impl StateMachine {
 
     fn internal_clear(&mut self) {
         self.goal_object_id = crate::common::INVALID_ID;
-        self.goal_object = None;
         self.goal_squad = None;
         self.goal_polygon = None;
         self.goal_waypoint = None;
@@ -577,14 +579,12 @@ impl StateMachine {
                 if let Ok(guard) = strong.read() {
                     self.goal_object_id = guard.get_id();
                     self.internal_set_goal_position(guard.get_position().clone());
-                    self.goal_object = Some(Arc::downgrade(&strong));
                     return;
                 }
             }
         }
 
         self.goal_object_id = crate::common::INVALID_ID;
-        self.goal_object = None;
     }
 
     fn internal_set_goal_position(&mut self, pos: Coord3D) {
@@ -950,7 +950,19 @@ impl StateMachine {
 
     /// Get the owner object
     pub fn get_owner(&self) -> Option<Arc<RwLock<Object>>> {
-        self.owner.as_ref()?.upgrade()
+        if self.owner_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id))
+    }
+
+    pub fn get_owner_id(&self) -> crate::common::ObjectID {
+        self.owner_id
+    }
+
+    pub fn set_owner_id(&mut self, owner_id: crate::common::ObjectID) {
+        self.owner_id = owner_id;
     }
 
     /// Set goal object
@@ -970,35 +982,27 @@ impl StateMachine {
         match object_id {
             Some(id) if id != crate::common::INVALID_ID => {
                 self.goal_object_id = id;
-                // Lazy Weak cache; resolve on get_goal_object.
-                self.goal_object = None;
-                if let Some(arc) = crate::helpers::TheGameLogic::find_object_by_id(id) {
+                if let Some(arc) = crate::helpers::TheGameLogic::find_object_by_id(id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+                {
                     if let Ok(guard) = arc.read() {
                         self.internal_set_goal_position(guard.get_position().clone());
                     }
-                    // Optional cache for hot get_goal_object paths.
-                    self.goal_object = Some(std::sync::Arc::downgrade(&arc));
                 }
             }
             _ => {
                 self.goal_object_id = crate::common::INVALID_ID;
-                self.goal_object = None;
             }
         }
     }
 
     /// Get goal object
     pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.goal_object
-            .as_ref()
-            .and_then(|weak| weak.upgrade())
-            .or_else(|| {
-                if self.goal_object_id == crate::common::INVALID_ID {
-                    None
-                } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.goal_object_id)
-                }
-            })
+        if self.goal_object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.goal_object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.goal_object_id))
     }
 
     /// Set goal squad
@@ -1262,12 +1266,7 @@ impl StateMachine {
 
         // Note: Goal object weak reference resolution happens lazily when get_goal_object() is called
         // The object registry will be used to look up the object by ID at that time
-        self.goal_object = if self.goal_object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.goal_object_id)
-                .map(|object| Arc::downgrade(&object))
-        };
+        // goal_object_id is authoritative; resolve via get_goal_object().
 
         // Transfer goal position - C++ line 864
         game_engine::system::Xfer::xfer_real(xfer, &mut self.goal_position.x)?;
