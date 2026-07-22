@@ -582,6 +582,10 @@ impl StateMachine {
             .and_then(|weak| weak.upgrade())
             .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
             .unwrap_or(crate::common::INVALID_ID);
+        Self::new_with_owner_id(owner_id, name)
+    }
+
+    pub fn new_with_owner_id(owner_id: crate::common::ObjectID, name: &str) -> Self {
         Self {
             state_map: HashMap::new(),
             state_meta: HashMap::new(),
