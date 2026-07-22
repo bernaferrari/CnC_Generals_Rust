@@ -322,16 +322,6 @@ impl HelixContain {
         self.base.update()
     }
 
-    /// Get portable structure object
-    /// Matches C++ HelixContain::getPortableStructure (HelixContain.cpp:189-192)
-    fn get_portable_structure(&self) -> Option<Arc<RwLock<Object>>> {
-        if let Some(id) = self.portable_structure_id {
-            TheGameLogic::find_object_by_id(id)
-        } else {
-            None
-        }
-    }
-
     /// Check if this container is valid for the given object
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         if obj.is_kind_of(crate::common::KindOf::PortableStructure)
@@ -533,15 +523,33 @@ impl HelixContain {
     }
 
     /// Get the rider object (friend access for draw module)
-    pub fn friend_get_rider(&self) -> Option<Arc<RwLock<Object>>> {
-        if let Some(portable) = self.get_portable_structure() {
-            if let Ok(portable_guard) = portable.read() {
-                if portable_guard.is_kind_of(crate::common::KindOf::PortableStructure) {
-                    return Some(portable.clone());
-                }
-            }
+    pub fn portable_structure_id(&self) -> Option<ObjectID> {
+        self.portable_structure_id
+            .filter(|id| *id != crate::common::INVALID_ID)
+    }
+
+    fn get_portable_structure(&self) -> Option<Arc<RwLock<Object>>> {
+        let id = self.portable_structure_id()?;
+        TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+    }
+
+    pub fn friend_get_rider(&self) -> Option<ObjectID> {
+        let id = self.portable_structure_id()?;
+        let portable = TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))?;
+        let guard = portable.read().ok()?;
+        if guard.is_kind_of(crate::common::KindOf::PortableStructure) {
+            Some(id)
+        } else {
+            None
         }
-        None
+    }
+
+    pub fn friend_get_rider_object(&self) -> Option<Arc<RwLock<Object>>> {
+        let rider_id = self.friend_get_rider()?;
+        TheGameLogic::find_object_by_id(rider_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
     }
 
     /// Flash contained units as selected when container is selected
@@ -957,8 +965,7 @@ impl ContainModuleInterface for HelixContain {
     }
 
     fn friend_get_rider(&self) -> Option<ObjectID> {
-        self.friend_get_rider()
-            .and_then(|rider| rider.read().ok().map(|guard| guard.get_id()))
+        HelixContain::friend_get_rider(self)
     }
 }
 

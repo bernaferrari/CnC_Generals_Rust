@@ -1251,35 +1251,13 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard));
         if let Some(idx) = current_index {
-            let _ = self.remove_object_from_garrison_point(
-                source
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-                Some(idx),
-            );
+            let _ = self.remove_object_from_garrison_point(source_id, Some(idx));
         }
 
-        let _ = self.put_object_at_best_garrison_point(
-            source.clone(),
-            Some(victim.clone()),
-            Some(&target_pos),
-        );
+        let _ =
+            self.put_object_at_best_garrison_point(source_id, Some(victim_id), Some(&target_pos));
 
-        let in_range = weapon.is_within_attack_range(
-            source
-                .read()
-                .map(|guard| guard.get_id())
-                .unwrap_or(INVALID_ID),
-            Some(
-                victim
-                    .read()
-                    .map(|guard| guard.get_id())
-                    .unwrap_or(INVALID_ID),
-            ),
-            None,
-        );
+        let in_range = weapon.is_within_attack_range(source_id, Some(victim_id), None);
         if in_range {
             return true;
         }
@@ -1289,14 +1267,7 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard))
         {
-            let _ = self.remove_object_from_garrison_point(
-                source
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-                Some(idx),
-            );
+            let _ = self.remove_object_from_garrison_point(source_id, Some(idx));
         }
         false
     }
@@ -1322,25 +1293,11 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard));
         if let Some(idx) = current_index {
-            let _ = self.remove_object_from_garrison_point(
-                source
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-                Some(idx),
-            );
+            let _ = self.remove_object_from_garrison_point(source_id, Some(idx));
         }
 
-        let _ = self.put_object_at_best_garrison_point(source.clone(), None, Some(target_pos));
-        let in_range = weapon.is_within_attack_range(
-            source
-                .read()
-                .map(|guard| guard.get_id())
-                .unwrap_or(INVALID_ID),
-            None,
-            Some(target_pos),
-        );
+        let _ = self.put_object_at_best_garrison_point(source_id, None, Some(target_pos));
+        let in_range = weapon.is_within_attack_range(source_id, None, Some(target_pos));
         if in_range {
             return true;
         }
@@ -1350,14 +1307,7 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard))
         {
-            let _ = self.remove_object_from_garrison_point(
-                source
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-                Some(idx),
-            );
+            let _ = self.remove_object_from_garrison_point(source_id, Some(idx));
         }
         false
     }
@@ -1518,8 +1468,8 @@ impl GarrisonContain {
     /// Put object at best garrison point for given target
     fn put_object_at_best_garrison_point(
         &mut self,
-        obj: Arc<RwLock<Object>>,
-        target: Option<Arc<RwLock<Object>>>,
+        obj_id: ObjectID,
+        target_id: Option<ObjectID>,
         target_pos: Option<&Coord3D>,
     ) -> GameResult<()> {
         let condition_index = self.find_condition_index();
@@ -1527,20 +1477,8 @@ impl GarrisonContain {
         if let Some(pos) = target_pos {
             let point_index = self.find_closest_free_garrison_point_index(condition_index, pos);
             if point_index != -1 {
-                let target_id = target.and_then(|t| {
-                    if let Ok(target_obj) = t.read() {
-                        Some(target_obj.get_id())
-                    } else {
-                        None
-                    }
-                });
-                let put_id = obj
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
                 self.put_object_at_garrison_point(
-                    put_id,
+                    obj_id,
                     target_id,
                     condition_index,
                     point_index as usize,
@@ -1665,26 +1603,28 @@ impl GarrisonContain {
             if let Ok(contained) = obj.read() {
                 // Check if object is attacking
                 if contained.is_attacking() {
+                    let obj_id = contained.get_id();
                     // Get target position (victim or target position)
-                    if let Some(target_obj) = contained.get_current_victim() {
-                        if let Ok(target) = target_obj.read() {
-                            let target_pos = *target.get_position();
-                            drop(target);
-                            let target_obj_clone = target_obj.clone();
-                            drop(contained);
-                            self.put_object_at_best_garrison_point(
-                                obj.clone(),
-                                Some(target_obj_clone),
-                                Some(&target_pos),
-                            )?;
+                    if let Some(victim_id) = contained.get_current_victim_id() {
+                        if let Some(target_obj) = TheGameLogic::find_object_by_id(victim_id)
+                            .or_else(|| {
+                                crate::object::registry::OBJECT_REGISTRY.get_object(victim_id)
+                            })
+                        {
+                            if let Ok(target) = target_obj.read() {
+                                let target_pos = *target.get_position();
+                                drop(target);
+                                drop(contained);
+                                self.put_object_at_best_garrison_point(
+                                    obj_id,
+                                    Some(victim_id),
+                                    Some(&target_pos),
+                                )?;
+                            }
                         }
                     } else if let Some(target_pos) = contained.get_current_victim_pos() {
                         drop(contained);
-                        self.put_object_at_best_garrison_point(
-                            obj.clone(),
-                            None,
-                            Some(&target_pos),
-                        )?;
+                        self.put_object_at_best_garrison_point(obj_id, None, Some(&target_pos))?;
                     }
                 }
             }
@@ -1707,17 +1647,15 @@ impl GarrisonContain {
                     let mut target_is_valid = true;
 
                     // Check if object has a valid target
-                    if let Some(goal_obj) = contained.get_goal_object() {
+                    if let Some(goal_id) = contained.get_goal_object_id() {
                         // Check if weapon can still reach target
                         if let Some((weapon, _slot)) = contained.get_current_weapon() {
-                            if let Ok(goal) = goal_obj.read() {
-                                if !weapon.is_within_attack_range(
-                                    contained.get_id(),
-                                    Some(goal.get_id()),
-                                    None,
-                                ) {
-                                    target_is_valid = false;
-                                }
+                            if !weapon.is_within_attack_range(
+                                contained.get_id(),
+                                Some(goal_id),
+                                None,
+                            ) {
+                                target_is_valid = false;
                             }
                         } else {
                             target_is_valid = false;
@@ -1762,12 +1700,12 @@ impl GarrisonContain {
                 let our_index = self.get_object_garrison_point_index(&contained);
                 if let Some(our_index) = our_index {
                     // Get current target
-                    let victim_pos = if let Some(victim_obj) = contained.get_current_victim() {
-                        if let Ok(victim) = victim_obj.read() {
-                            Some(*victim.get_position())
-                        } else {
-                            None
-                        }
+                    let victim_pos = if let Some(victim_id) = contained.get_current_victim_id() {
+                        TheGameLogic::find_object_by_id(victim_id)
+                            .or_else(|| {
+                                crate::object::registry::OBJECT_REGISTRY.get_object(victim_id)
+                            })
+                            .and_then(|v| v.read().ok().map(|g| *g.get_position()))
                     } else {
                         contained.get_current_victim_pos()
                     };
@@ -1799,17 +1737,10 @@ impl GarrisonContain {
                                     .unwrap_or(crate::common::INVALID_ID);
                                 self.remove_object_from_garrison_point(rem_id, Some(our_index))?;
 
-                                let target_id = if let Ok(c) = obj_clone.read() {
-                                    c.get_current_victim().and_then(|v| {
-                                        if let Ok(victim) = v.read() {
-                                            Some(victim.get_id())
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                } else {
-                                    None
-                                };
+                                let target_id = obj_clone
+                                    .read()
+                                    .ok()
+                                    .and_then(|c| c.get_current_victim_id());
 
                                 let put_id = obj_clone
                                     .read()
