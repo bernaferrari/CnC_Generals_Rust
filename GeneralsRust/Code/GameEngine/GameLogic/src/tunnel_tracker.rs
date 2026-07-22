@@ -156,16 +156,8 @@ impl TunnelTracker {
 
     /// Add an object to the contained list.
     /// Matches C++ TunnelTracker::addToContainList (TunnelTracker.cpp:153-157)
-    pub fn add_to_contain_list(&mut self, object: Arc<RwLock<Object>>) -> GameResult<()> {
-        let object_id = object
-            .read()
-            .map_err(|_| "TunnelTracker::add_to_contain_list object lock poisoned")?
-            .get_id();
-        self.add_to_contain_list_id(object_id)
-    }
-
     /// ID-first contain membership.
-    pub fn add_to_contain_list_id(&mut self, object_id: ObjectID) -> GameResult<()> {
+    pub fn add_to_contain_list(&mut self, object_id: ObjectID) -> GameResult<()> {
         if object_id == INVALID_ID {
             return Ok(());
         }
@@ -180,21 +172,17 @@ impl TunnelTracker {
         Ok(())
     }
 
+    pub fn add_to_contain_list_id(&mut self, object_id: ObjectID) -> GameResult<()> {
+        self.add_to_contain_list(object_id)
+    }
+
     /// Remove an object from the contained list.
     /// Matches C++ TunnelTracker::removeFromContain (TunnelTracker.cpp:160-171)
     pub fn remove_from_contain(
         &mut self,
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         _expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let object_id = object
-            .read()
-            .map_err(|_| "TunnelTracker::remove_from_contain object lock poisoned")?
-            .get_id();
-        self.remove_from_contain_id(object_id)
-    }
-
-    pub fn remove_from_contain_id(&mut self, object_id: ObjectID) -> GameResult<()> {
         let initial_len = self.contained_ids.len();
         self.contained_ids.retain(|&id| id != object_id);
         if self.contained_ids.len() < initial_len {
@@ -203,18 +191,18 @@ impl TunnelTracker {
         Ok(())
     }
 
+    pub fn remove_from_contain_id(&mut self, object_id: ObjectID) -> GameResult<()> {
+        self.remove_from_contain(object_id, false)
+    }
+
     /// Check whether the specified object is contained.
     /// Matches C++ TunnelTracker::isInContainer (TunnelTracker.cpp:174-177)
-    pub fn is_in_container(&self, object: &Arc<RwLock<Object>>) -> GameResult<bool> {
-        let object_id = object
-            .read()
-            .map_err(|_| "TunnelTracker::is_in_container object lock poisoned")?
-            .get_id();
-        Ok(self.is_in_container_id(object_id))
+    pub fn is_in_container(&self, object_id: ObjectID) -> bool {
+        self.contained_ids.contains(&object_id)
     }
 
     pub fn is_in_container_id(&self, object_id: ObjectID) -> bool {
-        self.contained_ids.contains(&object_id)
+        self.is_in_container(object_id)
     }
 
     /// Register that a tunnel object has been created.
@@ -296,16 +284,18 @@ impl TunnelTracker {
     pub fn heal_objects(&mut self, frames: f32) -> GameResult<()> {
         let ids = self.contained_ids.clone();
         for object_id in ids {
-            if let Some(obj) = find_object_by_id(object_id)? {
-                self.heal_object(obj, frames)?;
-            }
+            self.heal_object(object_id, frames)?;
         }
         Ok(())
     }
 
     /// Heal one object within the tunnel network.
     /// Matches C++ TunnelTracker::healObject (TunnelTracker.cpp:231-271)
-    fn heal_object(&self, obj: Arc<RwLock<Object>>, frames_for_full_heal: f32) -> GameResult<()> {
+    fn heal_object(&self, object_id: ObjectID, frames_for_full_heal: f32) -> GameResult<()> {
+        let Some(obj) = find_object_by_id(object_id)? else {
+            return Ok(());
+        };
+
         let obj_read = obj.read().map_err(|_| "Object lock poisoned")?;
 
         let body_module = match obj_read.get_body_module() {
