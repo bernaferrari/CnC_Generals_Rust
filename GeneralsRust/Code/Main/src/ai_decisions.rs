@@ -55,6 +55,20 @@ pub struct AIDecisionSystem;
 impl AIDecisionSystem {
     /// Find the nearest enemy to a given position within search radius
     /// Returns (ObjectId, distance) of the nearest enemy, or None if no enemies found
+    /// Broadphase: partition radius when warm, else full object table.
+    #[inline]
+    fn candidate_object_ids(
+        game_logic: &GameLogic,
+        position: Vec3,
+        search_radius: f32,
+    ) -> Vec<ObjectId> {
+        let near = game_logic.object_ids_near(position, search_radius);
+        if !near.is_empty() {
+            return near;
+        }
+        game_logic.get_objects().keys().copied().collect()
+    }
+
     pub fn find_nearest_enemy(
         game_logic: &GameLogic,
         position: Vec3,
@@ -62,10 +76,11 @@ impl AIDecisionSystem {
         search_radius: f32,
     ) -> Option<(ObjectId, f32)> {
         // Pure residual acquire: nearest enemy targetable by `team` within radius (3D).
-        let candidates: Vec<_> = game_logic
-            .get_objects()
-            .iter()
-            .filter_map(|(&object_id, object)| {
+        // Partition broadphase when physics has registered cells this frame.
+        let candidates: Vec<_> = Self::candidate_object_ids(game_logic, position, search_radius)
+            .into_iter()
+            .filter_map(|object_id| {
+                let object = game_logic.find_object(object_id)?;
                 // Skip if not an enemy (includes stealthed-undetected residual gate).
                 if !object.is_targetable_by_enemy_of(team) {
                     return None;
@@ -112,14 +127,16 @@ impl AIDecisionSystem {
     ) -> Option<ObjectId> {
         let mut best_target: Option<(ObjectId, f32)> = None; // (id, score)
 
-        for (object_id, object) in game_logic.get_objects() {
-            // Skip if not a valid target (stealthed+undetected are not targetable).
-            if !object.is_targetable_by_enemy_of(team) {
+        for object_id in Self::candidate_object_ids(game_logic, position, search_radius) {
+            // Skip self
+            if object_id == attacker_id {
                 continue;
             }
-
-            // Skip self
-            if *object_id == attacker_id {
+            let Some(object) = game_logic.find_object(object_id) else {
+                continue;
+            };
+            // Skip if not a valid target (stealthed+undetected are not targetable).
+            if !object.is_targetable_by_enemy_of(team) {
                 continue;
             }
 
@@ -165,10 +182,10 @@ impl AIDecisionSystem {
             // Update best target if this score is higher
             match best_target {
                 Some((_, best_score)) if score > best_score => {
-                    best_target = Some((*object_id, score));
+                    best_target = Some((object_id, score));
                 }
                 None => {
-                    best_target = Some((*object_id, score));
+                    best_target = Some((object_id, score));
                 }
                 _ => {}
             }
@@ -398,7 +415,10 @@ impl AIDecisionSystem {
         let mut has_anti_air = false;
         let mut has_anti_armor = false;
 
-        for object in game_logic.get_objects().values() {
+        for object_id in Self::candidate_object_ids(game_logic, position, scan_radius) {
+            let Some(object) = game_logic.find_object(object_id) else {
+                continue;
+            };
             // Skip non-enemies
             if object.team == team || !object.is_alive() {
                 continue;
