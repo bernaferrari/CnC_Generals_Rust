@@ -10767,7 +10767,10 @@ impl CnCGameEngine {
                             }
                         }
                     }
-                    if self.game_logic.is_special_power_ready_for(*id, &requested) {
+                    // Live host special-power ready is boot residual only (no presentation UI residual).
+                    if self.last_presentation_frame.is_none()
+                        && self.game_logic.is_special_power_ready_for(*id, &requested)
+                    {
                         resolved = Some(requested.clone());
                         break;
                     }
@@ -10779,23 +10782,7 @@ impl CnCGameEngine {
                             resolved = Some(p);
                             break;
                         }
-                        // Boot residual without presentation frame.
-                        let Some(obj) = self.game_logic.get_object(*id) else {
-                            continue;
-                        };
-                        if !obj.special_power_ready {
-                            continue;
-                        }
-                        if let Some(p) =
-                            crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
-                                &obj.template_name,
-                            )
-                        {
-                            if self.game_logic.is_special_power_ready_for(*id, &p) {
-                                resolved = Some(p);
-                                break;
-                            }
-                        }
+                        // Presentation special_power residual is authoritative for InGame UI.
                     }
                 }
                 let Some(power) = resolved else {
@@ -12809,31 +12796,16 @@ impl CnCGameEngine {
                         return;
                     }
 
-                    let mut selection = Vec::new();
-                    let team_opt = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        Some(frame.local_team())
-                    } else {
-                        // Boot residual only — presentation local_team owns InGame control-group select.
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                    };
-                    if let Some(team) = team_opt {
-                        selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            frame.filter_alive_selectable_ids(&stored, team)
-                        } else {
-                            // Boot residual only — presentation filter_alive_selectable_ids owns InGame.
-                            let mut live = Vec::new();
-                            for id in stored {
-                                if let Some(obj) = self.game_logic.find_object(id) {
-                                    if obj.team == team && obj.is_selectable() && obj.is_alive() {
-                                        live.push(id);
-                                    }
-                                }
-                            }
-                            live
+                    // Presentation-only: InGame always has last_presentation_frame.
+                    let (selection, double_tap_center) = {
+                        let Some(frame) = self.last_presentation_frame.as_ref() else {
+                            return;
                         };
-                    }
+                        let team = frame.local_team();
+                        let selection = frame.filter_alive_selectable_ids(&stored, team);
+                        let center = frame.centroid_of_ids(&selection);
+                        (selection, center)
+                    };
 
                     self.game_logic
                         .select_objects(self.current_player_id, selection.clone());
@@ -12847,26 +12819,8 @@ impl CnCGameEngine {
                         Some((g, t)) if g == group_num && now.duration_since(t).as_millis() < 500
                     );
                     self.last_control_group_select = Some((group_num, now));
-                    if double_tap && !selection.is_empty() {
-                        let center = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            frame.centroid_of_ids(&selection)
-                        } else {
-                            // Boot residual only — presentation centroid_of_ids owns InGame double-tap.
-                            let mut sum = Vec3::ZERO;
-                            let mut n = 0u32;
-                            for id in &selection {
-                                if let Some(obj) = self.game_logic.find_object(*id) {
-                                    sum += obj.get_position();
-                                    n += 1;
-                                }
-                            }
-                            if n == 0 {
-                                None
-                            } else {
-                                Some(sum / n as f32)
-                            }
-                        };
-                        if let Some(center) = center {
+                    if double_tap {
+                        if let Some(center) = double_tap_center {
                             let clamped = self.clamp_to_world_bounds(center);
                             self.camera_target.x = clamped.x;
                             self.camera_target.z = clamped.z;
