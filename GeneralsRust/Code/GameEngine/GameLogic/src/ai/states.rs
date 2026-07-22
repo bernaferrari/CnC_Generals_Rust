@@ -8818,17 +8818,14 @@ fn find_enemy_in_container(killer: &Object, building: &Object) -> Option<ObjectI
 fn kill_enemies_in_container(killer_id: ObjectID, building: &Object, max_to_kill: i32) -> i32 {
     let mut num_killed = 0;
     while num_killed < max_to_kill {
-        let Some(killer_arc) = OBJECT_REGISTRY.get_object(killer_id) else {
+        let Some(enemy_id) = OBJECT_REGISTRY
+            .with_object(killer_id, |killer_guard| {
+                find_enemy_in_container(killer_guard, building)
+            })
+            .flatten()
+        else {
             break;
         };
-        let killer_guard = match killer_arc.read() {
-            Ok(g) => g,
-            Err(_) => break,
-        };
-        let Some(enemy_id) = find_enemy_in_container(&killer_guard, building) else {
-            break;
-        };
-        drop(killer_guard);
 
         // Remove from container (C++ lines 423-430)
         if let Some(container_id) = OBJECT_REGISTRY
@@ -8847,17 +8844,12 @@ fn kill_enemies_in_container(killer_id: ObjectID, building: &Object, max_to_kill
             }
         }
 
-        // Score the kill (C++ line 433)
-        if let Some(killer_arc) = OBJECT_REGISTRY.get_object(killer_id) {
-            if let (Ok(mut killer_guard), Ok(enemy_guard)) = (
-                killer_arc.write(),
-                OBJECT_REGISTRY.get_object(enemy_id).unwrap().read(),
-            ) {
-                killer_guard.score_the_kill(&enemy_guard);
-            }
-        }
-
-        // Kill the enemy (C++ line 434)
+        // Score the kill (C++ line 433) then kill (C++ line 434)
+        let _ = OBJECT_REGISTRY.with_object_mut(killer_id, |killer_guard| {
+            let _ = OBJECT_REGISTRY.with_object(enemy_id, |enemy_guard| {
+                killer_guard.score_the_kill(enemy_guard);
+            });
+        });
         let _ = OBJECT_REGISTRY.with_object_mut(enemy_id, |enemy_guard| {
             enemy_guard.kill(None, None);
         });
