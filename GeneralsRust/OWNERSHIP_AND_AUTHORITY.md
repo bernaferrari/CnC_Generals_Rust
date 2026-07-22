@@ -205,6 +205,12 @@ mid-frame host combat still runs for C++ armor/side-effect parity.
  Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
+### CommandProcessor beacon/production with_object residual (2026-07-21)
+
+Beacon collect/remove validation, cancel-upgrade, queue/cancel unit create, and
+exit container existence peels use `OBJECT_REGISTRY.with_object`. AIGroup.add
+paths still require Arc handles.
+
 ### Selection/helpers with_object residual (2026-07-21)
 
 `RegistryObjectLookup` object info/alive/owner/kind/control/selected peels and
