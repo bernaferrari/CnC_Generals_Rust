@@ -2462,15 +2462,14 @@ fn kill_enemies_in_container(killer_id: ObjectID, container_id: ObjectID, max_to
         if let Some(enemy) = crate::object::registry::OBJECT_REGISTRY.get_object(enemy_id) {
             if let Ok(mut enemy_guard) = enemy.write() {
                 if let Some(contained_by_id) = enemy_guard.get_contained_by() {
-                    if let Some(container) =
-                        crate::object::registry::OBJECT_REGISTRY.get_object(contained_by_id)
+                    if let Some(contain) = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(contained_by_id, |container_guard| {
+                            container_guard.get_contain()
+                        })
+                        .flatten()
                     {
-                        if let Ok(container_guard) = container.read() {
-                            if let Some(contain) = container_guard.get_contain() {
-                                if let Ok(mut contain_guard) = contain.lock() {
-                                    let _ = contain_guard.release_object(enemy_id);
-                                }
-                            }
+                        if let Ok(mut contain_guard) = contain.lock() {
+                            let _ = contain_guard.release_object(enemy_id);
                         }
                     }
                 }

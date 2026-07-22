@@ -339,20 +339,24 @@ impl EMPUpdate {
         let mut only_effect_airborne = false;
 
         if producer_id != OBJECT_INVALID_ID {
-            if let Some(producer_arc) = OBJECT_REGISTRY.get_object(producer_id) {
-                if let Ok(producer_guard) = producer_arc.read() {
-                    if let Some(ai) = producer_guard.get_ai() {
-                        if let Some(victim_id) = ai.get_current_victim() {
-                            intended_victim_id = Some(victim_id);
-                            if let Some(victim_arc) = OBJECT_REGISTRY.get_object(victim_id) {
-                                if let Ok(victim_guard) = victim_arc.read() {
-                                    if victim_guard.is_airborne_target() {
-                                        only_effect_airborne = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
+            if let Some((vid, airborne)) = OBJECT_REGISTRY
+                .with_object(producer_id, |producer_guard| {
+                    producer_guard.get_ai().and_then(|ai| {
+                        ai.get_current_victim().map(|victim_id| {
+                            let airborne = OBJECT_REGISTRY
+                                .with_object(victim_id, |victim_guard| {
+                                    victim_guard.is_airborne_target()
+                                })
+                                .unwrap_or(false);
+                            (victim_id, airborne)
+                        })
+                    })
+                })
+                .flatten()
+            {
+                intended_victim_id = Some(vid);
+                if airborne {
+                    only_effect_airborne = true;
                 }
             }
         }

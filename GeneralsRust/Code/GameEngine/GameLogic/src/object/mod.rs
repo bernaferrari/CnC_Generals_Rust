@@ -9487,20 +9487,19 @@ impl Object {
                 continue;
             }
 
+            let is_enemy = registry::OBJECT_REGISTRY.with_object(object_id, |candidate| {
+                if candidate.is_effectively_dead() {
+                    return false;
+                }
+                self.relationship_to(candidate) == Relationship::Enemies
+            });
+            if !is_enemy.unwrap_or(false) {
+                continue;
+            }
+            // Arc retained for caller that needs shared handles.
             let Some(object) = registry::OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
             };
-            let Ok(candidate) = object.read() else {
-                continue;
-            };
-            if candidate.is_effectively_dead() {
-                continue;
-            }
-            if self.relationship_to(&candidate) != Relationship::Enemies {
-                continue;
-            }
-
-            drop(candidate);
             enemies.push(object);
         }
 

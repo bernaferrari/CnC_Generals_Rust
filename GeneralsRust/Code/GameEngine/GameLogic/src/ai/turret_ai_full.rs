@@ -432,26 +432,23 @@ impl TurretAI {
 
     /// Check if aimed at target
     pub fn is_aimed_at_target(&self) -> Bool {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(self.owner) else {
+        let Some(owner_pos) =
+            OBJECT_REGISTRY.with_object(self.owner, |owner_guard| *owner_guard.get_position())
+        else {
             return false;
         };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return false;
-        };
-        let owner_pos = owner_guard.get_position();
 
         let target_pos = match self.target {
             TurretTargetType::Object => {
                 let Some(target_id) = self.target_object else {
                     return false;
                 };
-                let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
+                let Some(pos) = OBJECT_REGISTRY
+                    .with_object(target_id, |target_guard| *target_guard.get_position())
+                else {
                     return false;
                 };
-                let Ok(target_guard) = target_arc.read() else {
-                    return false;
-                };
-                *target_guard.get_position()
+                pos
             }
             TurretTargetType::Position => self.target_position,
             TurretTargetType::None => return false,
@@ -613,13 +610,9 @@ impl TurretAI {
 
     /// Check if owner's current weapon is on this turret
     pub fn is_owners_cur_weapon_on_turret(&self) -> Bool {
-        let Some(owner) = crate::object::registry::OBJECT_REGISTRY.get_object(self.owner) else {
-            return false;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return false;
-        };
-        let Some((_, slot)) = owner_guard.get_current_weapon() else {
+        let Some(slot) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner, |owner_guard| {
+            owner_guard.get_current_weapon().map(|(_, slot)| slot)
+        }).flatten() else {
             return false;
         };
         self.is_weapon_slot_on_turret(slot)
