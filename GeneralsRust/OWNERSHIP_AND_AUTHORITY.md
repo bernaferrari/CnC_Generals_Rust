@@ -217,6 +217,14 @@ at the call boundary:
 Ownership queries (`get_objects_owned_by_player`, `object_is_owned_by`) use these helpers.
 Full owned-store flip (`HashMap<ObjectID, GameObjectInstance>`) remains migration item 3.
 
+### Host local player UI helper residual (2026-07-21)
+
+`CncGameEngine::local_player_id_for_ui` / `local_team_for_ui` prefer presentation
+freeze for place/queue/issue-command and box-select. Remaining `get_player` sites
+are economy/science/defeat/load-screen residuals that still need host Player store.
+
+ObjectManager `update` uses `with_object_mut` (no Arc clone per object).
+
 ### Host get_object/find_object dual-read close (2026-07-21)
 
 `CncGameEngine` InGame UI helpers, camera center/track, control-group cycle/jump,
