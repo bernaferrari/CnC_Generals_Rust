@@ -131,29 +131,23 @@ impl Weapon {
             return true;
         }
 
-        let Some(source) = OBJECT_REGISTRY.get_object(source_obj) else {
+        let Some(src_pos) =
+            OBJECT_REGISTRY.with_object(source_obj, |source_guard| *source_guard.get_position())
+        else {
             return true;
         };
-        let Some(target) = OBJECT_REGISTRY.get_object(target_obj) else {
+        let Some(dst_pos) =
+            OBJECT_REGISTRY.with_object(target_obj, |target_guard| *target_guard.get_position())
+        else {
             return true;
         };
-
-        let Ok(source_guard) = source.read() else {
-            return true;
-        };
-        let Ok(target_guard) = target.read() else {
-            return true;
-        };
-
-        let src_pos = source_guard.get_position();
-        let dst_pos = target_guard.get_position();
 
         const ACCEPTABLE_DZ: f32 = 10.0;
         if (dst_pos.z - src_pos.z).abs() < ACCEPTABLE_DZ {
             return true;
         }
 
-        let delta = *dst_pos - *src_pos;
+        let delta = dst_pos - src_pos;
         let horizontal = (delta.x * delta.x + delta.y * delta.y).sqrt();
         let pitch = delta.z.atan2(horizontal.max(f32::MIN_POSITIVE));
 
@@ -419,34 +413,32 @@ impl Weapon {
                 // 5. Record stats: player->getAcademyStats()->recordMineCleared()
                 //
                 if let Some(target_id) = target_id {
-                    if let Some(obj_arc) = OBJECT_REGISTRY.get_object(target_id) {
-                        let mut handled = false;
-                        if let Ok(obj_guard) = obj_arc.read() {
-                            for behavior in obj_guard.get_behavior_modules() {
-                                if let Ok(mut behavior_guard) = behavior.lock() {
-                                    if let Some(land_mine) =
-                                        behavior_guard.get_land_mine_interface()
-                                    {
-                                        land_mine.disarm();
-                                        handled = true;
-                                        break;
-                                    }
+                    let mut handled = false;
+                    if let Some(behaviors) = OBJECT_REGISTRY
+                        .with_object(target_id, |obj_guard| obj_guard.get_behavior_modules())
+                    {
+                        for behavior in behaviors {
+                            if let Ok(mut behavior_guard) = behavior.lock() {
+                                if let Some(land_mine) = behavior_guard.get_land_mine_interface() {
+                                    land_mine.disarm();
+                                    handled = true;
+                                    break;
                                 }
                             }
                         }
+                    }
 
-                        if !handled {
-                            if let Ok(obj_guard) = obj_arc.read() {
-                                if obj_guard.is_kind_of(KindOf::Mine) {
-                                    drop(obj_guard);
-                                    if let Ok(mut obj_guard) = obj_arc.write() {
-                                        obj_guard.kill(
-                                            Some(LogicDamageType::LandMine),
-                                            Some(LogicDeathType::Exploded),
-                                        );
-                                    }
-                                }
-                            }
+                    if !handled {
+                        let is_mine = OBJECT_REGISTRY
+                            .with_object(target_id, |obj_guard| obj_guard.is_kind_of(KindOf::Mine))
+                            .unwrap_or(false);
+                        if is_mine {
+                            let _ = OBJECT_REGISTRY.with_object_mut(target_id, |obj_guard| {
+                                obj_guard.kill(
+                                    Some(LogicDamageType::LandMine),
+                                    Some(LogicDeathType::Exploded),
+                                );
+                            });
                         }
                     }
                 }
@@ -679,23 +671,22 @@ impl Weapon {
         bonus: &WeaponBonus,
     ) -> Real {
         let mut range = self.get_attack_range(bonus);
-        let Some(source_arc) = OBJECT_REGISTRY.get_object(source_id) else {
-            return range;
-        };
-        let Ok(source_guard) = source_arc.read() else {
+        let Some(source_r) = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
+            source_guard
+                .get_geometry_info()
+                .get_bounding_circle_radius()
+        }) else {
             return range;
         };
 
         if let Some(victim_id) = victim_id {
-            if let Some(victim_arc) = OBJECT_REGISTRY.get_object(victim_id) {
-                if let Ok(victim_guard) = victim_arc.read() {
-                    range += source_guard
-                        .get_geometry_info()
-                        .get_bounding_circle_radius();
-                    range += victim_guard
-                        .get_geometry_info()
-                        .get_bounding_circle_radius();
-                }
+            if let Some(victim_r) = OBJECT_REGISTRY.with_object(victim_id, |victim_guard| {
+                victim_guard
+                    .get_geometry_info()
+                    .get_bounding_circle_radius()
+            }) {
+                range += source_r;
+                range += victim_r;
             }
         }
 
@@ -1087,29 +1078,31 @@ impl Weapon {
         let mut attack_range = self.template.get_attack_range(bonus);
         let mut min_attack_range = self.template.get_minimum_attack_range();
 
-        if let Some(source_arc) = OBJECT_REGISTRY.get_object(source_id) {
-            if let Ok(source_guard) = source_arc.read() {
-                attack_range += source_guard
-                    .get_geometry_info()
-                    .get_bounding_circle_radius();
-            }
+        if let Some(source_r) = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
+            source_guard
+                .get_geometry_info()
+                .get_bounding_circle_radius()
+        }) {
+            attack_range += source_r;
         }
 
         let target_pos_resolved: Coord3D;
         let resolved_pos: &Coord3D = if let Some(target_id) = target_id {
-            if let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) {
-                if let Ok(target_guard) = target_arc.read() {
-                    attack_range += target_guard
-                        .get_geometry_info()
-                        .get_bounding_circle_radius();
-                    target_pos_resolved = *target_guard.get_position();
-                    &target_pos_resolved
-                } else {
-                    return false;
-                }
-            } else {
+            let Some((target_r, target_pos_val)) =
+                OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                    (
+                        target_guard
+                            .get_geometry_info()
+                            .get_bounding_circle_radius(),
+                        *target_guard.get_position(),
+                    )
+                })
+            else {
                 return false;
-            }
+            };
+            attack_range += target_r;
+            target_pos_resolved = target_pos_val;
+            &target_pos_resolved
         } else if let Some(pos) = target_pos {
             pos
         } else {
@@ -1440,21 +1433,23 @@ impl Weapon {
             if object_id == requesting_object_id {
                 continue;
             }
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(behaviors) = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.get_template_name() != template_name {
+                        return None;
+                    }
+                    let dx = object_guard.get_position().x - requesting_pos.x;
+                    let dy = object_guard.get_position().y - requesting_pos.y;
+                    if dx * dx + dy * dy > request_dist_sqr {
+                        return None;
+                    }
+                    Some(object_guard.get_behavior_modules())
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.get_template_name() != template_name {
-                continue;
-            }
-            let dx = object_guard.get_position().x - requesting_pos.x;
-            let dy = object_guard.get_position().y - requesting_pos.y;
-            if dx * dx + dy * dy > request_dist_sqr {
-                continue;
-            }
-            for behavior in object_guard.get_behavior_modules() {
+            for behavior in behaviors {
                 if let Ok(mut behavior_guard) = behavior.lock() {
                     let Some(assist) = behavior_guard.get_assisted_targeting_update_interface()
                     else {
@@ -1470,17 +1465,17 @@ impl Weapon {
     }
 
     pub fn get_firing_line_of_sight_origin(&self, source_id: ObjectID) -> Option<Coord3D> {
-        let source_arc = OBJECT_REGISTRY.get_object(source_id)?;
-        let source_guard = source_arc.read().ok()?;
-        let pos = source_guard.get_position();
-        Some(Coord3D::new(
-            pos.x,
-            pos.y,
-            pos.z
-                + source_guard
-                    .get_geometry_info()
-                    .get_max_height_above_position(),
-        ))
+        OBJECT_REGISTRY.with_object(source_id, |source_guard| {
+            let pos = source_guard.get_position();
+            Coord3D::new(
+                pos.x,
+                pos.y,
+                pos.z
+                    + source_guard
+                        .get_geometry_info()
+                        .get_max_height_above_position(),
+            )
+        })
     }
 
     /// Fire weapon as projectile detonation (when projectile hits)
