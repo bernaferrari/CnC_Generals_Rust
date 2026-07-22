@@ -2,7 +2,7 @@ use super::*;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap};
 
 /// Grid-based pathfinding node
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -107,8 +107,10 @@ pub struct PathfindingGrid {
     height: i32,
     grid_size: f32,
     origin: Vec3,
-    blocked: HashSet<GridPos>,
-    dynamic_blocked: HashSet<GridPos>, // Temporarily blocked by units
+    /// Static obstacle bits (row-major y*width+x). A* hot path — no HashSet.
+    blocked_bits: Vec<u64>,
+    /// Dynamic vehicle/structure occupancy bits (cleared each rebuild).
+    dynamic_bits: Vec<u64>,
 }
 
 impl PathfindingGrid {
@@ -122,13 +124,45 @@ impl PathfindingGrid {
         world_height: f32,
         grid_size: f32,
     ) -> Self {
+        let width = (world_width / grid_size).ceil() as i32;
+        let height = (world_height / grid_size).ceil() as i32;
+        let cells = (width.max(0) as usize).saturating_mul(height.max(0) as usize);
+        let words = cells.div_ceil(64);
         Self {
-            width: (world_width / grid_size).ceil() as i32,
-            height: (world_height / grid_size).ceil() as i32,
+            width,
+            height,
             grid_size,
             origin,
-            blocked: HashSet::new(),
-            dynamic_blocked: HashSet::new(),
+            blocked_bits: vec![0u64; words],
+            dynamic_bits: vec![0u64; words],
+        }
+    }
+
+    #[inline]
+    fn bit_index(&self, pos: GridPos) -> Option<usize> {
+        if !self.is_valid_pos(pos) {
+            return None;
+        }
+        Some(pos.y as usize * self.width as usize + pos.x as usize)
+    }
+
+    #[inline]
+    fn bit_test(bits: &[u64], idx: usize) -> bool {
+        let w = idx >> 6;
+        let b = idx & 63;
+        bits.get(w).map(|word| (word >> b) & 1 == 1).unwrap_or(false)
+    }
+
+    #[inline]
+    fn bit_set(bits: &mut [u64], idx: usize, on: bool) {
+        let w = idx >> 6;
+        let b = idx & 63;
+        if let Some(word) = bits.get_mut(w) {
+            if on {
+                *word |= 1u64 << b;
+            } else {
+                *word &= !(1u64 << b);
+            }
         }
     }
 
@@ -156,11 +190,17 @@ impl PathfindingGrid {
     }
 
     pub fn is_blocked(&self, pos: GridPos) -> bool {
-        self.blocked.contains(&pos) || self.dynamic_blocked.contains(&pos)
+        let Some(idx) = self.bit_index(pos) else {
+            return true;
+        };
+        Self::bit_test(&self.blocked_bits, idx) || Self::bit_test(&self.dynamic_bits, idx)
     }
 
     pub fn is_static_blocked(&self, pos: GridPos) -> bool {
-        self.blocked.contains(&pos)
+        let Some(idx) = self.bit_index(pos) else {
+            return true;
+        };
+        Self::bit_test(&self.blocked_bits, idx)
     }
 
     /// C++ Pathfinder::isAttackViewBlockedByObstacle residual (static obstacles only).
@@ -224,10 +264,8 @@ impl PathfindingGrid {
     }
 
     pub fn set_blocked(&mut self, pos: GridPos, blocked: bool) {
-        if blocked {
-            self.blocked.insert(pos);
-        } else {
-            self.blocked.remove(&pos);
+        if let Some(idx) = self.bit_index(pos) {
+            Self::bit_set(&mut self.blocked_bits, idx, blocked);
         }
     }
 
@@ -246,7 +284,7 @@ impl PathfindingGrid {
     }
 
     pub fn clear_static_blocks(&mut self) {
-        self.blocked.clear();
+        self.blocked_bits.fill(0);
     }
 
     pub fn export_static_block_mask(&self) -> Vec<bool> {
@@ -295,15 +333,13 @@ impl PathfindingGrid {
     }
 
     pub fn set_dynamic_blocked(&mut self, pos: GridPos, blocked: bool) {
-        if blocked {
-            self.dynamic_blocked.insert(pos);
-        } else {
-            self.dynamic_blocked.remove(&pos);
+        if let Some(idx) = self.bit_index(pos) {
+            Self::bit_set(&mut self.dynamic_bits, idx, blocked);
         }
     }
 
     pub fn clear_dynamic_blocks(&mut self) {
-        self.dynamic_blocked.clear();
+        self.dynamic_bits.fill(0);
     }
 
     /// Clamp a grid position into the playable rectangle.
@@ -368,8 +404,8 @@ impl PathfindingGrid {
         let mut open_set = BinaryHeap::new();
         let mut came_from: HashMap<GridPos, GridPos> = HashMap::new();
         let mut g_score: HashMap<GridPos, f32> = HashMap::new();
-        // Closed set keeps large open-field A* from revisiting nodes forever.
-        let mut closed: HashSet<GridPos> = HashSet::new();
+        // Closed bitset keeps large open-field A* from revisiting nodes forever.
+        let mut closed = vec![0u64; self.blocked_bits.len().max(1)];
 
         g_score.insert(start, 0.0);
         open_set.push(PathNode::new(start, 0.0, start.distance(goal), None));
@@ -380,15 +416,22 @@ impl PathfindingGrid {
                 return Some(self.reconstruct_path(&came_from, current.pos));
             }
 
-            if !closed.insert(current.pos) {
+            let Some(cidx) = self.bit_index(current.pos) else {
+                continue;
+            };
+            if Self::bit_test(&closed, cidx) {
                 continue;
             }
+            Self::bit_set(&mut closed, cidx, true);
 
             for neighbor in current.pos.neighbors() {
                 if !self.is_valid_pos(neighbor) || self.is_static_blocked(neighbor) {
                     continue;
                 }
-                if closed.contains(&neighbor) {
+                if self
+                    .bit_index(neighbor)
+                    .is_some_and(|idx| Self::bit_test(&closed, idx))
+                {
                     continue;
                 }
 
@@ -412,7 +455,7 @@ impl PathfindingGrid {
                 // Base ortho/diag cost (COST_ORTHOGONAL=1, COST_DIAGONAL≈1.414).
                 let mut movement_cost = if is_diag { 1.414_213_5 } else { 1.0 };
                 // C++ allyFixedCount soft cost: standing units prefer detour (~3*diag).
-                if self.dynamic_blocked.contains(&neighbor) {
+                if self.bit_index(neighbor).is_some_and(|idx| Self::bit_test(&self.dynamic_bits, idx)) {
                     movement_cost += 3.0 * 1.414_213_5;
                 }
 
