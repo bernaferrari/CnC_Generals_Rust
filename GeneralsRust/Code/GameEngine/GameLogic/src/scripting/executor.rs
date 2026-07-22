@@ -1516,17 +1516,14 @@ impl ScriptActionDispatcher {
 
         if let Some(object_id) = object_id_opt {
             // Get the object from manager and kill/destroy it
-            let manager_arc = get_object_manager();
-            let obj_arc_opt = manager_arc
-                .read()
-                .ok()
-                .and_then(|mgr| mgr.get_object(object_id));
-            if let Some(obj_arc) = obj_arc_opt {
-                let _ = obj_arc.write().ok().map(|mut obj_guard| {
+            if let Ok(mgr) = get_object_manager().read() {
+                let killed = mgr.with_object_mut(object_id, |obj_guard| {
                     // Use destroy() which handles death with effects
                     obj_guard.destroy();
-                    log::info!("Named unit '{}' killed (ID: {})", unit_name, object_id);
                 });
+                if killed.is_some() {
+                    log::info!("Named unit '{}' killed (ID: {})", unit_name, object_id);
+                }
             }
         } else {
             log::warn!("Named unit '{}' not found for kill", unit_name);
@@ -13701,13 +13698,13 @@ impl ScriptActionDispatcher {
     fn get_object_by_id(
         &self,
         object_id: u32,
-    ) -> Result<Arc<RwLock<crate::object_manager::GameObjectInstance>>, ScriptError> {
+    ) -> Result<Arc<RwLock<crate::object::Object>>, ScriptError> {
         let obj_mgr = get_object_manager();
         let obj_mgr_guard = obj_mgr.read().map_err(|_| {
             ScriptError::ExecutionFailed("Failed to lock object manager".to_string())
         })?;
         obj_mgr_guard
-            .get_object(object_id)
+            .with_object(object_id, |instance| instance.base())
             .ok_or_else(|| ScriptError::ObjectNotFound(format!("Object {} not found", object_id)))
     }
 
@@ -18948,28 +18945,21 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let attacker_id = 8450;
         let target_id = 8451;
-        let attacker = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let attacker = crate::object_manager::GameObjectInstance::new(
                 attacker_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test attacker instance"),
-        ));
-        let target = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+            ).expect("test attacker instance");
+        let target = crate::object_manager::GameObjectInstance::new(
                 target_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test target instance"),
-        ));
+            ).expect("test target instance");
 
         {
-            let instance = attacker.write().unwrap();
-            let __base_arc = instance.base();
+            let __base_arc = attacker.base();
             let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
@@ -18979,10 +18969,11 @@ mod tests {
             assert_eq!(base.get_group_id(), Some(91));
         }
 
+        let attacker_id = attacker.get_id();
         get_object_manager()
             .write()
             .unwrap()
-            .register_object_instance(attacker.clone(), Coord3D::new(12.0, 4.0, 0.0))
+            .register_object_instance(attacker, Coord3D::new(12.0, 4.0, 0.0))
             .unwrap();
         get_object_manager()
             .write()
@@ -19026,7 +19017,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            attacker.read().unwrap().base().read().unwrap().get_group_id(),
+            get_object_manager().read().unwrap().with_object(attacker_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
             None
         );
     }
@@ -19061,18 +19052,15 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let attacker_id = 8460;
-        let attacker = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let attacker = crate::object_manager::GameObjectInstance::new(
                 attacker_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test attacker instance"),
-        ));
+            ).expect("test attacker instance");
 
         {
-            let instance = attacker.write().unwrap();
+            let instance = &attacker;
             instance
                 .base()
                 .write()
@@ -19083,6 +19071,7 @@ mod tests {
                 }))));
         }
 
+        let attacker_id = attacker.get_id();
         get_object_manager()
             .write()
             .unwrap()
@@ -19152,19 +19141,15 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let attacker_id = 8471;
-        let attacker = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let attacker = crate::object_manager::GameObjectInstance::new(
                 attacker_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test attacker instance"),
-        ));
+            ).expect("test attacker instance");
 
         {
-            let instance = attacker.write().unwrap();
-            let __base_arc = instance.base();
+            let __base_arc = attacker.base();
             let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
@@ -19174,10 +19159,11 @@ mod tests {
             assert_eq!(base.get_group_id(), Some(92));
         }
 
+        let attacker_id = attacker.get_id();
         get_object_manager()
             .write()
             .unwrap()
-            .register_object_instance(attacker.clone(), Coord3D::new(4.0, 4.0, 0.0))
+            .register_object_instance(attacker, Coord3D::new(4.0, 4.0, 0.0))
             .unwrap();
         get_named_object_tracker()
             .register_named_object("ExecutorAreaAttacker".to_string(), attacker_id)
@@ -19213,7 +19199,7 @@ mod tests {
             )
         );
         assert_eq!(
-            attacker.read().unwrap().base().read().unwrap().get_group_id(),
+            get_object_manager().read().unwrap().with_object(attacker_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
             None
         );
     }
@@ -19240,19 +19226,15 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let attacker_id = 8480;
-        let attacker = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let attacker = crate::object_manager::GameObjectInstance::new(
                 attacker_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test attacker instance"),
-        ));
+            ).expect("test attacker instance");
 
         {
-            let instance = attacker.write().unwrap();
-            let __base_arc = instance.base();
+            let __base_arc = attacker.base();
             let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
@@ -19262,10 +19244,11 @@ mod tests {
             assert_eq!(base.get_group_id(), Some(93));
         }
 
+        let attacker_id = attacker.get_id();
         get_object_manager()
             .write()
             .unwrap()
-            .register_object_instance(attacker.clone(), Coord3D::new(8.0, 4.0, 0.0))
+            .register_object_instance(attacker, Coord3D::new(8.0, 4.0, 0.0))
             .unwrap();
         get_named_object_tracker()
             .register_named_object("ExecutorTeamAttacker".to_string(), attacker_id)
@@ -19301,7 +19284,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            attacker.read().unwrap().base().read().unwrap().get_group_id(),
+            get_object_manager().read().unwrap().with_object(attacker_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
             None
         );
     }
@@ -19328,18 +19311,15 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8490;
-        let member = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let member = crate::object_manager::GameObjectInstance::new(
                 member_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test team member instance"),
-        ));
+            ).expect("test team member instance");
 
         {
-            let instance = member.write().unwrap();
+            let instance = &member;
             instance
                 .base()
                 .write()
@@ -19397,19 +19377,15 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let hunter_id = 8495;
-        let hunter = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let hunter = crate::object_manager::GameObjectInstance::new(
                 hunter_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test hunter instance"),
-        ));
+            ).expect("test hunter instance");
 
         {
-            let instance = hunter.write().unwrap();
-            let __base_arc = instance.base();
+            let __base_arc = hunter.base();
             let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
@@ -19419,10 +19395,11 @@ mod tests {
             assert_eq!(base.get_group_id(), Some(95));
         }
 
+        let hunter_id = hunter.get_id();
         get_object_manager()
             .write()
             .unwrap()
-            .register_object_instance(hunter.clone(), Coord3D::new(11.0, 6.0, 0.0))
+            .register_object_instance(hunter, Coord3D::new(11.0, 6.0, 0.0))
             .unwrap();
         get_named_object_tracker()
             .register_named_object("ExecutorHunter".to_string(), hunter_id)
@@ -19452,7 +19429,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            hunter.read().unwrap().base().read().unwrap().get_group_id(),
+            get_object_manager().read().unwrap().with_object(hunter_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
             Some(95)
         );
     }
@@ -19465,18 +19442,15 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let stopper_id = 8496;
-        let stopper = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let stopper = crate::object_manager::GameObjectInstance::new(
                 stopper_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test stopper instance"),
-        ));
+            ).expect("test stopper instance");
 
         {
-            let instance = stopper.write().unwrap();
+            let instance = &stopper;
             instance
                 .base()
                 .write()
@@ -19529,19 +19503,15 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let guard_id = 8500;
-        let guard = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let guard = crate::object_manager::GameObjectInstance::new(
                 guard_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test guard instance"),
-        ));
+            ).expect("test guard instance");
 
         {
-            let instance = guard.write().unwrap();
-            let __base_arc = instance.base();
+            let __base_arc = guard.base();
             let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
@@ -19551,10 +19521,11 @@ mod tests {
             assert_eq!(base.get_group_id(), Some(94));
         }
 
+        let guard_id = guard.get_id();
         get_object_manager()
             .write()
             .unwrap()
-            .register_object_instance(guard.clone(), Coord3D::new(9.0, 5.0, 0.0))
+            .register_object_instance(guard, Coord3D::new(9.0, 5.0, 0.0))
             .unwrap();
         get_named_object_tracker()
             .register_named_object("ExecutorGuard".to_string(), guard_id)
@@ -19584,7 +19555,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            guard.read().unwrap().base().read().unwrap().get_group_id(),
+            get_object_manager().read().unwrap().with_object(guard_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
             None
         );
     }
@@ -19610,18 +19581,15 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8510;
-        let member = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let member = crate::object_manager::GameObjectInstance::new(
                 member_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test guard team member instance"),
-        ));
+            ).expect("test guard team member instance");
 
         {
-            let instance = member.write().unwrap();
+            let instance = &member;
             instance
                 .base()
                 .write()
@@ -19692,18 +19660,15 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8515;
-        let member = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let member = crate::object_manager::GameObjectInstance::new(
                 member_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test timed guard team member instance"),
-        ));
+            ).expect("test timed guard team member instance");
 
         {
-            let instance = member.write().unwrap();
+            let instance = &member;
             instance
                 .base()
                 .write()
@@ -19779,18 +19744,15 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8520;
-        let member = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let member = crate::object_manager::GameObjectInstance::new(
                 member_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test object guard team member instance"),
-        ));
+            ).expect("test object guard team member instance");
 
         {
-            let instance = member.write().unwrap();
+            let instance = &member;
             instance
                 .base()
                 .write()
@@ -19945,17 +19907,14 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let recruitable = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8530;
-        let member = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let member = crate::object_manager::GameObjectInstance::new(
                 member_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test member instance"),
-        ));
+            ).expect("test member instance");
         {
-            let instance = member.write().unwrap();
+            let instance = &member;
             instance
                 .base()
                 .write()
@@ -19969,7 +19928,7 @@ mod tests {
         get_object_manager()
             .write()
             .unwrap()
-            .register_object_instance(member.clone(), Coord3D::new(15.0, 15.0, 0.0))
+            .register_object_instance(member, Coord3D::new(15.0, 15.0, 0.0))
             .unwrap();
         source_team.write().unwrap().add_member(member_id);
 
@@ -19998,17 +19957,19 @@ mod tests {
         assert_eq!(*recruitable.lock().unwrap(), vec![true]);
         assert!(default_team.read().unwrap().has_member(member_id));
         assert!(!source_team.read().unwrap().has_member(member_id));
-        assert!(Arc::ptr_eq(
-            &member
-                .read()
-                .unwrap()
-                .base()
-                .read()
-                .unwrap()
-                .get_team()
-                .unwrap(),
-            &default_team
-        ));
+        let team_ok = get_object_manager()
+            .read()
+            .unwrap()
+            .with_object(member_id, |o| {
+                o.base()
+                    .read()
+                    .ok()
+                    .and_then(|b| b.get_team())
+                    .map(|t| Arc::ptr_eq(&t, &default_team))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        assert!(team_ok);
     }
 
     #[test]
@@ -20038,17 +19999,14 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8540;
-        let member = Arc::new(RwLock::new(
-            crate::object_manager::GameObjectInstance::new(
+        let member = crate::object_manager::GameObjectInstance::new(
                 member_id,
                 None,
                 None,
                 ObjectCreationFlags::new(),
-            )
-            .expect("test member instance"),
-        ));
+            ).expect("test member instance");
         {
-            let instance = member.write().unwrap();
+            let instance = &member;
             instance
                 .base()
                 .write()
