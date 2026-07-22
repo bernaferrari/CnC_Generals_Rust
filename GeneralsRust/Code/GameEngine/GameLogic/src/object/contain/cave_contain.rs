@@ -261,7 +261,13 @@ impl CaveContain {
     /// Add object to containment using CaveContain's tracker-backed storage.
     pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
         let owner = self.get_object();
-        if super::should_cancel_containment_after_booby_trap(owner.as_ref(), &obj) {
+        if super::should_cancel_containment_after_booby_trap(
+            owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        ) {
             return Ok(());
         }
 
