@@ -702,49 +702,49 @@ impl AiStateMachine {
         const MIN_REPATH_TIME: u32 = 10;
 
         if let Some(goal_obj_id) = state.goal_object {
-            if let Some(goal_obj) = OBJECT_REGISTRY.get_object(goal_obj_id) {
-                if let Ok(goal_guard) = goal_obj.read() {
-                    let mut new_goal = *goal_guard.get_position();
-                    let _ = OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-                        if owner_guard.is_kind_of(KindOf::Projectile) {
-                            let half_height = goal_guard
-                                .get_geometry_info()
-                                .get_max_height_above_position()
-                                * 0.5;
-                            new_goal.z += half_height;
-                            if goal_guard.get_position().z < new_goal.z {
-                                new_goal.z += half_height;
-                            }
-                        }
-                    });
-
-                    let mut repath = false;
-                    if let Some(prev_goal) = state.scratch.path_goal_position {
-                        if let Some(owner_pos) = self.resolve_current_position(state) {
-                            let diff = new_goal - prev_goal;
-                            let to_target = new_goal - owner_pos;
-                            let tolerance_sqr =
-                                (to_target.x * to_target.x + to_target.y * to_target.y) * 0.01;
-                            if diff.x * diff.x + diff.y * diff.y > tolerance_sqr {
-                                let now = TheGameLogic::get_frame();
-                                if now.saturating_sub(state.scratch.path_timestamp)
-                                    > MIN_REPATH_TIME
-                                {
-                                    repath = true;
-                                    state.scratch.path_timestamp = now;
-                                }
+            if let Some(new_goal) = OBJECT_REGISTRY.with_object(goal_obj_id, |goal_guard| {
+                let mut new_goal = *goal_guard.get_position();
+                let is_projectile = OBJECT_REGISTRY
+                    .with_object(self.owner_id, |owner_guard| {
+                        owner_guard.is_kind_of(KindOf::Projectile)
+                    })
+                    .unwrap_or(false);
+                if is_projectile {
+                    let half_height = goal_guard
+                        .get_geometry_info()
+                        .get_max_height_above_position()
+                        * 0.5;
+                    new_goal.z += half_height;
+                    if goal_guard.get_position().z < new_goal.z {
+                        new_goal.z += half_height;
+                    }
+                }
+                new_goal
+            }) {
+                let mut repath = false;
+                if let Some(prev_goal) = state.scratch.path_goal_position {
+                    if let Some(owner_pos) = self.resolve_current_position(state) {
+                        let diff = new_goal - prev_goal;
+                        let to_target = new_goal - owner_pos;
+                        let tolerance_sqr =
+                            (to_target.x * to_target.x + to_target.y * to_target.y) * 0.01;
+                        if diff.x * diff.x + diff.y * diff.y > tolerance_sqr {
+                            let now = TheGameLogic::get_frame();
+                            if now.saturating_sub(state.scratch.path_timestamp) > MIN_REPATH_TIME {
+                                repath = true;
+                                state.scratch.path_timestamp = now;
                             }
                         }
                     }
+                }
 
-                    state.goal_position = Some(new_goal);
-                    if repath {
-                        state.goal_path.clear();
-                        state.path_index = 0;
-                        state.scratch.pathfinding_requested = false;
-                        state.scratch.last_move_target = None;
-                        state.scratch.path_goal_position = Some(new_goal);
-                    }
+                state.goal_position = Some(new_goal);
+                if repath {
+                    state.goal_path.clear();
+                    state.path_index = 0;
+                    state.scratch.pathfinding_requested = false;
+                    state.scratch.last_move_target = None;
+                    state.scratch.path_goal_position = Some(new_goal);
                 }
             }
         }
@@ -759,22 +759,23 @@ impl AiStateMachine {
             state.scratch.move_origin = self.resolve_current_position(state);
         }
 
-        if let Some(obj) = OBJECT_REGISTRY.get_object(self.owner_id) {
-            if let Ok(obj_guard) = obj.read() {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.lock() {
-                        let blocked = ai_guard.is_blocked_and_stuck()
-                            || ai_guard.get_num_frames_blocked() > 2 * LOGICFRAMES_PER_SECOND;
-                        if blocked {
-                            state.goal_path.clear();
-                            state.path_index = 0;
-                            state.scratch.pathfinding_requested = false;
-                            state.scratch.last_move_target = None;
-                            return Ok(StateReturnType::Continue);
-                        }
-                    }
-                }
-            }
+        let blocked = OBJECT_REGISTRY
+            .with_object(self.owner_id, |obj_guard| {
+                obj_guard.get_ai_update_interface().and_then(|ai| {
+                    ai.lock().ok().map(|ai_guard| {
+                        ai_guard.is_blocked_and_stuck()
+                            || ai_guard.get_num_frames_blocked() > 2 * LOGICFRAMES_PER_SECOND
+                    })
+                })
+            })
+            .flatten()
+            .unwrap_or(false);
+        if blocked {
+            state.goal_path.clear();
+            state.path_index = 0;
+            state.scratch.pathfinding_requested = false;
+            state.scratch.last_move_target = None;
+            return Ok(StateReturnType::Continue);
         }
 
         let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |obj_guard| {
@@ -971,13 +972,18 @@ impl AiStateMachine {
     ) -> Result<StateReturnType, AiError> {
         let target_id = state.goal_object.ok_or(AiError::InvalidTarget)?;
 
-        let target_arc = OBJECT_REGISTRY
-            .get_object(target_id)
-            .ok_or(AiError::InvalidTarget)?;
-        let Ok(target_guard) = target_arc.read() else {
-            return Err(AiError::LockFailed);
+        let Some((target_dead, target_above, target_pos)) =
+            OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                (
+                    target_guard.is_effectively_dead(),
+                    target_guard.is_significantly_above_terrain(),
+                    *target_guard.get_position(),
+                )
+            })
+        else {
+            return Err(AiError::InvalidTarget);
         };
-        if target_guard.is_effectively_dead() {
+        if target_dead {
             log::debug!(
                 "AI {} attack target {} is no longer valid",
                 self.owner_id,
@@ -986,40 +992,42 @@ impl AiStateMachine {
             return Ok(StateReturnType::StateFailed);
         }
 
-        if let Some(attacker_arc) = OBJECT_REGISTRY.get_object(self.owner_id) {
-            if let Ok(attacker_guard) = attacker_arc.read() {
-                let attack_uses_los = THE_AI
+        if let Some((attacker_above, attacker_pos)) =
+            OBJECT_REGISTRY.with_object(self.owner_id, |attacker_guard| {
+                (
+                    attacker_guard.is_significantly_above_terrain(),
+                    *attacker_guard.get_position(),
+                )
+            })
+        {
+            let attack_uses_los = THE_AI
+                .read()
+                .ok()
+                .and_then(|ai| {
+                    ai.get_ai_data()
+                        .read()
+                        .ok()
+                        .map(|data| data.attack_uses_line_of_sight)
+                })
+                .unwrap_or(false);
+
+            if attack_uses_los && !attacker_above && !target_above {
+                let blocked = THE_AI
                     .read()
                     .ok()
                     .and_then(|ai| {
-                        ai.get_ai_data()
-                            .read()
-                            .ok()
-                            .map(|data| data.attack_uses_line_of_sight)
+                        let pf_arc = ai.pathfinder()?;
+                        let pf = pf_arc.read().ok()?;
+                        Some(pf.is_attack_view_blocked_by_obstacle_ids(
+                            self.owner_id,
+                            &attacker_pos,
+                            Some(target_id),
+                            &target_pos,
+                        ))
                     })
                     .unwrap_or(false);
-
-                if attack_uses_los
-                    && !attacker_guard.is_significantly_above_terrain()
-                    && !target_guard.is_significantly_above_terrain()
-                {
-                    let blocked = THE_AI
-                        .read()
-                        .ok()
-                        .and_then(|ai| {
-                            let pf_arc = ai.pathfinder()?;
-                            let pf = pf_arc.read().ok()?;
-                            Some(pf.is_attack_view_blocked_by_obstacle(
-                                &attacker_guard,
-                                attacker_guard.get_position(),
-                                Some(&target_guard),
-                                target_guard.get_position(),
-                            ))
-                        })
-                        .unwrap_or(false);
-                    if blocked {
-                        return Ok(StateReturnType::StateBlocked);
-                    }
+                if blocked {
+                    return Ok(StateReturnType::StateBlocked);
                 }
             }
         }
@@ -1036,36 +1044,41 @@ impl AiStateMachine {
     ) -> Result<StateReturnType, AiError> {
         let target_pos = state.goal_position.ok_or(AiError::InvalidTarget)?;
 
-        if let Some(attacker_arc) = OBJECT_REGISTRY.get_object(self.owner_id) {
-            if let Ok(attacker_guard) = attacker_arc.read() {
-                let attack_uses_los = THE_AI
+        if let Some((attacker_above, attacker_pos)) =
+            OBJECT_REGISTRY.with_object(self.owner_id, |attacker_guard| {
+                (
+                    attacker_guard.is_significantly_above_terrain(),
+                    *attacker_guard.get_position(),
+                )
+            })
+        {
+            let attack_uses_los = THE_AI
+                .read()
+                .ok()
+                .and_then(|ai| {
+                    ai.get_ai_data()
+                        .read()
+                        .ok()
+                        .map(|data| data.attack_uses_line_of_sight)
+                })
+                .unwrap_or(false);
+            if attack_uses_los && !attacker_above {
+                let blocked = THE_AI
                     .read()
                     .ok()
                     .and_then(|ai| {
-                        ai.get_ai_data()
-                            .read()
-                            .ok()
-                            .map(|data| data.attack_uses_line_of_sight)
+                        let pf_arc = ai.pathfinder()?;
+                        let pf = pf_arc.read().ok()?;
+                        Some(pf.is_attack_view_blocked_by_obstacle_ids(
+                            self.owner_id,
+                            &attacker_pos,
+                            None,
+                            &target_pos,
+                        ))
                     })
                     .unwrap_or(false);
-                if attack_uses_los && !attacker_guard.is_significantly_above_terrain() {
-                    let blocked = THE_AI
-                        .read()
-                        .ok()
-                        .and_then(|ai| {
-                            let pf_arc = ai.pathfinder()?;
-                            let pf = pf_arc.read().ok()?;
-                            Some(pf.is_attack_view_blocked_by_obstacle(
-                                &attacker_guard,
-                                attacker_guard.get_position(),
-                                None,
-                                &target_pos,
-                            ))
-                        })
-                        .unwrap_or(false);
-                    if blocked {
-                        return Ok(StateReturnType::StateBlocked);
-                    }
+                if blocked {
+                    return Ok(StateReturnType::StateBlocked);
                 }
             }
         }
@@ -1148,13 +1161,12 @@ impl AiStateMachine {
         }
 
         if current_frame >= state.scratch.attack_area_next_scan_frame {
-            let owner_arc = OBJECT_REGISTRY
-                .get_object(self.owner_id)
+            let out_of_ammo = OBJECT_REGISTRY
+                .with_object(self.owner_id, |owner_guard| {
+                    owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile)
+                })
                 .ok_or(AiError::InvalidTarget)?;
-            let Ok(owner_guard) = owner_arc.read() else {
-                return Err(AiError::LockFailed);
-            };
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+            if out_of_ammo {
                 return Ok(StateReturnType::StateFailed);
             }
 
@@ -1693,14 +1705,14 @@ impl AiStateMachine {
 
         state.scratch.last_move_target = Some(target);
 
-        if let Some(obj) = OBJECT_REGISTRY.get_object(self.owner_id) {
-            if let Ok(obj_guard) = obj.read() {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.set_movement_target(&target);
-                        return;
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(self.owner_id, |obj_guard| {
+                obj_guard.get_ai_update_interface()
+            })
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let _ = ai_guard.set_movement_target(&target);
             }
         }
 
@@ -1766,11 +1778,10 @@ impl AiStateMachine {
     }
 
     fn resolve_current_position(&self, state: &AiStateData) -> Option<Coord3D> {
-        state.scratch.current_position.or_else(|| {
-            OBJECT_REGISTRY
-                .get_object(self.owner_id)
-                .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
-        })
+        state
+            .scratch
+            .current_position
+            .or_else(|| OBJECT_REGISTRY.with_object(self.owner_id, |guard| *guard.get_position()))
     }
 
     fn native_state_for(&self, state_type: AiStateType, state: &AiStateData) -> NativeState {
@@ -2134,12 +2145,11 @@ impl AiStateMachine {
     ) -> Result<StateReturnType, AiError> {
         // If goal building is destroyed, complete the state.
         if let Some(goal_id) = state.goal_object {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(goal_id) {
-                if let Ok(guard) = obj.read() {
-                    if guard.is_effectively_dead() {
-                        return Ok(StateReturnType::StateFailed);
-                    }
-                }
+            let dead = OBJECT_REGISTRY
+                .with_object(goal_id, |guard| guard.is_effectively_dead())
+                .unwrap_or(true);
+            if dead {
+                return Ok(StateReturnType::StateFailed);
             }
         }
         // Delegate to move-to for the actual movement.

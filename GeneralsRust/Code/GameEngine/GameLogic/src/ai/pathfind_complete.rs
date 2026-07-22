@@ -2530,12 +2530,6 @@ impl PathfindingSystem {
         let center_cell = ICoord2D::new(cell.x, cell.y);
         let check_for_aircraft = Self::object_uses_aircraft_goal_reservations(request.object_id);
 
-        let obj = if request.object_id != INVALID_ID {
-            OBJECT_REGISTRY.get_object(request.object_id)
-        } else {
-            None
-        };
-
         let mut ok = true;
         self.for_goal_cells(center_cell, radius, center_in_cell, |coord| {
             if !ok {
@@ -2573,20 +2567,20 @@ impl PathfindingSystem {
                 return;
             }
 
-            let Some(obj_arc) = obj.as_ref() else {
+            if request.object_id == INVALID_ID {
                 ok = false;
                 return;
-            };
-            let Some(goal_arc) = OBJECT_REGISTRY.get_object(goal_unit) else {
+            }
+            let Some(relationship) = OBJECT_REGISTRY
+                .with_object(request.object_id, |obj_guard| {
+                    OBJECT_REGISTRY.with_object(goal_unit, |goal_guard| {
+                        obj_guard.relationship_to(&goal_guard)
+                    })
+                })
+                .flatten()
+            else {
                 return;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                return;
-            };
-            let Ok(goal_guard) = goal_arc.read() else {
-                return;
-            };
-            let relationship = obj_guard.relationship_to(&goal_guard);
             if !request.move_allies && matches!(relationship, crate::common::Relationship::Allies) {
                 ok = false;
                 return;
@@ -5062,46 +5056,46 @@ impl PathfindingSystem {
                         if pos_unit == INVALID_ID || pos_unit == obj_id || pos_unit == ignore_id {
                             continue;
                         }
-                        let Some(other_arc) = OBJECT_REGISTRY.get_object(pos_unit) else {
-                            continue;
-                        };
-                        let Ok(other_guard) = other_arc.read() else {
-                            continue;
-                        };
-                        let is_ally = OBJECT_REGISTRY
-                            .with_object(obj_id, |obj_guard| {
-                                obj_guard.relationship_to(&other_guard) == Relationship::Allies
+                        let Some(other_ai) = OBJECT_REGISTRY
+                            .with_object(pos_unit, |other_guard| {
+                                let is_ally = OBJECT_REGISTRY
+                                    .with_object(obj_id, |obj_guard| {
+                                        obj_guard.relationship_to(&other_guard)
+                                            == Relationship::Allies
+                                    })
+                                    .unwrap_or(false);
+                                if !is_ally {
+                                    return None;
+                                }
+                                let other_infantry = other_guard.is_kind_of(KindOf::Infantry);
+                                if is_infantry && other_infantry {
+                                    return None;
+                                }
+                                if is_infantry && !other_infantry && !blocked_by_ally {
+                                    return None;
+                                }
+                                let other_ai = other_guard.get_ai_update_interface()?;
+                                {
+                                    let Ok(ai_g) = other_ai.lock() else {
+                                        return None;
+                                    };
+                                    // C++: skip if moving; also skip attacking / busy / ability.
+                                    if ai_g.is_moving() {
+                                        return None;
+                                    }
+                                    if ai_g.is_attacking() || ai_g.is_busy() {
+                                        return None;
+                                    }
+                                }
+                                if other_guard.test_status(ObjectStatusTypes::IsUsingAbility) {
+                                    return None;
+                                }
+                                Some(other_ai)
                             })
-                            .unwrap_or(false);
-                        if !is_ally {
-                            continue;
-                        }
-                        let other_infantry = other_guard.is_kind_of(KindOf::Infantry);
-                        if is_infantry && other_infantry {
-                            continue;
-                        }
-                        if is_infantry && !other_infantry && !blocked_by_ally {
-                            continue;
-                        }
-                        let Some(other_ai) = other_guard.get_ai_update_interface() else {
+                            .flatten()
+                        else {
                             continue;
                         };
-                        {
-                            let Ok(ai_g) = other_ai.lock() else {
-                                continue;
-                            };
-                            // C++: skip if moving; also skip attacking / busy / ability.
-                            if ai_g.is_moving() {
-                                continue;
-                            }
-                            if ai_g.is_attacking() || ai_g.is_busy() {
-                                continue;
-                            }
-                        }
-                        if other_guard.test_status(ObjectStatusTypes::IsUsingAbility) {
-                            continue;
-                        }
-                        drop(other_guard);
                         use crate::modules::AIUpdateInterfaceExt;
                         other_ai.ai_move_away_from_unit(
                             obj_id,
@@ -5466,13 +5460,9 @@ impl PathfindingSystem {
     ) -> bool {
         let coord = GridCoord::new(cx, cy);
         // C++ m_obstacleIsTransparent from KINDOF_CAN_SEE_THROUGH_STRUCTURE.
-        let is_transparent = if let Some(arc) = OBJECT_REGISTRY.get_object(obj_id) {
-            arc.read()
-                .map(|g| g.is_kind_of(KindOf::CanSeeThrough))
-                .unwrap_or(false)
-        } else {
-            false
-        };
+        let is_transparent = OBJECT_REGISTRY
+            .with_object(obj_id, |g| g.is_kind_of(KindOf::CanSeeThrough))
+            .unwrap_or(false);
         if let Ok(mut pathfinder) = self.pathfinder.lock() {
             if insert {
                 pathfinder.set_cell_type(coord, PathfindCellType::Obstacle);
@@ -5802,14 +5792,7 @@ impl PathfindingSystem {
             return true;
         }
 
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return true;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return true;
-        };
-
-        let ignore_id = {
+        let Some(ignore_id) = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
             let mut id = INVALID_ID;
             if let Some(ai) = obj_guard.get_ai_update_interface() {
                 if let Ok(ai_g) = ai.lock() {
@@ -5817,6 +5800,8 @@ impl PathfindingSystem {
                 }
             }
             id
+        }) else {
+            return true;
         };
 
         let mut num_cells_above = info.radius;
@@ -5875,11 +5860,17 @@ impl PathfindingSystem {
 
                 let mut check = false;
                 if flags == UNIT_PRESENT_MOVING || flags == UNIT_GOAL_OTHER_MOVING {
-                    let _ = OBJECT_REGISTRY.with_object(pos_unit, |unit_guard| {
-                        if obj_guard.relationship_to(&unit_guard) == Relationship::Allies {
-                            info.ally_moving = true;
-                        }
-                    });
+                    let is_ally = OBJECT_REGISTRY
+                        .with_object(obj_id, |obj_guard| {
+                            OBJECT_REGISTRY.with_object(pos_unit, |unit_guard| {
+                                obj_guard.relationship_to(&unit_guard) == Relationship::Allies
+                            })
+                        })
+                        .flatten()
+                        .unwrap_or(false);
+                    if is_ally {
+                        info.ally_moving = true;
+                    }
                     if info.consider_transient {
                         check = true;
                     }
@@ -5892,19 +5883,27 @@ impl PathfindingSystem {
                     continue;
                 }
 
-                let Some(unit_arc) = OBJECT_REGISTRY.get_object(pos_unit) else {
-                    continue;
-                };
-                let Ok(unit_guard) = unit_arc.read() else {
-                    continue;
-                };
-
                 // order matters: obj considers unit relationship.
-                let rel = obj_guard.relationship_to(&unit_guard);
+                let Some((rel, unit_has_ai, can_crush)) = OBJECT_REGISTRY
+                    .with_object(obj_id, |obj_guard| {
+                        OBJECT_REGISTRY.with_object(pos_unit, |unit_guard| {
+                            let rel = obj_guard.relationship_to(&unit_guard);
+                            let unit_has_ai = unit_guard.get_ai_update_interface().is_some();
+                            let can_crush = obj_guard.can_crush_or_squish(
+                                &unit_guard,
+                                CrushSquishTestType::TestCrushOrSquish,
+                            );
+                            (rel, unit_has_ai, can_crush)
+                        })
+                    })
+                    .flatten()
+                else {
+                    continue;
+                };
 
                 if rel == Relationship::Allies {
                     // C++: can't path through non-AI allies.
-                    if unit_guard.get_ai_update_interface().is_none() {
+                    if !unit_has_ai {
                         return false;
                     }
                     let mut found = false;
@@ -5921,13 +5920,9 @@ impl PathfindingSystem {
                             num_ally += 1;
                         }
                     }
-                } else {
+                } else if !can_crush {
                     // C++ obj->canCrushOrSquish(unit, TEST_CRUSH_OR_SQUISH).
-                    let can_crush = obj_guard
-                        .can_crush_or_squish(&unit_guard, CrushSquishTestType::TestCrushOrSquish);
-                    if !can_crush {
-                        info.enemy_fixed = true;
-                    }
+                    info.enemy_fixed = true;
                 }
             }
         }
@@ -6334,13 +6329,7 @@ impl PathfindingSystem {
         if obj_id == INVALID_ID {
             return nudged;
         }
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return nudged;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return nudged;
-        };
-        let ignore_id = {
+        let Some(ignore_id) = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
             let mut id = INVALID_ID;
             if let Some(ai) = obj_guard.get_ai_update_interface() {
                 if let Ok(ai_g) = ai.lock() {
@@ -6348,6 +6337,8 @@ impl PathfindingSystem {
                 }
             }
             id
+        }) else {
+            return nudged;
         };
         let layer = self.get_layer_for_coord(GridCoord::from_world(from));
         let _ = self.iterate_cells_along_line_world(
@@ -6370,27 +6361,31 @@ impl PathfindingSystem {
                 if pos_unit == INVALID_ID || pos_unit == obj_id || pos_unit == ignore_id {
                     return 0;
                 }
-                let Some(other_arc) = OBJECT_REGISTRY.get_object(pos_unit) else {
+                let Some(other_ai) = OBJECT_REGISTRY
+                    .with_object(pos_unit, |other_guard| {
+                        let is_ally = OBJECT_REGISTRY
+                            .with_object(obj_id, |obj_guard| {
+                                obj_guard.relationship_to(&other_guard) == Relationship::Allies
+                            })
+                            .unwrap_or(false);
+                        if !is_ally {
+                            return None;
+                        }
+                        let other_ai = other_guard.get_ai_update_interface()?;
+                        {
+                            let Ok(other_ai_g) = other_ai.lock() else {
+                                return None;
+                            };
+                            if !other_ai_g.is_idle() {
+                                return None;
+                            }
+                        }
+                        Some(other_ai)
+                    })
+                    .flatten()
+                else {
                     return 0;
                 };
-                let Ok(other_guard) = other_arc.read() else {
-                    return 0;
-                };
-                if obj_guard.relationship_to(&other_guard) != Relationship::Allies {
-                    return 0;
-                }
-                let Some(other_ai) = other_guard.get_ai_update_interface() else {
-                    return 0;
-                };
-                {
-                    let Ok(other_ai_g) = other_ai.lock() else {
-                        return 0;
-                    };
-                    if !other_ai_g.is_idle() {
-                        return 0;
-                    }
-                }
-                drop(other_guard);
                 use crate::modules::AIUpdateInterfaceExt;
                 other_ai.ai_move_away_from_unit(obj_id, crate::common::CommandSourceType::FromAi);
                 if !nudged.contains(&pos_unit) {

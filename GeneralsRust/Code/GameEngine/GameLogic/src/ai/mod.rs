@@ -105,12 +105,13 @@ pub fn resolve_attack_priority_info_for_object(owner_id: ObjectID) -> Option<Att
     }
 
     if priority_set_name.is_empty() {
-        let team_name = OBJECT_REGISTRY.get_object(owner_id).and_then(|object_arc| {
-            let object = object_arc.read().ok()?;
-            let team_arc = object.get_team()?;
-            let team = team_arc.read().ok()?;
-            Some(team.get_name().to_string())
-        });
+        let team_name = OBJECT_REGISTRY
+            .with_object(owner_id, |object| {
+                let team_arc = object.get_team()?;
+                let team = team_arc.read().ok()?;
+                Some(team.get_name().to_string())
+            })
+            .flatten();
 
         if let Some(team_name) = team_name {
             if let Ok(factory) = get_team_factory().lock() {
@@ -1029,20 +1030,17 @@ impl AiGroup {
 
         let mut min_speed = Real::INFINITY;
         for obj_id in &self.member_list {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
+            let Some(speed) = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj_guard| {
+                    obj_guard
+                        .get_ai_update_interface()
+                        .and_then(|ai| ai.lock().ok().map(|ai_guard| ai_guard.get_speed().max(0.0)))
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let ai = obj_guard.get_ai_update_interface();
-            drop(obj_guard);
-            if let Some(ai) = ai {
-                let Ok(ai_guard) = ai.lock() else {
-                    continue;
-                };
-                min_speed = min_speed.min(ai_guard.get_speed().max(0.0));
-            }
+            min_speed = min_speed.min(speed);
         }
         if !min_speed.is_finite() {
             min_speed = 0.0;
@@ -1091,13 +1089,10 @@ impl AiCommandInterface for AiGroup {
     fn ai_do_command(&mut self, params: &AiCommandParams) -> Result<(), AiError> {
         for obj_id in &self.member_list {
             let dispatch_started = Instant::now();
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
+            if let Some(ai) = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
+                .flatten()
+            {
                 if let Ok(mut ai_guard) = ai.lock() {
                     let _ = ai_guard.execute_command(params);
                 }
@@ -1636,25 +1631,31 @@ impl AI {
         object: ObjectId,
         factors_to_consider: u32,
     ) -> Result<Real, AiError> {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object) else {
+        let Some((mut range, player_is_human, attitude)) =
+            OBJECT_REGISTRY.with_object(object, |obj_guard| {
+                let range = obj_guard.get_vision_range();
+                let player_is_human = obj_guard
+                    .get_controlling_player()
+                    .and_then(|player| {
+                        player
+                            .read()
+                            .ok()
+                            .map(|guard| guard.get_player_type() == PlayerType::Human)
+                    })
+                    .unwrap_or(false);
+                let attitude = obj_guard.get_ai_update_interface().and_then(|ai_update| {
+                    ai_update
+                        .lock()
+                        .ok()
+                        .map(|ai_guard| ai_guard.get_attitude())
+                });
+                (range, player_is_human, attitude)
+            })
+        else {
             return Err(AiError::InvalidObject);
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Err(AiError::LockFailed);
         };
 
         let ai_data = self.ai_data.read().unwrap();
-        let mut range = obj_guard.get_vision_range();
-
-        let player_is_human = obj_guard
-            .get_controlling_player()
-            .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .map(|guard| guard.get_player_type() == PlayerType::Human)
-            })
-            .unwrap_or(false);
 
         if (factors_to_consider & vision_factors::OWNER_TYPE) != 0 {
             if player_is_human {
@@ -1671,15 +1672,11 @@ impl AI {
         }
 
         if (factors_to_consider & vision_factors::MOOD) != 0 && !player_is_human {
-            if let Some(ai_update) = obj_guard.get_ai_update_interface() {
-                if let Ok(ai_guard) = ai_update.lock() {
-                    match ai_guard.get_attitude() {
-                        AIAttitudeType::Aggressive => range *= ai_data.aggressive_range_modifier,
-                        AIAttitudeType::Defensive => range *= ai_data.alert_range_modifier,
-                        AIAttitudeType::Passive
-                        | AIAttitudeType::Sleep
-                        | AIAttitudeType::Normal => {}
-                    }
+            if let Some(attitude) = attitude {
+                match attitude {
+                    AIAttitudeType::Aggressive => range *= ai_data.aggressive_range_modifier,
+                    AIAttitudeType::Defensive => range *= ai_data.alert_range_modifier,
+                    AIAttitudeType::Passive | AIAttitudeType::Sleep | AIAttitudeType::Normal => {}
                 }
             }
         }
@@ -2146,24 +2143,22 @@ impl Pathfinder {
         let mut move_allies = false;
         let mut ignore_obstacle_id = None;
 
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj) {
-            if let Ok(obj_guard) = obj_arc.read() {
-                if obj_guard.get_crusher_level() > 0 {
-                    is_crusher = true;
-                    surfaces |= crate::path::SURFACE_RUBBLE;
-                }
-                unit_radius = obj_guard.get_geometry_info().get_major_radius();
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.lock() {
-                        move_allies = ai_guard.get_can_path_through_units();
-                        let ignored = ai_guard.get_ignored_obstacle_id();
-                        if ignored != INVALID_ID {
-                            ignore_obstacle_id = Some(ignored);
-                        }
+        let _ = OBJECT_REGISTRY.with_object(obj, |obj_guard| {
+            if obj_guard.get_crusher_level() > 0 {
+                is_crusher = true;
+                surfaces |= crate::path::SURFACE_RUBBLE;
+            }
+            unit_radius = obj_guard.get_geometry_info().get_major_radius();
+            if let Some(ai) = obj_guard.get_ai_update_interface() {
+                if let Ok(ai_guard) = ai.lock() {
+                    move_allies = ai_guard.get_can_path_through_units();
+                    let ignored = ai_guard.get_ignored_obstacle_id();
+                    if ignored != INVALID_ID {
+                        ignore_obstacle_id = Some(ignored);
                     }
                 }
             }
-        }
+        });
 
         let request = ClassicPathRequest {
             object_id: obj,
@@ -2676,6 +2671,22 @@ impl Pathfinder {
         blocked != 0
     }
 
+    /// ID-first LOS obstacle check; delegates to classic PathfindingSystem.
+    pub fn is_attack_view_blocked_by_obstacle_ids(
+        &self,
+        attacker_id: ObjectID,
+        attacker_pos: &Coord3D,
+        victim_id: Option<ObjectID>,
+        victim_pos: &Coord3D,
+    ) -> bool {
+        self.inner.is_attack_view_blocked_by_obstacle(
+            attacker_id,
+            attacker_pos,
+            victim_id,
+            victim_pos,
+        )
+    }
+
     /// C++ `Pathfinder::validMovementTerrain`.
     pub fn valid_movement_terrain(
         &self,
@@ -2954,19 +2965,19 @@ impl Pathfinder {
     ) {
         let _ = is_fence;
         let mut scratch = Vec::new();
-        let footprint = if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
-            if let Ok(obj_guard) = obj_arc.read() {
-                object_footprint_positions(&obj_guard).map(|v| {
-                    scratch = v;
-                    scratch.as_slice()
-                })
-            } else {
-                None
-            }
+        if let Some(fp) = OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                object_footprint_positions(&obj_guard)
+            })
+            .flatten()
+        {
+            scratch = fp;
+        }
+        let use_positions = if scratch.is_empty() {
+            positions
         } else {
-            None
+            scratch.as_slice()
         };
-        let use_positions = footprint.unwrap_or(positions);
         for pos in use_positions {
             self.inner.set_cell_type(pos, PathfindCellType::Obstacle);
         }
@@ -2975,19 +2986,19 @@ impl Pathfinder {
 
     pub fn remove_object_from_map(&mut self, object_id: ObjectID, positions: &[Coord3D]) {
         let mut scratch = Vec::new();
-        let footprint = if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
-            if let Ok(obj_guard) = obj_arc.read() {
-                object_footprint_positions(&obj_guard).map(|v| {
-                    scratch = v;
-                    scratch.as_slice()
-                })
-            } else {
-                None
-            }
+        if let Some(fp) = OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                object_footprint_positions(&obj_guard)
+            })
+            .flatten()
+        {
+            scratch = fp;
+        }
+        let use_positions = if scratch.is_empty() {
+            positions
         } else {
-            None
+            scratch.as_slice()
         };
-        let use_positions = footprint.unwrap_or(positions);
         for pos in use_positions {
             self.inner.set_cell_type(pos, PathfindCellType::Clear);
         }
