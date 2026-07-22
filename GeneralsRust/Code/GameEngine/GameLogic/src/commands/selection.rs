@@ -1274,47 +1274,46 @@ impl ObjectLookup for RegistryObjectLookup {
         use crate::common::KindOf;
         use crate::object::drawable::DrawableArcExt;
 
-        let obj = OBJECT_REGISTRY.get_object(id)?;
-        let guard = obj.read().ok()?;
+        OBJECT_REGISTRY.with_object(id, |guard| {
+            let owner_id = guard
+                .get_controlling_player_id()
+                .map(|p| p as Int)
+                .unwrap_or(-1);
+            let is_neutral = guard.is_neutral_controlled();
 
-        let owner_id = guard
-            .get_controlling_player_id()
-            .map(|p| p as Int)
-            .unwrap_or(-1);
-        let is_neutral = guard.is_neutral_controlled();
+            let kind = Self::classify_kind(
+                is_neutral,
+                guard.is_kind_of(KindOf::Infantry),
+                guard.is_kind_of(KindOf::Vehicle),
+                guard.is_kind_of(KindOf::Aircraft),
+                guard.is_kind_of(KindOf::Building),
+                guard.is_kind_of(KindOf::Structure),
+                guard.is_kind_of(KindOf::ResourceNode),
+                guard.is_kind_of(KindOf::Mine),
+            );
 
-        let kind = Self::classify_kind(
-            is_neutral,
-            guard.is_kind_of(KindOf::Infantry),
-            guard.is_kind_of(KindOf::Vehicle),
-            guard.is_kind_of(KindOf::Aircraft),
-            guard.is_kind_of(KindOf::Building),
-            guard.is_kind_of(KindOf::Structure),
-            guard.is_kind_of(KindOf::ResourceNode),
-            guard.is_kind_of(KindOf::Mine),
-        );
+            let is_alive = !guard.is_effectively_dead();
+            let is_selectable = guard.is_selectable();
+            let is_controllable = is_selectable;
 
-        let is_alive = !guard.is_effectively_dead();
-        let is_selectable = guard.is_selectable();
-        let is_controllable = is_selectable;
+            let drawable_id = guard.get_drawable().map(|d| d.get_id() as DrawableID);
+            let is_crate = guard.is_kind_of(KindOf::Crate);
+            let is_garrisonable_building = (guard.is_kind_of(KindOf::Structure)
+                || guard.is_kind_of(KindOf::Building))
+                && guard.get_contain().is_some();
 
-        let drawable_id = guard.get_drawable().map(|d| d.get_id() as DrawableID);
-        let is_crate = guard.is_kind_of(KindOf::Crate);
-        let is_garrisonable_building = (guard.is_kind_of(KindOf::Structure)
-            || guard.is_kind_of(KindOf::Building))
-            && guard.get_contain().is_some();
-
-        Some(ObjectInfo {
-            id,
-            drawable_id,
-            position: *guard.get_position(),
-            owner_id,
-            kind,
-            is_alive,
-            is_selectable,
-            is_controllable,
-            is_crate,
-            is_garrisonable_building,
+            ObjectInfo {
+                id,
+                drawable_id,
+                position: *guard.get_position(),
+                owner_id,
+                kind,
+                is_alive,
+                is_selectable,
+                is_controllable,
+                is_crate,
+                is_garrisonable_building,
+            }
         })
     }
 
@@ -1345,16 +1344,13 @@ impl ObjectLookup for RegistryObjectLookup {
     }
 
     fn get_object_position(&self, id: ObjectID) -> Option<Coord3D> {
-        let obj = OBJECT_REGISTRY.get_object(id)?;
-        let guard = obj.read().ok()?;
-        Some(*guard.get_position())
+        OBJECT_REGISTRY.with_object(id, |guard| *guard.get_position())
     }
 
     fn is_object_alive(&self, id: ObjectID) -> bool {
-        let Some(obj) = OBJECT_REGISTRY.get_object(id) else {
-            return false;
-        };
-        obj.read().ok().is_some_and(|guard| !guard.is_destroyed())
+        OBJECT_REGISTRY
+            .with_object(id, |guard| !guard.is_destroyed())
+            .unwrap_or(false)
     }
 
     fn is_object_visible_to_player(&self, player_id: Int, object_id: ObjectID) -> bool {
@@ -1362,77 +1358,64 @@ impl ObjectLookup for RegistryObjectLookup {
             Ok(value) => value,
             Err(_) => return false,
         };
-        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        obj.read()
-            .ok()
-            .is_some_and(|guard| guard.is_visible_to_player(player_id))
+        OBJECT_REGISTRY
+            .with_object(object_id, |guard| guard.is_visible_to_player(player_id))
+            .unwrap_or(false)
     }
 
     fn is_object_detected_by_player(&self, _player_id: Int, object_id: ObjectID) -> bool {
-        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        obj.read().ok().is_some_and(|guard| guard.is_detected())
+        OBJECT_REGISTRY
+            .with_object(object_id, |guard| guard.is_detected())
+            .unwrap_or(false)
     }
 
     fn get_object_owner(&self, id: ObjectID) -> Option<Int> {
-        let obj = OBJECT_REGISTRY.get_object(id)?;
-        let guard = obj.read().ok()?;
-        guard.get_controlling_player_id().map(|p| p as Int)
+        OBJECT_REGISTRY.with_object(id, |guard| {
+            guard.get_controlling_player_id().map(|p| p as Int)
+        })?
     }
 
     fn get_object_kind(&self, id: ObjectID) -> Option<ObjectKind> {
         use crate::common::KindOf;
 
-        let obj = OBJECT_REGISTRY.get_object(id)?;
-        let guard = obj.read().ok()?;
-        Some(Self::classify_kind(
-            guard.is_neutral_controlled(),
-            guard.is_kind_of(KindOf::Infantry),
-            guard.is_kind_of(KindOf::Vehicle),
-            guard.is_kind_of(KindOf::Aircraft),
-            guard.is_kind_of(KindOf::Building),
-            guard.is_kind_of(KindOf::Structure),
-            guard.is_kind_of(KindOf::ResourceNode),
-            guard.is_kind_of(KindOf::Mine),
-        ))
+        OBJECT_REGISTRY.with_object(id, |guard| {
+            Self::classify_kind(
+                guard.is_neutral_controlled(),
+                guard.is_kind_of(KindOf::Infantry),
+                guard.is_kind_of(KindOf::Vehicle),
+                guard.is_kind_of(KindOf::Aircraft),
+                guard.is_kind_of(KindOf::Building),
+                guard.is_kind_of(KindOf::Structure),
+                guard.is_kind_of(KindOf::ResourceNode),
+                guard.is_kind_of(KindOf::Mine),
+            )
+        })
     }
 
     fn can_player_control(&self, player_id: Int, object_id: ObjectID) -> bool {
         use crate::common::KindOf;
 
-        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        let Ok(guard) = obj.read() else {
-            return false;
-        };
-        let Some(owner) = guard.get_controlling_player_id() else {
-            return false;
-        };
-        if owner as Int != player_id {
-            return false;
-        }
+        OBJECT_REGISTRY
+            .with_object(object_id, |guard| {
+                let Some(owner) = guard.get_controlling_player_id() else {
+                    return false;
+                };
+                if owner as Int != player_id {
+                    return false;
+                }
 
-        let is_selectable =
-            guard.is_kind_of(KindOf::Selectable) || guard.is_kind_of(KindOf::AlwaysSelectable);
-        is_selectable
-            && !guard
-                .get_status_bits()
-                .contains(crate::common::ObjectStatusMaskType::UNSELECTABLE)
+                let is_selectable = guard.is_kind_of(KindOf::Selectable)
+                    || guard.is_kind_of(KindOf::AlwaysSelectable);
+                is_selectable
+                    && !guard
+                        .get_status_bits()
+                        .contains(crate::common::ObjectStatusMaskType::UNSELECTABLE)
+            })
+            .unwrap_or(false)
     }
 
     fn set_object_selected(&self, object_id: ObjectID, selected: bool) {
-        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-            return;
-        };
-
-        let Ok(mut guard) = obj.write() else {
-            return;
-        };
-        {
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
             if let Some(drawable) = guard.get_drawable() {
                 if let Ok(mut drawable_guard) = drawable.write() {
                     drawable_guard.set_selected(selected);
@@ -1443,7 +1426,7 @@ impl ObjectLookup for RegistryObjectLookup {
             } else {
                 guard.clear_model_condition_flags(crate::common::ModelConditionFlags::SELECTED)
             };
-        }
+        });
     }
 
     fn resolve_selection_target(&self, object_id: ObjectID) -> ObjectID {
