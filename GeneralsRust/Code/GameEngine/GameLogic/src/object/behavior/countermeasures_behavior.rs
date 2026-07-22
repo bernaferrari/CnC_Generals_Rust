@@ -644,7 +644,7 @@ impl CountermeasuresBehavior {
     }
 
     fn is_object_valid(&self, object_id: ObjectId) -> bool {
-        object_id != OBJECT_INVALID_ID && OBJECT_REGISTRY.get_object(object_id).is_some()
+        object_id != OBJECT_INVALID_ID && OBJECT_REGISTRY.with_object(object_id, |_| ()).is_some()
     }
 
     fn reload_countermeasures_internal(
@@ -664,19 +664,16 @@ impl CountermeasuresBehavior {
     }
 
     fn calculate_distance_squared(&self, obj1_id: ObjectId, obj2_id: ObjectId) -> f32 {
-        let Some(obj1) = OBJECT_REGISTRY.get_object(obj1_id) else {
+        let Some(pos1) = OBJECT_REGISTRY.with_object(obj1_id, |g| *g.get_position()) else {
             return 100.0;
         };
-        let Some(obj2) = OBJECT_REGISTRY.get_object(obj2_id) else {
+        let Some(pos2) = OBJECT_REGISTRY.with_object(obj2_id, |g| *g.get_position()) else {
             return 100.0;
         };
-        let Ok(obj1_guard) = obj1.read() else {
-            return 100.0;
-        };
-        let Ok(obj2_guard) = obj2.read() else {
-            return 100.0;
-        };
-        ThePartitionManager::get_distance_squared(&*obj1_guard, &*obj2_guard, FROM_CENTER_2D)
+        // Prefer ID/pos path: squared planar distance between centers.
+        let dx = pos1.x - pos2.x;
+        let dy = pos1.y - pos2.y;
+        dx * dx + dy * dy
     }
 
     #[allow(dead_code)]
