@@ -1107,6 +1107,7 @@ impl StateMachine {
             return false;
         }
 
+        // Goal ID is set but the object no longer resolves.
         self.get_goal_object().is_none()
     }
 

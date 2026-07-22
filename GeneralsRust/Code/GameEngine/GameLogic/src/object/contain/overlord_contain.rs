@@ -602,12 +602,19 @@ impl OverlordContain {
 
     /// Get the first rider object.
     /// Matches C++ OverlordContain::friend_getRider (OverlordContain.h:85)
-    pub fn friend_get_rider(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn friend_get_rider(&self) -> Option<ObjectID> {
         self.base
             .base
-            .get_contained_items_list()
-            .ok()
-            .and_then(|list| list.first().cloned())
+            .get_contained_object_ids()
+            .first()
+            .copied()
+            .filter(|id| *id != crate::common::INVALID_ID)
+    }
+
+    pub fn friend_get_rider_object(&self) -> Option<Arc<RwLock<Object>>> {
+        let rider_id = self.friend_get_rider()?;
+        crate::helpers::TheGameLogic::find_object_by_id(rider_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
     }
 
     /// Flash selected for visible contained units.
@@ -1031,8 +1038,7 @@ impl ContainModuleInterface for OverlordContain {
     }
 
     fn friend_get_rider(&self) -> Option<ObjectID> {
-        self.friend_get_rider()
-            .and_then(|rider| rider.read().ok().map(|guard| guard.get_id()))
+        OverlordContain::friend_get_rider(self)
     }
 }
 

@@ -46,6 +46,7 @@ impl Squad {
     }
 
     /// Add an object to the squad
+    /// Prefer [`Self::add_object_id`]. Arc form only for legacy call sites.
     pub fn add_object(&mut self, object: &Arc<RwLock<Object>>) {
         if let Ok(obj_ref) = object.try_read() {
             self.add_object_id(obj_ref.get_id());
@@ -110,10 +111,23 @@ impl Squad {
 
     /// Get all live object IDs (best effort when object handles are missing)
     pub fn get_live_object_ids(&mut self) -> Vec<ObjectID> {
-        self.get_live_objects()
-            .into_iter()
-            .filter_map(|obj| obj.try_read().ok().map(|guard| guard.get_id()))
-            .collect()
+        let mut live = Vec::new();
+        let mut valid_ids = Vec::new();
+        for &obj_id in &self.object_ids {
+            let Some(obj) = self.find_object_by_id(obj_id) else {
+                continue;
+            };
+            valid_ids.push(obj_id);
+            if obj
+                .try_read()
+                .map(|obj_ref| obj_ref.is_selectable() && !obj_ref.is_effectively_dead())
+                .unwrap_or(false)
+            {
+                live.push(obj_id);
+            }
+        }
+        self.object_ids = valid_ids;
+        live
     }
 
     /// Get the current number of objects, including dead objects
@@ -122,13 +136,12 @@ impl Squad {
     }
 
     /// Check if an object is on this squad
+    /// Prefer [`Self::is_on_squad_by_id`].
     pub fn is_on_squad(&self, object: &Arc<RwLock<Object>>) -> bool {
-        if let Ok(obj_ref) = object.try_read() {
-            let obj_id = obj_ref.get_id();
-            self.object_ids.iter().any(|&id| id == obj_id)
-        } else {
-            false
-        }
+        object
+            .try_read()
+            .map(|obj_ref| self.is_on_squad_by_id(obj_ref.get_id()))
+            .unwrap_or(false)
     }
 
     /// Check if an object ID is on this squad

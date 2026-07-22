@@ -550,7 +550,7 @@ impl StealthDetectorUpdate {
                                 return None;
                             }
 
-                            let target_contained = target.get_container().is_some();
+                            let target_contained = target.get_container_id().is_some();
                             if target_contained
                                 && !(self.module_data.can_detect_while_garrisoned
                                     || self.module_data.can_detect_while_transported)

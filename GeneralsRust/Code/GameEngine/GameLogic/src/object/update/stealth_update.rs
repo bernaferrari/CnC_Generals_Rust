@@ -467,7 +467,7 @@ impl StealthUpdateController {
                 }
 
                 // Check if contained (line 365)
-                if obj_guard.get_container().is_some() {
+                if obj_guard.get_container_id().is_some() {
                     // If contained, rely on status bits to decide; more precise containment rules
                     // can be added once the contain module exposes its state here.
                 }
