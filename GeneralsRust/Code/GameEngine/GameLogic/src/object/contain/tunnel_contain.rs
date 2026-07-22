@@ -121,10 +121,12 @@ impl TunnelContain {
 
     /// Add an object to the tunnel network contain list.
     /// Matches C++ TunnelContain::addToContainList (TunnelContain.cpp:46-50)
-    pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+    pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Contain object not found")?;
         let owner = self.get_object()?;
         let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-        let obj_id = obj.read().map_err(|_| "Object lock poisoned")?.get_id();
 
         if let Some(controlling_player) = owner_read.get_controlling_player() {
             let mut player_guard = controlling_player
@@ -144,7 +146,10 @@ impl TunnelContain {
     }
 
     /// Add object to containment while keeping storage in the player tunnel tracker.
-    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+    pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Contain object not found")?;
         let was_selected = obj
             .read()
             .ok()
@@ -162,7 +167,12 @@ impl TunnelContain {
             }
         }
 
-        self.add_to_contain_list(obj.clone())?;
+        self.add_to_contain_list(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )?;
 
         let should_remove_from_world = obj
             .read()
@@ -173,7 +183,7 @@ impl TunnelContain {
         }
 
         self.base.redeploy_occupants()?;
-        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
+        self.on_containing(obj_id, was_selected)?;
 
         Ok(())
     }
@@ -182,9 +192,12 @@ impl TunnelContain {
     /// Matches C++ TunnelContain::removeFromContain (TunnelContain.cpp:57-88)
     pub fn remove_from_contain(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
+        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Contain object not found")?;
         let owner = self.get_object()?;
         let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
 
@@ -262,7 +275,13 @@ impl TunnelContain {
                 let Some(obj) = next_obj else {
                     break;
                 };
-                self.remove_from_contain(obj.clone(), true)?;
+                self.remove_from_contain(
+                    obj.read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID),
+                    true,
+                )?;
                 let mut obj_write = obj.write().map_err(|_| "Object lock poisoned")?;
                 obj_write.attempt_damage(damage_info)?;
             }
@@ -294,7 +313,13 @@ impl TunnelContain {
             drop(owner_read);
 
             for obj in objects {
-                self.remove_from_contain(obj.clone(), true)?;
+                self.remove_from_contain(
+                    obj.read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID),
+                    true,
+                )?;
                 let mut obj_write = obj.write().map_err(|_| "Object lock poisoned")?;
                 obj_write.kill(None, None);
             }
@@ -439,7 +464,13 @@ impl TunnelContain {
             let Some(obj) = next_obj else {
                 break;
             };
-            self.remove_from_contain(obj, expose_stealth_units)?;
+            self.remove_from_contain(
+                obj.read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                expose_stealth_units,
+            )?;
         }
         Ok(())
     }
@@ -674,9 +705,7 @@ impl ContainModuleInterface for TunnelContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.add_to_contain(obj).map_err(|e| e.to_string())
+        self.add_to_contain(object_id).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -684,8 +713,14 @@ impl ContainModuleInterface for TunnelContain {
             Some(obj) => obj,
             None => return Ok(()),
         };
-        self.remove_from_contain(obj, true)
-            .map_err(|e| e.to_string())
+        self.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            true,
+        )
+        .map_err(|e| e.to_string())
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
@@ -858,11 +893,22 @@ impl ContainerInterface for TunnelContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(obj)
+        let oid = obj
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        self.add_to_contain(oid)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(obj, true)
+        self.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            true,
+        )
     }
 
     fn get_usage(&self) -> (u32, u32) {
