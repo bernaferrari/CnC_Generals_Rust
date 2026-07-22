@@ -597,18 +597,28 @@ const KINDOF_PARACHUTE: u64 = 1 << 1;
 impl LegacyCollideAdapter for CrateCollide {
     fn legacy_on_collide(
         &mut self,
-        other: Arc<RwLock<Object>>,
+        other_id: crate::common::ObjectID,
         loc: &Coord3D,
         normal: &Coord3D,
     ) -> Result<(), GameError> {
+        let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(());
+        };
         self.on_collide(Some(&other), loc, normal)
             .map_err(GameError::from)
     }
 
     fn legacy_would_like_to_collide_with(
         &self,
-        other: Arc<RwLock<Object>>,
+        other_id: crate::common::ObjectID,
     ) -> Result<bool, GameError> {
+        let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(false);
+        };
         Ok(self.is_valid_to_execute(&other))
     }
 }

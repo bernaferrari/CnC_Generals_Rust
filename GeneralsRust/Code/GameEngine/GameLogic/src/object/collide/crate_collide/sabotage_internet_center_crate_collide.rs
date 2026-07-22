@@ -410,23 +410,22 @@ impl SabotageInternetCenterCrateCollide {
 impl LegacyCollideAdapter for SabotageInternetCenterCrateCollide {
     fn legacy_on_collide(
         &mut self,
-        other: Arc<RwLock<Object>>,
+        other_id: crate::common::ObjectID,
         loc: &CollideCoord3D,
         normal: &CollideCoord3D,
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if SabotageInternetCenterCrateCollide::is_valid_to_execute(
-            self,
-            other.read().map(|g| g.get_id()).unwrap_or(0),
-        )? {
-            let success = SabotageInternetCenterCrateCollide::execute_crate_behavior(
-                self,
-                other.read().map(|g| g.get_id()).unwrap_or(0),
-            )?;
-            self.base
-                .finish_execution_attempt(&other, success)
-                .map_err(GameError::from)?;
+        if SabotageInternetCenterCrateCollide::is_valid_to_execute(self, other_id)? {
+            let success =
+                SabotageInternetCenterCrateCollide::execute_crate_behavior(self, other_id)?;
+            if let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+            {
+                self.base
+                    .finish_execution_attempt(&other, success)
+                    .map_err(GameError::from)?;
+            }
         }
 
         Ok(())
@@ -434,12 +433,9 @@ impl LegacyCollideAdapter for SabotageInternetCenterCrateCollide {
 
     fn legacy_would_like_to_collide_with(
         &self,
-        other: Arc<RwLock<Object>>,
+        other_id: crate::common::ObjectID,
     ) -> Result<bool, GameError> {
-        SabotageInternetCenterCrateCollide::is_valid_to_execute(
-            self,
-            other.read().map(|g| g.get_id()).unwrap_or(0),
-        )
+        SabotageInternetCenterCrateCollide::is_valid_to_execute(self, other_id)
     }
 
     fn legacy_is_sabotage_building_crate_collide(&self) -> bool {
@@ -453,10 +449,7 @@ impl CrateCollideModule for SabotageInternetCenterCrateCollide {
             return Ok(false);
         };
 
-        SabotageInternetCenterCrateCollide::is_valid_to_execute(
-            self,
-            other.read().map(|g| g.get_id()).unwrap_or(0),
-        )
+        SabotageInternetCenterCrateCollide::is_valid_to_execute(self, other_id)
     }
 
     fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
@@ -464,10 +457,7 @@ impl CrateCollideModule for SabotageInternetCenterCrateCollide {
             return Ok(false);
         };
 
-        SabotageInternetCenterCrateCollide::execute_crate_behavior(
-            self,
-            other.read().map(|g| g.get_id()).unwrap_or(0),
-        )
+        SabotageInternetCenterCrateCollide::execute_crate_behavior(self, other_id)
     }
 
     fn is_sabotage_building_crate_collide(&self) -> bool {

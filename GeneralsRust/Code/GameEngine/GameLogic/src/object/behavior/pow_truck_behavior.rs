@@ -335,11 +335,11 @@ impl POWTruckCollideAdapter {
 impl LegacyCollideAdapter for POWTruckCollideAdapter {
     fn legacy_on_collide(
         &mut self,
-        other: Arc<RwLock<Object>>,
+        other_id: crate::common::ObjectID,
         _loc: &CollideCoord3D,
         _normal: &CollideCoord3D,
     ) -> Result<(), GameError> {
-        let other_id = other.read().map(|guard| guard.get_id()).unwrap_or_default();
+        let other_id = other_id;
         if let Ok(mut guard) = self.behavior.lock() {
             guard.on_collision(self.owner_id, other_id);
         }
@@ -348,8 +348,13 @@ impl LegacyCollideAdapter for POWTruckCollideAdapter {
 
     fn legacy_would_like_to_collide_with(
         &self,
-        other: Arc<RwLock<Object>>,
+        other_id: crate::common::ObjectID,
     ) -> Result<bool, GameError> {
+        let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(false);
+        };
         let surrendered = other
             .read()
             .ok()
