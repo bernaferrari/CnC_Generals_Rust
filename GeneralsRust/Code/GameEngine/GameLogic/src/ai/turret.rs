@@ -98,7 +98,7 @@ impl TurretSharedState {
 /// Turret AI behavior controller
 pub struct TurretAI {
     /// Owner object
-    owner: Weak<RwLock<Object>>,
+    owner_id: ObjectID,
     /// Current target
     current_target: Option<ObjectID>,
     /// Target kind (none/object/position)
@@ -182,8 +182,12 @@ pub struct TurretAI {
 
 impl TurretAI {
     pub fn new(owner: Weak<RwLock<Object>>) -> Self {
+        let owner_id = owner
+            .upgrade()
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+            .unwrap_or(crate::common::INVALID_ID);
         Self {
-            owner,
+            owner_id,
             current_target: None,
             target_kind: TurretTargetKind::None,
             target_was_set_by_idle_mood: false,
@@ -228,6 +232,15 @@ impl TurretAI {
     }
 
     /// Get current target
+    fn owner_object(&self) -> Option<Arc<RwLock<Object>>> {
+        if self.owner_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id))
+            .or_else(|| crate::ai::object_registry::get_legacy_object(self.owner_id))
+    }
+
     pub fn get_current_target_id(&self) -> Option<ObjectID> {
         self.current_target
     }
@@ -435,7 +448,7 @@ impl TurretAI {
 
     /// Calculate angle to target
     pub fn calculate_angle_to_target(&self, target: &Arc<RwLock<Object>>) -> Option<f32> {
-        if let Some(owner_arc) = self.owner.upgrade() {
+        if let Some(owner_arc) = self.owner_object() {
             if let (Ok(owner_ref), Ok(target_ref)) = (owner_arc.try_read(), target.try_read()) {
                 let owner_pos = owner_ref.get_position();
                 let target_pos = target_ref.get_position();
@@ -451,7 +464,7 @@ impl TurretAI {
 
     /// Calculate pitch to target
     pub fn calculate_pitch_to_target(&self, target: &Arc<RwLock<Object>>) -> Option<f32> {
-        if let Some(owner_arc) = self.owner.upgrade() {
+        if let Some(owner_arc) = self.owner_object() {
             if let (Ok(owner_ref), Ok(target_ref)) = (owner_arc.try_read(), target.try_read()) {
                 if !target_ref.is_kind_of(KindOf::Aircraft) && self.ground_unit_pitch != 0.0 {
                     return Some(self.ground_unit_pitch);
@@ -561,7 +574,7 @@ impl TurretAI {
 
     /// Check if target is in weapon range
     pub fn is_target_in_weapon_range(&self, target: &Arc<RwLock<Object>>) -> bool {
-        if let Some(owner_arc) = self.owner.upgrade() {
+        if let Some(owner_arc) = self.owner_object() {
             if let Ok(owner_ref) = owner_arc.try_read() {
                 let Some(weapon) = owner_ref.get_weapon_in_slot(self.weapon_slot) else {
                     return false;
@@ -583,7 +596,7 @@ impl TurretAI {
 
     /// Check if any turret weapon is within range of target (matches C++ friend_isAnyWeaponInRangeOf)
     pub fn friend_is_any_weapon_in_range_of(&self, target: &Arc<RwLock<Object>>) -> bool {
-        let owner_arc = match self.owner.upgrade() {
+        let owner_arc = match self.owner_object() {
             Some(owner) => owner,
             None => return false,
         };
@@ -623,7 +636,7 @@ impl TurretAI {
             return targets;
         }
 
-        let owner_arc = match self.owner.upgrade() {
+        let owner_arc = match self.owner_object() {
             Some(owner) => owner,
             None => return targets,
         };
@@ -681,7 +694,7 @@ impl TurretAI {
         let mut best_target: Option<Arc<RwLock<Object>>> = None;
         let mut best_distance_sqr = f32::MAX;
 
-        if let Some(owner_arc) = self.owner.upgrade() {
+        if let Some(owner_arc) = self.owner_object() {
             if let Ok(owner_ref) = owner_arc.try_read() {
                 let owner_pos = owner_ref.get_position();
 
@@ -899,7 +912,7 @@ impl TurretAI {
     }
 
     pub fn is_owners_cur_weapon_on_turret(&self) -> bool {
-        let Some(owner) = self.owner.upgrade() else {
+        let Some(owner) = self.owner_object() else {
             return false;
         };
         let Ok(owner_guard) = owner.read() else {
@@ -1044,7 +1057,7 @@ impl TurretAI {
 
     /// Next frame to check idle mood target (matches C++ friend_getNextIdleMoodTargetFrame)
     pub fn friend_get_next_idle_mood_target_frame(&self) -> u32 {
-        let owner_arc = match self.owner.upgrade() {
+        let owner_arc = match self.owner_object() {
             Some(owner) => owner,
             None => return TheGameLogic::get_frame(),
         };
@@ -1062,7 +1075,7 @@ impl TurretAI {
 
     /// Check for idle mood target acquisition (matches C++ friend_checkForIdleMoodTarget)
     pub fn friend_check_for_idle_mood_target(&mut self) {
-        let owner_arc = match self.owner.upgrade() {
+        let owner_arc = match self.owner_object() {
             Some(owner) => owner,
             None => return,
         };
@@ -1663,7 +1676,7 @@ impl ClassicState for TurretAIAimTurretState {
                     if target_dead {
                         turret.set_current_target(None);
                         next_state = Some(TurretStateType::Hold);
-                    } else if let Some(owner_arc) = turret.owner.upgrade() {
+                    } else if let Some(owner_arc) = turret.owner_object() {
                         let (rel, is_primary_enemy, can_attack, can_attack_target, team_changed) =
                             match (owner_arc.read(), target.read()) {
                                 (Ok(owner_guard), Ok(target_guard)) => {

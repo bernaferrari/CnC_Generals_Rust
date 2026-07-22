@@ -480,21 +480,35 @@ pub fn xfer_die_module_with_derived_version(xfer: &mut dyn Xfer) -> Result<(), S
 #[derive(Debug)]
 pub struct DieModule<T: EngineModuleData> {
     pub module_data: Arc<T>,
-    pub object: Arc<RwLock<Object>>,
+    pub object_id: ObjectID,
 }
 
 impl<T: EngineModuleData> DieModule<T> {
     /// Create a new die module
     pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<T>) -> Self {
+        let object_id = object
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
         Self {
             module_data,
-            object,
+            object_id,
         }
     }
 
     /// Get the module data
     pub fn get_module_data(&self) -> &T {
         &self.module_data
+    }
+
+    /// Resolve the owner object for the duration of an op.
+    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 }
 
@@ -504,7 +518,7 @@ pub struct DieModuleWrapper {
     module_name_key: NameKeyType,
     module_tag_name_key: NameKeyType,
     module_data: Arc<dyn EngineModuleData>,
-    object: Arc<RwLock<Object>>,
+    object_id: ObjectID,
     die_module: Box<dyn DieModuleInterface>,
 }
 
@@ -517,13 +531,26 @@ impl DieModuleWrapper {
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         let module_tag_name_key = module_data.get_module_tag_name_key();
+        let object_id = object
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
         Self {
             module_name_key,
             module_tag_name_key,
             module_data,
-            object,
+            object_id,
             die_module,
         }
+    }
+
+    fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 }
 
@@ -560,8 +587,10 @@ impl crate::modules::DieModuleInterface for DieModuleWrapper {
         &mut self,
         damage: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut object = self
-            .object
+        let object_arc = self
+            .get_object()
+            .ok_or("die module wrapper object unavailable")?;
+        let mut object = object_arc
             .write()
             .map_err(|_| "die module wrapper object lock poisoned")?;
         self.die_module.on_die(&mut object, damage);

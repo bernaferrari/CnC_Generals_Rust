@@ -258,13 +258,25 @@ impl Snapshotable for BehaviorModuleData {
 
 /// BehaviorModule - Base implementation for all behavior modules
 pub struct BehaviorModule {
-    pub thing: Arc<RwLock<Object>>,
+    pub object_id: ObjectID,
     pub module_data: Arc<dyn ModuleData>,
 }
 
 impl BehaviorModule {
     pub fn new(thing: Arc<RwLock<Object>>, module_data: Arc<dyn ModuleData>) -> Self {
-        Self { thing, module_data }
+        let object_id = thing.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+        Self {
+            object_id,
+            module_data,
+        }
+    }
+
+    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 
     pub fn get_interface_mask() -> Int {
