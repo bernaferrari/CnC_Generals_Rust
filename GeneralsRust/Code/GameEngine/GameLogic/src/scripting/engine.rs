@@ -4093,16 +4093,21 @@ impl ScriptEngine {
 
     // PARITY_NOTE: C++ ScriptEngine::addObjectToCache
     pub fn add_object_to_cache(&mut self, object_id: ObjectID) {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+        let Some(name) = OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                let name = obj.get_name();
+                if name.is_empty() {
+                    None
+                } else {
+                    Some(name.to_string())
+                }
+            })
+            .flatten()
+        else {
             return;
         };
-        let Ok(obj) = obj_arc.read() else { return };
-        let name = obj.get_name();
-        if name.is_empty() {
-            return;
-        }
         let tracker = get_named_object_tracker();
-        let _ = tracker.register_named_object(name.to_string(), object_id);
+        let _ = tracker.register_named_object(name, object_id);
     }
 
     // PARITY_NOTE: C++ ScriptEngine::removeObjectFromCache
@@ -4389,7 +4394,7 @@ impl XferSnapshot for ScriptEngine {
                     xfer.xfer_ascii_string(&mut entry_name)?;
                     xfer.xfer_object_id(&mut entry_id)?;
                     if entry_id != crate::common::INVALID_ID
-                        && OBJECT_REGISTRY.get_object(entry_id).is_none()
+                        && OBJECT_REGISTRY.with_object(entry_id, |_| ()).is_none()
                     {
                         return Err(XferStatus::InvalidParameters);
                     }
@@ -4848,22 +4853,16 @@ pub fn transfer_object_name(
     from_name: &AsciiString,
     to_object_id: ObjectID,
 ) -> GameLogicResult<()> {
-    let Some(obj_arc) = OBJECT_REGISTRY.get_object(to_object_id) else {
-        return Err(GameLogicError::InvalidObject(to_object_id));
-    };
-
     let tracker = get_named_object_tracker();
     if let Ok(Some(old_id)) = tracker.get_object_id(from_name.as_str()) {
         let _ = tracker.unregister_object(old_id);
     }
 
-    if let Ok(mut guard) = obj_arc.write() {
+    let Some(()) = OBJECT_REGISTRY.with_object_mut(to_object_id, |guard| {
         guard.set_name(from_name.clone());
-    } else {
-        return Err(GameLogicError::Threading(
-            "Failed to acquire object write lock".to_string(),
-        ));
-    }
+    }) else {
+        return Err(GameLogicError::InvalidObject(to_object_id));
+    };
 
     tracker.register_named_object(from_name.to_string(), to_object_id)?;
     Ok(())

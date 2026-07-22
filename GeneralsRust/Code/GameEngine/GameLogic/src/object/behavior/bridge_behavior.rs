@@ -603,14 +603,9 @@ impl BridgeBehavior {
             return Ok(());
         }
 
-        if let Some(tower_object) = OBJECT_REGISTRY.get_object(tower_id) {
-            let module_handles = {
-                let tower_read = tower_object
-                    .read()
-                    .map_err(|e| format!("tower lock poisoned: {}", e))?;
-                tower_read.behavior_modules()
-            };
-
+        if let Some(module_handles) =
+            OBJECT_REGISTRY.with_object(tower_id, |tower_read| tower_read.behavior_modules())
+        {
             for handle in module_handles {
                 handle.with_module(|module| {
                     if let Some(tower) = module.get_bridge_tower_control_interface() {

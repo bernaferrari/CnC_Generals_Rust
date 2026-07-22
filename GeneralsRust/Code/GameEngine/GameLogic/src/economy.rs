@@ -802,13 +802,17 @@ impl EconomyManager {
     ) -> GameLogicResult<()> {
         let mut cost = HashMap::new();
         let mut building_type = "Economic Building".to_string();
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(building.object_id) {
-            if let Ok(obj_guard) = obj_arc.read() {
-                building_type = obj_guard.get_template_name().to_string();
-                let build_cost = obj_guard.get_template().get_build_cost();
-                if build_cost > 0 {
-                    cost.insert(ResourceType::Money, build_cost);
-                }
+        if let Some((name, build_cost)) =
+            OBJECT_REGISTRY.with_object(building.object_id, |obj_guard| {
+                (
+                    obj_guard.get_template_name().to_string(),
+                    obj_guard.get_template().get_build_cost(),
+                )
+            })
+        {
+            building_type = name;
+            if build_cost > 0 {
+                cost.insert(ResourceType::Money, build_cost);
             }
         }
         if cost.is_empty() {
@@ -979,17 +983,15 @@ impl EconomyManager {
     }
 
     fn check_supply_line_security(&self, _supply_line: &SupplyLine) -> GameLogicResult<bool> {
-        let Some(source_arc) = OBJECT_REGISTRY.get_object(_supply_line.source_id) else {
+        let Some(source_pos) = OBJECT_REGISTRY
+            .with_object(_supply_line.source_id, |source_guard| {
+                *source_guard.get_position()
+            })
+        else {
             return Ok(true);
         };
-        let Ok(source_guard) = source_arc.read() else {
-            return Ok(true);
-        };
-
-        let source_pos = *source_guard.get_position();
         let dest_pos = OBJECT_REGISTRY
-            .get_object(_supply_line.destination_id)
-            .and_then(|arc| arc.read().ok().map(|g| *g.get_position()))
+            .with_object(_supply_line.destination_id, |g| *g.get_position())
             .unwrap_or(source_pos);
 
         let mid = Coord3D::new(
@@ -1003,24 +1005,28 @@ impl EconomyManager {
         };
         let scan_radius = 200.0;
         for obj_id in partition.get_objects_in_range(&mid, scan_radius) {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(is_enemy) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if obj_guard.is_destroyed() {
+                        return None;
+                    }
+                    if !obj_guard.is_any_kind_of(&[
+                        KindOf::Infantry,
+                        KindOf::Vehicle,
+                        KindOf::Aircraft,
+                        KindOf::Unit,
+                    ]) {
+                        return None;
+                    }
+                    OBJECT_REGISTRY.with_object(_supply_line.source_id, |source_guard| {
+                        source_guard.relationship_to(obj_guard) == Relationship::Enemies
+                    })
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_destroyed() {
-                continue;
-            }
-            if !obj_guard.is_any_kind_of(&[
-                KindOf::Infantry,
-                KindOf::Vehicle,
-                KindOf::Aircraft,
-                KindOf::Unit,
-            ]) {
-                continue;
-            }
-            if source_guard.relationship_to(&*obj_guard) == Relationship::Enemies {
+            if is_enemy {
                 return Ok(false);
             }
         }

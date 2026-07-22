@@ -148,44 +148,29 @@ impl DrawModule for W3DOverlordTankDraw {
             return;
         };
 
-        let Some(owner) = crate::object::registry::OBJECT_REGISTRY.get_object(owner_id) else {
+        let Some(((owner_tint, owner_tint_status), rider_id)) =
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |owner_guard| {
+                    let owner_drawable = owner_guard.get_drawable();
+                    let tint = owner_drawable
+                        .as_ref()
+                        .and_then(|drawable| drawable.read().ok())
+                        .map(|guard| (guard.get_tint_color(), guard.get_tint_status()))
+                        .unwrap_or((Color::white(), TintStatus::NONE));
+                    let rider_id = owner_guard.get_contain().and_then(|contain| {
+                        contain.lock().ok().and_then(|cg| cg.friend_get_rider())
+                    })?;
+                    Some((tint, rider_id))
+                })
+                .flatten()
+        else {
             return;
         };
 
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-
-        let owner_drawable = owner_guard.get_drawable();
-        let (owner_tint, owner_tint_status) = owner_drawable
-            .as_ref()
-            .and_then(|drawable| drawable.read().ok())
-            .map(|guard| (guard.get_tint_color(), guard.get_tint_status()))
-            .unwrap_or((Color::white(), TintStatus::NONE));
-
-        let Some(contain) = owner_guard.get_contain() else {
-            return;
-        };
-
-        let Ok(contain_guard) = contain.lock() else {
-            return;
-        };
-
-        let rider_id = contain_guard.friend_get_rider();
-        drop(contain_guard);
-
-        let Some(rider_id) = rider_id else {
-            return;
-        };
-
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
-            return;
-        };
-        let Ok(rider_guard) = rider.read() else {
-            return;
-        };
-
-        let Some(drawable) = rider_guard.get_drawable() else {
+        let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(rider_id, |rider_guard| rider_guard.get_drawable())
+            .flatten()
+        else {
             return;
         };
 
@@ -219,33 +204,22 @@ impl DrawModule for W3DOverlordTankDraw {
             return;
         };
 
-        let Some(owner) = crate::object::registry::OBJECT_REGISTRY.get_object(owner_id) else {
+        let Some(rider_id) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| {
+                owner_guard
+                    .get_contain()
+                    .and_then(|contain| contain.lock().ok().and_then(|cg| cg.friend_get_rider()))
+            })
+            .flatten()
+        else {
             return;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-        let Some(contain) = owner_guard.get_contain() else {
-            return;
-        };
-        let Ok(contain_guard) = contain.lock() else {
-            return;
-        };
-        let rider_id = contain_guard.friend_get_rider();
-        drop(contain_guard);
-        let Some(rider_id) = rider_id else {
-            return;
-        };
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
-            return;
-        };
-        let Ok(rider_guard) = rider.read() else {
-            return;
-        };
-        let Some(drawable) = rider_guard.get_drawable() else {
-            return;
-        };
-        drawable.set_drawable_hidden(hidden);
+        if let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(rider_id, |rider_guard| rider_guard.get_drawable())
+            .flatten()
+        {
+            drawable.set_drawable_hidden(hidden);
+        }
     }
 
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {

@@ -152,38 +152,35 @@ impl SquishCollide {
     }
 
     fn should_allow_squish(&self, owner: &OwnerSnapshot, target: &TargetSnapshot) -> bool {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(owner.id) else {
-            return true;
-        };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return true;
-        };
+        OBJECT_REGISTRY
+            .with_object(owner.id, |owner_guard| {
+                let goal_matches_target = owner_guard
+                    .get_ai_update_interface()
+                    .and_then(|ai| ai.lock().ok().and_then(|guard| guard.get_goal_object()))
+                    .and_then(|goal| goal.read().ok().map(|guard| guard.get_id()))
+                    .map(|goal_id| goal_id == target.id)
+                    .unwrap_or(false);
+                if !goal_matches_target {
+                    return true;
+                }
 
-        let goal_matches_target = owner_guard
-            .get_ai_update_interface()
-            .and_then(|ai| ai.lock().ok().and_then(|guard| guard.get_goal_object()))
-            .and_then(|goal| goal.read().ok().map(|guard| guard.get_id()))
-            .map(|goal_id| goal_id == target.id)
-            .unwrap_or(false);
-        if !goal_matches_target {
-            return true;
-        }
+                if owner_guard.find_update_module("HijackerUpdate").is_some() {
+                    return false;
+                }
 
-        if owner_guard.find_update_module("HijackerUpdate").is_some() {
-            return false;
-        }
+                let is_tnt_active = owner_guard
+                    .find_special_ability_update(
+                        crate::common::types::SpecialPowerType::SpecialTankHunterTntAttack,
+                    )
+                    .and_then(|update| update.lock().ok().map(|guard| guard.is_ability_active()))
+                    .unwrap_or(false);
+                if is_tnt_active {
+                    return false;
+                }
 
-        let is_tnt_active = owner_guard
-            .find_special_ability_update(
-                crate::common::types::SpecialPowerType::SpecialTankHunterTntAttack,
-            )
-            .and_then(|update| update.lock().ok().map(|guard| guard.is_ability_active()))
-            .unwrap_or(false);
-        if is_tnt_active {
-            return false;
-        }
-
-        true
+                true
+            })
+            .unwrap_or(true)
     }
 
     fn can_crush(&self, owner: &OwnerSnapshot, target: &TargetSnapshot) -> bool {
@@ -330,18 +327,16 @@ impl TargetSnapshot {
             orientation: other.get_orientation(),
         };
 
-        if let Some(handle) = OBJECT_REGISTRY.get_object(snapshot.id) {
-            if let Ok(object) = handle.read() {
-                snapshot.geometry = collision_geometry_from_logic(object.get_geometry_info());
-                snapshot.orientation = object.get_orientation();
-                if let Some(physics) = object.get_physics() {
-                    snapshot.velocity_xy = physics.lock().ok().map(|guard| {
-                        let velocity = guard.get_velocity();
-                        (velocity.x, velocity.y)
-                    });
-                }
+        let _ = OBJECT_REGISTRY.with_object(snapshot.id, |object| {
+            snapshot.geometry = collision_geometry_from_logic(object.get_geometry_info());
+            snapshot.orientation = object.get_orientation();
+            if let Some(physics) = object.get_physics() {
+                snapshot.velocity_xy = physics.lock().ok().map(|guard| {
+                    let velocity = guard.get_velocity();
+                    (velocity.x, velocity.y)
+                });
             }
-        }
+        });
 
         snapshot
     }
