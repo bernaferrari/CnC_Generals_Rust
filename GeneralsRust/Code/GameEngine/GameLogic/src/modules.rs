@@ -1245,7 +1245,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn set_turret_target_object(
         &mut self,
         _turret: TurretType,
-        _target: Option<&Arc<RwLock<Object>>>,
+        _target_id: Option<ObjectID>,
         _force_attacking: bool,
     ) {
     }
@@ -1320,7 +1320,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Cancel dock operation
     fn cancel_dock(
         &mut self,
-        _obj: &Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
@@ -1364,7 +1364,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
     fn ignore_obstacle(
         &mut self,
-        _obj: Option<&Arc<RwLock<Object>>>,
+        _obj_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
@@ -1641,7 +1641,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Check if clear to advance
     fn is_clear_to_advance(
         &self,
-        _obj: &Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
         _approach_position: i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(true)
@@ -1650,7 +1650,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Reserve approach position
     fn reserve_approach_position(
         &mut self,
-        _obj: &Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
         _goal_pos: &mut Coord3D,
         _approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -1713,7 +1713,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// On approach reached
     fn on_approach_reached(
         &mut self,
-        _obj: &Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
@@ -1721,7 +1721,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Advance approach position
     fn advance_approach_position(
         &mut self,
-        _obj: &Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
         _goal_pos: &mut Coord3D,
         _approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -1731,7 +1731,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Check if clear to enter
     fn is_clear_to_enter(
         &self,
-        _obj: &Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(true)
     }
@@ -1739,7 +1739,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Get enter position
     fn get_enter_position(
         &self,
-        _obj: &Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
         _goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
@@ -1748,7 +1748,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// On enter reached
     fn on_enter_reached(
         &mut self,
-        _obj: &Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
@@ -1756,7 +1756,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Get dock position
     fn get_dock_position(
         &self,
-        _obj: &Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
         _goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
@@ -1801,7 +1801,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// AI force attack object
     fn ai_force_attack_object(
         &mut self,
-        _target: &Arc<RwLock<Object>>,
+        _target_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
@@ -1809,7 +1809,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// AI attack object
     fn ai_attack_object(
         &mut self,
-        _target: &Arc<RwLock<Object>>,
+        _target_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
@@ -1833,7 +1833,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// AI guard object
     fn ai_guard_object(
         &mut self,
-        _target: &Arc<RwLock<Object>>,
+        _target_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
