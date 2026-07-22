@@ -61,7 +61,9 @@ impl std::fmt::Debug for GameObjectInstance {
         match self {
             GameObjectInstance::Unit(_) => f.write_str("GameObjectInstance::Unit(..)"),
             GameObjectInstance::Structure(_) => f.write_str("GameObjectInstance::Structure(..)"),
-            GameObjectInstance::SimpleObject(_) => f.write_str("GameObjectInstance::SimpleObject(..)"),
+            GameObjectInstance::SimpleObject(_) => {
+                f.write_str("GameObjectInstance::SimpleObject(..)")
+            }
             GameObjectInstance::BaseObject(id) => write!(f, "GameObjectInstance::BaseObject({id})"),
         }
     }
@@ -74,11 +76,9 @@ impl GameObjectInstance {
             GameObjectInstance::Unit(unit) => unit.base_object(),
             GameObjectInstance::Structure(structure) => structure.base_object(),
             GameObjectInstance::SimpleObject(simple_object) => simple_object.base_object(),
-            GameObjectInstance::BaseObject(id) => {
-                crate::object::registry::OBJECT_REGISTRY
-                    .get_object(*id)
-                    .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(*id))
-            }
+            GameObjectInstance::BaseObject(id) => crate::object::registry::OBJECT_REGISTRY
+                .get_object(*id)
+                .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(*id)),
         }
     }
 

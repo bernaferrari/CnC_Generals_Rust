@@ -62,11 +62,7 @@ pub struct DamageModule<T: ModuleData> {
 
 impl<T: ModuleData> DamageModule<T> {
     pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<T>) -> Self {
-        let object_id = object
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(INVALID_ID);
+        let object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
         if object_id != INVALID_ID {
             crate::object::registry::OBJECT_REGISTRY.register_object(object_id, &object);
         }

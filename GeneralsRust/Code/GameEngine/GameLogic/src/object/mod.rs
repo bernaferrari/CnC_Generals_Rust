@@ -12623,9 +12623,7 @@ impl Snapshot for Object {
         xfer_matrix3d(xfer, &mut transform);
         self.set_transform_matrix(&transform);
 
-        let mut team_id = self
-            .get_team_id()
-            .unwrap_or(crate::team::TEAM_ID_INVALID);
+        let mut team_id = self.get_team_id().unwrap_or(crate::team::TEAM_ID_INVALID);
         let _ = xfer.xfer_unsigned_int(&mut team_id);
 
         let _ = xfer.xfer_unsigned_int(&mut self.producer_id);
@@ -14743,7 +14741,8 @@ mod visibility_tests {
         let obj_arc = obj_result.unwrap();
         {
             let mut obj_guard = obj_arc.write().expect("Lock should not be poisoned");
-            obj_guard.team_id = None; obj_guard.team_pin = None;
+            obj_guard.team_id = None;
+            obj_guard.team_pin = None;
             obj_guard.original_team_name = AsciiString::from("AnyOriginalTeam");
 
             let result = obj_guard.restore_original_team();
