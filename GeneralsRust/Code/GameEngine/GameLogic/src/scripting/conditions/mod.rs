@@ -6368,12 +6368,12 @@ impl ScriptCondition for PlayerLostObjectTypeCondition {
                         if obj_guard.is_destroyed() {
                             return false;
                         }
-                        let owner = obj_guard
-                            .player
-                            .as_ref()
-                            .and_then(|p| p.read().ok())
-                            .map(|p| p.get_player_index())
-                            .unwrap_or(-1);
+                        let owner = {
+                            let player = obj_guard.get_controlling_player();
+                            player
+                                .and_then(|p| p.read().ok().map(|g| g.get_player_index()))
+                                .unwrap_or(-1)
+                        };
                         if owner != player_index {
                             return false;
                         }
