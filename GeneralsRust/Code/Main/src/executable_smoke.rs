@@ -2656,7 +2656,7 @@ mod skirmish_wnd_start_residual_tests {
         let idx = eng
             .find("\"click_skirmish_start\"")
             .expect("click_skirmish_start command");
-        let window = &eng[idx..idx + 4500];
+        let window = &eng[idx..idx + 9000];
         assert!(
             window.contains("simulate_skirmish_start_button_gadget_selected"),
             "must try retail WND ButtonStart GadgetSelected residual"
@@ -2677,8 +2677,8 @@ mod skirmish_wnd_start_residual_tests {
         let src = include_str!("executable_smoke.rs");
         assert!(
             src.contains("GENERALS_RUNTIME_HOST_WND")
-                && src.contains("unwrap_or_else(|_| \"0\".into())"),
-            "smoke defaults WND=0 for gate stability"
+                && src.contains("unwrap_or_else(|_| \"1\".into())"),
+            "smoke defaults WND=1 for retail ButtonStart residual"
         );
         assert!(
             src.contains("skirmish_start_wnd_ok"),

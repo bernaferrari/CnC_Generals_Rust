@@ -1101,7 +1101,14 @@ impl ObjectManager {
 
     /// Get object by ID
     pub fn get_object(&self, object_id: ObjectID) -> Option<Arc<RwLock<GameObjectInstance>>> {
+        // Clone the Arc handle so callers can drop the ObjectManager lock.
+        // Prefer `for_each_object` / direct store walks when the manager stays borrowed.
         self.objects.get(&object_id).cloned()
+    }
+
+    /// Borrow the stored Arc without cloning (manager must stay borrowed).
+    pub fn get_object_ref(&self, object_id: ObjectID) -> Option<&Arc<RwLock<GameObjectInstance>>> {
+        self.objects.get(&object_id)
     }
 
     /// Destroy object
@@ -1232,11 +1239,11 @@ impl ObjectManager {
     /// ```
     pub fn for_each_object<F>(&self, mut f: F)
     where
-        F: FnMut(ObjectID, Arc<RwLock<GameObjectInstance>>),
+        F: FnMut(ObjectID, &Arc<RwLock<GameObjectInstance>>),
     {
         for &id in &self.update_order {
             if let Some(obj_arc) = self.objects.get(&id) {
-                f(id, obj_arc.clone());
+                f(id, obj_arc);
             }
         }
     }
@@ -1565,6 +1572,7 @@ mod tests {
 
         manager.objects.insert(1, obj1);
         manager.objects.insert(2, obj2);
+        manager.update_order = vec![1, 2];
 
         // Iterate and collect IDs
         let mut collected_ids = Vec::new();
@@ -1627,6 +1635,7 @@ mod tests {
                     .expect("failed to create object instance"),
             ));
             manager.objects.insert(i, obj);
+            manager.update_order.push(i);
         }
 
         // Method 1: all_object_ids()
