@@ -579,13 +579,13 @@ impl StealthDetectorUpdate {
                                             .create_particle_system(Some(template_name.as_str()))
                                         {
                                             let mut grid_pos = position;
-                                            if let Some(target_obj) =
+                                            if let Some(pos) =
                                                 crate::object::registry::OBJECT_REGISTRY
-                                                    .get_object(obj_id)
+                                                    .with_object(obj_id, |target_guard| {
+                                                        *target_guard.get_position()
+                                                    })
                                             {
-                                                if let Ok(target_guard) = target_obj.read() {
-                                                    grid_pos = *target_guard.get_position();
-                                                }
+                                                grid_pos = pos;
                                             }
                                             grid_pos.z = position.z + 17.0;
                                             let ix = grid_pos.x as i32;
@@ -607,30 +607,24 @@ impl StealthDetectorUpdate {
                                 drop(target);
                                 if let Ok(contain_guard) = contain.lock() {
                                     for &rider_id in contain_guard.get_contained_objects() {
-                                        if let Some(rider_obj) =
+                                        if let Some(stealth_module) =
                                             crate::object::registry::OBJECT_REGISTRY
-                                                .get_object(rider_id)
-                                        {
-                                            if let Ok(rider_guard) = rider_obj.read() {
-                                                if rider_guard.is_stealthed()
-                                                    && rider_guard.get_team_id() != self_team_id
-                                                {
-                                                    found_someone = true;
-                                                    if let Some(stealth_module) =
-                                                        rider_guard.get_stealth_module()
+                                                .with_object(rider_id, |rider_guard| {
+                                                    if rider_guard.is_stealthed()
+                                                        && rider_guard.get_team_id() != self_team_id
                                                     {
-                                                        drop(rider_guard);
-                                                        if let Ok(mut stealth_guard) =
-                                                            stealth_module.lock()
-                                                        {
-                                                            stealth_guard.mark_as_detected_for(
-                                                                self.module_data
-                                                                    .update_rate
-                                                                    .saturating_add(2),
-                                                            );
-                                                        }
+                                                        found_someone = true;
+                                                        rider_guard.get_stealth_module()
+                                                    } else {
+                                                        None
                                                     }
-                                                }
+                                                })
+                                                .flatten()
+                                        {
+                                            if let Ok(mut stealth_guard) = stealth_module.lock() {
+                                                stealth_guard.mark_as_detected_for(
+                                                    self.module_data.update_rate.saturating_add(2),
+                                                );
                                             }
                                         }
                                     }

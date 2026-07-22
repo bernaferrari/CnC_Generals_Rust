@@ -2324,7 +2324,11 @@ impl DefaultCommandHandler {
             }
             control_bar::mark_ui_dirty();
         } else {
-            self.hide_beacon_for_local(&beacon_object);
+            let beacon_id = beacon_object
+                .read()
+                .map(|guard| guard.get_id())
+                .unwrap_or_default();
+            self.hide_beacon_for_local(beacon_id);
         }
 
         CommandExecutionResult::Success
@@ -2405,11 +2409,7 @@ impl DefaultCommandHandler {
                 removed_entries.push((owner_id, entry_position));
                 control_bar::mark_ui_dirty();
             } else if is_local_player {
-                if let Some(obj_arc) =
-                    crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-                {
-                    self.hide_beacon_for_local(&obj_arc);
-                }
+                self.hide_beacon_for_local(object_id);
                 removed_entries.push((owner_id, entry_position));
             }
         }
@@ -2687,10 +2687,11 @@ impl DefaultCommandHandler {
         }
     }
 
-    fn hide_beacon_for_local(&self, beacon_object: &Arc<RwLock<crate::object::Object>>) {
-        let modules = match beacon_object.read() {
-            Ok(guard) => guard.client_update_modules(),
-            Err(_) => return,
+    fn hide_beacon_for_local(&self, beacon_id: crate::common::ObjectID) {
+        let Some(modules) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(beacon_id, |guard| guard.client_update_modules())
+        else {
+            return;
         };
         for module in modules {
             module.with_module(|module| {
@@ -2743,8 +2744,9 @@ impl DefaultCommandHandler {
                 continue;
             }
             let entry_position = *obj_guard.get_position();
+            let beacon_id = obj_guard.get_id();
             drop(obj_guard);
-            self.hide_beacon_for_local(&obj_arc);
+            self.hide_beacon_for_local(beacon_id);
             hidden.push((owner_id, entry_position));
         }
         hidden
