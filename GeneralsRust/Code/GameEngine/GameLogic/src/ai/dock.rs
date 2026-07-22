@@ -94,15 +94,22 @@ impl From<AIDockState> for u32 {
     }
 }
 
-fn fetch_owner_and_goal_from_move(
+fn resolve_dock_object(id: ObjectID, label: &str) -> Result<Arc<RwLock<Object>>, String> {
+    crate::helpers::TheGameLogic::find_object_by_id(id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        .ok_or_else(|| format!("{label} object {id} not found"))
+}
+
+fn fetch_owner_and_goal_ids_from_move(
     helper: &AIInternalMoveToState,
     label: &str,
-) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
-    let goal_object = helper.get_machine_goal_object()?;
+) -> Result<(ObjectID, ObjectID), String> {
+    let goal_id = helper
+        .get_machine_goal_object_id()?
+        .ok_or_else(|| format!("{} missing goal object", label))?;
+    let goal_obj = resolve_dock_object(goal_id, label)?;
 
-    let goal_obj = goal_object.ok_or_else(|| format!("{} missing goal object", label))?;
-
-    // Verify dock interface exists, but return the object
+    // Verify dock interface exists
     let has_dock = goal_obj
         .lock()
         .map_err(|_| format!("{} goal object poisoned", label))?
@@ -113,9 +120,19 @@ fn fetch_owner_and_goal_from_move(
         return Err(format!("{} missing dock interface", label));
     }
 
-    let owner = helper.get_machine_owner()?;
+    let owner_id = helper.get_machine_owner_id()?;
+    Ok((owner_id, goal_id))
+}
 
-    Ok((owner, goal_obj))
+fn fetch_owner_and_goal_from_move(
+    helper: &AIInternalMoveToState,
+    label: &str,
+) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
+    let (owner_id, goal_id) = fetch_owner_and_goal_ids_from_move(helper, label)?;
+    Ok((
+        resolve_dock_object(owner_id, label)?,
+        resolve_dock_object(goal_id, label)?,
+    ))
 }
 
 trait DockResultExt<T> {
@@ -489,10 +506,11 @@ impl AIDockWaitForClearanceState {
     }
 
     fn owner_and_goal(&self) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
-        let goal_object = self
+        let goal_id = self
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
             .ok_or_else(|| "dock wait missing goal object".to_string())?;
+        let goal_object = resolve_dock_object(goal_id, "dock wait")?;
 
         let has_dock = goal_object
             .read()
@@ -504,10 +522,11 @@ impl AIDockWaitForClearanceState {
             return Err("dock wait missing dock interface".to_string());
         }
 
-        let owner = self
+        let owner_id = self
             .base
-            .get_machine_owner()
+            .get_machine_owner_id()
             .ok_or_else(|| "dock wait missing owner".to_string())?;
+        let owner = resolve_dock_object(owner_id, "dock wait")?;
 
         Ok((owner, goal_object))
     }
@@ -1046,10 +1065,11 @@ impl AIDockProcessDockState {
     }
 
     fn owner_and_goal(&self) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
-        let goal_object = self
+        let goal_id = self
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
             .ok_or_else(|| "dock process missing goal object".to_string())?;
+        let goal_object = resolve_dock_object(goal_id, "dock process")?;
 
         let has_dock = goal_object
             .lock()
@@ -1061,10 +1081,11 @@ impl AIDockProcessDockState {
             return Err("dock process missing dock interface".to_string());
         }
 
-        let owner = self
+        let owner_id = self
             .base
-            .get_machine_owner()
+            .get_machine_owner_id()
             .ok_or_else(|| "dock process missing owner".to_string())?;
+        let owner = resolve_dock_object(owner_id, "dock process")?;
 
         Ok((owner, goal_object))
     }
