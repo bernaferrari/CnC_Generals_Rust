@@ -48,8 +48,10 @@ use log::warn;
 #[derive(Debug)]
 pub enum GameObjectInstance {
     Unit(Arc<RwLock<Unit>>),
-    Structure(Arc<RwLock<Structure>>),
-    SimpleObject(Arc<RwLock<SimpleObject>>),
+    /// Owned by the factory registry (borrow via get_object_mut).
+    Structure(Structure),
+    /// Owned by the factory registry (borrow via get_object_mut).
+    SimpleObject(SimpleObject),
     BaseObject(Arc<RwLock<Object>>),
 }
 
@@ -61,14 +63,8 @@ impl GameObjectInstance {
                 .read()
                 .unwrap_or_else(|poison| poison.into_inner())
                 .base_object(),
-            GameObjectInstance::Structure(structure) => structure
-                .read()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .base_object(),
-            GameObjectInstance::SimpleObject(simple_object) => simple_object
-                .read()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .base_object(),
+            GameObjectInstance::Structure(structure) => structure.base_object(),
+            GameObjectInstance::SimpleObject(simple_object) => simple_object.base_object(),
             GameObjectInstance::BaseObject(object) => Some(object.clone()),
         }
     }
@@ -92,14 +88,10 @@ impl GameObjectInstance {
                 }
             }
             GameObjectInstance::Structure(structure) => {
-                if let Ok(mut structure_guard) = structure.write() {
-                    structure_guard.update(delta_time)?;
-                }
+                structure.update(delta_time)?;
             }
             GameObjectInstance::SimpleObject(simple_object) => {
-                if let Ok(mut simple_object_guard) = simple_object.write() {
-                    simple_object_guard.update(delta_time)?;
-                }
+                simple_object.update(delta_time)?;
             }
             GameObjectInstance::BaseObject(_) => {
                 // Base objects don't have additional update logic beyond their modules
@@ -675,12 +667,12 @@ impl ObjectFactory {
 
             ObjectType::Structure => {
                 let structure = Structure::new(base_object.clone(), &template)?;
-                GameObjectInstance::Structure(Arc::new(RwLock::new(structure)))
+                GameObjectInstance::Structure(structure)
             }
 
             ObjectType::SimpleObject => {
                 let simple_object = SimpleObject::new(base_object.clone(), &template)?;
-                GameObjectInstance::SimpleObject(Arc::new(RwLock::new(simple_object)))
+                GameObjectInstance::SimpleObject(simple_object)
             }
 
             ObjectType::BaseObject => GameObjectInstance::BaseObject(base_object.clone()),
