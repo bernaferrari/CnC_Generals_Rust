@@ -783,8 +783,15 @@ fn resolve_supply_object(id: ObjectID) -> Result<Arc<RwLock<Object>>, String> {
         .ok_or_else(|| format!("SupplyTruck object {id} not found"))
 }
 
+fn owner_id_from_state(state: &dyn StateImplementation) -> Option<ObjectID> {
+    state
+        .get_machine_owner_id()
+        .ok()
+        .filter(|id| *id != INVALID_ID)
+}
+
 fn owner_from_state(state: &dyn StateImplementation) -> Option<Arc<RwLock<Object>>> {
-    let owner_id = state.get_machine_owner_id().ok()?;
+    let owner_id = owner_id_from_state(state)?;
     resolve_supply_object(owner_id).ok()
 }
 fn owner_ai_and_truck(
@@ -1685,8 +1692,16 @@ impl SupplyTruckAIUpdate {
         self.upgrade_system = Some(upgrade_system);
     }
 
+    fn owner_id(&self) -> ObjectID {
+        self.object_id
+    }
+
     fn owner_object(&self) -> Option<Arc<RwLock<Object>>> {
+        if self.object_id == INVALID_ID {
+            return None;
+        }
         TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 
     fn update_drawable_supply_status(&self) {
@@ -2688,8 +2703,16 @@ impl WorkerAIUpdate {
         }
     }
 
+    fn owner_id(&self) -> ObjectID {
+        self.object_id
+    }
+
     fn owner_object(&self) -> Option<Arc<RwLock<Object>>> {
+        if self.object_id == INVALID_ID {
+            return None;
+        }
         TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 
     fn update_drawable_supply_status(&self) {
