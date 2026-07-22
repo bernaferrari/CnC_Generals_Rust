@@ -10373,93 +10373,58 @@ impl CnCGameEngine {
         player_id: u32,
         location: glam::Vec3,
     ) -> Option<crate::game_logic::ObjectId> {
+        // Presentation-only roster; team from player still via host player store.
         let team = self
             .game_logic
             .get_player(player_id)
             .map(|p| p.team)
+            .or_else(|| {
+                self.last_presentation_frame
+                    .as_ref()
+                    .map(|f| f.local_team())
+            })
             .unwrap_or(crate::game_logic::Team::USA);
-        let mut best: Option<(crate::game_logic::ObjectId, f32)> = None;
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            // Presentation residual — pure residual acquire (XZ).
-            let cands: Vec<_> = frame
-                .objects
-                .iter()
-                .filter_map(|o| {
-                    if o.destroyed || o.team != team {
-                        return None;
-                    }
-                    let n = o.template_name.to_ascii_lowercase();
-                    if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
-                        return None;
-                    }
-                    if !crate::unit_control::UnitControlSystem::presentation_is_selectable(o) {
-                        return None;
-                    }
-                    Some(
-                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                            id: o.id,
-                            team: o.team,
-                            position: o.position,
-                            is_alive: true,
-                            is_neutral: false,
-                            under_construction: o.under_construction,
-                            combat_kind: true,
-                            effectively_stealthed: false,
-                            is_air: false,
-                            eject_invulnerable: false,
-                        },
-                    )
-                })
-                .collect();
-            best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
-                None,
-                (location.x, location.z),
-                cands,
-                f32::MAX,
-                |_| true,
-            )
-            .map(|(id, dist, _)| (id, dist));
-        } else {
-            // Boot residual only — pure residual acquire (XZ).
-            let cands: Vec<_> = self
-                .game_logic
-                .get_objects()
-                .iter()
-                .filter_map(|(&id, obj)| {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        return None;
-                    }
-                    let n = obj.template_name.to_ascii_lowercase();
-                    if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
-                        return None;
-                    }
-                    Some(
-                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                            id,
-                            team: obj.team,
-                            position: obj.get_position(),
-                            is_alive: true,
-                            is_neutral: false,
-                            under_construction: obj.status.under_construction,
-                            combat_kind: true,
-                            effectively_stealthed: false,
-                            is_air: false,
-                            eject_invulnerable: false,
-                        },
-                    )
-                })
-                .collect();
-            best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
-                None,
-                (location.x, location.z),
-                cands,
-                f32::MAX,
-                |_| true,
-            )
-            .map(|(id, dist, _)| (id, dist));
-        }
-        best.map(|(id, _)| id)
+        let frame = self.last_presentation_frame.as_ref()?;
+        let cands: Vec<_> = frame
+            .objects
+            .iter()
+            .filter_map(|o| {
+                if o.destroyed || o.team != team {
+                    return None;
+                }
+                let n = o.template_name.to_ascii_lowercase();
+                if !(n.contains("dozer") || n.contains("worker") || n.contains("crane")) {
+                    return None;
+                }
+                if !crate::unit_control::UnitControlSystem::presentation_is_selectable(o) {
+                    return None;
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: o.id,
+                        team: o.team,
+                        position: o.position,
+                        is_alive: true,
+                        is_neutral: false,
+                        under_construction: o.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: false,
+                        is_air: false,
+                        eject_invulnerable: false,
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+            None,
+            (location.x, location.z),
+            cands,
+            f32::MAX,
+            |_| true,
+        )
+        .map(|(id, _, _)| id)
     }
+
     fn is_wall_structure_template(template_name: &str) -> bool {
         let n = template_name.to_ascii_lowercase();
         n.contains("wall")
@@ -11934,18 +11899,11 @@ impl CnCGameEngine {
     /// Do **not** average every local object — map-wide centroid pulls the camera
     /// between bases and frustum-culls everything.
     fn snap_camera_to_local_units_if_needed(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
-        };
-        // Prefer presentation-frozen team base, else structure centroid, else camera.
-        // Live team_base_position is boot residual only (no presentation frame).
-        let start_hint = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame
+        // Presentation-only: compute focus from snapshot, then apply camera mutably.
+        let Some(focus) = (|| {
+            let frame = self.last_presentation_frame.as_ref()?;
+            let team = frame.local_team();
+            let start_hint = frame
                 .local_team_base_position
                 .or_else(|| {
                     frame
@@ -11956,7 +11914,6 @@ impl CnCGameEngine {
                         .next()
                 })
                 .or_else(|| {
-                    // Centroid of first few friendly structures as proximity seed.
                     let mut sum = Vec3::ZERO;
                     let mut n = 0u32;
                     for o in &frame.objects {
@@ -11970,21 +11927,14 @@ impl CnCGameEngine {
                     }
                     (n > 0).then_some(sum / n as f32)
                 })
-                .unwrap_or(self.camera_target)
-        } else {
-            self.game_logic
-                .team_base_position(team)
-                .unwrap_or(self.camera_target)
-        };
+                .unwrap_or(self.camera_target);
 
-        let mut command_center: Option<Vec3> = None;
-        let mut nearest_structure: Option<(f32, Vec3)> = None;
-        let mut nearest_mobile: Option<(f32, Vec3)> = None;
-        let mut structure_sum = Vec3::ZERO;
-        let mut structure_n = 0u32;
+            let mut command_center: Option<Vec3> = None;
+            let mut nearest_structure: Option<(f32, Vec3)> = None;
+            let mut nearest_mobile: Option<(f32, Vec3)> = None;
+            let mut structure_sum = Vec3::ZERO;
+            let mut structure_n = 0u32;
 
-        // Prefer presentation poses when dual-tick snapshot is installed.
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
             use crate::presentation_frame::PresentationBuildingType;
             for o in &frame.objects {
                 if o.team != team || o.destroyed {
@@ -12031,60 +11981,18 @@ impl CnCGameEngine {
                     });
                 }
             }
-        } else {
-            // Boot residual only — presentation path owns InGame snap.
-            for obj in self.game_logic.get_objects().values() {
-                if obj.team != team || !obj.is_alive() {
-                    continue;
-                }
-                let pos = obj.get_position();
-                let d2 = {
-                    let dx = pos.x - start_hint.x;
-                    let dz = pos.z - start_hint.z;
-                    dx * dx + dz * dz
-                };
-                if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                    structure_sum += pos;
-                    structure_n += 1;
-                    let name = obj.name.to_ascii_lowercase();
-                    if name.contains("commandcenter") || name.contains("command_center") {
-                        match command_center {
-                            None => command_center = Some(pos),
-                            Some(prev) => {
-                                let pdx = prev.x - start_hint.x;
-                                let pdz = prev.z - start_hint.z;
-                                if d2 < pdx * pdx + pdz * pdz {
-                                    command_center = Some(pos);
-                                }
-                            }
-                        }
-                    }
-                    nearest_structure = Some(match nearest_structure {
-                        None => (d2, pos),
-                        Some((best, _)) if d2 < best => (d2, pos),
-                        Some(other) => other,
-                    });
-                } else if obj.is_mobile() || obj.is_kind_of(crate::game_logic::KindOf::Infantry) {
-                    nearest_mobile = Some(match nearest_mobile {
-                        None => (d2, pos),
-                        Some((best, _)) if d2 < best => (d2, pos),
-                        Some(other) => other,
-                    });
-                }
-            }
-        }
 
-        let focus = command_center
-            .or_else(|| nearest_structure.map(|(_, p)| p))
-            .or_else(|| {
-                if structure_n > 0 {
-                    Some(structure_sum / structure_n as f32)
-                } else {
-                    None
-                }
-            })
-            .or_else(|| nearest_mobile.map(|(_, p)| p));
-        let Some(focus) = focus else {
+            command_center
+                .or_else(|| nearest_structure.map(|(_, p)| p))
+                .or_else(|| {
+                    if structure_n > 0 {
+                        Some(structure_sum / structure_n as f32)
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| nearest_mobile.map(|(_, p)| p))
+        })() else {
             return;
         };
 
@@ -15215,32 +15123,12 @@ impl CnCGameEngine {
     }
 
     fn stop_all_friendly_units(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_friendly_stoppable_ids(team)
-            } else {
-                // Boot residual only — presentation path owns InGame.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.can_move() {
-                        continue;
-                    }
-                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    ids.push(id);
-                }
-
-                ids
-            };
+        let team = frame.local_team();
+        let ids = frame.alive_friendly_stoppable_ids(team);
         if ids.is_empty() {
             let msg = "No units to stop";
             self.game_hud.push_info_message(msg);
