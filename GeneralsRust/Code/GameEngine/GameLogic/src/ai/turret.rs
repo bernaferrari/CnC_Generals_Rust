@@ -6,6 +6,7 @@ use crate::common::*;
 use crate::compat::{legacy_transition, register_classic_state, ClassicState};
 use crate::game_logic::game_logic::TheGameLogic;
 use crate::helpers::ThePartitionManager;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::*;
 use crate::state_machine::*;
 use crate::team::TeamID;
@@ -99,7 +100,7 @@ pub struct TurretAI {
     /// Owner object
     owner: Weak<RwLock<Object>>,
     /// Current target
-    current_target: Option<Arc<RwLock<Object>>>,
+    current_target: Option<ObjectID>,
     /// Target kind (none/object/position)
     target_kind: TurretTargetKind,
     /// Whether current target was set by idle mood targeting
@@ -227,13 +228,19 @@ impl TurretAI {
     }
 
     /// Get current target
-    pub fn get_current_target(&self) -> Option<&Arc<RwLock<Object>>> {
-        self.current_target.as_ref()
+    pub fn get_current_target_id(&self) -> Option<ObjectID> {
+        self.current_target
     }
 
-    /// Set current target
-    pub fn set_current_target(&mut self, target: Option<Arc<RwLock<Object>>>) {
-        self.current_target = target;
+    /// Resolve the current target handle for call sites that still need an Arc.
+    pub fn get_current_target(&self) -> Option<Arc<RwLock<Object>>> {
+        self.current_target
+            .and_then(|id| OBJECT_REGISTRY.get_object(id))
+    }
+
+    /// Set current target by stable object ID.
+    pub fn set_current_target(&mut self, target: Option<ObjectID>) {
+        self.current_target = target.filter(|&id| id != crate::common::INVALID_ID);
         self.target_kind = if self.current_target.is_some() {
             TurretTargetKind::Object
         } else {
@@ -241,18 +248,19 @@ impl TurretAI {
         };
         self.target_was_set_by_idle_mood = false;
         self.is_force_attacking = false;
-        self.victim_initial_team = self
-            .current_target
-            .as_ref()
-            .and_then(|target| target.read().ok().and_then(|guard| guard.get_team_id()));
+        self.victim_initial_team = self.current_target.and_then(|id| {
+            OBJECT_REGISTRY
+                .with_object(id, |guard| guard.get_team_id())
+                .flatten()
+        });
         self.target_position = None;
         self.sync_goal_object();
         self.sync_state_for_target();
     }
 
     /// Set current target from idle mood selection
-    pub fn set_current_target_from_idle_mood(&mut self, target: Option<Arc<RwLock<Object>>>) {
-        self.current_target = target;
+    pub fn set_current_target_from_idle_mood(&mut self, target: Option<ObjectID>) {
+        self.current_target = target.filter(|&id| id != crate::common::INVALID_ID);
         self.target_kind = if self.current_target.is_some() {
             TurretTargetKind::Object
         } else {
@@ -260,10 +268,11 @@ impl TurretAI {
         };
         self.target_was_set_by_idle_mood = true;
         self.is_force_attacking = false;
-        self.victim_initial_team = self
-            .current_target
-            .as_ref()
-            .and_then(|target| target.read().ok().and_then(|guard| guard.get_team_id()));
+        self.victim_initial_team = self.current_target.and_then(|id| {
+            OBJECT_REGISTRY
+                .with_object(id, |guard| guard.get_team_id())
+                .flatten()
+        });
         self.target_position = None;
         self.sync_goal_object();
         self.sync_state_for_target();
@@ -283,10 +292,10 @@ impl TurretAI {
 
     pub fn set_current_target_with_force(
         &mut self,
-        target: Option<Arc<RwLock<Object>>>,
+        target: Option<ObjectID>,
         force_attacking: bool,
     ) {
-        self.current_target = target;
+        self.current_target = target.filter(|&id| id != crate::common::INVALID_ID);
         self.target_kind = if self.current_target.is_some() {
             TurretTargetKind::Object
         } else {
@@ -294,10 +303,11 @@ impl TurretAI {
         };
         self.target_was_set_by_idle_mood = false;
         self.is_force_attacking = force_attacking;
-        self.victim_initial_team = self
-            .current_target
-            .as_ref()
-            .and_then(|target| target.read().ok().and_then(|guard| guard.get_team_id()));
+        self.victim_initial_team = self.current_target.and_then(|id| {
+            OBJECT_REGISTRY
+                .with_object(id, |guard| guard.get_team_id())
+                .flatten()
+        });
         self.target_position = None;
         self.sync_goal_object();
         self.sync_state_for_target();
@@ -329,8 +339,12 @@ impl TurretAI {
         if let Ok(mut guard) = machine.lock() {
             match self.target_kind {
                 TurretTargetKind::Object => {
-                    if let Some(target) = &self.current_target {
-                        guard.set_goal_object(Some(Arc::downgrade(target)));
+                    if let Some(target_id) = self.current_target {
+                        if let Some(target) = OBJECT_REGISTRY.get_object(target_id) {
+                            guard.set_goal_object(Some(Arc::downgrade(&target)));
+                        } else {
+                            guard.set_goal_object(None);
+                        }
                     } else {
                         guard.set_goal_object(None);
                     }
@@ -914,11 +928,7 @@ impl TurretAI {
     }
 
     pub fn is_trying_to_aim_at_target(&self, target: ObjectID) -> bool {
-        let has_target = self
-            .current_target
-            .as_ref()
-            .and_then(|target_arc| target_arc.read().ok().map(|guard| guard.get_id() == target))
-            .unwrap_or(false);
+        let has_target = self.current_target == Some(target);
         if !has_target {
             return false;
         }
@@ -1091,7 +1101,8 @@ impl TurretAI {
                     crate::common::CommandSourceType::FromAi,
                 );
             }
-            self.set_current_target_from_idle_mood(Some(enemy));
+            let enemy_id = enemy.read().ok().map(|g| g.get_id());
+            self.set_current_target_from_idle_mood(enemy_id);
         }
     }
 }
@@ -1651,7 +1662,7 @@ impl ClassicState for TurretAIAimTurretState {
         let mut next_state = None;
         if let Some(turret_ai) = self.base.turret_ai_lock()? {
             if let Ok(mut turret) = turret_ai.lock() {
-                if let Some(target) = turret.get_current_target().cloned() {
+                if let Some(target) = turret.get_current_target() {
                     let target_dead = target
                         .try_read()
                         .map(|guard| guard.is_effectively_dead())
@@ -1849,7 +1860,7 @@ impl ClassicState for TurretAIFireWeaponState {
             let turret_guard = turret_ai_arc
                 .lock()
                 .map_err(|_| "turret AI lock poisoned")?;
-            let target_opt = turret_guard.get_current_target().cloned();
+            let target_opt = turret_guard.get_current_target();
             let weapon_slot = turret_guard.weapon_slot;
             drop(turret_guard);
 
@@ -2329,10 +2340,10 @@ impl Snapshotable for TurretAI {
         // C++ TurretAI.cpp line 359-364: captures victim initial team
         // The turret state machine's goal object is the victim
         if self.target_kind == TurretTargetKind::Object {
-            if let Some(target) = &self.current_target {
-                if let Ok(guard) = target.read() {
-                    self.victim_initial_team = guard.get_team_id();
-                }
+            if let Some(target_id) = self.current_target {
+                self.victim_initial_team = OBJECT_REGISTRY
+                    .with_object(target_id, |guard| guard.get_team_id())
+                    .flatten();
             }
         }
         Ok(())

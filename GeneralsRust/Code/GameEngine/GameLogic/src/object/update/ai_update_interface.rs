@@ -2323,7 +2323,7 @@ impl AIUpdateInterface {
                 let target = if target_id == INVALID_ID {
                     None
                 } else {
-                    OBJECT_REGISTRY.get_object(target_id)
+                    Some(target_id)
                 };
                 guard.set_current_target(target);
             }
