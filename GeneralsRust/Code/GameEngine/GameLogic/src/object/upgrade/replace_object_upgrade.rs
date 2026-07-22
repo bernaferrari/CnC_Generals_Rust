@@ -141,25 +141,18 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             return false;
         }
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let Some((transform, position, team_opt, was_structure)) =
+            OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+                (
+                    object_guard.get_transform_matrix(),
+                    *object_guard.get_position(),
+                    object_guard.get_team(),
+                    object_guard.is_structure(),
+                )
+            })
+        else {
             log::warn!("ReplaceObjectUpgrade: Object {} not found", self.object_id);
             return false;
-        };
-
-        let (transform, position, team_opt, was_structure) = {
-            let Ok(object_guard) = object.read() else {
-                log::error!(
-                    "ReplaceObjectUpgrade: Failed to lock object {}",
-                    self.object_id
-                );
-                return false;
-            };
-            (
-                object_guard.get_transform_matrix(),
-                *object_guard.get_position(),
-                object_guard.get_team(),
-                object_guard.is_structure(),
-            )
         };
 
         let Some(replacement_template) = TheThingFactory::find_template(replace_name.as_str())
@@ -176,15 +169,18 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     if was_structure {
-                        if let Ok(object_guard) = object.read() {
-                            pf.remove_wall_from_object(&object_guard);
-                        }
+                        let _ = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+                            pf.remove_wall_from_object(object_guard);
+                        });
                     } else {
                         pf.remove_object_from_map(self.object_id, &[position]);
                     }
                 }
             }
         }
+
+        // Retain constructor handle for Player::onStructureConstructionComplete constructor arg.
+        let constructor_arc = OBJECT_REGISTRY.get_object(self.object_id);
 
         if let Ok(mut manager) = get_object_manager().write() {
             manager.destroy_object(self.object_id);
@@ -264,7 +260,7 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             if let Some(player) = replacement_guard.get_controlling_player() {
                 if let Ok(mut player_guard) = player.write() {
                     player_guard.on_structure_construction_complete(
-                        Some(&object),
+                        constructor_arc.as_ref(),
                         &replacement_object,
                         false,
                     );
