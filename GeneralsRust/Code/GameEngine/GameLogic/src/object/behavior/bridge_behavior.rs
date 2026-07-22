@@ -1655,13 +1655,7 @@ impl DamageModuleInterface for BridgeBehavior {
         drop(me_read);
 
         let source_is_bridge_tower = OBJECT_REGISTRY
-            .get_object(source_id)
-            .and_then(|source| {
-                source
-                    .read()
-                    .ok()
-                    .map(|guard| guard.is_kind_of(KindOf::BridgeTower))
-            })
+            .with_object(source_id, |guard| guard.is_kind_of(KindOf::BridgeTower))
             .unwrap_or(false);
 
         if !source_is_bridge_tower {
@@ -1735,13 +1729,7 @@ impl DamageModuleInterface for BridgeBehavior {
         drop(me_read);
 
         let source_is_bridge_tower = OBJECT_REGISTRY
-            .get_object(source_id)
-            .and_then(|source| {
-                source
-                    .read()
-                    .ok()
-                    .map(|guard| guard.is_kind_of(KindOf::BridgeTower))
-            })
+            .with_object(source_id, |guard| guard.is_kind_of(KindOf::BridgeTower))
             .unwrap_or(false);
 
         if !source_is_bridge_tower {

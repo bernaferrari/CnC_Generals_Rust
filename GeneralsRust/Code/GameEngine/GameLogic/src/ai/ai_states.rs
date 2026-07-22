@@ -1111,22 +1111,23 @@ impl AIState for AIExitState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Some(container_arc) = owner_arc.read().ok().and_then(|g| g.get_contained_by()) {
-                if let Ok(container_guard) = container_arc.read() {
-                    if let Some(contain) = container_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
-                            if let Ok(owner_guard) = owner_arc.read() {
-                                let _ = contain_guard.on_object_wants_to_enter_or_exit(
-                                    &*owner_guard,
-                                    ContainWant::WantsNeither,
-                                );
-                            }
-                        }
-                    }
-                }
+        let _ = OBJECT_REGISTRY.with_object(context.owner_id, |owner_guard| {
+            let Some(container_id) = owner_guard.get_contained_by() else {
+                return;
+            };
+            let Some(contain) = OBJECT_REGISTRY
+                .with_object(container_id, |container_guard| container_guard.get_contain())
+                .flatten()
+            else {
+                return;
+            };
+            if let Ok(mut contain_guard) = contain.lock() {
+                let _ = contain_guard.on_object_wants_to_enter_or_exit(
+                    owner_guard,
+                    ContainWant::WantsNeither,
+                );
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -1641,22 +1642,23 @@ impl AIState for AIExitInstantlyState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Some(container_arc) = owner_arc.read().ok().and_then(|g| g.get_contained_by()) {
-                if let Ok(container_guard) = container_arc.read() {
-                    if let Some(contain) = container_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
-                            if let Ok(owner_guard) = owner_arc.read() {
-                                let _ = contain_guard.on_object_wants_to_enter_or_exit(
-                                    &*owner_guard,
-                                    ContainWant::WantsNeither,
-                                );
-                            }
-                        }
-                    }
-                }
+        let _ = OBJECT_REGISTRY.with_object(context.owner_id, |owner_guard| {
+            let Some(container_id) = owner_guard.get_contained_by() else {
+                return;
+            };
+            let Some(contain) = OBJECT_REGISTRY
+                .with_object(container_id, |container_guard| container_guard.get_contain())
+                .flatten()
+            else {
+                return;
+            };
+            if let Ok(mut contain_guard) = contain.lock() {
+                let _ = contain_guard.on_object_wants_to_enter_or_exit(
+                    owner_guard,
+                    ContainWant::WantsNeither,
+                );
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {

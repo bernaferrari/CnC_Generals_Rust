@@ -179,13 +179,6 @@ impl CollisionSystem {
         id_a: ObjectId,
         id_b: ObjectId,
     ) -> Result<bool, CollisionError> {
-        let Some(obj_a) = OBJECT_REGISTRY.get_object(id_a) else {
-            return Ok(false);
-        };
-        let Some(obj_b) = OBJECT_REGISTRY.get_object(id_b) else {
-            return Ok(false);
-        };
-
         let Some((pos_a, geom_a)) = self.partition_manager.get_object_info(id_a) else {
             return Ok(false);
         };
@@ -200,22 +193,33 @@ impl CollisionSystem {
             return Ok(false);
         }
 
-        let no_collide_mask = ObjectStatusMask::from_status(ObjectStatusTypes::NoCollisions);
-        if obj_a.get_status_bits().test_for_any(no_collide_mask)
-            || obj_b.get_status_bits().test_for_any(no_collide_mask)
+        // Borrow-first early outs before retaining Arc handles for response.
+        let no_collide = OBJECT_REGISTRY
+            .with_object(id_a, |obj| obj.test_status(ObjectStatusTypes::NoCollisions))
+            .unwrap_or(true)
+            || OBJECT_REGISTRY
+                .with_object(id_b, |obj| obj.test_status(ObjectStatusTypes::NoCollisions))
+                .unwrap_or(true);
+        if no_collide {
+            return Ok(false);
+        }
+
+        if Self::should_ignore_ai_collision_id(id_a) || Self::should_ignore_ai_collision_id(id_b) {
+            return Ok(false);
+        }
+
+        if Self::should_ignore_physics_collision_id(id_a, id_b)
+            || Self::should_ignore_physics_collision_id(id_b, id_a)
         {
             return Ok(false);
         }
 
-        if Self::should_ignore_ai_collision(&obj_a) || Self::should_ignore_ai_collision(&obj_b) {
+        let Some(obj_a) = OBJECT_REGISTRY.get_object(id_a) else {
             return Ok(false);
-        }
-
-        if Self::should_ignore_physics_collision(&obj_a, id_b)
-            || Self::should_ignore_physics_collision(&obj_b, id_a)
-        {
+        };
+        let Some(obj_b) = OBJECT_REGISTRY.get_object(id_b) else {
             return Ok(false);
-        }
+        };
 
         self.handle_ai_collision(&obj_a, &obj_b);
 
@@ -270,6 +274,34 @@ impl CollisionSystem {
             return false;
         };
         physics_guard.get_ignore_collisions_with() == other_id
+    }
+
+    fn should_ignore_ai_collision_id(id: ObjectId) -> bool {
+        OBJECT_REGISTRY
+            .with_object(id, |guard| {
+                let Some(ai) = guard.get_ai_update_interface() else {
+                    return false;
+                };
+                let Ok(ai_guard) = ai.lock() else {
+                    return false;
+                };
+                ai_guard.get_ignore_collisions_until() > TheGameLogic::get_frame()
+            })
+            .unwrap_or(false)
+    }
+
+    fn should_ignore_physics_collision_id(id: ObjectId, other_id: ObjectId) -> bool {
+        OBJECT_REGISTRY
+            .with_object(id, |guard| {
+                let Some(physics) = guard.get_physics() else {
+                    return false;
+                };
+                let Ok(physics_guard) = physics.lock() else {
+                    return false;
+                };
+                physics_guard.get_ignore_collisions_with() == other_id
+            })
+            .unwrap_or(false)
     }
 
     fn should_ignore_ai_collision(obj: &Arc<RwLock<crate::object::Object>>) -> bool {

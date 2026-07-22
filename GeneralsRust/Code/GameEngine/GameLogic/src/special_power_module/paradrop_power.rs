@@ -419,19 +419,15 @@ impl ParadropPower {
         let ctx = crate::object_creation_list::live_creation_context();
 
         let start = self.find_closest_edge(target);
-        let Some(owner_arc) = (self.owner_object_id != INVALID_ID)
-            .then(|| OBJECT_REGISTRY.get_object(self.owner_object_id))
-            .flatten()
-        else {
+        if self.owner_object_id == INVALID_ID {
             self.aircraft_id = None;
             return Ok(());
-        };
-        let created = {
-            let Ok(primary_obj) = owner_arc.read() else {
-                self.aircraft_id = None;
-                return Ok(());
-            };
-            ocl.create_with_owner_flag(&ctx, Some(&*primary_obj), &start, target, true, 0)
+        }
+        let Some(created) = OBJECT_REGISTRY.with_object(self.owner_object_id, |primary_obj| {
+            ocl.create_with_owner_flag(&ctx, Some(primary_obj), &start, target, true, 0)
+        }) else {
+            self.aircraft_id = None;
+            return Ok(());
         };
         self.aircraft_id = created.and_then(|h| h.read().ok().map(|o| o.get_id()));
 
