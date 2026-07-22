@@ -15,6 +15,7 @@ use crate::object::die::{
     parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,
     parse_die_mux_veterancy_levels,
 };
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use crate::scripting::engine::transfer_object_name;
 use crate::system::game_logic::get_game_logic;
@@ -301,20 +302,14 @@ impl RebuildHoleExposeDie {
             return;
         };
 
-        let mut current = game_logic.get_first_object();
-        while let Some(obj) = current {
-            let next = if let Ok(obj_guard) = obj.read() {
+        for &object_id in game_logic.get_all_object_ids() {
+            let _ = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                 if let Some(ai) = obj_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
                         ai_guard.transfer_attack(old_object_id, new_object_id);
                     }
                 }
-                obj_guard.get_next_object()
-            } else {
-                None
-            };
-
-            current = next;
+            });
         }
     }
 }

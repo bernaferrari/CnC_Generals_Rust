@@ -23,6 +23,7 @@ use crate::object::behavior::behavior_module::{
     xfer_update_module_base_state, BehaviorModuleData, RebuildHoleBehaviorInterface,
 };
 use crate::object::behavior::sticky_bomb_update::StickyBombUpdate;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use crate::scripting::engine::transfer_object_name;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -192,18 +193,14 @@ impl RebuildHoleBehavior {
         let Some(game_logic) = crate::system::game_logic::get_game_logic().lock().ok() else {
             return;
         };
-        let mut current = game_logic.get_first_object();
-        while let Some(obj_arc) = current {
-            if let Ok(guard) = obj_arc.write() {
+        for &object_id in game_logic.get_all_object_ids() {
+            let _ = OBJECT_REGISTRY.with_object(object_id, |guard| {
                 if let Some(ai) = guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.try_lock() {
                         ai_guard.transfer_attack(from_id, to_id);
                     }
                 }
-                current = guard.get_next_object();
-            } else {
-                break;
-            }
+            });
         }
     }
 
@@ -211,24 +208,21 @@ impl RebuildHoleBehavior {
         let Some(game_logic) = crate::system::game_logic::get_game_logic().lock().ok() else {
             return;
         };
-        let mut current = game_logic.get_first_object();
-        while let Some(obj_arc) = current {
-            if let Ok(guard) = obj_arc.write() {
+        let reconstruction_id = reconstruction.get_id();
+        for &object_id in game_logic.get_all_object_ids() {
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
                 if guard.is_kind_of(crate::common::KindOf::Mine) {
                     if let Some(module) = guard.find_update_module("StickyBombUpdate") {
                         module.with_module(|module| {
                             if let Some(sticky_bomb) = module.get_sticky_bomb_control_interface() {
                                 if sticky_bomb.get_target() == self.object_id {
-                                    sticky_bomb.set_target_object_id(reconstruction.get_id());
+                                    sticky_bomb.set_target_object_id(reconstruction_id);
                                 }
                             }
                         });
                     }
                 }
-                current = guard.get_next_object();
-            } else {
-                break;
-            }
+            });
         }
     }
 
