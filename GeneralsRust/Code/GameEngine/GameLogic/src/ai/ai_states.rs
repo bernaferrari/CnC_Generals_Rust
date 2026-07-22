@@ -150,110 +150,85 @@ impl Default for AIStateMachineContext {
 }
 
 fn out_of_weapon_range_object(context: &AIStateMachineContext) -> bool {
-    let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-        return false;
-    };
     let Some(target_id) = context.goal_object else {
         return false;
     };
-    let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
-        return false;
-    };
-    let Ok(owner) = owner_arc.read() else {
-        return false;
-    };
-    let Ok(target) = target_arc.read() else {
-        return false;
-    };
-
-    let Some((weapon, _slot)) = owner.get_current_weapon() else {
-        return false;
-    };
-    if weapon.has_leech_range() {
-        return false;
-    }
-
-    !weapon.is_within_attack_range(owner.get_id(), Some(target.get_id()), None)
+    OBJECT_REGISTRY
+        .with_object(context.owner_id, |owner| {
+            let Some((weapon, _slot)) = owner.get_current_weapon() else {
+                return false;
+            };
+            if weapon.has_leech_range() {
+                return false;
+            }
+            if OBJECT_REGISTRY.with_object(target_id, |_| ()).is_none() {
+                return false;
+            }
+            !weapon.is_within_attack_range(owner.get_id(), Some(target_id), None)
+        })
+        .unwrap_or(false)
 }
 
 fn out_of_weapon_range_position(context: &AIStateMachineContext) -> bool {
-    let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-        return false;
-    };
-    let Ok(owner) = owner_arc.read() else {
-        return false;
-    };
     let Some(goal_position) = context.goal_position else {
         return false;
     };
-
-    let Some((weapon, _slot)) = owner.get_current_weapon() else {
-        return false;
-    };
-
-    !weapon.is_within_attack_range(owner.get_id(), None, Some(&goal_position))
+    OBJECT_REGISTRY
+        .with_object(context.owner_id, |owner| {
+            let Some((weapon, _slot)) = owner.get_current_weapon() else {
+                return false;
+            };
+            !weapon.is_within_attack_range(owner.get_id(), None, Some(&goal_position))
+        })
+        .unwrap_or(false)
 }
 
 fn want_to_squish_target(context: &AIStateMachineContext) -> bool {
-    let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-        return false;
-    };
     let Some(target_id) = context.goal_object else {
         return false;
     };
-    let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
-        return false;
-    };
-    let Ok(owner) = owner_arc.read() else {
-        return false;
-    };
-    let Ok(target) = target_arc.read() else {
-        return false;
-    };
-
-    if target.get_contained_by().is_some() {
-        return false;
-    }
-
-    let turret = owner
-        .get_ai_update_interface()
-        .map(|ai| ai.get_which_turret_for_cur_weapon())
-        .unwrap_or(TurretType::Invalid);
-    if turret == TurretType::Invalid {
-        return false;
-    }
-
-    let is_computer = owner
-        .get_controlling_player()
-        .and_then(|player| player.read().ok())
-        .map(|player| player.get_player_type() == PlayerType::Computer)
+    let target_ok = OBJECT_REGISTRY
+        .with_object(target_id, |target| {
+            target.get_contained_by().is_none() && target.is_kind_of(KindOf::Infantry)
+        })
         .unwrap_or(false);
-    if !is_computer {
+    if !target_ok {
         return false;
     }
 
-    if owner.get_crusher_level() == 0 {
-        return false;
-    }
+    OBJECT_REGISTRY
+        .with_object(context.owner_id, |owner| {
+            let turret = owner
+                .get_ai_update_interface()
+                .map(|ai| ai.get_which_turret_for_cur_weapon())
+                .unwrap_or(TurretType::Invalid);
+            if turret == TurretType::Invalid {
+                return false;
+            }
 
-    if !target.is_kind_of(KindOf::Infantry) {
-        return false;
-    }
+            let is_computer = owner
+                .get_controlling_player()
+                .and_then(|player| player.read().ok())
+                .map(|player| player.get_player_type() == PlayerType::Computer)
+                .unwrap_or(false);
+            if !is_computer {
+                return false;
+            }
 
-    true
+            owner.get_crusher_level() != 0
+        })
+        .unwrap_or(false)
 }
 
 fn goal_reached(context: &AIStateMachineContext) -> bool {
     let Some(goal_pos) = context.goal_position else {
         return false;
     };
-    let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+    let Some(current_pos) =
+        OBJECT_REGISTRY.with_object(context.owner_id, |owner| *owner.get_position())
+    else {
         return false;
     };
-    let Ok(owner) = owner_arc.read() else {
-        return false;
-    };
-    let current_pos = *owner.get_position();
     let delta = goal_pos - current_pos;
     let dist_sqr = delta.x * delta.x + delta.y * delta.y;
     let close_enough = PATHFIND_CLOSE_ENOUGH * PATHFIND_CLOSE_ENOUGH;
@@ -262,12 +237,9 @@ fn goal_reached(context: &AIStateMachineContext) -> bool {
 
 fn resolve_goal_position(context: &mut AIStateMachineContext) -> Option<Coord3D> {
     if let Some(target_id) = context.goal_object {
-        if let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) {
-            if let Ok(target) = target_arc.read() {
-                let pos = *target.get_position();
-                context.goal_position = Some(pos);
-                return Some(pos);
-            }
+        if let Some(pos) = OBJECT_REGISTRY.with_object(target_id, |target| *target.get_position()) {
+            context.goal_position = Some(pos);
+            return Some(pos);
         }
     }
 
@@ -390,13 +362,11 @@ impl AIMoveToState {
         let Some(goal_pos) = context.goal_position else {
             return false;
         };
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(start_pos) =
+            OBJECT_REGISTRY.with_object(context.owner_id, |owner| *owner.get_position())
+        else {
             return false;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return false;
-        };
-        let start_pos = *owner.get_position();
 
         let path_result = with_ai_integration(|manager| {
             manager.request_pathfinding(&start_pos, &goal_pos, SURFACE_GROUND, false)
@@ -439,13 +409,12 @@ impl AIState for AIMoveToState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.destroy_path();
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.destroy_path();
             }
         }
     }
@@ -472,13 +441,10 @@ impl AIMoveOutOfTheWayState {
 
 impl AIState for AIMoveOutOfTheWayState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Failed;
-        };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        let Some(ai) = owner.get_ai_update_interface() else {
+        let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        else {
             return StateReturnType::Failed;
         };
         let Ok(ai_guard) = ai.lock() else {
@@ -495,21 +461,20 @@ impl AIState for AIMoveOutOfTheWayState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(status) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+            if owner.is_effectively_dead() {
+                return Some(None);
+            }
+            Some(owner.get_ai_update_interface())
+        }) else {
             return StateReturnType::Failed;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        if owner.is_effectively_dead() {
+        let Some(ai) = status else {
             return StateReturnType::Success;
-        }
-
-        if let Some(ai) = owner.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
-                if ai_guard.is_blocked_and_stuck() {
-                    let _ = ai_guard.set_can_path_through_units(true);
-                }
+        };
+        if let Ok(mut ai_guard) = ai.lock() {
+            if ai_guard.is_blocked_and_stuck() {
+                let _ = ai_guard.set_can_path_through_units(true);
             }
         }
 
@@ -521,15 +486,14 @@ impl AIState for AIMoveOutOfTheWayState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.destroy_path();
-                        let _ = ai_guard.set_can_path_through_units(false);
-                        ai_guard.clear_move_out_of_way();
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.destroy_path();
+                let _ = ai_guard.set_can_path_through_units(false);
+                ai_guard.clear_move_out_of_way();
             }
         }
     }
@@ -576,13 +540,12 @@ impl AIMoveAndEvacuateState {
 
 impl AIState for AIMoveAndEvacuateState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(origin) =
+            OBJECT_REGISTRY.with_object(context.owner_id, |owner| *owner.get_position())
+        else {
             return StateReturnType::Failed;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        self.origin = *owner.get_position();
+        self.origin = origin;
 
         let Some(goal_pos) = resolve_goal_position(context) else {
             return StateReturnType::Failed;
@@ -653,21 +616,16 @@ impl AIState for AIMoveAndDeleteState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(should_destroy) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+            if owner.is_effectively_dead() {
+                return None;
+            }
+            Some(goal_reached(context))
+        }) else {
             return StateReturnType::Failed;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-
-        if owner.is_effectively_dead() {
-            return StateReturnType::Failed;
-        }
-
-        if goal_reached(context) {
-            let owner_id = owner.get_id();
-            drop(owner);
-            let _ = TheGameLogic::destroy_object_by_id(owner_id);
+        if should_destroy {
+            let _ = TheGameLogic::destroy_object_by_id(context.owner_id);
             return StateReturnType::Success;
         }
 
@@ -675,13 +633,12 @@ impl AIState for AIMoveAndDeleteState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.destroy_path();
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.destroy_path();
             }
         }
     }
@@ -708,13 +665,12 @@ impl AIFollowPathState {
         }
         let next = context.goal_path[self.path_index];
         context.goal_position = Some(next);
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.set_movement_target(&next);
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let _ = ai_guard.set_movement_target(&next);
             }
         }
         true
@@ -748,14 +704,13 @@ impl AIState for AIFollowPathState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.set_can_path_through_units(false);
-                        ai_guard.destroy_path();
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.set_can_path_through_units(false);
+                ai_guard.destroy_path();
             }
         }
     }
@@ -850,36 +805,26 @@ impl AIDeadState {
 
 impl AIState for AIDeadState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    ai.mark_as_dead();
-                }
-            }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            ai.mark_as_dead();
         }
         StateReturnType::Continue
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Success;
-        };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Success;
-        };
-        if owner.is_effectively_dead() {
-            StateReturnType::Success
-        } else {
-            StateReturnType::Continue
+        match OBJECT_REGISTRY.with_object(context.owner_id, |owner| owner.is_effectively_dead()) {
+            None | Some(true) => StateReturnType::Success,
+            Some(false) => StateReturnType::Continue,
         }
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(mut owner) = owner_arc.write() {
-                owner.clear_model_condition_state(ModelConditionFlags::DYING);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.clear_model_condition_state(ModelConditionFlags::DYING);
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -904,30 +849,23 @@ impl AIState for AIDockState {
         let Some(goal_id) = context.goal_object else {
             return StateReturnType::Failed;
         };
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Failed;
-        };
-        let Some(goal_arc) = OBJECT_REGISTRY.get_object(goal_id) else {
-            return StateReturnType::Failed;
-        };
-
-        let Ok(goal_guard) = goal_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        let has_dock = goal_guard
-            .with_dock_update_interface(|_| true)
+        let has_dock = OBJECT_REGISTRY
+            .with_object(goal_id, |goal_guard| {
+                goal_guard.with_dock_update_interface(|_| true).unwrap_or(false)
+            })
             .unwrap_or(false);
         if !has_dock {
             return StateReturnType::Failed;
         }
 
-        if let Ok(owner_guard) = owner_arc.read() {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let legacy_goal = get_legacy_object(goal_id);
-                    let _ = ai_guard.ignore_obstacle(legacy_goal.as_ref());
-                    let _ = ai_guard.set_can_path_through_units(true);
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner_guard| owner_guard.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let legacy_goal = get_legacy_object(goal_id);
+                let _ = ai_guard.ignore_obstacle(legacy_goal.as_ref());
+                let _ = ai_guard.set_can_path_through_units(true);
             }
         }
 
@@ -960,14 +898,13 @@ impl AIState for AIDockState {
         if let Some(mut machine) = self.dock_machine.take() {
             let _ = machine.halt();
         }
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner_guard) = owner_arc.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.set_can_path_through_units(false);
-                        let _ = ai_guard.ignore_obstacle(None);
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let _ = ai_guard.set_can_path_through_units(false);
+                let _ = ai_guard.ignore_obstacle(None);
             }
         }
     }
@@ -1094,14 +1031,13 @@ impl AIState for AIEnterState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner_guard) = owner_arc.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.set_allow_invalid_position(false);
-                        let _ = ai_guard.ignore_obstacle(None);
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let _ = ai_guard.set_allow_invalid_position(false);
+                let _ = ai_guard.ignore_obstacle(None);
             }
         }
         if self.entry_to_clear != INVALID_ID {
@@ -1169,16 +1105,11 @@ impl AIState for AIExitState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Success;
-        };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return StateReturnType::Success;
-        };
-        if owner_guard.get_contained_by().is_none() {
-            StateReturnType::Success
-        } else {
-            StateReturnType::Continue
+        match OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_contained_by().is_none())
+        {
+            None | Some(true) => StateReturnType::Success,
+            Some(false) => StateReturnType::Continue,
         }
     }
 
@@ -1272,13 +1203,12 @@ impl AIState for AIPickUpCrateState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.destroy_path();
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.destroy_path();
             }
         }
     }
@@ -1364,17 +1294,16 @@ impl AIHackInternetState {
 
 impl AIState for AIHackInternetState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner_guard) = owner_arc.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let mut params = AiCommandParams::new(
-                            AiCommandType::HackInternet,
-                            CommandSourceType::FromAi,
-                        );
-                        let _ = ai_guard.execute_command(&params);
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let mut params = AiCommandParams::new(
+                    AiCommandType::HackInternet,
+                    CommandSourceType::FromAi,
+                );
+                let _ = ai_guard.execute_command(&params);
             }
         }
         StateReturnType::Continue
@@ -1405,11 +1334,9 @@ impl AIState for AIHackInternetState {
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
         // C++ HackInternetState::onExit clears MODELCONDITION_FIRING_A on the owner.
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(mut owner) = owner_arc.write() {
-                owner.clear_model_condition_state(ModelConditionFlags::FIRING_A);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.clear_model_condition_state(ModelConditionFlags::FIRING_A);
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -1432,24 +1359,23 @@ impl AIState for AIFaceObjectState {
         let Some(goal_id) = context.goal_object else {
             return StateReturnType::Failed;
         };
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(goal_pos) =
+            OBJECT_REGISTRY.with_object(goal_id, |goal_guard| *goal_guard.get_position())
+        else {
             return StateReturnType::Failed;
         };
-        let Some(goal_arc) = OBJECT_REGISTRY.get_object(goal_id) else {
+        let oriented = OBJECT_REGISTRY
+            .with_object_mut(context.owner_id, |owner_guard| {
+                let owner_pos = owner_guard.get_position();
+                let dx = goal_pos.x - owner_pos.x;
+                let dy = goal_pos.y - owner_pos.y;
+                let angle = dy.atan2(dx);
+                let _ = owner_guard.set_orientation(angle);
+            })
+            .is_some();
+        if !oriented {
             return StateReturnType::Failed;
-        };
-        let Ok(mut owner_guard) = owner_arc.write() else {
-            return StateReturnType::Failed;
-        };
-        let Ok(goal_guard) = goal_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        let owner_pos = owner_guard.get_position();
-        let goal_pos = goal_guard.get_position();
-        let dx = goal_pos.x - owner_pos.x;
-        let dy = goal_pos.y - owner_pos.y;
-        let angle = dy.atan2(dx);
-        let _ = owner_guard.set_orientation(angle);
+        }
         StateReturnType::Success
     }
 
@@ -1481,17 +1407,18 @@ impl AIState for AIFacePositionState {
         let Some(goal_pos) = context.goal_position else {
             return StateReturnType::Failed;
         };
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let oriented = OBJECT_REGISTRY
+            .with_object_mut(context.owner_id, |owner_guard| {
+                let owner_pos = owner_guard.get_position();
+                let dx = goal_pos.x - owner_pos.x;
+                let dy = goal_pos.y - owner_pos.y;
+                let angle = dy.atan2(dx);
+                let _ = owner_guard.set_orientation(angle);
+            })
+            .is_some();
+        if !oriented {
             return StateReturnType::Failed;
-        };
-        let Ok(mut owner_guard) = owner_arc.write() else {
-            return StateReturnType::Failed;
-        };
-        let owner_pos = owner_guard.get_position();
-        let dx = goal_pos.x - owner_pos.x;
-        let dy = goal_pos.y - owner_pos.y;
-        let angle = dy.atan2(dx);
-        let _ = owner_guard.set_orientation(angle);
+        }
         StateReturnType::Success
     }
 
@@ -1520,21 +1447,20 @@ impl AIRappelIntoState {
 
 impl AIState for AIRappelIntoState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner_guard) = owner_arc.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let mut params = AiCommandParams::new(
-                            AiCommandType::RappelInto,
-                            CommandSourceType::FromAi,
-                        );
-                        params.obj = context.goal_object;
-                        if let Some(goal_pos) = context.goal_position {
-                            params.pos = goal_pos;
-                        }
-                        let _ = ai_guard.execute_command(&params);
-                    }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let mut params = AiCommandParams::new(
+                    AiCommandType::RappelInto,
+                    CommandSourceType::FromAi,
+                );
+                params.obj = context.goal_object;
+                if let Some(goal_pos) = context.goal_position {
+                    params.pos = goal_pos;
                 }
+                let _ = ai_guard.execute_command(&params);
             }
         }
         StateReturnType::Continue
@@ -1545,16 +1471,15 @@ impl AIState for AIRappelIntoState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(mut owner) = owner_arc.write() {
-                owner.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
-            }
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.set_desired_speed(f32::MAX);
-                    }
-                }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+        });
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.set_desired_speed(f32::MAX);
             }
         }
     }
@@ -1576,21 +1501,20 @@ impl AICombatDropState {
 
 impl AIState for AICombatDropState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner_guard) = owner_arc.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let mut params = AiCommandParams::new(
-                            AiCommandType::CombatDrop,
-                            CommandSourceType::FromAi,
-                        );
-                        params.obj = context.goal_object;
-                        if let Some(goal_pos) = context.goal_position {
-                            params.pos = goal_pos;
-                        }
-                        let _ = ai_guard.execute_command(&params);
-                    }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let mut params = AiCommandParams::new(
+                    AiCommandType::CombatDrop,
+                    CommandSourceType::FromAi,
+                );
+                params.obj = context.goal_object;
+                if let Some(goal_pos) = context.goal_position {
+                    params.pos = goal_pos;
                 }
+                let _ = ai_guard.execute_command(&params);
             }
         }
         StateReturnType::Continue
@@ -1603,11 +1527,9 @@ impl AIState for AICombatDropState {
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
         // C++ ChinookCombatDropState::onExit clears DISABLED_HELD, sets flight status to FLYING,
         // idles any rappellers if the owner died, and expires rope drawables.
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(mut owner) = owner_arc.write() {
-                owner.clear_disabled(crate::common::DisabledType::Held);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.clear_disabled(crate::common::DisabledType::Held);
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -1627,15 +1549,14 @@ impl AIBusyState {
 
 impl AIState for AIBusyState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner_guard) = owner_arc.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let params =
-                            AiCommandParams::new(AiCommandType::Busy, CommandSourceType::FromAi);
-                        let _ = ai_guard.execute_command(&params);
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let params =
+                    AiCommandParams::new(AiCommandType::Busy, CommandSourceType::FromAi);
+                let _ = ai_guard.execute_command(&params);
             }
         }
         StateReturnType::Continue
@@ -1794,13 +1715,12 @@ impl AIState for AIGetRepairedState {
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
         // C++ has no AIGetRepairedState class -- GetRepaired delegates to AIDockState/landing states.
         // Destroy any path that may have been computed for the repair depot approach.
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.destroy_path();
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.destroy_path();
             }
         }
     }
@@ -2018,18 +1938,16 @@ impl AIState for AIAttackState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(mut owner) = owner_arc.write() {
-                owner.set_status(
-                    ObjectStatusMaskType::from(ObjectStatusTypes::IsAttacking),
-                    false,
-                );
-                owner.set_status(
-                    ObjectStatusMaskType::from(ObjectStatusTypes::IgnoringStealth),
-                    false,
-                );
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.set_status(
+                ObjectStatusMaskType::from(ObjectStatusTypes::IsAttacking),
+                false,
+            );
+            owner.set_status(
+                ObjectStatusMaskType::from(ObjectStatusTypes::IgnoringStealth),
+                false,
+            );
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -2338,13 +2256,12 @@ impl AIFollowWaypointPathState {
 
             if !goal_in {
                 self.append_goal_position = true;
-                if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-                    if let Ok(owner) = owner_arc.read() {
-                        if let Some(ai) = owner.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard.set_allow_invalid_position(true);
-                            }
-                        }
+                if let Some(ai) = OBJECT_REGISTRY
+                    .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+                    .flatten()
+                {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.set_allow_invalid_position(true);
                     }
                 }
             } else {
@@ -2352,24 +2269,29 @@ impl AIFollowWaypointPathState {
             }
         }
 
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if !self.has_next_waypoint() && owner.is_kind_of(KindOf::Projectile) {
-                    if let Some(ai) = owner.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-                                if let Ok(mut locomotor_guard) = locomotor.lock() {
-                                    locomotor_guard.set_precise_z_pos(true);
-                                }
-                            }
+        let is_projectile = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.is_kind_of(KindOf::Projectile))
+            .unwrap_or(false);
+        if !self.has_next_waypoint() && is_projectile {
+            if let Some(ai) = OBJECT_REGISTRY
+                .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+                .flatten()
+            {
+                if let Ok(ai_guard) = ai.lock() {
+                    if let Some(locomotor) = ai_guard.get_cur_locomotor() {
+                        if let Ok(mut locomotor_guard) = locomotor.lock() {
+                            locomotor_guard.set_precise_z_pos(true);
                         }
                     }
                 }
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.set_path_extra_distance(self.calc_extra_path_distance());
-                    }
-                }
+            }
+        }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let _ = ai_guard.set_path_extra_distance(self.calc_extra_path_distance());
             }
         }
 
@@ -2417,13 +2339,11 @@ impl AIState for AIFollowWaypointPathState {
         let Some(goal_pos) = context.goal_position else {
             return StateReturnType::Failed;
         };
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(current_pos) =
+            OBJECT_REGISTRY.with_object(context.owner_id, |owner| *owner.get_position())
+        else {
             return StateReturnType::Failed;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        let current_pos = *owner.get_position();
         let delta = goal_pos - current_pos;
         let dist_sqr = delta.x * delta.x + delta.y * delta.y;
         let close_enough = PATHFIND_CLOSE_ENOUGH * PATHFIND_CLOSE_ENOUGH;
@@ -2441,13 +2361,12 @@ impl AIState for AIFollowWaypointPathState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.destroy_path();
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.destroy_path();
             }
         }
     }
@@ -2518,18 +2437,15 @@ impl AIState for AIWanderState {
         self.follow.prior_waypoint = None;
         self.follow.group_offset = Coord2D::new(0.0, 0.0);
 
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Failed;
-        };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        let Some(ai) = owner.get_ai_update_interface() else {
-            return StateReturnType::Failed;
-        };
         if self.follow.current_waypoint.is_none() {
             return StateReturnType::Failed;
         }
+        let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        else {
+            return StateReturnType::Failed;
+        };
 
         if let Ok(ai_guard) = ai.lock() {
             self.update_group_offset(&*ai_guard);
@@ -2543,14 +2459,19 @@ impl AIState for AIWanderState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Failed;
-        };
-        let Ok(owner) = owner_arc.read() else {
+        let Some((can_be_repulsed, vision_range, ai)) =
+            OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+                (
+                    owner.is_kind_of(KindOf::CanBeRepulsed),
+                    owner.get_vision_range(),
+                    owner.get_ai_update_interface(),
+                )
+            })
+        else {
             return StateReturnType::Failed;
         };
 
-        if owner.is_kind_of(KindOf::CanBeRepulsed) {
+        if can_be_repulsed {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
@@ -2558,7 +2479,7 @@ impl AIState for AIWanderState {
                     .read()
                     .ok()
                     .and_then(|ai| {
-                        ai.find_closest_repulsor(context.owner_id, owner.get_vision_range())
+                        ai.find_closest_repulsor(context.owner_id, vision_range)
                             .ok()
                     })
                     .flatten();
@@ -2573,7 +2494,7 @@ impl AIState for AIWanderState {
                 return StateReturnType::Complete;
             }
 
-            if let Some(ai) = owner.get_ai_update_interface() {
+            if let Some(ai) = ai {
                 if let Ok(ai_guard) = ai.lock() {
                     self.update_group_offset(&*ai_guard);
                 }
@@ -2587,13 +2508,12 @@ impl AIState for AIWanderState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.destroy_path();
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.destroy_path();
             }
         }
     }
@@ -2643,15 +2563,13 @@ impl AIWanderInPlaceState {
 
 impl AIState for AIWanderInPlaceState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Failed;
-        };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-
-        self.origin = *owner.get_position();
-        let Some(ai) = owner.get_ai_update_interface() else {
+        let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| {
+                self.origin = *owner.get_position();
+                owner.get_ai_update_interface()
+            })
+            .flatten()
+        else {
             return StateReturnType::Failed;
         };
         if let Ok(ai_guard) = ai.lock() {
@@ -2667,17 +2585,22 @@ impl AIState for AIWanderInPlaceState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some((can_be_repulsed, vision_range, ai)) =
+            OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+                (
+                    owner.is_kind_of(KindOf::CanBeRepulsed),
+                    owner.get_vision_range(),
+                    owner.get_ai_update_interface(),
+                )
+            })
+        else {
             return StateReturnType::Failed;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        let Some(ai) = owner.get_ai_update_interface() else {
+        let Some(ai) = ai else {
             return StateReturnType::Failed;
         };
 
-        if owner.is_kind_of(KindOf::CanBeRepulsed) {
+        if can_be_repulsed {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
@@ -2685,7 +2608,7 @@ impl AIState for AIWanderInPlaceState {
                     .read()
                     .ok()
                     .and_then(|ai| {
-                        ai.find_closest_repulsor(context.owner_id, owner.get_vision_range())
+                        ai.find_closest_repulsor(context.owner_id, vision_range)
                             .ok()
                     })
                     .flatten();
@@ -2707,14 +2630,13 @@ impl AIState for AIWanderInPlaceState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.destroy_path();
-                        ai_guard.choose_locomotor_set(LocomotorSetType::Normal);
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.destroy_path();
+                ai_guard.choose_locomotor_set(LocomotorSetType::Normal);
             }
         }
     }
@@ -2767,21 +2689,15 @@ impl AIState for AIPanicState {
         self.follow.prior_waypoint = None;
         self.follow.group_offset = Coord2D::new(0.0, 0.0);
 
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Failed;
-        };
-        let ai = {
-            let Ok(owner) = owner_arc.read() else {
-                return StateReturnType::Failed;
-            };
-            let Some(ai) = owner.get_ai_update_interface() else {
-                return StateReturnType::Failed;
-            };
-            ai
-        };
         if self.follow.current_waypoint.is_none() {
             return StateReturnType::Failed;
         }
+        let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        else {
+            return StateReturnType::Failed;
+        };
 
         if let Ok(ai_guard) = ai.lock() {
             self.update_group_offset(&*ai_guard);
@@ -2799,14 +2715,19 @@ impl AIState for AIPanicState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Failed;
-        };
-        let Ok(owner) = owner_arc.read() else {
+        let Some((can_be_repulsed, vision_range, ai)) =
+            OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+                (
+                    owner.is_kind_of(KindOf::CanBeRepulsed),
+                    owner.get_vision_range(),
+                    owner.get_ai_update_interface(),
+                )
+            })
+        else {
             return StateReturnType::Failed;
         };
 
-        if owner.is_kind_of(KindOf::CanBeRepulsed) {
+        if can_be_repulsed {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
@@ -2814,7 +2735,7 @@ impl AIState for AIPanicState {
                     .read()
                     .ok()
                     .and_then(|ai| {
-                        ai.find_closest_repulsor(context.owner_id, owner.get_vision_range())
+                        ai.find_closest_repulsor(context.owner_id, vision_range)
                             .ok()
                     })
                     .flatten();
@@ -2829,7 +2750,7 @@ impl AIState for AIPanicState {
                 return StateReturnType::Complete;
             }
 
-            if let Some(ai) = owner.get_ai_update_interface() {
+            if let Some(ai) = ai {
                 if let Ok(ai_guard) = ai.lock() {
                     self.update_group_offset(&*ai_guard);
                 }
@@ -2843,11 +2764,9 @@ impl AIState for AIPanicState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(mut owner) = owner_arc.write() {
-                owner.clear_model_condition_state(ModelConditionFlags::PANICKING);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.clear_model_condition_state(ModelConditionFlags::PANICKING);
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -3141,13 +3060,11 @@ impl AIMoveAndTightenState {
         let Some(goal_pos) = context.goal_position else {
             return false;
         };
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(start_pos) =
+            OBJECT_REGISTRY.with_object(context.owner_id, |owner| *owner.get_position())
+        else {
             return false;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return false;
-        };
-        let start_pos = *owner.get_position();
 
         let path_result = with_ai_integration(|manager| {
             manager.request_pathfinding(&start_pos, &goal_pos, SURFACE_GROUND, false)
@@ -3229,13 +3146,12 @@ impl AIState for AIMoveAndTightenState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.destroy_path();
-                    }
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.destroy_path();
             }
         }
     }
@@ -3274,13 +3190,11 @@ impl AIMoveAwayFromRepulsorsState {
         let Some(goal_pos) = context.goal_position else {
             return false;
         };
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(start_pos) =
+            OBJECT_REGISTRY.with_object(context.owner_id, |owner| *owner.get_position())
+        else {
             return false;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return false;
-        };
-        let start_pos = *owner.get_position();
 
         let path_result = with_ai_integration(|manager| {
             manager.request_pathfinding(&start_pos, &goal_pos, SURFACE_GROUND, false)
@@ -3379,17 +3293,16 @@ impl AIState for AIMoveAwayFromRepulsorsState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-            if let Ok(mut owner) = owner_arc.write() {
-                owner.clear_model_condition_state(ModelConditionFlags::PANICKING);
-            }
-            if let Ok(owner) = owner_arc.read() {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.destroy_path();
-                        ai_guard.choose_locomotor_set(LocomotorSetType::Normal);
-                    }
-                }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.clear_model_condition_state(ModelConditionFlags::PANICKING);
+        });
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.destroy_path();
+                ai_guard.choose_locomotor_set(LocomotorSetType::Normal);
             }
         }
     }
