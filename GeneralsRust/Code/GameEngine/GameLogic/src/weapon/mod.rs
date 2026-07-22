@@ -4016,10 +4016,10 @@ impl Weapon {
         };
 
         // Borrow-first: clone team Arcs under manager lock (no object Arc clone).
-        let Some(source_team) = obj_mgr.with_object(source_obj_id, |src| src.team.clone()) else {
+        let Some(source_team) = obj_mgr.with_object(source_obj_id, |src| src.get_team()) else {
             return true; // Source not found, assume enemy
         };
-        let Some(target_team) = obj_mgr.with_object(target_obj_id, |tgt| tgt.team.clone()) else {
+        let Some(target_team) = obj_mgr.with_object(target_obj_id, |tgt| tgt.get_team()) else {
             return true; // Target not found, assume enemy
         };
         drop(obj_mgr);

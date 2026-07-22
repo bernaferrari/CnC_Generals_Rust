@@ -124,11 +124,12 @@ pub struct GameObjectInstance {
     /// Object template used for creation
     pub template: Option<Arc<dyn ThingTemplate>>,
 
-    /// Owning team
-    pub team: Option<Arc<RwLock<crate::team::Team>>>,
+    /// Owning team id (resolve via TeamFactory / pin)
+    team_id: Option<TeamID>,
+    team_pin: Option<Arc<RwLock<crate::team::Team>>>,
 
-    /// Owning player
-    pub player: Option<Arc<RwLock<crate::player::Player>>>,
+    /// Owning player index cache (derived from team; not an Arc owner)
+    player_index: Option<PlayerIndex>,
 
     /// Object status bits
     pub status_bits: ObjectStatusMaskType,
@@ -195,6 +196,28 @@ impl GameObjectInstance {
         list.get_player(player_index).cloned()
     }
 
+    fn store_team(
+        team: Option<Arc<RwLock<Team>>>,
+    ) -> (Option<TeamID>, Option<Arc<RwLock<Team>>>) {
+        let Some(team_ref) = team else {
+            return (None, None);
+        };
+        let id = team_ref.read().ok().map(|g| g.get_id());
+        let factory_has = id
+            .and_then(|tid| {
+                crate::team::get_team_factory()
+                    .lock()
+                    .ok()
+                    .and_then(|f| f.find_team_by_id(tid))
+            })
+            .is_some();
+        if factory_has {
+            (id, None)
+        } else {
+            (id, Some(team_ref))
+        }
+    }
+
     /// Owned handle to the construction-pinned base object (transitional Arc pin).
     pub fn base(&self) -> Arc<RwLock<Object>> {
         Arc::clone(&self.base_pin)
@@ -241,14 +264,18 @@ impl GameObjectInstance {
             register_legacy_object(&base);
         }
 
-        let player = Self::player_from_team(team.as_ref());
+        let player_index = Self::player_from_team(team.as_ref()).and_then(|p| {
+            p.read().ok().map(|g| g.get_player_index())
+        });
+        let (team_id, team_pin) = Self::store_team(team);
 
         Self {
             object_id,
             base_pin: base,
             template,
-            team,
-            player,
+            team_id,
+            team_pin,
+            player_index,
             status_bits,
             script_status: HashMap::new(),
             transform,
@@ -288,12 +315,17 @@ impl GameObjectInstance {
             register_legacy_object(&base);
         }
 
+        let player_index = Self::player_from_team(team.as_ref()).and_then(|p| {
+            p.read().ok().map(|g| g.get_player_index())
+        });
+        let (team_id, team_pin) = Self::store_team(team.clone());
         let mut instance = Self {
             object_id: id,
             base_pin: base,
             template: Some(template.clone()),
-            team: team.clone(),
-            player: Self::player_from_team(team.as_ref()),
+            team_id,
+            team_pin,
+            player_index,
             status_bits: flags.status_mask,
             script_status: HashMap::new(),
             transform: Matrix3D::IDENTITY,
@@ -400,7 +432,14 @@ impl GameObjectInstance {
 
     /// Get owning team
     pub fn get_team(&self) -> Option<Arc<RwLock<Team>>> {
-        self.team.clone()
+        if let Some(id) = self.team_id {
+            if let Ok(factory) = crate::team::get_team_factory().lock() {
+                if let Some(team) = factory.find_team_by_id(id) {
+                    return Some(team);
+                }
+            }
+        }
+        self.team_pin.clone()
     }
 
     /// Check if object has specific status bit
@@ -634,7 +673,7 @@ impl GameObjectInstance {
     /// Get the controlling player ID for this object
     /// C++ Reference: Object::getControllingPlayer()
     pub fn get_controlling_player_id(&self) -> Option<UnsignedInt> {
-        self.team
+        self.get_team()
             .as_ref()
             .and_then(|team| team.read().ok()?.get_controlling_player_id())
     }
@@ -645,9 +684,10 @@ impl GameObjectInstance {
         &mut self,
         player_id: Option<UnsignedInt>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(ref team_arc) = self.team {
+        if let Some(team_arc) = self.get_team() {
             if let Ok(mut team) = team_arc.write() {
                 team.set_controlling_player_id(player_id);
+                self.player_index = player_id.map(|id| id as PlayerIndex);
                 return Ok(());
             }
             return Err("Failed to acquire write lock on team".into());
@@ -657,7 +697,11 @@ impl GameObjectInstance {
 
     /// Get the controlling player for this object
     pub fn get_controlling_player(&self) -> Option<Arc<RwLock<crate::player::Player>>> {
-        let team = self.team.as_ref()?;
+        if let Some(idx) = self.player_index {
+            let list = crate::player::player_list().read().ok()?;
+            return list.get_player(idx as Int).cloned();
+        }
+        let team = self.get_team()?;
         let player_index = team.read().ok()?.get_controlling_player_id()? as Int;
         let list = crate::player::player_list().read().ok()?;
         list.get_player(player_index).cloned()
@@ -1075,8 +1119,7 @@ impl ObjectManager {
     ) {
         let team_arc = object.read().ok().and_then(|instance| {
             instance
-                .team
-                .clone()
+                .get_team()
                 .or_else(|| instance.base().read().ok().and_then(|base| base.get_team()))
         });
 
@@ -1503,7 +1546,7 @@ mod tests {
             GameObjectInstance::new(43, Some(template), Some(team), ObjectCreationFlags::new())
                 .expect("failed to create object instance");
 
-        let player = obj.player.as_ref().expect("cached player");
+        let player = obj.get_controlling_player().expect("cached player");
         assert_eq!(player.read().expect("player read").get_player_index(), 0);
         reset_players();
     }
@@ -1526,7 +1569,7 @@ mod tests {
 
         let obj = GameObjectInstance::from_existing(base, Some(template), Some(team));
 
-        let player = obj.player.as_ref().expect("cached player");
+        let player = obj.get_controlling_player().expect("cached player");
         assert_eq!(player.read().expect("player read").get_player_index(), 0);
         reset_players();
     }

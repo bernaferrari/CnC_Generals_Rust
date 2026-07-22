@@ -2431,8 +2431,9 @@ pub struct Object {
     health_box_offset: Coord3D,
     i_pos: ICoord3D,
 
-    // Team and ownership
-    team: Option<Arc<RwLock<Team>>>,
+    // Team and ownership (ID-first; pin only when team is not factory-registered)
+    team_id: Option<TeamID>,
+    team_pin: Option<Arc<RwLock<Team>>>,
     original_team_name: AsciiString,
     indicator_color: Color,
 
@@ -2711,7 +2712,8 @@ impl Object {
             health_box_offset: Coord3D::new(0.0, 0.0, 0.0),
             i_pos: ICoord3D::ZERO,
 
-            team, // Note: mirror C++ weak ref handoff once team lifetime rules are restored
+            team_id: None,
+            team_pin: None,
             original_team_name: AsciiString::new(),
             indicator_color: Color::default(),
 
@@ -2993,11 +2995,21 @@ impl Object {
 
     // Team management
     pub fn get_team(&self) -> Option<Arc<RwLock<Team>>> {
-        self.team.clone()
+        if let Some(id) = self.team_id {
+            if let Ok(factory) = crate::team::get_team_factory().lock() {
+                if let Some(team) = factory.find_team_by_id(id) {
+                    return Some(team);
+                }
+            }
+        }
+        self.team_pin.clone()
     }
 
     pub fn get_team_id(&self) -> Option<TeamID> {
-        self.team
+        if self.team_id.is_some() {
+            return self.team_id;
+        }
+        self.team_pin
             .as_ref()
             .and_then(|t| t.read().ok())
             .map(|g| g.get_id())
@@ -3041,12 +3053,11 @@ impl Object {
         };
 
         self.set_or_restore_team(resolved_team, false)?;
-        self.original_team_name = self
-            .team
-            .as_ref()
-            .and_then(|team_ref| team_ref.read().ok())
-            .map(|team_guard| team_guard.get_name().clone())
-            .unwrap_or_else(AsciiString::new);
+        self.original_team_name = {
+            let team = self.get_team();
+            team.and_then(|team_ref| team_ref.read().ok().map(|g| g.get_name().clone()))
+                .unwrap_or_else(AsciiString::new)
+        };
         Ok(())
     }
 
@@ -3062,7 +3073,9 @@ impl Object {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use crate::team::get_team_factory;
 
-        if self.team.is_none() || self.original_team_name.is_empty() {
+        if (self.get_team_id().is_none() && self.team_pin.is_none())
+            || self.original_team_name.is_empty()
+        {
             return Ok(());
         }
 
@@ -3080,11 +3093,7 @@ impl Object {
             return Ok(());
         };
 
-        let current_team_id = self
-            .team
-            .as_ref()
-            .and_then(|team_ref| team_ref.read().ok())
-            .map(|team_guard| team_guard.get_id());
+        let current_team_id = self.get_team_id();
         let restored_team_id = restored_team
             .read()
             .ok()
@@ -3511,7 +3520,7 @@ impl Object {
             .and_then(|list| list.get_neutral_player())
         {
             if let Ok(p) = neutral_player.read() {
-                self.team = p.get_default_team();
+                let _ = self.set_team(p.get_default_team());
             }
         }
     }
@@ -5036,13 +5045,13 @@ impl Object {
     }
 
     pub fn get_controlling_player_id(&self) -> Option<UnsignedInt> {
-        self.team
+        self.get_team()
             .as_ref()
             .and_then(|team| team.read().ok()?.get_controlling_player_id())
     }
 
     pub fn get_controlling_player(&self) -> Option<Arc<RwLock<Player>>> {
-        let team = self.team.as_ref()?;
+        let team = self.get_team()?;
         let player_index = team.read().ok()?.get_controlling_player_id()? as Int;
         let list = player_list().read().ok()?;
         list.get_player(player_index).cloned()
@@ -5067,7 +5076,7 @@ impl Object {
             return Relationship::Allies;
         }
 
-        if let (Some(my_team), Some(other_team)) = (self.team.as_ref(), other.team.as_ref()) {
+        if let (Some(my_team), Some(other_team)) = (self.get_team(), other.get_team()) {
             if let (Ok(my_guard), Ok(other_guard)) = (my_team.read(), other_team.read()) {
                 if self.is_undetected_defector() {
                     return Relationship::Neutral;
@@ -6632,33 +6641,48 @@ impl Object {
         team: Option<Arc<RwLock<Team>>>,
         restoring: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let old_team = self.team.clone();
-        let old_team_id = old_team
-            .as_ref()
-            .and_then(|team_ref| team_ref.read().ok())
-            .map(|team_guard| team_guard.get_id());
+        let old_team = self.get_team();
+        let old_team_id = self.get_team_id();
 
-        let old_player_id = self
-            .team
+        let old_player_id = old_team
             .as_ref()
             .and_then(|team_ref| team_ref.read().ok())
             .and_then(|team_guard| team_guard.get_controlling_player_id());
 
-        self.team = team;
+        // Store ID when factory-resolvable; keep pin only as unregistered fallback.
+        match &team {
+            Some(team_ref) => {
+                let id = team_ref.read().ok().map(|g| g.get_id());
+                self.team_id = id;
+                let factory_has = id
+                    .and_then(|tid| {
+                        crate::team::get_team_factory()
+                            .lock()
+                            .ok()
+                            .and_then(|f| f.find_team_by_id(tid))
+                    })
+                    .is_some();
+                self.team_pin = if factory_has {
+                    None
+                } else {
+                    Some(Arc::clone(team_ref))
+                };
+            }
+            None => {
+                self.team_id = None;
+                self.team_pin = None;
+            }
+        }
 
-        let new_team = self.team.clone();
-        let new_team_id = new_team
-            .as_ref()
-            .and_then(|team_ref| team_ref.read().ok())
-            .map(|team_guard| team_guard.get_id());
+        let new_team = self.get_team();
+        let new_team_id = self.get_team_id();
 
         // C++ parity: Object::setOrRestoreTeam() is a no-op if team hasn't changed.
         if old_team_id == new_team_id {
             return Ok(());
         }
 
-        let new_player_id = self
-            .team
+        let new_player_id = new_team
             .as_ref()
             .and_then(|team_ref| team_ref.read().ok())
             .and_then(|team_guard| team_guard.get_controlling_player_id());
@@ -6728,11 +6752,10 @@ impl Object {
     }
 
     fn apply_team_ai_profile(&self) {
-        let team_name = self
-            .team
-            .as_ref()
-            .and_then(|team_ref| team_ref.read().ok())
-            .map(|team_guard| team_guard.get_name().to_string());
+        let team_name = {
+            let team = self.get_team();
+            team.and_then(|team_ref| team_ref.read().ok().map(|g| g.get_name().to_string()))
+        };
 
         let attitude = team_name
             .as_deref()
@@ -7812,7 +7835,7 @@ impl Object {
                     self.trigger_info[i].is_inside = false;
                     self.trigger_info[i].exited = true;
                     self.entered_or_exited_frame = now;
-                    if let Some(team) = &self.team {
+                    if let Some(team) = self.get_team() {
                         if let Ok(mut team_guard) = team.write() {
                             team_guard.set_entered_exited();
                         }
@@ -9151,7 +9174,7 @@ impl Object {
         self.handle_partition_cell_maintenance();
 
         // Notify team of object death
-        if let Some(team) = &self.team {
+        if let Some(team) = self.get_team() {
             if let Ok(mut team_guard) = team.write() {
                 log::debug!("Object {} notifying team of death", self.id);
                 team_guard.remove_member(self.id);
@@ -12601,10 +12624,7 @@ impl Snapshot for Object {
         self.set_transform_matrix(&transform);
 
         let mut team_id = self
-            .team
-            .as_ref()
-            .and_then(|team| team.read().ok())
-            .map(|team| team.get_id())
+            .get_team_id()
             .unwrap_or(crate::team::TEAM_ID_INVALID);
         let _ = xfer.xfer_unsigned_int(&mut team_id);
 
@@ -12945,24 +12965,22 @@ impl Snapshot for Object {
 impl fmt::Display for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if !self.name.is_empty() {
-            let team_name = self
-                .team
-                .as_ref()
-                .and_then(|t| t.try_read().ok())
-                .map(|t| t.get_name().to_string())
-                .unwrap_or_else(|| "None".to_string());
+            let team_name = {
+                let team = self.get_team();
+                team.and_then(|t| t.try_read().ok().map(|g| g.get_name().to_string()))
+                    .unwrap_or_else(|| "None".to_string())
+            };
             write!(
                 f,
                 "Object {} ({}) [Team: {}]",
                 self.id, self.name, team_name
             )
         } else {
-            let team_name = self
-                .team
-                .as_ref()
-                .and_then(|t| t.try_read().ok())
-                .map(|t| t.get_name().to_string())
-                .unwrap_or_else(|| "None".to_string());
+            let team_name = {
+                let team = self.get_team();
+                team.and_then(|t| t.try_read().ok().map(|g| g.get_name().to_string()))
+                    .unwrap_or_else(|| "None".to_string())
+            };
             write!(f, "Object {} [Team: {}]", self.id, team_name)
         }
     }
@@ -14725,12 +14743,12 @@ mod visibility_tests {
         let obj_arc = obj_result.unwrap();
         {
             let mut obj_guard = obj_arc.write().expect("Lock should not be poisoned");
-            obj_guard.team = None;
+            obj_guard.team_id = None; obj_guard.team_pin = None;
             obj_guard.original_team_name = AsciiString::from("AnyOriginalTeam");
 
             let result = obj_guard.restore_original_team();
             assert!(result.is_ok());
-            assert!(obj_guard.team.is_none());
+            assert!(obj_guard.get_team_id().is_none());
         }
     }
 
@@ -14747,15 +14765,12 @@ mod visibility_tests {
                 AsciiString::from("ExistingTeam"),
                 1234,
             )));
-            obj_guard.team = Some(existing_team.clone());
+            let _ = obj_guard.set_team(Some(existing_team.clone()));
             obj_guard.original_team_name = AsciiString::from("MissingOriginalTeam");
 
             let result = obj_guard.restore_original_team();
             assert!(result.is_ok());
-            let team_id = obj_guard
-                .team
-                .as_ref()
-                .and_then(|team_ref| team_ref.read().ok().map(|team| team.get_id()));
+            let team_id = obj_guard.get_team_id();
             assert_eq!(team_id, Some(1234));
         }
     }
