@@ -856,7 +856,12 @@ impl TransportContain {
                 .map(|guard| self.is_valid_container_for(&*guard, true))
                 .unwrap_or(false);
             if can_add {
-                self.add_to_contain(payload_obj)?;
+                let payload_id = payload_obj
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                self.add_to_contain(payload_id)?;
             } else {
                 log::warn!(
                     "TransportContain payload '{}' could not be inserted (container full/invalid)",
@@ -995,17 +1000,18 @@ impl TransportContain {
     }
 
     /// Add object to containment
-    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+    pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
         let owner = self.get_object();
         if super::should_cancel_containment_after_booby_trap(
             owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            obj_id,
         ) {
             return Ok(());
         }
+
+        let obj = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Transport contain object not found")?;
 
         let was_selected = obj
             .read()
@@ -1024,7 +1030,7 @@ impl TransportContain {
             }
         }
 
-        self.add_to_contain_list(obj.clone())?;
+        self.add_to_contain_list(obj_id)?;
         let should_remove_from_world = obj
             .read()
             .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
@@ -1033,52 +1039,53 @@ impl TransportContain {
             let _ = self.base.add_or_remove_obj_from_world(obj.clone(), false);
         }
         self.base.redeploy_occupants()?;
-        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
+        self.on_containing(obj_id, was_selected)?;
         Ok(())
     }
 
     /// Add object to contain list (internal method)
-    pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        // Delegate to base implementation
-        self.base.add_to_contain_list(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
+    pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.base.add_to_contain_list(obj_id)
     }
 
     /// Remove object from containment
     pub fn remove_from_contain(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let obj_id = obj.read().map_err(|_| "Object lock poisoned")?.get_id();
-        if let Some(pos) = self
+        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        if !self
             .base
             .get_contained_items_list()?
             .iter()
-            .position(|candidate| Arc::ptr_eq(candidate, &obj))
+            .any(|candidate| candidate.read().ok().map(|g| g.get_id()) == Some(obj_id))
         {
-            let _ = pos;
-            self.base.remove_from_contain_list(obj_id);
-            let should_add_to_world = obj
-                .read()
-                .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
-                .unwrap_or(false);
-            if should_add_to_world {
-                let _ = self.base.add_or_remove_obj_from_world(obj.clone(), true);
-                if let Some(owner) = self.get_object() {
-                    if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
-                        let _ = obj_guard.set_position(owner_guard.get_position());
-                        obj_guard.set_layer(owner_guard.get_layer());
-                    }
+            let _ = expose_stealth_units;
+            return Ok(());
+        }
+
+        self.base.remove_from_contain_list(obj_id);
+        let should_add_to_world = obj
+            .read()
+            .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
+            .unwrap_or(false);
+        if should_add_to_world {
+            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), true);
+            if let Some(owner) = self.get_object() {
+                if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
+                    let _ = obj_guard.set_position(owner_guard.get_position());
+                    obj_guard.set_layer(owner_guard.get_layer());
                 }
             }
-            self.base.do_unload_sound();
-            self.on_removing(obj.read().map(|g| g.get_id()).unwrap_or(0))?;
         }
+        self.base.do_unload_sound();
+        self.on_removing(obj_id)?;
 
         let _ = expose_stealth_units;
         Ok(())
@@ -1143,17 +1150,11 @@ impl ContainModuleInterface for TransportContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.add_to_contain(obj).map_err(|e| e.to_string())
+        self.add_to_contain(object_id).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = match TheGameLogic::find_object_by_id(object_id) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
-        self.remove_from_contain(obj, false)
+        self.remove_from_contain(object_id, false)
             .map_err(|e| e.to_string())
     }
 
@@ -1228,10 +1229,7 @@ impl ContainModuleInterface for TransportContain {
         &mut self,
         obj: &Object,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let object_id = obj.get_id();
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        TransportContain::add_to_contain_list(self, obj).map_err(|e| e.into())
+        TransportContain::add_to_contain_list(self, obj.get_id()).map_err(|e| e.into())
     }
 
     fn enable_load_sounds(
@@ -1315,9 +1313,14 @@ impl ContainModuleInterface for TransportContain {
         &mut self,
         expose_stealth: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let objects = self.base.get_contained_items_list()?;
-        for obj in objects {
-            self.remove_from_contain(obj, expose_stealth)?;
+        let object_ids: Vec<_> = self
+            .base
+            .get_contained_items_list()?
+            .iter()
+            .filter_map(|obj| obj.read().ok().map(|g| g.get_id()))
+            .collect();
+        for obj_id in object_ids {
+            self.remove_from_contain(obj_id, expose_stealth)?;
         }
         Ok(())
     }
@@ -1328,7 +1331,12 @@ impl ContainModuleInterface for TransportContain {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let objects = self.base.get_contained_items_list()?;
         for obj in objects {
-            self.remove_from_contain(obj.clone(), true)?;
+            let obj_id = obj
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID);
+            self.remove_from_contain(obj_id, true)?;
             if let Ok(mut guard) = obj.write() {
                 let _ = guard.attempt_damage(damage_info);
             }
@@ -1339,7 +1347,12 @@ impl ContainModuleInterface for TransportContain {
     fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let objects = self.base.get_contained_items_list()?;
         for obj in objects {
-            self.remove_from_contain(obj.clone(), true)?;
+            let obj_id = obj
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID);
+            self.remove_from_contain(obj_id, true)?;
             if let Ok(mut guard) = obj.write() {
                 guard.kill(None, None);
             }
@@ -1358,11 +1371,21 @@ impl ContainerInterface for TransportContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(obj)
+        let obj_id = obj
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        self.add_to_contain(obj_id)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(obj, false)
+        let obj_id = obj
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        self.remove_from_contain(obj_id, false)
     }
 
     fn get_usage(&self) -> (u32, u32) {

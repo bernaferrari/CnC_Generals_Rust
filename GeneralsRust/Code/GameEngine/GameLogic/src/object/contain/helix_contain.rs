@@ -398,7 +398,12 @@ impl HelixContain {
             }
         }
 
-        self.base.add_to_contain_list(obj.clone())?;
+        self.base.add_to_contain_list(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )?;
         let should_remove_from_world = obj
             .read()
             .map(|obj_guard| self.is_enclosing_container_for(&*obj_guard))
@@ -442,7 +447,12 @@ impl HelixContain {
             return Ok(());
         }
 
-        self.base.add_to_contain_list(obj)
+        self.base.add_to_contain_list(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
     }
 
     /// Remove object from containment
@@ -462,7 +472,13 @@ impl HelixContain {
             }
         }
 
-        self.base.remove_from_contain(obj, expose_stealth_units)
+        self.base.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            expose_stealth_units,
+        )
     }
 
     /// Check if this is an enclosing container for the given object

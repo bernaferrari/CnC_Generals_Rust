@@ -67,7 +67,12 @@ impl InternetHackContain {
     }
 
     pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.add_to_contain(obj.clone())?;
+        self.base.add_to_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )?;
         self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0))?;
         Ok(())
     }
@@ -126,7 +131,13 @@ impl ContainModuleInterface for InternetHackContain {
             None => return Ok(()),
         };
         self.base
-            .remove_from_contain(obj, false)
+            .remove_from_contain(
+                obj.read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .map_err(|e| e.to_string())
     }
 
@@ -241,7 +252,13 @@ impl ContainerInterface for InternetHackContain {
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.remove_from_contain(obj, false)
+        self.base.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            false,
+        )
     }
 
     fn get_usage(&self) -> (u32, u32) {
