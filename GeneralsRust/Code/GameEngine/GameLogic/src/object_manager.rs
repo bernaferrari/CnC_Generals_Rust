@@ -1111,6 +1111,44 @@ impl ObjectManager {
         self.objects.get(&object_id)
     }
 
+    /// Borrow-first object access without cloning `Arc` (manager stays borrowed).
+    /// Prefer this over `get_object(id).read()` at call sites that do not need to
+    /// outlive the manager borrow. Intermediate step toward an owned object store.
+    pub fn with_object<R>(
+        &self,
+        object_id: ObjectID,
+        f: impl FnOnce(&GameObjectInstance) -> R,
+    ) -> Option<R> {
+        let arc = self.objects.get(&object_id)?;
+        let guard = arc.read().ok()?;
+        Some(f(&guard))
+    }
+
+    /// Mutable borrow-first object access without cloning `Arc`.
+    pub fn with_object_mut<R>(
+        &self,
+        object_id: ObjectID,
+        f: impl FnOnce(&mut GameObjectInstance) -> R,
+    ) -> Option<R> {
+        let arc = self.objects.get(&object_id)?;
+        let mut guard = arc.write().ok()?;
+        Some(f(&mut guard))
+    }
+
+    /// Iterate alive objects by direct instance borrow (no Arc clone per object).
+    pub fn for_each_object_instance<F>(&self, mut f: F)
+    where
+        F: FnMut(ObjectID, &GameObjectInstance),
+    {
+        for &id in &self.update_order {
+            if let Some(arc) = self.objects.get(&id) {
+                if let Ok(guard) = arc.read() {
+                    f(id, &guard);
+                }
+            }
+        }
+    }
+
     /// Destroy object
     pub fn destroy_object(&mut self, object_id: ObjectID) {
         if self.objects.contains_key(&object_id) {
@@ -1270,22 +1308,17 @@ impl ObjectManager {
     pub fn get_objects_owned_by_player(&self, player_id: UnsignedInt) -> Vec<ObjectID> {
         let mut owned_objects = Vec::new();
 
-        for &obj_id in &self.update_order {
-            if let Some(obj_arc) = self.objects.get(&obj_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    if let Some(team_arc) = obj_guard.get_team() {
-                        if let Ok(team_guard) = team_arc.read() {
-                            if let Some(controlling_player) = team_guard.get_controlling_player_id()
-                            {
-                                if controlling_player == player_id {
-                                    owned_objects.push(obj_id);
-                                }
-                            }
+        self.for_each_object_instance(|obj_id, obj_guard| {
+            if let Some(team_arc) = obj_guard.get_team() {
+                if let Ok(team_guard) = team_arc.read() {
+                    if let Some(controlling_player) = team_guard.get_controlling_player_id() {
+                        if controlling_player == player_id {
+                            owned_objects.push(obj_id);
                         }
                     }
                 }
             }
-        }
+        });
 
         owned_objects
     }
@@ -1303,18 +1336,17 @@ impl ObjectManager {
     ///
     /// true if object's team is controlled by player, false otherwise
     pub fn object_is_owned_by(&self, object_id: ObjectID, player_id: UnsignedInt) -> bool {
-        if let Some(obj_arc) = self.objects.get(&object_id) {
-            if let Ok(obj_guard) = obj_arc.read() {
-                if let Some(team_arc) = obj_guard.get_team() {
-                    if let Ok(team_guard) = team_arc.read() {
-                        if let Some(controlling_player) = team_guard.get_controlling_player_id() {
-                            return controlling_player == player_id;
-                        }
+        self.with_object(object_id, |obj_guard| {
+            if let Some(team_arc) = obj_guard.get_team() {
+                if let Ok(team_guard) = team_arc.read() {
+                    if let Some(controlling_player) = team_guard.get_controlling_player_id() {
+                        return controlling_player == player_id;
                     }
                 }
             }
-        }
-        false
+            false
+        })
+        .unwrap_or(false)
     }
 
     /// Enable/disable manager

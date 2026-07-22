@@ -58,7 +58,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 
 1. PresentationFrame consumers (render/HUD) — stop locking live sim during GPU passes. **Host get_objects dual-reads closed (2026-07-21).**
 2. Unify IDs across Main and crate.
-3. Flip crate `HashMap<ObjectID, Arc<RwLock<Object>>>` → owned store + IDs.
+3. Flip crate `HashMap<ObjectID, Arc<RwLock<Object>>>` → owned store + IDs. **Borrow-first APIs landed (2026-07-21); Arc store remains.**
 4. Retire ObjectFactory dual registry / `engine_object_id` bridge. **Host path done** (field + dual-create + dual-read removed; crate OM/factory Arc store remains).
 5. Rebind GameClient to Main authority + snapshot only.
 6. Promote `gamelogic` as sole authority; Main = event loop.
@@ -204,6 +204,18 @@ mid-frame host combat still runs for C++ armor/side-effect parity.
 
  Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
+
+### ObjectManager borrow-first APIs (2026-07-21)
+
+Crate `ObjectManager` still stores `HashMap<ObjectID, Arc<RwLock<GameObjectInstance>>>`
+(global `THE_OBJECT_MANAGER` remains). Added borrow-first helpers that avoid Arc clone
+at the call boundary:
+
+- `with_object` / `with_object_mut`
+- `for_each_object_instance`
+
+Ownership queries (`get_objects_owned_by_player`, `object_is_owned_by`) use these helpers.
+Full owned-store flip (`HashMap<ObjectID, GameObjectInstance>`) remains migration item 3.
 
 ### Host get_objects dual-read close (2026-07-21)
 
