@@ -2321,7 +2321,7 @@ mod tests {
         let config = golden_skirmish_config(&map_identity);
         let mut logic = GameLogic::new();
         install_templates(&mut logic);
-        apply_skirmish_config(&mut logic, &config);
+        let _ = apply_skirmish_config(&mut logic, &config);
         assert!(logic.load_map(&map_identity), "map load");
         install_templates(&mut logic);
         ensure_human_economy(&mut logic, 25_000, 500);
