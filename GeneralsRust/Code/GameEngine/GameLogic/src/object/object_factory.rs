@@ -57,11 +57,10 @@ impl GameObjectInstance {
     /// Get the base object reference
     pub fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
         match self {
-            GameObjectInstance::Unit(unit) => Some(
-                unit.read()
-                    .unwrap_or_else(|poison| poison.into_inner())
-                    .base_object(),
-            ),
+            GameObjectInstance::Unit(unit) => unit
+                .read()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .base_object(),
             GameObjectInstance::Structure(structure) => structure
                 .read()
                 .unwrap_or_else(|poison| poison.into_inner())
