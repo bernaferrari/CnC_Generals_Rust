@@ -422,30 +422,32 @@ impl Team {
             return INVALID_ID;
         }
 
-        let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
+        let Some(valid) = OBJECT_REGISTRY.with_object(target_id, |target| {
+            let target_status = target.get_status_bits();
+            if target_status.contains(ObjectStatusMaskType::STEALTHED)
+                && !target_status.contains(ObjectStatusMaskType::DETECTED)
+                && !target_status.contains(ObjectStatusMaskType::DISGUISED)
+            {
+                return false;
+            }
+
+            if target.is_effectively_dead() || target.get_contained_by().is_some() {
+                return false;
+            }
+
+            if target.is_kind_of(KindOf::Aircraft) {
+                return false;
+            }
+
+            true
+        }) else {
             return INVALID_ID;
         };
-        let Ok(target) = target_arc.read() else {
-            return INVALID_ID;
-        };
-
-        let target_status = target.get_status_bits();
-        if target_status.contains(ObjectStatusMaskType::STEALTHED)
-            && !target_status.contains(ObjectStatusMaskType::DETECTED)
-            && !target_status.contains(ObjectStatusMaskType::DISGUISED)
-        {
-            return INVALID_ID;
+        if valid {
+            target_id
+        } else {
+            INVALID_ID
         }
-
-        if target.is_effectively_dead() || target.get_contained_by().is_some() {
-            return INVALID_ID;
-        }
-
-        if target.is_kind_of(KindOf::Aircraft) {
-            return INVALID_ID;
-        }
-
-        target_id
     }
 
     /// Whether this team should share a common attack target.
@@ -1223,16 +1225,15 @@ impl Team {
     /// Matches C++ Team::unitsEntered.
     pub fn units_entered(&self, trigger: &PolygonTrigger) -> Bool {
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() {
-                continue;
-            }
-            if Self::object_in_trigger(&object_guard, trigger) {
+            if OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.is_effectively_dead() {
+                        return false;
+                    }
+                    Self::object_in_trigger(object_guard, trigger)
+                })
+                .unwrap_or(false)
+            {
                 return true;
             }
         }
@@ -1264,15 +1265,9 @@ impl Team {
         }
         // C++ Team::moveTeamTo currently performs no command issue.
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
-                continue;
-            }
+            let _ = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                let _ = object_guard.is_effectively_dead() || object_guard.is_destroyed();
+            });
         }
     }
 
