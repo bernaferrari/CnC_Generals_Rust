@@ -170,7 +170,6 @@ static CONSTRUCTION_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic:
 static SPECIAL_POWER_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 static PRODUCTION_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
-
 /// True only while the production engine couples host update → shadow_session.
 /// Host-only gates (golden/shell) never set this, so construction/production
 /// percent still advance without a dual-world writeback.
@@ -206,7 +205,11 @@ pub fn gameworld_shadow_enabled() -> bool {
 ///
 /// Env: `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0|false` off; unset/`1` = **on** (production default).
 pub fn gameworld_damage_authority_enabled() -> bool {
-    env_flag_cached(&DAMAGE_AUTH_CACHE, "GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", true)
+    env_flag_cached(
+        &DAMAGE_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_DAMAGE_AUTHORITY",
+        true,
+    )
 }
 
 /// Damage HP defer only while shadow can writeback (alias of enabled&&shadow).
@@ -221,7 +224,11 @@ pub fn gameworld_damage_authority_live() -> bool {
 
 /// Economy last-writer (player supplies/power). Unset = **on**; `0|false` off.
 pub fn gameworld_economy_authority_enabled() -> bool {
-    env_flag_cached(&ECONOMY_AUTH_CACHE, "GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", true)
+    env_flag_cached(
+        &ECONOMY_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_ECONOMY_AUTHORITY",
+        true,
+    )
 }
 
 /// Economy last-writer is only meaningful while a shadow session can write back cash.
@@ -236,7 +243,11 @@ pub fn gameworld_economy_authority_live() -> bool {
 ///
 /// Env: `GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_movement_authority_enabled() -> bool {
-    env_flag_cached(&MOVEMENT_AUTH_CACHE, "GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", true)
+    env_flag_cached(
+        &MOVEMENT_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY",
+        true,
+    )
 }
 
 /// Movement last-writer only while shadow can step/writeback poses.
@@ -250,7 +261,11 @@ pub fn gameworld_movement_authority_live() -> bool {
 /// Host still *decides* and discharges weapons; opt out with `=0|false`.
 /// Env: `GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_ai_attack_authority_enabled() -> bool {
-    env_flag_cached(&AI_ATTACK_AUTH_CACHE, "GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", true)
+    env_flag_cached(
+        &AI_ATTACK_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY",
+        true,
+    )
 }
 
 /// AI attack/fire-intent channel only while shadow can writeback.
@@ -264,7 +279,11 @@ pub fn gameworld_ai_attack_authority_live() -> bool {
 /// Host still owns spawn/fire and hit/damage application.
 /// Env: `GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_projectile_authority_enabled() -> bool {
-    env_flag_cached(&PROJECTILE_AUTH_CACHE, "GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", true)
+    env_flag_cached(
+        &PROJECTILE_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY",
+        true,
+    )
 }
 
 /// Projectile integrate defer only while shadow session steps flight.
@@ -278,7 +297,11 @@ pub fn gameworld_projectile_authority_live() -> bool {
 /// Combat runs before AI in the host tick, so deferred apply is next-frame parity.
 /// Env: `GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_ai_decision_authority_enabled() -> bool {
-    env_flag_cached(&AI_DECISION_AUTH_CACHE, "GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", true)
+    env_flag_cached(
+        &AI_DECISION_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY",
+        true,
+    )
 }
 
 /// AI decision last-writer only while shadow can apply/writeback decisions.
@@ -291,7 +314,11 @@ pub fn gameworld_ai_decision_authority_live() -> bool {
 /// applies them into host CombatSystem before projectile integrate authority.
 /// Env: `GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_fire_spawn_authority_enabled() -> bool {
-    env_flag_cached(&FIRE_SPAWN_AUTH_CACHE, "GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", true)
+    env_flag_cached(
+        &FIRE_SPAWN_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY",
+        true,
+    )
 }
 
 /// Fire-spawn defer only while shadow can drain spawn log.
@@ -304,7 +331,11 @@ pub fn gameworld_fire_spawn_authority_live() -> bool {
 /// progress logs (host still computes projected percent for completion side effects).
 /// Env: `GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_construction_authority_enabled() -> bool {
-    env_flag_cached(&CONSTRUCTION_AUTH_CACHE, "GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", true)
+    env_flag_cached(
+        &CONSTRUCTION_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY",
+        true,
+    )
 }
 
 /// Construction progress last-writer only while shadow can sole-tick percent.
@@ -324,7 +355,11 @@ pub fn gameworld_construction_sole_tick_enabled() -> bool {
 
 /// Env: `GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_special_power_authority_enabled() -> bool {
-    env_flag_cached(&SPECIAL_POWER_AUTH_CACHE, "GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", true)
+    env_flag_cached(
+        &SPECIAL_POWER_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY",
+        true,
+    )
 }
 
 /// Host skips SP countdown advance only when authority AND shadow session run.
@@ -341,7 +376,11 @@ pub fn gameworld_special_power_sole_tick_enabled() -> bool {
 ///
 /// Env: `GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_production_authority_enabled() -> bool {
-    env_flag_cached(&PRODUCTION_AUTH_CACHE, "GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", true)
+    env_flag_cached(
+        &PRODUCTION_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY",
+        true,
+    )
 }
 
 /// Production queue last-writer only while shadow can sole-tick progress.
@@ -14396,7 +14435,6 @@ mod tests {
         assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
     }
 
-    
     #[test]
     fn construction_sole_tick_requires_coupled_frame() {
         // Host-only gates (no begin_shadow_coupled_tick) must still advance builds.
@@ -14436,7 +14474,7 @@ mod tests {
         assert!(!gameworld_damage_authority_live());
     }
 
-#[test]
+    #[test]
     fn construction_complete_heal_log_sets_full_hp_via_writeback() {
         use crate::game_logic::{
             host_construction_progress_log, host_heal_log, KindOf, Team, ThingTemplate,
