@@ -25,15 +25,15 @@ use game_engine::common::system::build_assistant;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// An "AIGroup" is a simple collection of AI objects, used by the AI
 /// for such things as Group Pathfinding.
 pub struct AIGroup {
     /// Unique ID for this group
     id: u32,
-    /// List of member objects in the group
-    member_list: Vec<Weak<RwLock<Object>>>,
+    /// Member object IDs (stable; resolve via OBJECT_REGISTRY for the duration of an op).
+    member_list: Vec<ObjectID>,
     /// Cached size of member list
     member_list_size: usize,
     /// Maximum speed of group (slowest member)
@@ -92,30 +92,20 @@ impl AIGroup {
 
     /// Return the group IDs for every member in this group
     pub fn get_all_ids(&mut self) -> &Vec<ObjectID> {
+        self.prune_dead_members();
         self.last_requested_id_list.clear();
-
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
-                if let Ok(obj_ref) = obj.try_read() {
-                    self.last_requested_id_list.push(obj_ref.get_id());
-                }
-            }
-        }
-
+        self.last_requested_id_list
+            .extend_from_slice(&self.member_list);
         &self.last_requested_id_list
     }
 
     /// Return a snapshot of member IDs without mutating cached state
     pub fn get_all_ids_snapshot(&self) -> Vec<ObjectID> {
-        let mut ids = Vec::new();
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
-                if let Ok(obj_ref) = obj.try_read() {
-                    ids.push(obj_ref.get_id());
-                }
-            }
-        }
-        ids
+        self.member_list
+            .iter()
+            .copied()
+            .filter(|id| OBJECT_REGISTRY.get_object(*id).is_some())
+            .collect()
     }
 
     /// Return the speed of the group's slowest member
@@ -128,20 +118,27 @@ impl AIGroup {
 
     /// Return true if object is in this group
     pub fn is_member(&self, obj: &Arc<RwLock<Object>>) -> bool {
-        for weak_obj in &self.member_list {
-            if let Some(member) = weak_obj.upgrade() {
-                if Arc::ptr_eq(&member, obj) {
-                    return true;
-                }
-            }
-        }
-        false
+        obj.try_read()
+            .ok()
+            .map(|guard| self.is_member_id(guard.get_id()))
+            .unwrap_or(false)
+    }
+
+    /// ID-first membership test.
+    pub fn is_member_id(&self, object_id: ObjectID) -> bool {
+        self.member_list.contains(&object_id)
+    }
+
+    fn prune_dead_members(&mut self) {
+        self.member_list
+            .retain(|id| OBJECT_REGISTRY.get_object(*id).is_some());
+        self.member_list_size = self.member_list.len();
     }
 
     /// Add object to group
     /// Only allow AI agents into the group
     pub fn add(&mut self, obj: Arc<RwLock<Object>>) -> Result<(), String> {
-        {
+        let object_id = {
             let obj_ref = obj.try_read().map_err(|_| "Could not lock object")?;
 
             // Check if object has AIUpdateInterface or is a valid structure
@@ -152,10 +149,18 @@ impl AIGroup {
             if !has_ai && !is_structure && !is_always_selectable {
                 return Err("Object is not AI-capable or valid for group".to_string());
             }
+            obj_ref.get_id()
+        };
+
+        if object_id == crate::object::INVALID_ID {
+            return Err("Object has invalid id".to_string());
+        }
+        if self.member_list.contains(&object_id) {
+            return Ok(());
         }
 
-        // Add to group's list of objects
-        self.member_list.push(Arc::downgrade(&obj));
+        // Store stable ID; resolve only for the duration of an operation.
+        self.member_list.push(object_id);
         self.member_list_size += 1;
 
         // Tell object to enter this group
@@ -180,46 +185,41 @@ impl AIGroup {
     /// Remove object from group
     /// Returns true if group was destroyed due to emptiness
     pub fn remove(&mut self, obj: &Arc<RwLock<Object>>) -> Result<bool, String> {
-        let mut found_index = None;
+        let object_id = obj
+            .try_read()
+            .map_err(|_| "Could not lock object")?
+            .get_id();
+        self.remove_by_id(object_id)
+    }
 
-        // Find the object in the list
-        for (i, weak_obj) in self.member_list.iter().enumerate() {
-            if let Some(member) = weak_obj.upgrade() {
-                if Arc::ptr_eq(&member, obj) {
-                    found_index = Some(i);
-                    break;
-                }
-            }
-        }
+    /// Remove member by stable object id.
+    pub fn remove_by_id(&mut self, object_id: ObjectID) -> Result<bool, String> {
+        let index = self
+            .member_list
+            .iter()
+            .position(|&id| id == object_id)
+            .ok_or("Object not found in group")?;
 
-        let index = found_index.ok_or("Object not found in group")?;
-
-        // Remove it
         self.member_list.remove(index);
-        self.member_list_size -= 1;
+        self.member_list_size = self.member_list.len();
 
-        // Tell object to forget about group
-        if let Ok(mut obj_ref) = obj.try_write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_ref| {
             obj_ref.leave_group();
-        }
+        });
 
-        // List has changed, properties need recomputation
         self.dirty = true;
-
-        // If the group is empty, it should be destroyed
         Ok(self.is_empty())
     }
 
     /// Check if group contains any objects not owned by the specified player
     pub fn contains_any_objects_not_owned_by_player(&self, owner_player: &Player) -> bool {
         let owner_id = owner_player.get_player_index() as UnsignedInt;
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if obj_ref.get_controlling_player_id() != Some(owner_id) {
-                        return true;
-                    }
-                }
+        for &member_id in &self.member_list {
+            let foreign = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                obj_ref.get_controlling_player_id() != Some(owner_id)
+            });
+            if foreign == Some(true) {
+                return true;
             }
         }
         false
@@ -228,23 +228,20 @@ impl AIGroup {
     /// Remove any objects that aren't owned by the player
     /// Returns true if the group was destroyed due to emptiness
     pub fn remove_any_objects_not_owned_by_player(&mut self, owner_player: &Player) -> bool {
-        let mut objects_to_remove = Vec::new();
+        let mut ids_to_remove = Vec::new();
         let owner_id = owner_player.get_player_index() as UnsignedInt;
 
-        // Collect objects to remove
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if obj_ref.get_controlling_player_id() != Some(owner_id) {
-                        objects_to_remove.push(obj.clone());
-                    }
-                }
+        for &member_id in &self.member_list {
+            let foreign = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                obj_ref.get_controlling_player_id() != Some(owner_id)
+            });
+            if foreign == Some(true) {
+                ids_to_remove.push(member_id);
             }
         }
 
-        // Remove the objects
-        for obj in objects_to_remove {
-            if self.remove(&obj).unwrap_or(false) {
+        for member_id in ids_to_remove {
+            if self.remove_by_id(member_id).unwrap_or(false) {
                 return true;
             }
         }
@@ -258,8 +255,8 @@ impl AIGroup {
         let mut center = Coord3D::new(0.0, 0.0, 0.0);
 
         // First pass - try to use only AI objects
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if obj_ref.is_disabled_by_type(DisabledType::Held) {
                         continue; // Don't count riders in center calculation
@@ -278,8 +275,8 @@ impl AIGroup {
 
         // If no AI objects found, use all objects
         if count == 0 && !self.member_list.is_empty() {
-            for weak_obj in &self.member_list {
-                if let Some(obj) = weak_obj.upgrade() {
+            for &member_id in &self.member_list {
+                if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                     if let Ok(obj_ref) = obj.try_read() {
                         if obj_ref.is_disabled_by_type(DisabledType::Held) {
                             continue; // Don't count riders in center calculation
@@ -313,8 +310,8 @@ impl AIGroup {
         let mut center = Coord3D::new(0.0, 0.0, 0.0);
         let mut formation_id: Option<FormationID> = None;
 
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if obj_ref.is_disabled_by_type(DisabledType::Held) {
                         continue; // Don't count riders in center calculation
@@ -429,13 +426,11 @@ impl AIGroup {
         self.speed = f32::MAX;
         let mut found_any = false;
 
-        // Clean up dead weak references while computing speed
-        self.member_list
-            .retain(|weak_obj| weak_obj.strong_count() > 0);
-        self.member_list_size = self.member_list.len();
+        // Drop destroyed members while computing speed
+        self.prune_dead_members();
 
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         let obj_speed = ai.get_speed();
@@ -467,8 +462,8 @@ impl AIGroup {
         add_waypoint: bool,
         cmd_source: CommandSourceType,
     ) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.ai_move_to_position(pos, add_waypoint, cmd_source);
@@ -479,8 +474,8 @@ impl AIGroup {
     }
 
     pub fn group_move_to_and_evacuate(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.ai_move_to_and_evacuate(pos, cmd_source);
@@ -492,8 +487,8 @@ impl AIGroup {
 
     /// Start following the path from the given waypoint (matches C++ AIGroup::groupFollowWaypointPath).
     pub fn group_follow_waypoint_path(&self, way: &Waypoint, cmd_source: CommandSourceType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.ai_follow_waypoint_path(way, cmd_source);
@@ -505,8 +500,8 @@ impl AIGroup {
 
     /// Start following the path exactly from the given waypoint (matches C++ AIGroup::groupFollowWaypointPathExact).
     pub fn group_follow_waypoint_path_exact(&self, way: &Waypoint, cmd_source: CommandSourceType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.ai_follow_waypoint_path_exact(way, cmd_source);
@@ -522,8 +517,8 @@ impl AIGroup {
         way: &Waypoint,
         cmd_source: CommandSourceType,
     ) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.ai_follow_waypoint_path_as_team(way, cmd_source);
@@ -539,8 +534,8 @@ impl AIGroup {
         way: &Waypoint,
         cmd_source: CommandSourceType,
     ) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.ai_follow_waypoint_path_exact_as_team(way, cmd_source);
@@ -551,8 +546,8 @@ impl AIGroup {
     }
 
     pub fn group_idle(&self, cmd_source: CommandSourceType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.ai_idle(cmd_source);
@@ -564,8 +559,8 @@ impl AIGroup {
 
     /// Tell all things in the group to toggle overcharge (matches C++ AIGroup::groupToggleOvercharge).
     pub fn group_toggle_overcharge(&self, _cmd_source: CommandSourceType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     let _ = obj_ref.with_overcharge_behavior_interface(|overcharge| {
                         let _ = overcharge.toggle();
@@ -583,8 +578,8 @@ impl AIGroup {
         surrender: bool,
         _cmd_source: CommandSourceType,
     ) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if let Ok(mut ai_guard) = ai.try_lock() {
@@ -598,8 +593,8 @@ impl AIGroup {
 
     /// Trigger a group cheer (matches C++ AIGroup::groupCheer).
     pub fn group_cheer(&self, _cmd_source: CommandSourceType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(mut obj_ref) = obj.try_write() {
                     obj_ref.set_special_model_condition_state(
                         MODELCONDITION_SPECIAL_CHEERING,
@@ -618,8 +613,8 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         let prisoner_id = prisoner.read().ok().map(|p| p.get_id());
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if let Ok(mut ai_guard) = ai.try_lock() {
@@ -642,8 +637,8 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         let prison_id = prison.read().ok().map(|p| p.get_id());
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if let Ok(mut ai_guard) = ai.try_lock() {
@@ -666,8 +661,8 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         let target_id = target.and_then(|t| t.read().ok().map(|obj| obj.get_id()));
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if let Ok(mut ai_guard) = ai.try_lock() {
@@ -685,8 +680,8 @@ impl AIGroup {
 
     /// Issue a command button (matches C++ AIGroup::groupDoCommandButton).
     pub fn group_do_command_button(&self, button_id: u32, cmd_source: CommandSourceType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     let _ = obj_ref.do_command_button(button_id, cmd_source);
                 }
@@ -701,8 +696,8 @@ impl AIGroup {
         pos: &Coord3D,
         cmd_source: CommandSourceType,
     ) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     let _ = obj_ref.do_command_button_at_position(button_id, pos, cmd_source);
                 }
@@ -717,8 +712,8 @@ impl AIGroup {
         way: &Waypoint,
         cmd_source: CommandSourceType,
     ) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     let _ = obj_ref.do_command_button_using_waypoints(button_id, way, cmd_source);
                 }
@@ -736,8 +731,8 @@ impl AIGroup {
         let Ok(target_ref) = target.read() else {
             return;
         };
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     let _ =
                         obj_ref.do_command_button_at_object(button_id, &*target_ref, cmd_source);
@@ -771,8 +766,8 @@ impl AIGroup {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if forced {
@@ -792,8 +787,8 @@ impl AIGroup {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
@@ -809,8 +804,8 @@ impl AIGroup {
         guard_mode: GuardMode,
         cmd_source: CommandSourceType,
     ) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.ai_guard_position(pos, guard_mode, cmd_source);
@@ -823,8 +818,8 @@ impl AIGroup {
     /// Try to sell all objects in the group (matches C++ AIGroup::groupSell).
     pub fn group_sell(&self, _cmd_source: CommandSourceType) {
         let current_frame = TheGameLogic::get_frame();
-        for weak_obj in &self.member_list {
-            let Some(obj) = weak_obj.upgrade() else {
+        for &member_id in &self.member_list {
+            let Some(obj) = OBJECT_REGISTRY.get_object(member_id) else {
                 continue;
             };
             let Ok(obj_ref) = obj.try_read() else {
@@ -852,8 +847,8 @@ impl AIGroup {
         guard_mode: GuardMode,
         cmd_source: CommandSourceType,
     ) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.ai_guard_object(obj_to_guard, guard_mode, cmd_source);
@@ -865,8 +860,8 @@ impl AIGroup {
 
     /// Set mine clearing detail weapon set flag for all members (matches C++ AIGroup::setMineClearingDetail)
     pub fn set_mine_clearing_detail(&self, set: bool) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(mut obj_ref) = obj.try_write() {
                     if set {
                         obj_ref.set_weapon_set_flag(WeaponSetType::MineClearingDetail);
@@ -885,8 +880,8 @@ impl AIGroup {
         lock_type: WeaponLockType,
     ) -> bool {
         let mut any = false;
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(mut obj_ref) = obj.try_write() {
                     obj_ref.set_weapon_lock(weapon_slot, lock_type);
                     any = true;
@@ -898,8 +893,8 @@ impl AIGroup {
 
     /// Release weapon lock for all members (matches C++ AIGroup::releaseWeaponLockForGroup)
     pub fn release_weapon_lock_for_group(&self, lock_type: WeaponLockType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(mut obj_ref) = obj.try_write() {
                     obj_ref.release_weapon_lock(lock_type);
                 }
@@ -909,8 +904,8 @@ impl AIGroup {
 
     /// Set a weapon set flag for members that support it (matches C++ AIGroup::setWeaponSetFlag)
     pub fn set_weapon_set_flag(&self, wst: WeaponSetType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(mut obj_ref) = obj.try_write() {
                     if obj_ref.has_weapon_set_template(wst) {
                         obj_ref.set_weapon_set_flag(wst);
@@ -924,8 +919,8 @@ impl AIGroup {
     pub fn queue_upgrade(&self, upgrade: &Arc<UpgradeTemplate>) {
         let upgrade_center = THE_UPGRADE_CENTER.clone();
 
-        for weak_obj in &self.member_list {
-            let Some(obj) = weak_obj.upgrade() else {
+        for &member_id in &self.member_list {
+            let Some(obj) = OBJECT_REGISTRY.get_object(member_id) else {
                 continue;
             };
             let Ok(obj_ref) = obj.try_read() else {
@@ -972,8 +967,8 @@ impl AIGroup {
         let store = get_special_power_store()?;
         let template = store.find_special_power_template_by_id(special_power_id as u32)?;
 
-        for weak_obj in &self.member_list {
-            let obj = weak_obj.upgrade()?;
+        for &member_id in &self.member_list {
+            let obj = OBJECT_REGISTRY.get_object(member_id)?;
             let has_special_power = {
                 let Ok(obj_ref) = obj.try_read() else {
                     continue;
@@ -996,8 +991,8 @@ impl AIGroup {
         command_type: GUICommandType,
     ) -> Option<Arc<RwLock<Object>>> {
         let control_bar = get_control_bar_bridge()?;
-        for weak_obj in &self.member_list {
-            let obj = weak_obj.upgrade()?;
+        for &member_id in &self.member_list {
+            let obj = OBJECT_REGISTRY.get_object(member_id)?;
             let has_command_button = {
                 let Ok(obj_ref) = obj.try_read() else {
                     continue;
@@ -1023,8 +1018,8 @@ impl AIGroup {
 
     /// Check if the group is idle
     pub fn is_idle(&self) -> bool {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if !ai.is_idle() {
@@ -1039,8 +1034,8 @@ impl AIGroup {
 
     /// Check if the group is busy (explicitly in busy state)
     pub fn is_busy(&self) -> bool {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if ai.is_busy() {
@@ -1055,8 +1050,8 @@ impl AIGroup {
 
     /// Check if the group AI is dead
     pub fn is_group_ai_dead(&self) -> bool {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if obj_ref.is_effectively_dead() {
                         continue;
@@ -1070,8 +1065,8 @@ impl AIGroup {
 
     /// Set attitude for all group members
     pub fn set_attitude(&self, attitude: AttitudeType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         ai.set_attitude(to_module_attitude(attitude));
@@ -1083,8 +1078,8 @@ impl AIGroup {
 
     /// Get attitude from first group member (they should all be the same)
     pub fn get_attitude(&self) -> AttitudeType {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         return from_module_attitude(ai.get_attitude());
@@ -1118,8 +1113,8 @@ impl AIGroup {
                     self.formation_id = Some(formation_id);
 
                     // Add all members to the formation
-                    for weak_obj in &self.member_list {
-                        if let Some(obj) = weak_obj.upgrade() {
+                    for &member_id in &self.member_list {
+                        if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                             if let Ok(obj_ref) = obj.try_read() {
                                 let unit_id = obj_ref.get_id();
                                 let position = *obj_ref.get_position();
@@ -1174,8 +1169,8 @@ impl AIGroup {
 
     /// Group attack-move: Move to position and engage enemies along the way
     pub fn group_attack_move_to_position(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         // Attack-move is a special AI state that moves to position
@@ -1230,8 +1225,8 @@ impl AIGroup {
                 if let Ok(mut manager) = manager_arc.try_lock() {
                     // Update member positions in formation
                     if let Some(formation) = manager.get_formation_mut(formation_id) {
-                        for weak_obj in &self.member_list {
-                            if let Some(obj) = weak_obj.upgrade() {
+                        for &member_id in &self.member_list {
+                            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                                 if let Ok(obj_ref) = obj.try_read() {
                                     let unit_id = obj_ref.get_id();
                                     let position = *obj_ref.get_position();
@@ -1260,8 +1255,8 @@ impl AIGroup {
 impl Drop for AIGroup {
     fn drop(&mut self) {
         // Disassociate each member from the group
-        for weak_obj in &self.member_list {
-            if let Some(obj) = weak_obj.upgrade() {
+        for &member_id in &self.member_list {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(mut obj_ref) = obj.try_write() {
                     obj_ref.leave_group();
                 }
