@@ -2480,8 +2480,8 @@ pub struct Object {
     shroud_range: Real,
 
     // Containment
-    contained_by: Option<Weak<RwLock<Object>>>,
-    xfer_contained_by_id: ObjectID,
+    /// Container object id (INVALID_ID if not contained).
+    contained_by_id: ObjectID,
     contained_by_frame: UnsignedInt,
     is_transporting: Bool,
 
@@ -2761,8 +2761,7 @@ impl Object {
             },
             shroud_range: 0.0,
 
-            contained_by: None,
-            xfer_contained_by_id: INVALID_ID,
+            contained_by_id: INVALID_ID,
             contained_by_frame: 0,
             is_transporting: false,
 
@@ -2890,18 +2889,15 @@ impl Object {
     /// without touching the global `GameLogic` instance directly.
     pub(crate) fn on_destroy_internal(&mut self) {
         // C++ counterpart releases containment before running module onDelete.
-        if let Some(container_weak) = self.contained_by.take() {
-            if let Some(container_arc) = container_weak.upgrade() {
-                if let Ok(container_read) = container_arc.read() {
-                    if let Some(contain_module) = container_read.get_contain() {
-                        if let Ok(mut contain_guard) = contain_module.lock() {
-                            let _ = contain_guard.release_object(self.id);
-                        }
+        if let Some(container_arc) = self.get_container() {
+            if let Ok(container_read) = container_arc.read() {
+                if let Some(contain_module) = container_read.get_contain() {
+                    if let Ok(mut contain_guard) = contain_module.lock() {
+                        let _ = contain_guard.release_object(self.id);
                     }
                 }
-
-                let _ = self.on_removed_from(container_arc);
             }
+            let _ = self.on_removed_from(container_arc);
         }
 
         self.upgrade_module_handles.clear();
@@ -4073,16 +4069,12 @@ impl Object {
         pos: &Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let source_bonus_flags = self.weapon_bonus_condition;
-        let container_bonus_flags = if let Some(contained_by_weak) = &self.contained_by {
-            if let Some(container_arc) = contained_by_weak.upgrade() {
-                if let Ok(container) = container_arc.try_read() {
-                    if let Some(contain_module) = &container.contain {
-                        if let Ok(contain) = contain_module.try_lock() {
-                            if contain.passes_weapon_bonus_to_passengers() {
-                                Some(container.weapon_bonus_condition)
-                            } else {
-                                None
-                            }
+        let container_bonus_flags = if let Some(container_arc) = self.get_container() {
+            if let Ok(container) = container_arc.try_read() {
+                if let Some(contain_module) = &container.contain {
+                    if let Ok(contain) = contain_module.try_lock() {
+                        if contain.passes_weapon_bonus_to_passengers() {
+                            Some(container.weapon_bonus_condition)
                         } else {
                             None
                         }
@@ -4145,16 +4137,12 @@ impl Object {
         pos: &Coord3D,
     ) -> Result<(), ObjectError> {
         let source_bonus_flags = self.weapon_bonus_condition;
-        let container_bonus_flags = if let Some(contained_by_weak) = &self.contained_by {
-            if let Some(container_arc) = contained_by_weak.upgrade() {
-                if let Ok(container) = container_arc.try_read() {
-                    if let Some(contain_module) = &container.contain {
-                        if let Ok(contain) = contain_module.try_lock() {
-                            if contain.passes_weapon_bonus_to_passengers() {
-                                Some(container.weapon_bonus_condition)
-                            } else {
-                                None
-                            }
+        let container_bonus_flags = if let Some(container_arc) = self.get_container() {
+            if let Ok(container) = container_arc.try_read() {
+                if let Some(contain_module) = &container.contain {
+                    if let Ok(contain) = contain_module.try_lock() {
+                        if contain.passes_weapon_bonus_to_passengers() {
+                            Some(container.weapon_bonus_condition)
                         } else {
                             None
                         }
@@ -4499,12 +4487,7 @@ impl Object {
         &mut self,
         held: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let holder_id = self
-            .contained_by
-            .as_ref()
-            .and_then(|weak| weak.upgrade())
-            .and_then(|holder| holder.read().ok().map(|h| h.get_id()))
-            .unwrap_or(INVALID_ID);
+        let holder_id = self.contained_by_id;
 
         if self.held_helper.is_none() {
             self.held_helper = Some(Arc::new(Mutex::new(ObjectHeldHelper::new())));
@@ -7386,16 +7369,12 @@ impl Object {
         let source_bonus_flags = self.weapon_bonus_condition;
 
         // Get container bonus flags if we're in a transport (matches C++ Weapon.cpp lines 1804-1810)
-        let container_bonus_flags = if let Some(contained_by_weak) = &self.contained_by {
-            if let Some(container_arc) = contained_by_weak.upgrade() {
-                if let Ok(container) = container_arc.try_read() {
-                    if let Some(contain_module) = &container.contain {
-                        if let Ok(contain) = contain_module.try_lock() {
-                            if contain.passes_weapon_bonus_to_passengers() {
-                                Some(container.weapon_bonus_condition)
-                            } else {
-                                None
-                            }
+        let container_bonus_flags = if let Some(container_arc) = self.get_container() {
+            if let Ok(container) = container_arc.try_read() {
+                if let Some(contain_module) = &container.contain {
+                    if let Ok(contain) = contain_module.try_lock() {
+                        if contain.passes_weapon_bonus_to_passengers() {
+                            Some(container.weapon_bonus_condition)
                         } else {
                             None
                         }
@@ -7724,23 +7703,19 @@ impl Object {
     /// Returns None if the object is not contained
     /// C++ Reference: Object.cpp - getContainedBy()
     pub fn get_contained_by(&self) -> Option<ObjectID> {
-        // Get container object ID from weak reference
-        // Matches C++ Object::getContainedBy() behavior
-        if let Some(weak) = self.contained_by.as_ref() {
-            if let Some(arc) = weak.upgrade() {
-                if let Ok(guard) = arc.read() {
-                    return Some(guard.get_id());
-                }
-            }
+        // Matches C++ Object::getContainedBy() behavior (returns container id).
+        if self.contained_by_id == INVALID_ID {
+            None
+        } else {
+            Some(self.contained_by_id)
         }
-        None
     }
 
     /// Check if this object is inside a container
     ///
     /// Matches C++ Object::isContained() from Object.h line 421
     pub fn is_contained(&self) -> bool {
-        self.contained_by.is_some()
+        self.contained_by_id != INVALID_ID
     }
 
     /// Get locomotor for this object, if any.
@@ -10970,17 +10945,21 @@ impl Object {
         &mut self,
         container: Option<Arc<RwLock<Object>>>,
     ) -> Result<(), ObjectError> {
-        // Update the contained_by field
-        // Matches C++ Object container management
-        self.contained_by = container.as_ref().map(|c| Arc::downgrade(c));
+        let id = container
+            .as_ref()
+            .and_then(|c| c.read().ok().map(|g| g.get_id()))
+            .unwrap_or(INVALID_ID);
+        self.set_contained_by_id(id)
+    }
 
-        // Update the contained_by_frame if we're being contained
-        if container.is_some() {
+    /// ID-first container association.
+    pub fn set_contained_by_id(&mut self, container_id: ObjectID) -> Result<(), ObjectError> {
+        self.contained_by_id = container_id;
+        if container_id != INVALID_ID {
             self.contained_by_frame = crate::helpers::TheGameLogic::get_frame();
         } else {
             self.contained_by_frame = 0;
         }
-
         Ok(())
     }
 
@@ -11037,7 +11016,11 @@ impl Object {
         }
 
         // Update contained_by reference (C++ line 678)
-        self.contained_by = Some(Arc::downgrade(&container));
+        self.contained_by_id = container
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(INVALID_ID);
 
         // Update contained_by_frame (C++ line 679)
         self.contained_by_frame = crate::helpers::TheGameLogic::get_frame();
@@ -11071,7 +11054,7 @@ impl Object {
         self.clear_status(ObjectStatusMaskType::MASKED | ObjectStatusMaskType::UNSELECTABLE);
 
         // Clear contained_by reference (C++ line 691)
-        self.contained_by = None;
+        self.contained_by_id = INVALID_ID;
 
         // Clear contained_by_frame (C++ line 692)
         self.contained_by_frame = 0;
@@ -11257,7 +11240,11 @@ impl Object {
     /// # Returns
     /// An optional Arc to the container object
     pub fn get_container(&self) -> Option<Arc<RwLock<Object>>> {
-        self.contained_by.as_ref().and_then(|weak| weak.upgrade())
+        if self.contained_by_id == INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.contained_by_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.contained_by_id))
     }
 
     pub fn get_indicator_color(&self) -> Color {
@@ -12732,15 +12719,11 @@ impl Snapshot for Object {
         }
 
         if version >= 6 {
-            if is_saving {
-                self.xfer_contained_by_id = self
-                    .contained_by
-                    .as_ref()
-                    .and_then(|weak| weak.upgrade())
-                    .and_then(|container| container.read().ok().map(|guard| guard.get_id()))
-                    .unwrap_or(INVALID_ID);
+            let mut contained_by_id = self.contained_by_id;
+            let _ = xfer.xfer_unsigned_int(&mut contained_by_id);
+            if !is_saving {
+                self.contained_by_id = contained_by_id;
             }
-            let _ = xfer.xfer_unsigned_int(&mut self.xfer_contained_by_id);
         }
 
         let _ = xfer.xfer_unsigned_int(&mut self.contained_by_frame);
@@ -12935,12 +12918,7 @@ impl Snapshot for Object {
     }
 
     fn load_post_process(&mut self) {
-        if self.xfer_contained_by_id != INVALID_ID {
-            self.contained_by = TheGameLogic::find_object_by_id(self.xfer_contained_by_id)
-                .map(|container| Arc::downgrade(&container));
-        } else {
-            self.contained_by = None;
-        }
+        // contained_by_id already restored during xfer (v6+).
 
         for entry in &self.modules {
             entry.with_module(|module| {
