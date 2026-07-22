@@ -1,10 +1,10 @@
 //! UI Demo Binary
-//! 
+//!
 //! This binary runs the Command & Conquer Generals UI system demonstration,
 //! showcasing all major interface components and interactions.
 
-use std::io::{self, Write};
 use generals_main::ui_demo::run_ui_demo;
+use std::io::{self, Write};
 
 fn main() {
     println!("Command & Conquer Generals Zero Hour - UI System Demo");
@@ -25,17 +25,17 @@ fn main() {
     println!();
     print!("Press Enter to start the demo, or 'q' to quit: ");
     io::stdout().flush().unwrap();
-    
+
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
-    
+
     if input.trim().to_lowercase() == "q" {
         println!("Demo cancelled.");
         return;
     }
-    
+
     println!("\nStarting UI Demo...\n");
-    
+
     // Run the actual demo
     match run_ui_demo() {
         Ok(_) => {

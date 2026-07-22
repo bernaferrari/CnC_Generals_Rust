@@ -3,66 +3,71 @@
 //! This module provides comprehensive cross-platform audio driver abstraction with
 //! full platform-specific implementations for optimal performance and compatibility.
 
-use super::{AudioDeviceError, Result, AudioFormat, DeviceCapabilities};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
-use parking_lot::{RwLock, Mutex};
-use crossbeam_channel::{Sender, Receiver, bounded};
+use super::{AudioDeviceError, AudioFormat, DeviceCapabilities, Result};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use dashmap::DashMap;
+use parking_lot::{Mutex, RwLock};
+use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "audio")]
-use cpal::{Device as CpalDevice, Host, SupportedStreamConfig, StreamConfig, Sample, SampleFormat, Stream};
+use cpal::{
+    Device as CpalDevice, Host, Sample, SampleFormat, Stream, StreamConfig, SupportedStreamConfig,
+};
 
 // Platform-specific imports
 #[cfg(all(target_os = "windows", feature = "audio"))]
-use windows::Win32::Media::Audio::{IMMDeviceEnumerator, IMMDevice, IAudioClient, WAVEFORMATEX};
+use windows::Win32::Media::Audio::{IAudioClient, IMMDevice, IMMDeviceEnumerator, WAVEFORMATEX};
 
 #[cfg(all(target_os = "linux", feature = "audio"))]
-use alsa::{PCM, Direction, ValueOr};
+use alsa::{Direction, ValueOr, PCM};
 
 #[cfg(all(target_os = "macos", feature = "audio"))]
-use coreaudio_rs::audio_unit::{AudioUnit, render_callback::{self, data}};
+use coreaudio_rs::audio_unit::{
+    render_callback::{self, data},
+    AudioUnit,
+};
 
 /// Audio driver types with comprehensive platform support
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DriverType {
     /// Cross-platform CPAL driver (fallback)
     Cpal,
-    
+
     /// Windows WASAPI (Windows Audio Session API) - Primary Windows choice
     #[cfg(target_os = "windows")]
     Wasapi,
-    
+
     /// Windows DirectSound (legacy compatibility)
     #[cfg(target_os = "windows")]
     DirectSound,
-    
+
     /// Windows WaveOut (oldest compatibility)
     #[cfg(target_os = "windows")]
     WaveOut,
-    
+
     /// Linux ALSA (Advanced Linux Sound Architecture) - Low latency
     #[cfg(target_os = "linux")]
     Alsa,
-    
+
     /// Linux PulseAudio - Desktop integration
-    #[cfg(target_os = "linux")]  
+    #[cfg(target_os = "linux")]
     PulseAudio,
-    
+
     /// Linux JACK - Professional audio
     #[cfg(target_os = "linux")]
     Jack,
-    
+
     /// macOS CoreAudio - Native macOS
     #[cfg(target_os = "macos")]
     CoreAudio,
-    
+
     /// macOS AudioUnit - Plugin architecture
     #[cfg(target_os = "macos")]
     AudioUnit,
-    
+
     /// Null driver for testing
     Null,
 }
@@ -71,13 +76,13 @@ impl Default for DriverType {
     fn default() -> Self {
         #[cfg(target_os = "windows")]
         return Self::Wasapi;
-        
+
         #[cfg(target_os = "linux")]
         return Self::PulseAudio;
-        
+
         #[cfg(target_os = "macos")]
         return Self::CoreAudio;
-        
+
         #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
         Self::Cpal
     }
@@ -157,4 +162,1387 @@ pub enum AudioDeviceType {
 /// Device connection state
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeviceState {
-    /// Device is active and available\n    Active,\n    /// Device is present but not available\n    Disabled,\n    /// Device is not present\n    NotPresent,\n    /// Device state is unknown\n    Unknown,\n}\n\n/// Hardware information for audio devices\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct HardwareInfo {\n    /// Vendor name\n    pub vendor: Option<String>,\n    /// Product name\n    pub product: Option<String>,\n    /// Hardware revision\n    pub revision: Option<String>,\n    /// Driver version\n    pub driver_version: Option<String>,\n    /// Bus type (USB, PCIe, etc.)\n    pub bus_type: Option<String>,\n    /// Hardware capabilities flags\n    pub capabilities: u32,\n}\n\n/// Supported audio configuration with extended information\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct SupportedAudioConfig {\n    /// Audio format\n    pub format: AudioFormat,\n    /// Minimum buffer size in frames\n    pub min_buffer_size: u32,\n    /// Maximum buffer size in frames\n    pub max_buffer_size: u32,\n    /// Default buffer size in frames\n    pub default_buffer_size: u32,\n    /// Supported buffer sizes (if hardware has specific requirements)\n    pub supported_buffer_sizes: Vec<u32>,\n    /// Hardware latency in frames\n    pub hardware_latency: u32,\n    /// Whether exclusive mode is available for this config\n    pub exclusive_mode_available: bool,\n}\n\n/// Audio callback function signature\npub type AudioCallback = dyn Fn(&mut [f32], &AudioCallbackInfo) + Send + Sync;\n\n/// Information passed to audio callback\n#[derive(Debug, Clone)]\npub struct AudioCallbackInfo {\n    /// Current timestamp\n    pub timestamp: Instant,\n    /// Buffer size in frames\n    pub buffer_size: usize,\n    /// Sample rate\n    pub sample_rate: u32,\n    /// Number of channels\n    pub channels: u16,\n    /// Callback invocation count\n    pub callback_count: u64,\n    /// Estimated latency in frames\n    pub latency_frames: u32,\n    /// Whether we're in exclusive mode\n    pub exclusive_mode: bool,\n    /// CPU usage percentage (if available)\n    pub cpu_usage: Option<f32>,\n}\n\n/// Stream performance metrics\n#[derive(Debug, Clone, Default)]\npub struct StreamMetrics {\n    /// Total callbacks processed\n    pub total_callbacks: u64,\n    /// Audio dropouts/underruns\n    pub dropouts: u64,\n    /// Average callback duration (microseconds)\n    pub avg_callback_duration_us: f64,\n    /// Peak callback duration (microseconds)\n    pub peak_callback_duration_us: u64,\n    /// Current CPU usage\n    pub cpu_usage: f32,\n    /// Memory usage (bytes)\n    pub memory_usage: u64,\n}\n\n/// Comprehensive cross-platform audio driver\npub struct AudioDriver {\n    /// Driver type\n    driver_type: DriverType,\n    \n    /// CPAL host (if using CPAL)\n    #[cfg(feature = \"audio\")]\n    cpal_host: Option<Host>,\n    \n    /// Current audio device\n    #[cfg(feature = \"audio\")]\n    current_device: Option<CpalDevice>,\n    \n    /// Platform-specific device handle\n    #[cfg(target_os = \"windows\")]\n    windows_device: Option<WindowsAudioDevice>,\n    \n    #[cfg(target_os = \"linux\")]\n    linux_device: Option<LinuxAudioDevice>,\n    \n    #[cfg(target_os = \"macos\")]\n    macos_device: Option<MacOSAudioDevice>,\n    \n    /// Driver capabilities\n    capabilities: Arc<DriverCapabilities>,\n    \n    /// Available devices cache\n    available_devices: Arc<RwLock<Vec<AudioDeviceInfo>>>,\n    \n    /// Current configuration\n    current_config: Arc<RwLock<Option<SupportedAudioConfig>>>,\n    \n    /// Active streams\n    active_streams: Arc<DashMap<String, Arc<dyn AudioStream>>>,\n    \n    /// Performance metrics\n    metrics: Arc<RwLock<StreamMetrics>>,\n    \n    /// Device change notification callback\n    device_change_callback: Arc<Mutex<Option<Box<dyn Fn(DeviceChangeEvent) + Send + Sync>>>>,\n    \n    /// Hot-plug monitoring task handle\n    hotplug_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,\n}\n\n/// Device change events\n#[derive(Debug, Clone)]\npub enum DeviceChangeEvent {\n    /// Device was added\n    DeviceAdded(AudioDeviceInfo),\n    /// Device was removed\n    DeviceRemoved(String), // device_id\n    /// Device state changed\n    DeviceStateChanged(String, DeviceState),\n    /// Default device changed\n    DefaultDeviceChanged(String), // device_id\n}\n\n// Platform-specific device implementations\n\n#[cfg(target_os = \"windows\")]\nstruct WindowsAudioDevice {\n    device: Option<IMMDevice>,\n    audio_client: Option<IAudioClient>,\n    // Additional Windows-specific fields\n}\n\n#[cfg(target_os = \"linux\")]\nstruct LinuxAudioDevice {\n    pcm: Option<alsa::PCM>,\n    // Additional Linux-specific fields\n}\n\n#[cfg(target_os = \"macos\")]\nstruct MacOSAudioDevice {\n    audio_unit: Option<AudioUnit>,\n    // Additional macOS-specific fields\n}\n\nimpl AudioDriver {\n    /// Create a new audio driver with the default driver type\n    pub async fn new() -> Result<Self> {\n        Self::new_with_type(DriverType::default()).await\n    }\n    \n    /// Create a new audio driver with specific type\n    pub async fn new_with_type(driver_type: DriverType) -> Result<Self> {\n        let mut driver = Self {\n            driver_type,\n            #[cfg(feature = \"audio\")]\n            cpal_host: None,\n            #[cfg(feature = \"audio\")]\n            current_device: None,\n            \n            #[cfg(target_os = \"windows\")]\n            windows_device: None,\n            \n            #[cfg(target_os = \"linux\")]\n            linux_device: None,\n            \n            #[cfg(target_os = \"macos\")]\n            macos_device: None,\n            \n            capabilities: Arc::new(Self::get_default_capabilities(driver_type)),\n            available_devices: Arc::new(RwLock::new(Vec::new())),\n            current_config: Arc::new(RwLock::new(None)),\n            active_streams: Arc::new(DashMap::new()),\n            metrics: Arc::new(RwLock::new(StreamMetrics::default())),\n            device_change_callback: Arc::new(Mutex::new(None)),\n            hotplug_handle: Arc::new(Mutex::new(None)),\n        };\n        \n        driver.initialize().await?;\n        Ok(driver)\n    }\n    \n    /// Initialize the audio driver\n    async fn initialize(&mut self) -> Result<()> {\n        match self.driver_type {\n            DriverType::Cpal => {\n                #[cfg(feature = \"audio\")]\n                {\n                    let host = cpal::default_host();\n                    self.cpal_host = Some(host);\n                    self.enumerate_devices().await?;\n                }\n                \n                #[cfg(not(feature = \"audio\"))]\n                return Err(AudioDeviceError::InitializationFailed(\"Audio feature not enabled\".to_string()));\n            }\n            \n            #[cfg(target_os = \"windows\")]\n            DriverType::Wasapi => {\n                self.initialize_wasapi().await?;\n            }\n            \n            #[cfg(target_os = \"windows\")]\n            DriverType::DirectSound => {\n                self.initialize_directsound().await?;\n            }\n            \n            #[cfg(target_os = \"windows\")]\n            DriverType::WaveOut => {\n                self.initialize_waveout().await?;\n            }\n            \n            #[cfg(target_os = \"linux\")]\n            DriverType::Alsa => {\n                self.initialize_alsa().await?;\n            }\n            \n            #[cfg(target_os = \"linux\")]\n            DriverType::PulseAudio => {\n                self.initialize_pulseaudio().await?;\n            }\n            \n            #[cfg(target_os = \"linux\")]\n            DriverType::Jack => {\n                self.initialize_jack().await?;\n            }\n            \n            #[cfg(target_os = \"macos\")]\n            DriverType::CoreAudio => {\n                self.initialize_coreaudio().await?;\n            }\n            \n            #[cfg(target_os = \"macos\")]\n            DriverType::AudioUnit => {\n                self.initialize_audiounit().await?;\n            }\n            \n            DriverType::Null => {\n                self.initialize_null_driver().await?;\n            }\n        }\n        \n        // Start hot-plug monitoring if supported\n        if self.capabilities.hotplug_support {\n            self.start_hotplug_monitoring().await?;\n        }\n        \n        Ok(())\n    }\n    \n    /// Enumerate available audio devices with full information\n    pub async fn enumerate_devices(&mut self) -> Result<&[AudioDeviceInfo]> {\n        let mut devices = Vec::new();\n        \n        match self.driver_type {\n            DriverType::Cpal => {\n                #[cfg(feature = \"audio\")]\n                if let Some(host) = &self.cpal_host {\n                    devices.extend(self.enumerate_cpal_devices(host).await?);\n                }\n            }\n            \n            #[cfg(target_os = \"windows\")]\n            DriverType::Wasapi => {\n                devices.extend(self.enumerate_wasapi_devices().await?);\n            }\n            \n            #[cfg(target_os = \"linux\")]\n            DriverType::Alsa => {\n                devices.extend(self.enumerate_alsa_devices().await?);\n            }\n            \n            #[cfg(target_os = \"macos\")]\n            DriverType::CoreAudio => {\n                devices.extend(self.enumerate_coreaudio_devices().await?);\n            }\n            \n            DriverType::Null => {\n                devices.push(self.create_null_device());\n            }\n            \n            _ => {\n                // Use CPAL as fallback\n                #[cfg(feature = \"audio\")]\n                if let Some(host) = &self.cpal_host {\n                    devices.extend(self.enumerate_cpal_devices(host).await?);\n                }\n            }\n        }\n        \n        *self.available_devices.write() = devices;\n        Ok(&self.available_devices.read())\n    }\n    \n    /// Get the default output device\n    pub async fn get_default_output_device(&self) -> Result<Option<&AudioDeviceInfo>> {\n        Ok(self.available_devices.read().iter()\n            .find(|device| device.device_type == AudioDeviceType::Output && device.is_default))\n    }\n    \n    /// Get the default input device\n    pub async fn get_default_input_device(&self) -> Result<Option<&AudioDeviceInfo>> {\n        Ok(self.available_devices.read().iter()\n            .find(|device| device.device_type == AudioDeviceType::Input && device.is_default))\n    }\n    \n    /// Select an audio device for use with validation\n    pub async fn select_device(&mut self, device_id: &str) -> Result<()> {\n        let device_info = self.available_devices.read().iter()\n            .find(|device| device.id == device_id)\n            .cloned()\n            .ok_or_else(|| AudioDeviceError::DeviceNotFound(format!(\"Device not found: {}\", device_id)))?;\n        \n        // Validate device state\n        if device_info.state != DeviceState::Active {\n            return Err(AudioDeviceError::DeviceBusy(format!(\n                \"Device {} is not active (state: {:?})\", device_id, device_info.state\n            )));\n        }\n        \n        match self.driver_type {\n            DriverType::Cpal => {\n                #[cfg(feature = \"audio\")]\n                self.select_cpal_device(&device_info).await?\n            }\n            \n            #[cfg(target_os = \"windows\")]\n            DriverType::Wasapi => {\n                self.select_wasapi_device(&device_info).await?;\n            }\n            \n            #[cfg(target_os = \"linux\")]\n            DriverType::Alsa => {\n                self.select_alsa_device(&device_info).await?;\n            }\n            \n            #[cfg(target_os = \"macos\")]\n            DriverType::CoreAudio => {\n                self.select_coreaudio_device(&device_info).await?;\n            }\n            \n            _ => {\n                // Fallback selection\n            }\n        }\n        \n        tracing::info!(\"Selected audio device: {} ({})\", device_info.name, device_id);\n        Ok(())\n    }\n    \n    /// Create an audio stream with the specified configuration\n    pub async fn create_stream(\n        &self,\n        config: &SupportedAudioConfig,\n        callback: Arc<AudioCallback>,\n    ) -> Result<Box<dyn AudioStream>> {\n        let stream_id = uuid::Uuid::new_v4().to_string();\n        \n        let stream: Box<dyn AudioStream> = match self.driver_type {\n            DriverType::Cpal => {\n                #[cfg(feature = \"audio\")]\n                {\n                    Box::new(self.create_cpal_stream(config, callback, &stream_id).await?)\n                }\n                \n                #[cfg(not(feature = \"audio\"))]\n                return Err(AudioDeviceError::InitializationFailed(\"Audio feature not enabled\".to_string()))\n            }\n            \n            #[cfg(target_os = \"windows\")]\n            DriverType::Wasapi => {\n                Box::new(self.create_wasapi_stream(config, callback, &stream_id).await?)\n            }\n            \n            #[cfg(target_os = \"linux\")]\n            DriverType::Alsa => {\n                Box::new(self.create_alsa_stream(config, callback, &stream_id).await?)\n            }\n            \n            #[cfg(target_os = \"macos\")]\n            DriverType::CoreAudio => {\n                Box::new(self.create_coreaudio_stream(config, callback, &stream_id).await?)\n            }\n            \n            DriverType::Null => {\n                Box::new(NullAudioStream::new(stream_id))\n            }\n            \n            _ => {\n                return Err(AudioDeviceError::InitializationFailed(\n                    format!(\"{:?} streams not yet implemented\", self.driver_type)\n                ));\n            }\n        };\n        \n        self.active_streams.insert(stream_id.clone(), Arc::from(stream));\n        \n        // Return a wrapped stream that removes itself from active streams when dropped\n        Ok(Box::new(ManagedAudioStream {\n            stream_id,\n            inner: self.active_streams.get(&stream_id).unwrap().clone(),\n            driver: self as *const Self,\n        }))\n    }\n    \n    /// Get driver capabilities\n    pub fn get_capabilities(&self) -> &DriverCapabilities {\n        &self.capabilities\n    }\n    \n    /// Get available devices\n    pub fn get_available_devices(&self) -> Vec<AudioDeviceInfo> {\n        self.available_devices.read().clone()\n    }\n    \n    /// Get performance metrics\n    pub fn get_metrics(&self) -> StreamMetrics {\n        self.metrics.read().clone()\n    }\n    \n    /// Set device change notification callback\n    pub fn set_device_change_callback<F>(&self, callback: F)\n    where\n        F: Fn(DeviceChangeEvent) + Send + Sync + 'static,\n    {\n        *self.device_change_callback.lock() = Some(Box::new(callback));\n    }\n    \n    /// Start hot-plug monitoring\n    async fn start_hotplug_monitoring(&self) -> Result<()> {\n        let driver_type = self.driver_type;\n        let devices = Arc::clone(&self.available_devices);\n        let callback = Arc::clone(&self.device_change_callback);\n        \n        let handle = tokio::spawn(async move {\n            let mut interval = tokio::time::interval(Duration::from_secs(1));\n            let mut previous_devices = Vec::new();\n            \n            loop {\n                interval.tick().await;\n                \n                // Check for device changes (simplified implementation)\n                let current_devices = devices.read().clone();\n                \n                // Detect added devices\n                for device in &current_devices {\n                    if !previous_devices.iter().any(|d: &AudioDeviceInfo| d.id == device.id) {\n                        if let Some(callback) = callback.lock().as_ref() {\n                            callback(DeviceChangeEvent::DeviceAdded(device.clone()));\n                        }\n                    }\n                }\n                \n                // Detect removed devices\n                for device in &previous_devices {\n                    if !current_devices.iter().any(|d| d.id == device.id) {\n                        if let Some(callback) = callback.lock().as_ref() {\n                            callback(DeviceChangeEvent::DeviceRemoved(device.id.clone()));\n                        }\n                    }\n                }\n                \n                previous_devices = current_devices;\n            }\n        });\n        \n        *self.hotplug_handle.lock() = Some(handle);\n        Ok(())\n    }\n    \n    // Platform-specific implementations\n    \n    #[cfg(feature = \"audio\")]\n    async fn enumerate_cpal_devices(&self, host: &Host) -> Result<Vec<AudioDeviceInfo>> {\n        let mut devices = Vec::new();\n        \n        // Enumerate output devices\n        if let Ok(output_devices) = host.output_devices() {\n            for (index, device) in output_devices.enumerate() {\n                if let Ok(device_info) = self.create_device_info_from_cpal(device, AudioDeviceType::Output, index).await {\n                    devices.push(device_info);\n                }\n            }\n        }\n        \n        // Enumerate input devices\n        if let Ok(input_devices) = host.input_devices() {\n            for (index, device) in input_devices.enumerate() {\n                if let Ok(device_info) = self.create_device_info_from_cpal(device, AudioDeviceType::Input, index + 1000).await {\n                    devices.push(device_info);\n                }\n            }\n        }\n        \n        Ok(devices)\n    }\n    \n    #[cfg(feature = \"audio\")]\n    async fn create_device_info_from_cpal(\n        &self,\n        device: CpalDevice,\n        device_type: AudioDeviceType,\n        index: usize,\n    ) -> Result<AudioDeviceInfo> {\n        let name = device.name()\n            .map_err(|e| AudioDeviceError::DeviceNotFound(format!(\"Failed to get device name: {}\", e)))?;\n        \n        let supported_configs = if device_type == AudioDeviceType::Output {\n            device.supported_output_configs()\n        } else {\n            device.supported_input_configs()\n        }\n        .map_err(|e| AudioDeviceError::FormatNotSupported(format!(\"Failed to get supported configs: {}\", e)))?\n        .map(|config| {\n            let format = AudioFormat {\n                sample_rate: config.min_sample_rate().0,\n                channels: config.channels(),\n                bits_per_sample: match config.sample_format() {\n                    SampleFormat::I16 => 16,\n                    SampleFormat::I32 => 32,\n                    SampleFormat::F32 => 32,\n                    _ => 16,\n                },\n                format_type: super::AudioFormatType::PcmInt,\n            };\n            \n            SupportedAudioConfig {\n                format,\n                min_buffer_size: 256,\n                max_buffer_size: 8192,\n                default_buffer_size: 1024,\n                supported_buffer_sizes: vec![256, 512, 1024, 2048, 4096, 8192],\n                hardware_latency: 256,\n                exclusive_mode_available: false, // CPAL doesn't expose this directly\n            }\n        })\n        .collect();\n        \n        Ok(AudioDeviceInfo {\n            id: format!(\"{}_{}\", self.driver_type as u8, index),\n            name: name.clone(),\n            description: format!(\"{} - CPAL Device\", name),\n            is_default: index == 0, // Simplified - first device is default\n            device_type,\n            capabilities: (*self.capabilities).clone(),\n            supported_configs,\n            state: DeviceState::Active,\n            hardware_info: None,\n        })\n    }\n    \n    #[cfg(feature = \"audio\")]\n    async fn select_cpal_device(&mut self, device_info: &AudioDeviceInfo) -> Result<()> {\n        if let Some(host) = &self.cpal_host {\n            let devices = match device_info.device_type {\n                AudioDeviceType::Output => host.output_devices(),\n                AudioDeviceType::Input => host.input_devices(),\n                AudioDeviceType::Duplex => host.output_devices(), // Prefer output for duplex\n            }.map_err(|e| AudioDeviceError::DeviceNotFound(format!(\"Failed to enumerate devices: {}\", e)))?;\n            \n            for device in devices {\n                if let Ok(name) = device.name() {\n                    if name == device_info.name {\n                        self.current_device = Some(device);\n                        return Ok(());\n                    }\n                }\n            }\n        }\n        \n        Err(AudioDeviceError::DeviceNotFound(\"CPAL device not found\".to_string()))\n    }\n    \n    #[cfg(feature = \"audio\")]\n    async fn create_cpal_stream(\n        &self,\n        config: &SupportedAudioConfig,\n        callback: Arc<AudioCallback>,\n        stream_id: &str,\n    ) -> Result<CpalAudioStream> {\n        let device = self.current_device.as_ref()\n            .ok_or_else(|| AudioDeviceError::DeviceNotFound(\"No device selected\".to_string()))?;\n        \n        let stream_config = StreamConfig {\n            channels: config.format.channels,\n            sample_rate: cpal::SampleRate(config.format.sample_rate),\n            buffer_size: cpal::BufferSize::Fixed(config.default_buffer_size),\n        };\n        \n        let stream_id_clone = stream_id.to_string();\n        let metrics = Arc::clone(&self.metrics);\n        let callback_count = Arc::new(AtomicU64::new(0));\n        let callback_count_clone = Arc::clone(&callback_count);\n        \n        let stream = device.build_output_stream(\n            &stream_config,\n            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {\n                let start = Instant::now();\n                let count = callback_count_clone.fetch_add(1, Ordering::Relaxed);\n                \n                let info = AudioCallbackInfo {\n                    timestamp: start,\n                    buffer_size: data.len(),\n                    sample_rate: stream_config.sample_rate.0,\n                    channels: stream_config.channels,\n                    callback_count: count,\n                    latency_frames: config.hardware_latency,\n                    exclusive_mode: config.exclusive_mode_available,\n                    cpu_usage: None,\n                };\n                \n                callback(data, &info);\n                \n                // Update metrics\n                let duration = start.elapsed();\n                let mut metrics_guard = metrics.write();\n                metrics_guard.total_callbacks += 1;\n                let duration_us = duration.as_micros() as f64;\n                metrics_guard.avg_callback_duration_us = \n                    (metrics_guard.avg_callback_duration_us * (count as f64) + duration_us) / ((count + 1) as f64);\n                metrics_guard.peak_callback_duration_us = \n                    metrics_guard.peak_callback_duration_us.max(duration.as_micros() as u64);\n            },\n            move |err| {\n                tracing::error!(\"Audio stream {} error: {}\", stream_id_clone, err);\n                // Update dropout counter\n                let mut metrics_guard = metrics.write();\n                metrics_guard.dropouts += 1;\n            },\n            None,\n        ).map_err(|e| AudioDeviceError::InitializationFailed(format!(\"Failed to create stream: {}\", e)))?;\n        \n        Ok(CpalAudioStream::new(stream, stream_id.to_string(), callback_count))\n    }\n    \n    // Windows-specific implementations\n    #[cfg(target_os = \"windows\")]\n    async fn initialize_wasapi(&mut self) -> Result<()> {\n        // Initialize WASAPI\n        self.capabilities = Arc::new(DriverCapabilities {\n            driver_type: DriverType::Wasapi,\n            name: \"Windows Audio Session API\".to_string(),\n            hardware_acceleration: true,\n            exclusive_mode: true,\n            min_latency_ms: 1.0,\n            max_latency_ms: 100.0,\n            supported_formats: vec![SampleFormat::I16, SampleFormat::I32, SampleFormat::F32],\n            supported_sample_rates: vec![44100, 48000, 96000, 192000],\n            max_input_channels: 8,\n            max_output_channels: 8,\n            version: \"10.0\".to_string(),\n            asio_support: false,\n            multi_client: true,\n            hotplug_support: true,\n            src_support: true,\n            bit_depth_conversion: true,\n        });\n        \n        // Initialize Windows-specific components\n        self.windows_device = Some(WindowsAudioDevice {\n            device: None,\n            audio_client: None,\n        });\n        \n        self.enumerate_devices().await?;\n        Ok(())\n    }\n    \n    #[cfg(target_os = \"windows\")]\n    async fn enumerate_wasapi_devices(&self) -> Result<Vec<AudioDeviceInfo>> {\n        // Implementation would use Windows APIs to enumerate WASAPI devices\n        // For now, return mock data\n        Ok(vec![\n            AudioDeviceInfo {\n                id: \"wasapi_default_out\".to_string(),\n                name: \"Default WASAPI Output\".to_string(),\n                description: \"Default Windows WASAPI output device\".to_string(),\n                is_default: true,\n                device_type: AudioDeviceType::Output,\n                capabilities: (*self.capabilities).clone(),\n                supported_configs: vec![],\n                state: DeviceState::Active,\n                hardware_info: Some(HardwareInfo {\n                    vendor: Some(\"Microsoft\".to_string()),\n                    product: Some(\"WASAPI\".to_string()),\n                    revision: None,\n                    driver_version: Some(\"10.0\".to_string()),\n                    bus_type: Some(\"System\".to_string()),\n                    capabilities: 0,\n                }),\n            }\n        ])\n    }\n    \n    // Linux-specific implementations\n    #[cfg(target_os = \"linux\")]\n    async fn initialize_alsa(&mut self) -> Result<()> {\n        self.capabilities = Arc::new(DriverCapabilities {\n            driver_type: DriverType::Alsa,\n            name: \"Advanced Linux Sound Architecture\".to_string(),\n            hardware_acceleration: true,\n            exclusive_mode: true,\n            min_latency_ms: 1.0,\n            max_latency_ms: 100.0,\n            supported_formats: vec![SampleFormat::I16, SampleFormat::I32, SampleFormat::F32],\n            supported_sample_rates: vec![44100, 48000, 96000],\n            max_input_channels: 8,\n            max_output_channels: 8,\n            version: \"1.2\".to_string(),\n            asio_support: false,\n            multi_client: true,\n            hotplug_support: true,\n            src_support: true,\n            bit_depth_conversion: true,\n        });\n        \n        self.linux_device = Some(LinuxAudioDevice {\n            pcm: None,\n        });\n        \n        self.enumerate_devices().await?;\n        Ok(())\n    }\n    \n    // macOS-specific implementations\n    #[cfg(target_os = \"macos\")]\n    async fn initialize_coreaudio(&mut self) -> Result<()> {\n        self.capabilities = Arc::new(DriverCapabilities {\n            driver_type: DriverType::CoreAudio,\n            name: \"Core Audio\".to_string(),\n            hardware_acceleration: true,\n            exclusive_mode: true,\n            min_latency_ms: 1.0,\n            max_latency_ms: 100.0,\n            supported_formats: vec![SampleFormat::I16, SampleFormat::I32, SampleFormat::F32],\n            supported_sample_rates: vec![44100, 48000, 96000, 192000],\n            max_input_channels: 8,\n            max_output_channels: 8,\n            version: \"1.0\".to_string(),\n            asio_support: false,\n            multi_client: true,\n            hotplug_support: true,\n            src_support: true,\n            bit_depth_conversion: true,\n        });\n        \n        self.macos_device = Some(MacOSAudioDevice {\n            audio_unit: None,\n        });\n        \n        self.enumerate_devices().await?;\n        Ok(())\n    }\n    \n    /// Initialize null driver for testing\n    async fn initialize_null_driver(&mut self) -> Result<()> {\n        self.capabilities = Arc::new(DriverCapabilities {\n            driver_type: DriverType::Null,\n            name: \"Null Audio Driver\".to_string(),\n            hardware_acceleration: false,\n            exclusive_mode: false,\n            min_latency_ms: 0.0,\n            max_latency_ms: 1000.0,\n            supported_formats: vec![SampleFormat::I16, SampleFormat::F32],\n            supported_sample_rates: vec![44100, 48000],\n            max_input_channels: 16,\n            max_output_channels: 16,\n            version: \"1.0\".to_string(),\n            asio_support: false,\n            multi_client: true,\n            hotplug_support: false,\n            src_support: false,\n            bit_depth_conversion: false,\n        });\n        Ok(())\n    }\n    \n    fn create_null_device(&self) -> AudioDeviceInfo {\n        AudioDeviceInfo {\n            id: \"null_device\".to_string(),\n            name: \"Null Audio Device\".to_string(),\n            description: \"Virtual null audio device for testing\".to_string(),\n            is_default: true,\n            device_type: AudioDeviceType::Output,\n            capabilities: (*self.capabilities).clone(),\n            supported_configs: vec![],\n            state: DeviceState::Active,\n            hardware_info: None,\n        }\n    }\n    \n    fn get_default_capabilities(driver_type: DriverType) -> DriverCapabilities {\n        DriverCapabilities {\n            driver_type,\n            name: format!(\"{:?} Driver\", driver_type),\n            hardware_acceleration: false,\n            exclusive_mode: false,\n            min_latency_ms: 10.0,\n            max_latency_ms: 100.0,\n            supported_formats: vec![SampleFormat::I16, SampleFormat::F32],\n            supported_sample_rates: vec![44100, 48000],\n            max_input_channels: 2,\n            max_output_channels: 2,\n            version: \"1.0\".to_string(),\n            asio_support: false,\n            multi_client: false,\n            hotplug_support: false,\n            src_support: false,\n            bit_depth_conversion: false,\n        }\n    }\n    \n    // Placeholder implementations for other platforms\n    // These would be fully implemented in a production system\n    \n    #[cfg(target_os = \"windows\")]\n    async fn initialize_directsound(&mut self) -> Result<()> { \n        // DirectSound implementation\n        Ok(()) \n    }\n    \n    #[cfg(target_os = \"windows\")]\n    async fn initialize_waveout(&mut self) -> Result<()> { \n        // WaveOut implementation\n        Ok(()) \n    }\n    \n    #[cfg(target_os = \"linux\")]\n    async fn initialize_pulseaudio(&mut self) -> Result<()> { \n        // PulseAudio implementation\n        Ok(()) \n    }\n    \n    #[cfg(target_os = \"linux\")]\n    async fn initialize_jack(&mut self) -> Result<()> { \n        // JACK implementation\n        Ok(()) \n    }\n    \n    #[cfg(target_os = \"macos\")]\n    async fn initialize_audiounit(&mut self) -> Result<()> { \n        // AudioUnit implementation\n        Ok(()) \n    }\n    \n    // Placeholder device enumeration functions\n    #[cfg(target_os = \"linux\")]\n    async fn enumerate_alsa_devices(&self) -> Result<Vec<AudioDeviceInfo>> {\n        Ok(vec![])\n    }\n    \n    #[cfg(target_os = \"macos\")]\n    async fn enumerate_coreaudio_devices(&self) -> Result<Vec<AudioDeviceInfo>> {\n        Ok(vec![])\n    }\n    \n    // Placeholder device selection functions\n    #[cfg(target_os = \"windows\")]\n    async fn select_wasapi_device(&mut self, _device_info: &AudioDeviceInfo) -> Result<()> {\n        Ok(())\n    }\n    \n    #[cfg(target_os = \"linux\")]\n    async fn select_alsa_device(&mut self, _device_info: &AudioDeviceInfo) -> Result<()> {\n        Ok(())\n    }\n    \n    #[cfg(target_os = \"macos\")]\n    async fn select_coreaudio_device(&mut self, _device_info: &AudioDeviceInfo) -> Result<()> {\n        Ok(())\n    }\n    \n    // Placeholder stream creation functions\n    #[cfg(target_os = \"windows\")]\n    async fn create_wasapi_stream(\n        &self,\n        _config: &SupportedAudioConfig,\n        _callback: Arc<AudioCallback>,\n        _stream_id: &str,\n    ) -> Result<WasapiAudioStream> {\n        Ok(WasapiAudioStream::new())\n    }\n    \n    #[cfg(target_os = \"linux\")]\n    async fn create_alsa_stream(\n        &self,\n        _config: &SupportedAudioConfig,\n        _callback: Arc<AudioCallback>,\n        _stream_id: &str,\n    ) -> Result<AlsaAudioStream> {\n        Ok(AlsaAudioStream::new())\n    }\n    \n    #[cfg(target_os = \"macos\")]\n    async fn create_coreaudio_stream(\n        &self,\n        _config: &SupportedAudioConfig,\n        _callback: Arc<AudioCallback>,\n        _stream_id: &str,\n    ) -> Result<CoreAudioStream> {\n        Ok(CoreAudioStream::new())\n    }\n}\n\nimpl Drop for AudioDriver {\n    fn drop(&mut self) {\n        // Cleanup active streams\n        self.active_streams.clear();\n        \n        // Stop hot-plug monitoring\n        if let Some(handle) = self.hotplug_handle.lock().take() {\n            handle.abort();\n        }\n    }\n}\n\n/// Audio stream trait for cross-platform streaming\npub trait AudioStream: Send + Sync {\n    /// Start the audio stream\n    fn start(&self) -> Result<()>;\n    \n    /// Stop the audio stream\n    fn stop(&self) -> Result<()>;\n    \n    /// Pause the audio stream\n    fn pause(&self) -> Result<()>;\n    \n    /// Check if the stream is running\n    fn is_running(&self) -> bool;\n    \n    /// Get stream latency in milliseconds\n    fn get_latency(&self) -> f32;\n    \n    /// Get stream ID\n    fn get_id(&self) -> &str;\n    \n    /// Get performance metrics\n    fn get_metrics(&self) -> StreamMetrics;\n}\n\n/// CPAL-based audio stream implementation\n#[cfg(feature = \"audio\")]\npub struct CpalAudioStream {\n    stream: Stream,\n    stream_id: String,\n    is_running: AtomicBool,\n    callback_count: Arc<AtomicU64>,\n}\n\n#[cfg(feature = \"audio\")]\nimpl CpalAudioStream {\n    fn new(stream: Stream, stream_id: String, callback_count: Arc<AtomicU64>) -> Self {\n        Self {\n            stream,\n            stream_id,\n            is_running: AtomicBool::new(false),\n            callback_count,\n        }\n    }\n}\n\n#[cfg(feature = \"audio\")]\nimpl AudioStream for CpalAudioStream {\n    fn start(&self) -> Result<()> {\n        self.stream.play()\n            .map_err(|e| AudioDeviceError::InitializationFailed(format!(\"Failed to start stream: {}\", e)))?;\n        self.is_running.store(true, Ordering::Relaxed);\n        Ok(())\n    }\n    \n    fn stop(&self) -> Result<()> {\n        self.stream.pause()\n            .map_err(|e| AudioDeviceError::InitializationFailed(format!(\"Failed to stop stream: {}\", e)))?;\n        self.is_running.store(false, Ordering::Relaxed);\n        Ok(())\n    }\n    \n    fn pause(&self) -> Result<()> {\n        self.stream.pause()\n            .map_err(|e| AudioDeviceError::InitializationFailed(format!(\"Failed to pause stream: {}\", e)))?;\n        self.is_running.store(false, Ordering::Relaxed);\n        Ok(())\n    }\n    \n    fn is_running(&self) -> bool {\n        self.is_running.load(Ordering::Relaxed)\n    }\n    \n    fn get_latency(&self) -> f32 {\n        // Simplified latency calculation\n        10.0\n    }\n    \n    fn get_id(&self) -> &str {\n        &self.stream_id\n    }\n    \n    fn get_metrics(&self) -> StreamMetrics {\n        StreamMetrics {\n            total_callbacks: self.callback_count.load(Ordering::Relaxed),\n            dropouts: 0,\n            avg_callback_duration_us: 0.0,\n            peak_callback_duration_us: 0,\n            cpu_usage: 0.0,\n            memory_usage: 0,\n        }\n    }\n}\n\n// Platform-specific stream implementations\n\n#[cfg(target_os = \"windows\")]\npub struct WasapiAudioStream {\n    // Windows WASAPI stream implementation\n}\n\n#[cfg(target_os = \"windows\")]\nimpl WasapiAudioStream {\n    fn new() -> Self {\n        Self {}\n    }\n}\n\n#[cfg(target_os = \"windows\")]\nimpl AudioStream for WasapiAudioStream {\n    fn start(&self) -> Result<()> { Ok(()) }\n    fn stop(&self) -> Result<()> { Ok(()) }\n    fn pause(&self) -> Result<()> { Ok(()) }\n    fn is_running(&self) -> bool { false }\n    fn get_latency(&self) -> f32 { 5.0 }\n    fn get_id(&self) -> &str { \"wasapi_stream\" }\n    fn get_metrics(&self) -> StreamMetrics { StreamMetrics::default() }\n}\n\n#[cfg(target_os = \"linux\")]\npub struct AlsaAudioStream {\n    // Linux ALSA stream implementation\n}\n\n#[cfg(target_os = \"linux\")]\nimpl AlsaAudioStream {\n    fn new() -> Self {\n        Self {}\n    }\n}\n\n#[cfg(target_os = \"linux\")]\nimpl AudioStream for AlsaAudioStream {\n    fn start(&self) -> Result<()> { Ok(()) }\n    fn stop(&self) -> Result<()> { Ok(()) }\n    fn pause(&self) -> Result<()> { Ok(()) }\n    fn is_running(&self) -> bool { false }\n    fn get_latency(&self) -> f32 { 3.0 }\n    fn get_id(&self) -> &str { \"alsa_stream\" }\n    fn get_metrics(&self) -> StreamMetrics { StreamMetrics::default() }\n}\n\n#[cfg(target_os = \"macos\")]\npub struct CoreAudioStream {\n    // macOS CoreAudio stream implementation\n}\n\n#[cfg(target_os = \"macos\")]\nimpl CoreAudioStream {\n    fn new() -> Self {\n        Self {}\n    }\n}\n\n#[cfg(target_os = \"macos\")]\nimpl AudioStream for CoreAudioStream {\n    fn start(&self) -> Result<()> { Ok(()) }\n    fn stop(&self) -> Result<()> { Ok(()) }\n    fn pause(&self) -> Result<()> { Ok(()) }\n    fn is_running(&self) -> bool { false }\n    fn get_latency(&self) -> f32 { 2.0 }\n    fn get_id(&self) -> &str { \"coreaudio_stream\" }\n    fn get_metrics(&self) -> StreamMetrics { StreamMetrics::default() }\n}\n\n/// Null audio stream for testing\npub struct NullAudioStream {\n    stream_id: String,\n    is_running: AtomicBool,\n}\n\nimpl NullAudioStream {\n    fn new(stream_id: String) -> Self {\n        Self {\n            stream_id,\n            is_running: AtomicBool::new(false),\n        }\n    }\n}\n\nimpl AudioStream for NullAudioStream {\n    fn start(&self) -> Result<()> {\n        self.is_running.store(true, Ordering::Relaxed);\n        Ok(())\n    }\n    \n    fn stop(&self) -> Result<()> {\n        self.is_running.store(false, Ordering::Relaxed);\n        Ok(())\n    }\n    \n    fn pause(&self) -> Result<()> {\n        self.is_running.store(false, Ordering::Relaxed);\n        Ok(())\n    }\n    \n    fn is_running(&self) -> bool {\n        self.is_running.load(Ordering::Relaxed)\n    }\n    \n    fn get_latency(&self) -> f32 {\n        0.0\n    }\n    \n    fn get_id(&self) -> &str {\n        &self.stream_id\n    }\n    \n    fn get_metrics(&self) -> StreamMetrics {\n        StreamMetrics::default()\n    }\n}\n\n/// Managed audio stream that handles cleanup\nstruct ManagedAudioStream {\n    stream_id: String,\n    inner: Arc<dyn AudioStream>,\n    driver: *const AudioDriver,\n}\n\nimpl AudioStream for ManagedAudioStream {\n    fn start(&self) -> Result<()> {\n        self.inner.start()\n    }\n    \n    fn stop(&self) -> Result<()> {\n        self.inner.stop()\n    }\n    \n    fn pause(&self) -> Result<()> {\n        self.inner.pause()\n    }\n    \n    fn is_running(&self) -> bool {\n        self.inner.is_running()\n    }\n    \n    fn get_latency(&self) -> f32 {\n        self.inner.get_latency()\n    }\n    \n    fn get_id(&self) -> &str {\n        &self.stream_id\n    }\n    \n    fn get_metrics(&self) -> StreamMetrics {\n        self.inner.get_metrics()\n    }\n}\n\nimpl Drop for ManagedAudioStream {\n    fn drop(&mut self) {\n        // Remove stream from active streams when dropped\n        unsafe {\n            if !self.driver.is_null() {\n                let driver = &*self.driver;\n                driver.active_streams.remove(&self.stream_id);\n            }\n        }\n    }\n}\n\n/// Audio driver builder for convenient configuration\npub struct AudioDriverBuilder {\n    driver_type: Option<DriverType>,\n    enable_hotplug: bool,\n}\n\nimpl AudioDriverBuilder {\n    /// Create a new driver builder\n    pub fn new() -> Self {\n        Self {\n            driver_type: None,\n            enable_hotplug: true,\n        }\n    }\n    \n    /// Set the driver type\n    pub fn driver_type(mut self, driver_type: DriverType) -> Self {\n        self.driver_type = Some(driver_type);\n        self\n    }\n    \n    /// Enable or disable hot-plug monitoring\n    pub fn hotplug(mut self, enable: bool) -> Self {\n        self.enable_hotplug = enable;\n        self\n    }\n    \n    /// Build the audio driver\n    pub async fn build(self) -> Result<AudioDriver> {\n        let driver_type = self.driver_type.unwrap_or_default();\n        AudioDriver::new_with_type(driver_type).await\n    }\n}\n\nimpl Default for AudioDriverBuilder {\n    fn default() -> Self {\n        Self::new()\n    }\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n    use std::time::Duration;\n    use tokio::time::sleep;\n\n    #[tokio::test]\n    async fn test_driver_creation() {\n        let driver = AudioDriver::new().await;\n        assert!(driver.is_ok());\n    }\n\n    #[tokio::test]\n    async fn test_null_driver() {\n        let driver = AudioDriver::new_with_type(DriverType::Null).await.unwrap();\n        assert_eq!(driver.driver_type, DriverType::Null);\n        assert!(driver.get_capabilities().name.contains(\"Null\"));\n    }\n\n    #[tokio::test]\n    async fn test_device_enumeration() {\n        let mut driver = AudioDriver::new_with_type(DriverType::Null).await.unwrap();\n        let devices = driver.enumerate_devices().await.unwrap();\n        assert!(!devices.is_empty());\n    }\n\n    #[tokio::test]\n    async fn test_driver_builder() {\n        let driver = AudioDriverBuilder::new()\n            .driver_type(DriverType::Null)\n            .hotplug(false)\n            .build()\n            .await\n            .unwrap();\n        \n        assert_eq!(driver.driver_type, DriverType::Null);\n    }\n\n    #[tokio::test]\n    async fn test_null_stream() {\n        let stream = NullAudioStream::new(\"test_stream\".to_string());\n        assert!(!stream.is_running());\n        \n        stream.start().unwrap();\n        assert!(stream.is_running());\n        \n        stream.stop().unwrap();\n        assert!(!stream.is_running());\n    }\n}"
+    /// Device is active and available
+    Active,
+    /// Device is present but not available
+    Disabled,
+    /// Device is not present
+    NotPresent,
+    /// Device state is unknown
+    Unknown,
+}
+
+/// Hardware information for audio devices
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareInfo {
+    /// Vendor name
+    pub vendor: Option<String>,
+    /// Product name
+    pub product: Option<String>,
+    /// Hardware revision
+    pub revision: Option<String>,
+    /// Driver version
+    pub driver_version: Option<String>,
+    /// Bus type (USB, PCIe, etc.)
+    pub bus_type: Option<String>,
+    /// Hardware capabilities flags
+    pub capabilities: u32,
+}
+
+/// Supported audio configuration with extended information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupportedAudioConfig {
+    /// Audio format
+    pub format: AudioFormat,
+    /// Minimum buffer size in frames
+    pub min_buffer_size: u32,
+    /// Maximum buffer size in frames
+    pub max_buffer_size: u32,
+    /// Default buffer size in frames
+    pub default_buffer_size: u32,
+    /// Supported buffer sizes (if hardware has specific requirements)
+    pub supported_buffer_sizes: Vec<u32>,
+    /// Hardware latency in frames
+    pub hardware_latency: u32,
+    /// Whether exclusive mode is available for this config
+    pub exclusive_mode_available: bool,
+}
+
+/// Audio callback function signature
+pub type AudioCallback = dyn Fn(&mut [f32], &AudioCallbackInfo) + Send + Sync;
+
+/// Information passed to audio callback
+#[derive(Debug, Clone)]
+pub struct AudioCallbackInfo {
+    /// Current timestamp
+    pub timestamp: Instant,
+    /// Buffer size in frames
+    pub buffer_size: usize,
+    /// Sample rate
+    pub sample_rate: u32,
+    /// Number of channels
+    pub channels: u16,
+    /// Callback invocation count
+    pub callback_count: u64,
+    /// Estimated latency in frames
+    pub latency_frames: u32,
+    /// Whether we're in exclusive mode
+    pub exclusive_mode: bool,
+    /// CPU usage percentage (if available)
+    pub cpu_usage: Option<f32>,
+}
+
+/// Stream performance metrics
+#[derive(Debug, Clone, Default)]
+pub struct StreamMetrics {
+    /// Total callbacks processed
+    pub total_callbacks: u64,
+    /// Audio dropouts/underruns
+    pub dropouts: u64,
+    /// Average callback duration (microseconds)
+    pub avg_callback_duration_us: f64,
+    /// Peak callback duration (microseconds)
+    pub peak_callback_duration_us: u64,
+    /// Current CPU usage
+    pub cpu_usage: f32,
+    /// Memory usage (bytes)
+    pub memory_usage: u64,
+}
+
+/// Comprehensive cross-platform audio driver
+pub struct AudioDriver {
+    /// Driver type
+    driver_type: DriverType,
+
+    /// CPAL host (if using CPAL)
+    #[cfg(feature = "audio")]
+    cpal_host: Option<Host>,
+
+    /// Current audio device
+    #[cfg(feature = "audio")]
+    current_device: Option<CpalDevice>,
+
+    /// Platform-specific device handle
+    #[cfg(target_os = "windows")]
+    windows_device: Option<WindowsAudioDevice>,
+
+    #[cfg(target_os = "linux")]
+    linux_device: Option<LinuxAudioDevice>,
+
+    #[cfg(target_os = "macos")]
+    macos_device: Option<MacOSAudioDevice>,
+
+    /// Driver capabilities
+    capabilities: Arc<DriverCapabilities>,
+
+    /// Available devices cache
+    available_devices: Arc<RwLock<Vec<AudioDeviceInfo>>>,
+
+    /// Current configuration
+    current_config: Arc<RwLock<Option<SupportedAudioConfig>>>,
+
+    /// Active streams
+    active_streams: Arc<DashMap<String, Arc<dyn AudioStream>>>,
+
+    /// Performance metrics
+    metrics: Arc<RwLock<StreamMetrics>>,
+
+    /// Device change notification callback
+    device_change_callback: Arc<Mutex<Option<Box<dyn Fn(DeviceChangeEvent) + Send + Sync>>>>,
+
+    /// Hot-plug monitoring task handle
+    hotplug_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+}
+
+/// Device change events
+#[derive(Debug, Clone)]
+pub enum DeviceChangeEvent {
+    /// Device was added
+    DeviceAdded(AudioDeviceInfo),
+    /// Device was removed
+    DeviceRemoved(String), // device_id
+    /// Device state changed
+    DeviceStateChanged(String, DeviceState),
+    /// Default device changed
+    DefaultDeviceChanged(String), // device_id
+}
+
+// Platform-specific device implementations
+
+#[cfg(target_os = "windows")]
+struct WindowsAudioDevice {
+    device: Option<IMMDevice>,
+    audio_client: Option<IAudioClient>,
+    // Additional Windows-specific fields
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxAudioDevice {
+    pcm: Option<alsa::PCM>,
+    // Additional Linux-specific fields
+}
+
+#[cfg(target_os = "macos")]
+struct MacOSAudioDevice {
+    audio_unit: Option<AudioUnit>,
+    // Additional macOS-specific fields
+}
+
+impl AudioDriver {
+    /// Create a new audio driver with the default driver type
+    pub async fn new() -> Result<Self> {
+        Self::new_with_type(DriverType::default()).await
+    }
+
+    /// Create a new audio driver with specific type
+    pub async fn new_with_type(driver_type: DriverType) -> Result<Self> {
+        let mut driver = Self {
+            driver_type,
+            #[cfg(feature = "audio")]
+            cpal_host: None,
+            #[cfg(feature = "audio")]
+            current_device: None,
+
+            #[cfg(target_os = "windows")]
+            windows_device: None,
+
+            #[cfg(target_os = "linux")]
+            linux_device: None,
+
+            #[cfg(target_os = "macos")]
+            macos_device: None,
+
+            capabilities: Arc::new(Self::get_default_capabilities(driver_type)),
+            available_devices: Arc::new(RwLock::new(Vec::new())),
+            current_config: Arc::new(RwLock::new(None)),
+            active_streams: Arc::new(DashMap::new()),
+            metrics: Arc::new(RwLock::new(StreamMetrics::default())),
+            device_change_callback: Arc::new(Mutex::new(None)),
+            hotplug_handle: Arc::new(Mutex::new(None)),
+        };
+
+        driver.initialize().await?;
+        Ok(driver)
+    }
+
+    /// Initialize the audio driver
+    async fn initialize(&mut self) -> Result<()> {
+        match self.driver_type {
+            DriverType::Cpal => {
+                #[cfg(feature = "audio")]
+                {
+                    let host = cpal::default_host();
+                    self.cpal_host = Some(host);
+                    self.enumerate_devices().await?;
+                }
+
+                #[cfg(not(feature = "audio"))]
+                return Err(AudioDeviceError::InitializationFailed(
+                    "Audio feature not enabled".to_string(),
+                ));
+            }
+
+            #[cfg(target_os = "windows")]
+            DriverType::Wasapi => {
+                self.initialize_wasapi().await?;
+            }
+
+            #[cfg(target_os = "windows")]
+            DriverType::DirectSound => {
+                self.initialize_directsound().await?;
+            }
+
+            #[cfg(target_os = "windows")]
+            DriverType::WaveOut => {
+                self.initialize_waveout().await?;
+            }
+
+            #[cfg(target_os = "linux")]
+            DriverType::Alsa => {
+                self.initialize_alsa().await?;
+            }
+
+            #[cfg(target_os = "linux")]
+            DriverType::PulseAudio => {
+                self.initialize_pulseaudio().await?;
+            }
+
+            #[cfg(target_os = "linux")]
+            DriverType::Jack => {
+                self.initialize_jack().await?;
+            }
+
+            #[cfg(target_os = "macos")]
+            DriverType::CoreAudio => {
+                self.initialize_coreaudio().await?;
+            }
+
+            #[cfg(target_os = "macos")]
+            DriverType::AudioUnit => {
+                self.initialize_audiounit().await?;
+            }
+
+            DriverType::Null => {
+                self.initialize_null_driver().await?;
+            }
+        }
+
+        // Start hot-plug monitoring if supported
+        if self.capabilities.hotplug_support {
+            self.start_hotplug_monitoring().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Enumerate available audio devices with full information
+    pub async fn enumerate_devices(&mut self) -> Result<&[AudioDeviceInfo]> {
+        let mut devices = Vec::new();
+
+        match self.driver_type {
+            DriverType::Cpal =>
+            {
+                #[cfg(feature = "audio")]
+                if let Some(host) = &self.cpal_host {
+                    devices.extend(self.enumerate_cpal_devices(host).await?);
+                }
+            }
+
+            #[cfg(target_os = "windows")]
+            DriverType::Wasapi => {
+                devices.extend(self.enumerate_wasapi_devices().await?);
+            }
+
+            #[cfg(target_os = "linux")]
+            DriverType::Alsa => {
+                devices.extend(self.enumerate_alsa_devices().await?);
+            }
+
+            #[cfg(target_os = "macos")]
+            DriverType::CoreAudio => {
+                devices.extend(self.enumerate_coreaudio_devices().await?);
+            }
+
+            DriverType::Null => {
+                devices.push(self.create_null_device());
+            }
+
+            _ => {
+                // Use CPAL as fallback
+                #[cfg(feature = "audio")]
+                if let Some(host) = &self.cpal_host {
+                    devices.extend(self.enumerate_cpal_devices(host).await?);
+                }
+            }
+        }
+
+        *self.available_devices.write() = devices;
+        Ok(&self.available_devices.read())
+    }
+
+    /// Get the default output device
+    pub async fn get_default_output_device(&self) -> Result<Option<&AudioDeviceInfo>> {
+        Ok(self
+            .available_devices
+            .read()
+            .iter()
+            .find(|device| device.device_type == AudioDeviceType::Output && device.is_default))
+    }
+
+    /// Get the default input device
+    pub async fn get_default_input_device(&self) -> Result<Option<&AudioDeviceInfo>> {
+        Ok(self
+            .available_devices
+            .read()
+            .iter()
+            .find(|device| device.device_type == AudioDeviceType::Input && device.is_default))
+    }
+
+    /// Select an audio device for use with validation
+    pub async fn select_device(&mut self, device_id: &str) -> Result<()> {
+        let device_info = self
+            .available_devices
+            .read()
+            .iter()
+            .find(|device| device.id == device_id)
+            .cloned()
+            .ok_or_else(|| {
+                AudioDeviceError::DeviceNotFound(format!("Device not found: {}", device_id))
+            })?;
+
+        // Validate device state
+        if device_info.state != DeviceState::Active {
+            return Err(AudioDeviceError::DeviceBusy(format!(
+                "Device {} is not active (state: {:?})",
+                device_id, device_info.state
+            )));
+        }
+
+        match self.driver_type {
+            DriverType::Cpal =>
+            {
+                #[cfg(feature = "audio")]
+                self.select_cpal_device(&device_info).await?
+            }
+
+            #[cfg(target_os = "windows")]
+            DriverType::Wasapi => {
+                self.select_wasapi_device(&device_info).await?;
+            }
+
+            #[cfg(target_os = "linux")]
+            DriverType::Alsa => {
+                self.select_alsa_device(&device_info).await?;
+            }
+
+            #[cfg(target_os = "macos")]
+            DriverType::CoreAudio => {
+                self.select_coreaudio_device(&device_info).await?;
+            }
+
+            _ => {
+                // Fallback selection
+            }
+        }
+
+        tracing::info!(
+            "Selected audio device: {} ({})",
+            device_info.name,
+            device_id
+        );
+        Ok(())
+    }
+
+    /// Create an audio stream with the specified configuration
+    pub async fn create_stream(
+        &self,
+        config: &SupportedAudioConfig,
+        callback: Arc<AudioCallback>,
+    ) -> Result<Box<dyn AudioStream>> {
+        let stream_id = uuid::Uuid::new_v4().to_string();
+
+        let stream: Box<dyn AudioStream> = match self.driver_type {
+            DriverType::Cpal => {
+                #[cfg(feature = "audio")]
+                {
+                    Box::new(
+                        self.create_cpal_stream(config, callback, &stream_id)
+                            .await?,
+                    )
+                }
+
+                #[cfg(not(feature = "audio"))]
+                return Err(AudioDeviceError::InitializationFailed(
+                    "Audio feature not enabled".to_string(),
+                ));
+            }
+
+            #[cfg(target_os = "windows")]
+            DriverType::Wasapi => Box::new(
+                self.create_wasapi_stream(config, callback, &stream_id)
+                    .await?,
+            ),
+
+            #[cfg(target_os = "linux")]
+            DriverType::Alsa => Box::new(
+                self.create_alsa_stream(config, callback, &stream_id)
+                    .await?,
+            ),
+
+            #[cfg(target_os = "macos")]
+            DriverType::CoreAudio => Box::new(
+                self.create_coreaudio_stream(config, callback, &stream_id)
+                    .await?,
+            ),
+
+            DriverType::Null => Box::new(NullAudioStream::new(stream_id)),
+
+            _ => {
+                return Err(AudioDeviceError::InitializationFailed(format!(
+                    "{:?} streams not yet implemented",
+                    self.driver_type
+                )));
+            }
+        };
+
+        self.active_streams
+            .insert(stream_id.clone(), Arc::from(stream));
+
+        // Return a wrapped stream that removes itself from active streams when dropped
+        Ok(Box::new(ManagedAudioStream {
+            stream_id,
+            inner: self.active_streams.get(&stream_id).unwrap().clone(),
+            driver: self as *const Self,
+        }))
+    }
+
+    /// Get driver capabilities
+    pub fn get_capabilities(&self) -> &DriverCapabilities {
+        &self.capabilities
+    }
+
+    /// Get available devices
+    pub fn get_available_devices(&self) -> Vec<AudioDeviceInfo> {
+        self.available_devices.read().clone()
+    }
+
+    /// Get performance metrics
+    pub fn get_metrics(&self) -> StreamMetrics {
+        self.metrics.read().clone()
+    }
+
+    /// Set device change notification callback
+    pub fn set_device_change_callback<F>(&self, callback: F)
+    where
+        F: Fn(DeviceChangeEvent) + Send + Sync + 'static,
+    {
+        *self.device_change_callback.lock() = Some(Box::new(callback));
+    }
+
+    /// Start hot-plug monitoring
+    async fn start_hotplug_monitoring(&self) -> Result<()> {
+        let driver_type = self.driver_type;
+        let devices = Arc::clone(&self.available_devices);
+        let callback = Arc::clone(&self.device_change_callback);
+
+        let handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
+            let mut previous_devices = Vec::new();
+
+            loop {
+                interval.tick().await;
+
+                // Check for device changes (simplified implementation)
+                let current_devices = devices.read().clone();
+
+                // Detect added devices
+                for device in &current_devices {
+                    if !previous_devices
+                        .iter()
+                        .any(|d: &AudioDeviceInfo| d.id == device.id)
+                    {
+                        if let Some(callback) = callback.lock().as_ref() {
+                            callback(DeviceChangeEvent::DeviceAdded(device.clone()));
+                        }
+                    }
+                }
+
+                // Detect removed devices
+                for device in &previous_devices {
+                    if !current_devices.iter().any(|d| d.id == device.id) {
+                        if let Some(callback) = callback.lock().as_ref() {
+                            callback(DeviceChangeEvent::DeviceRemoved(device.id.clone()));
+                        }
+                    }
+                }
+
+                previous_devices = current_devices;
+            }
+        });
+
+        *self.hotplug_handle.lock() = Some(handle);
+        Ok(())
+    }
+
+    // Platform-specific implementations
+
+    #[cfg(feature = "audio")]
+    async fn enumerate_cpal_devices(&self, host: &Host) -> Result<Vec<AudioDeviceInfo>> {
+        let mut devices = Vec::new();
+
+        // Enumerate output devices
+        if let Ok(output_devices) = host.output_devices() {
+            for (index, device) in output_devices.enumerate() {
+                if let Ok(device_info) = self
+                    .create_device_info_from_cpal(device, AudioDeviceType::Output, index)
+                    .await
+                {
+                    devices.push(device_info);
+                }
+            }
+        }
+
+        // Enumerate input devices
+        if let Ok(input_devices) = host.input_devices() {
+            for (index, device) in input_devices.enumerate() {
+                if let Ok(device_info) = self
+                    .create_device_info_from_cpal(device, AudioDeviceType::Input, index + 1000)
+                    .await
+                {
+                    devices.push(device_info);
+                }
+            }
+        }
+
+        Ok(devices)
+    }
+
+    #[cfg(feature = "audio")]
+    async fn create_device_info_from_cpal(
+        &self,
+        device: CpalDevice,
+        device_type: AudioDeviceType,
+        index: usize,
+    ) -> Result<AudioDeviceInfo> {
+        let name = device.name().map_err(|e| {
+            AudioDeviceError::DeviceNotFound(format!("Failed to get device name: {}", e))
+        })?;
+
+        let supported_configs = if device_type == AudioDeviceType::Output {
+            device.supported_output_configs()
+        } else {
+            device.supported_input_configs()
+        }
+        .map_err(|e| {
+            AudioDeviceError::FormatNotSupported(format!("Failed to get supported configs: {}", e))
+        })?
+        .map(|config| {
+            let format = AudioFormat {
+                sample_rate: config.min_sample_rate().0,
+                channels: config.channels(),
+                bits_per_sample: match config.sample_format() {
+                    SampleFormat::I16 => 16,
+                    SampleFormat::I32 => 32,
+                    SampleFormat::F32 => 32,
+                    _ => 16,
+                },
+                format_type: super::AudioFormatType::PcmInt,
+            };
+
+            SupportedAudioConfig {
+                format,
+                min_buffer_size: 256,
+                max_buffer_size: 8192,
+                default_buffer_size: 1024,
+                supported_buffer_sizes: vec![256, 512, 1024, 2048, 4096, 8192],
+                hardware_latency: 256,
+                exclusive_mode_available: false, // CPAL doesn't expose this directly
+            }
+        })
+        .collect();
+
+        Ok(AudioDeviceInfo {
+            id: format!("{}_{}", self.driver_type as u8, index),
+            name: name.clone(),
+            description: format!("{} - CPAL Device", name),
+            is_default: index == 0, // Simplified - first device is default
+            device_type,
+            capabilities: (*self.capabilities).clone(),
+            supported_configs,
+            state: DeviceState::Active,
+            hardware_info: None,
+        })
+    }
+
+    #[cfg(feature = "audio")]
+    async fn select_cpal_device(&mut self, device_info: &AudioDeviceInfo) -> Result<()> {
+        if let Some(host) = &self.cpal_host {
+            let devices = match device_info.device_type {
+                AudioDeviceType::Output => host.output_devices(),
+                AudioDeviceType::Input => host.input_devices(),
+                AudioDeviceType::Duplex => host.output_devices(), // Prefer output for duplex
+            }
+            .map_err(|e| {
+                AudioDeviceError::DeviceNotFound(format!("Failed to enumerate devices: {}", e))
+            })?;
+
+            for device in devices {
+                if let Ok(name) = device.name() {
+                    if name == device_info.name {
+                        self.current_device = Some(device);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        Err(AudioDeviceError::DeviceNotFound(
+            "CPAL device not found".to_string(),
+        ))
+    }
+
+    #[cfg(feature = "audio")]
+    async fn create_cpal_stream(
+        &self,
+        config: &SupportedAudioConfig,
+        callback: Arc<AudioCallback>,
+        stream_id: &str,
+    ) -> Result<CpalAudioStream> {
+        let device = self
+            .current_device
+            .as_ref()
+            .ok_or_else(|| AudioDeviceError::DeviceNotFound("No device selected".to_string()))?;
+
+        let stream_config = StreamConfig {
+            channels: config.format.channels,
+            sample_rate: cpal::SampleRate(config.format.sample_rate),
+            buffer_size: cpal::BufferSize::Fixed(config.default_buffer_size),
+        };
+
+        let stream_id_clone = stream_id.to_string();
+        let metrics = Arc::clone(&self.metrics);
+        let callback_count = Arc::new(AtomicU64::new(0));
+        let callback_count_clone = Arc::clone(&callback_count);
+
+        let stream = device
+            .build_output_stream(
+                &stream_config,
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    let start = Instant::now();
+                    let count = callback_count_clone.fetch_add(1, Ordering::Relaxed);
+
+                    let info = AudioCallbackInfo {
+                        timestamp: start,
+                        buffer_size: data.len(),
+                        sample_rate: stream_config.sample_rate.0,
+                        channels: stream_config.channels,
+                        callback_count: count,
+                        latency_frames: config.hardware_latency,
+                        exclusive_mode: config.exclusive_mode_available,
+                        cpu_usage: None,
+                    };
+
+                    callback(data, &info);
+
+                    // Update metrics
+                    let duration = start.elapsed();
+                    let mut metrics_guard = metrics.write();
+                    metrics_guard.total_callbacks += 1;
+                    let duration_us = duration.as_micros() as f64;
+                    metrics_guard.avg_callback_duration_us =
+                        (metrics_guard.avg_callback_duration_us * (count as f64) + duration_us)
+                            / ((count + 1) as f64);
+                    metrics_guard.peak_callback_duration_us = metrics_guard
+                        .peak_callback_duration_us
+                        .max(duration.as_micros() as u64);
+                },
+                move |err| {
+                    tracing::error!("Audio stream {} error: {}", stream_id_clone, err);
+                    // Update dropout counter
+                    let mut metrics_guard = metrics.write();
+                    metrics_guard.dropouts += 1;
+                },
+                None,
+            )
+            .map_err(|e| {
+                AudioDeviceError::InitializationFailed(format!("Failed to create stream: {}", e))
+            })?;
+
+        Ok(CpalAudioStream::new(
+            stream,
+            stream_id.to_string(),
+            callback_count,
+        ))
+    }
+
+    // Windows-specific implementations
+    #[cfg(target_os = "windows")]
+    async fn initialize_wasapi(&mut self) -> Result<()> {
+        // Initialize WASAPI
+        self.capabilities = Arc::new(DriverCapabilities {
+            driver_type: DriverType::Wasapi,
+            name: "Windows Audio Session API".to_string(),
+            hardware_acceleration: true,
+            exclusive_mode: true,
+            min_latency_ms: 1.0,
+            max_latency_ms: 100.0,
+            supported_formats: vec![SampleFormat::I16, SampleFormat::I32, SampleFormat::F32],
+            supported_sample_rates: vec![44100, 48000, 96000, 192000],
+            max_input_channels: 8,
+            max_output_channels: 8,
+            version: "10.0".to_string(),
+            asio_support: false,
+            multi_client: true,
+            hotplug_support: true,
+            src_support: true,
+            bit_depth_conversion: true,
+        });
+
+        // Initialize Windows-specific components
+        self.windows_device = Some(WindowsAudioDevice {
+            device: None,
+            audio_client: None,
+        });
+
+        self.enumerate_devices().await?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn enumerate_wasapi_devices(&self) -> Result<Vec<AudioDeviceInfo>> {
+        // Implementation would use Windows APIs to enumerate WASAPI devices
+        // For now, return mock data
+        Ok(vec![AudioDeviceInfo {
+            id: "wasapi_default_out".to_string(),
+            name: "Default WASAPI Output".to_string(),
+            description: "Default Windows WASAPI output device".to_string(),
+            is_default: true,
+            device_type: AudioDeviceType::Output,
+            capabilities: (*self.capabilities).clone(),
+            supported_configs: vec![],
+            state: DeviceState::Active,
+            hardware_info: Some(HardwareInfo {
+                vendor: Some("Microsoft".to_string()),
+                product: Some("WASAPI".to_string()),
+                revision: None,
+                driver_version: Some("10.0".to_string()),
+                bus_type: Some("System".to_string()),
+                capabilities: 0,
+            }),
+        }])
+    }
+
+    // Linux-specific implementations
+    #[cfg(target_os = "linux")]
+    async fn initialize_alsa(&mut self) -> Result<()> {
+        self.capabilities = Arc::new(DriverCapabilities {
+            driver_type: DriverType::Alsa,
+            name: "Advanced Linux Sound Architecture".to_string(),
+            hardware_acceleration: true,
+            exclusive_mode: true,
+            min_latency_ms: 1.0,
+            max_latency_ms: 100.0,
+            supported_formats: vec![SampleFormat::I16, SampleFormat::I32, SampleFormat::F32],
+            supported_sample_rates: vec![44100, 48000, 96000],
+            max_input_channels: 8,
+            max_output_channels: 8,
+            version: "1.2".to_string(),
+            asio_support: false,
+            multi_client: true,
+            hotplug_support: true,
+            src_support: true,
+            bit_depth_conversion: true,
+        });
+
+        self.linux_device = Some(LinuxAudioDevice { pcm: None });
+
+        self.enumerate_devices().await?;
+        Ok(())
+    }
+
+    // macOS-specific implementations
+    #[cfg(target_os = "macos")]
+    async fn initialize_coreaudio(&mut self) -> Result<()> {
+        self.capabilities = Arc::new(DriverCapabilities {
+            driver_type: DriverType::CoreAudio,
+            name: "Core Audio".to_string(),
+            hardware_acceleration: true,
+            exclusive_mode: true,
+            min_latency_ms: 1.0,
+            max_latency_ms: 100.0,
+            supported_formats: vec![SampleFormat::I16, SampleFormat::I32, SampleFormat::F32],
+            supported_sample_rates: vec![44100, 48000, 96000, 192000],
+            max_input_channels: 8,
+            max_output_channels: 8,
+            version: "1.0".to_string(),
+            asio_support: false,
+            multi_client: true,
+            hotplug_support: true,
+            src_support: true,
+            bit_depth_conversion: true,
+        });
+
+        self.macos_device = Some(MacOSAudioDevice { audio_unit: None });
+
+        self.enumerate_devices().await?;
+        Ok(())
+    }
+
+    /// Initialize null driver for testing
+    async fn initialize_null_driver(&mut self) -> Result<()> {
+        self.capabilities = Arc::new(DriverCapabilities {
+            driver_type: DriverType::Null,
+            name: "Null Audio Driver".to_string(),
+            hardware_acceleration: false,
+            exclusive_mode: false,
+            min_latency_ms: 0.0,
+            max_latency_ms: 1000.0,
+            supported_formats: vec![SampleFormat::I16, SampleFormat::F32],
+            supported_sample_rates: vec![44100, 48000],
+            max_input_channels: 16,
+            max_output_channels: 16,
+            version: "1.0".to_string(),
+            asio_support: false,
+            multi_client: true,
+            hotplug_support: false,
+            src_support: false,
+            bit_depth_conversion: false,
+        });
+        Ok(())
+    }
+
+    fn create_null_device(&self) -> AudioDeviceInfo {
+        AudioDeviceInfo {
+            id: "null_device".to_string(),
+            name: "Null Audio Device".to_string(),
+            description: "Virtual null audio device for testing".to_string(),
+            is_default: true,
+            device_type: AudioDeviceType::Output,
+            capabilities: (*self.capabilities).clone(),
+            supported_configs: vec![],
+            state: DeviceState::Active,
+            hardware_info: None,
+        }
+    }
+
+    fn get_default_capabilities(driver_type: DriverType) -> DriverCapabilities {
+        DriverCapabilities {
+            driver_type,
+            name: format!("{:?} Driver", driver_type),
+            hardware_acceleration: false,
+            exclusive_mode: false,
+            min_latency_ms: 10.0,
+            max_latency_ms: 100.0,
+            supported_formats: vec![SampleFormat::I16, SampleFormat::F32],
+            supported_sample_rates: vec![44100, 48000],
+            max_input_channels: 2,
+            max_output_channels: 2,
+            version: "1.0".to_string(),
+            asio_support: false,
+            multi_client: false,
+            hotplug_support: false,
+            src_support: false,
+            bit_depth_conversion: false,
+        }
+    }
+
+    // Placeholder implementations for other platforms
+    // These would be fully implemented in a production system
+
+    #[cfg(target_os = "windows")]
+    async fn initialize_directsound(&mut self) -> Result<()> {
+        // DirectSound implementation
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn initialize_waveout(&mut self) -> Result<()> {
+        // WaveOut implementation
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn initialize_pulseaudio(&mut self) -> Result<()> {
+        // PulseAudio implementation
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn initialize_jack(&mut self) -> Result<()> {
+        // JACK implementation
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn initialize_audiounit(&mut self) -> Result<()> {
+        // AudioUnit implementation
+        Ok(())
+    }
+
+    // Placeholder device enumeration functions
+    #[cfg(target_os = "linux")]
+    async fn enumerate_alsa_devices(&self) -> Result<Vec<AudioDeviceInfo>> {
+        Ok(vec![])
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn enumerate_coreaudio_devices(&self) -> Result<Vec<AudioDeviceInfo>> {
+        Ok(vec![])
+    }
+
+    // Placeholder device selection functions
+    #[cfg(target_os = "windows")]
+    async fn select_wasapi_device(&mut self, _device_info: &AudioDeviceInfo) -> Result<()> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn select_alsa_device(&mut self, _device_info: &AudioDeviceInfo) -> Result<()> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn select_coreaudio_device(&mut self, _device_info: &AudioDeviceInfo) -> Result<()> {
+        Ok(())
+    }
+
+    // Placeholder stream creation functions
+    #[cfg(target_os = "windows")]
+    async fn create_wasapi_stream(
+        &self,
+        _config: &SupportedAudioConfig,
+        _callback: Arc<AudioCallback>,
+        _stream_id: &str,
+    ) -> Result<WasapiAudioStream> {
+        Ok(WasapiAudioStream::new())
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn create_alsa_stream(
+        &self,
+        _config: &SupportedAudioConfig,
+        _callback: Arc<AudioCallback>,
+        _stream_id: &str,
+    ) -> Result<AlsaAudioStream> {
+        Ok(AlsaAudioStream::new())
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn create_coreaudio_stream(
+        &self,
+        _config: &SupportedAudioConfig,
+        _callback: Arc<AudioCallback>,
+        _stream_id: &str,
+    ) -> Result<CoreAudioStream> {
+        Ok(CoreAudioStream::new())
+    }
+}
+
+impl Drop for AudioDriver {
+    fn drop(&mut self) {
+        // Cleanup active streams
+        self.active_streams.clear();
+
+        // Stop hot-plug monitoring
+        if let Some(handle) = self.hotplug_handle.lock().take() {
+            handle.abort();
+        }
+    }
+}
+
+/// Audio stream trait for cross-platform streaming
+pub trait AudioStream: Send + Sync {
+    /// Start the audio stream
+    fn start(&self) -> Result<()>;
+
+    /// Stop the audio stream
+    fn stop(&self) -> Result<()>;
+
+    /// Pause the audio stream
+    fn pause(&self) -> Result<()>;
+
+    /// Check if the stream is running
+    fn is_running(&self) -> bool;
+
+    /// Get stream latency in milliseconds
+    fn get_latency(&self) -> f32;
+
+    /// Get stream ID
+    fn get_id(&self) -> &str;
+
+    /// Get performance metrics
+    fn get_metrics(&self) -> StreamMetrics;
+}
+
+/// CPAL-based audio stream implementation
+#[cfg(feature = "audio")]
+pub struct CpalAudioStream {
+    stream: Stream,
+    stream_id: String,
+    is_running: AtomicBool,
+    callback_count: Arc<AtomicU64>,
+}
+
+#[cfg(feature = "audio")]
+impl CpalAudioStream {
+    fn new(stream: Stream, stream_id: String, callback_count: Arc<AtomicU64>) -> Self {
+        Self {
+            stream,
+            stream_id,
+            is_running: AtomicBool::new(false),
+            callback_count,
+        }
+    }
+}
+
+#[cfg(feature = "audio")]
+impl AudioStream for CpalAudioStream {
+    fn start(&self) -> Result<()> {
+        self.stream.play().map_err(|e| {
+            AudioDeviceError::InitializationFailed(format!("Failed to start stream: {}", e))
+        })?;
+        self.is_running.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn stop(&self) -> Result<()> {
+        self.stream.pause().map_err(|e| {
+            AudioDeviceError::InitializationFailed(format!("Failed to stop stream: {}", e))
+        })?;
+        self.is_running.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn pause(&self) -> Result<()> {
+        self.stream.pause().map_err(|e| {
+            AudioDeviceError::InitializationFailed(format!("Failed to pause stream: {}", e))
+        })?;
+        self.is_running.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn is_running(&self) -> bool {
+        self.is_running.load(Ordering::Relaxed)
+    }
+
+    fn get_latency(&self) -> f32 {
+        // Simplified latency calculation
+        10.0
+    }
+
+    fn get_id(&self) -> &str {
+        &self.stream_id
+    }
+
+    fn get_metrics(&self) -> StreamMetrics {
+        StreamMetrics {
+            total_callbacks: self.callback_count.load(Ordering::Relaxed),
+            dropouts: 0,
+            avg_callback_duration_us: 0.0,
+            peak_callback_duration_us: 0,
+            cpu_usage: 0.0,
+            memory_usage: 0,
+        }
+    }
+}
+
+// Platform-specific stream implementations
+
+#[cfg(target_os = "windows")]
+pub struct WasapiAudioStream {
+    // Windows WASAPI stream implementation
+}
+
+#[cfg(target_os = "windows")]
+impl WasapiAudioStream {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl AudioStream for WasapiAudioStream {
+    fn start(&self) -> Result<()> {
+        Ok(())
+    }
+    fn stop(&self) -> Result<()> {
+        Ok(())
+    }
+    fn pause(&self) -> Result<()> {
+        Ok(())
+    }
+    fn is_running(&self) -> bool {
+        false
+    }
+    fn get_latency(&self) -> f32 {
+        5.0
+    }
+    fn get_id(&self) -> &str {
+        "wasapi_stream"
+    }
+    fn get_metrics(&self) -> StreamMetrics {
+        StreamMetrics::default()
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub struct AlsaAudioStream {
+    // Linux ALSA stream implementation
+}
+
+#[cfg(target_os = "linux")]
+impl AlsaAudioStream {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl AudioStream for AlsaAudioStream {
+    fn start(&self) -> Result<()> {
+        Ok(())
+    }
+    fn stop(&self) -> Result<()> {
+        Ok(())
+    }
+    fn pause(&self) -> Result<()> {
+        Ok(())
+    }
+    fn is_running(&self) -> bool {
+        false
+    }
+    fn get_latency(&self) -> f32 {
+        3.0
+    }
+    fn get_id(&self) -> &str {
+        "alsa_stream"
+    }
+    fn get_metrics(&self) -> StreamMetrics {
+        StreamMetrics::default()
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub struct CoreAudioStream {
+    // macOS CoreAudio stream implementation
+}
+
+#[cfg(target_os = "macos")]
+impl CoreAudioStream {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl AudioStream for CoreAudioStream {
+    fn start(&self) -> Result<()> {
+        Ok(())
+    }
+    fn stop(&self) -> Result<()> {
+        Ok(())
+    }
+    fn pause(&self) -> Result<()> {
+        Ok(())
+    }
+    fn is_running(&self) -> bool {
+        false
+    }
+    fn get_latency(&self) -> f32 {
+        2.0
+    }
+    fn get_id(&self) -> &str {
+        "coreaudio_stream"
+    }
+    fn get_metrics(&self) -> StreamMetrics {
+        StreamMetrics::default()
+    }
+}
+
+/// Null audio stream for testing
+pub struct NullAudioStream {
+    stream_id: String,
+    is_running: AtomicBool,
+}
+
+impl NullAudioStream {
+    fn new(stream_id: String) -> Self {
+        Self {
+            stream_id,
+            is_running: AtomicBool::new(false),
+        }
+    }
+}
+
+impl AudioStream for NullAudioStream {
+    fn start(&self) -> Result<()> {
+        self.is_running.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn stop(&self) -> Result<()> {
+        self.is_running.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn pause(&self) -> Result<()> {
+        self.is_running.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn is_running(&self) -> bool {
+        self.is_running.load(Ordering::Relaxed)
+    }
+
+    fn get_latency(&self) -> f32 {
+        0.0
+    }
+
+    fn get_id(&self) -> &str {
+        &self.stream_id
+    }
+
+    fn get_metrics(&self) -> StreamMetrics {
+        StreamMetrics::default()
+    }
+}
+
+/// Managed audio stream that handles cleanup
+struct ManagedAudioStream {
+    stream_id: String,
+    inner: Arc<dyn AudioStream>,
+    driver: *const AudioDriver,
+}
+
+impl AudioStream for ManagedAudioStream {
+    fn start(&self) -> Result<()> {
+        self.inner.start()
+    }
+
+    fn stop(&self) -> Result<()> {
+        self.inner.stop()
+    }
+
+    fn pause(&self) -> Result<()> {
+        self.inner.pause()
+    }
+
+    fn is_running(&self) -> bool {
+        self.inner.is_running()
+    }
+
+    fn get_latency(&self) -> f32 {
+        self.inner.get_latency()
+    }
+
+    fn get_id(&self) -> &str {
+        &self.stream_id
+    }
+
+    fn get_metrics(&self) -> StreamMetrics {
+        self.inner.get_metrics()
+    }
+}
+
+impl Drop for ManagedAudioStream {
+    fn drop(&mut self) {
+        // Remove stream from active streams when dropped
+        unsafe {
+            if !self.driver.is_null() {
+                let driver = &*self.driver;
+                driver.active_streams.remove(&self.stream_id);
+            }
+        }
+    }
+}
+
+/// Audio driver builder for convenient configuration
+pub struct AudioDriverBuilder {
+    driver_type: Option<DriverType>,
+    enable_hotplug: bool,
+}
+
+impl AudioDriverBuilder {
+    /// Create a new driver builder
+    pub fn new() -> Self {
+        Self {
+            driver_type: None,
+            enable_hotplug: true,
+        }
+    }
+
+    /// Set the driver type
+    pub fn driver_type(mut self, driver_type: DriverType) -> Self {
+        self.driver_type = Some(driver_type);
+        self
+    }
+
+    /// Enable or disable hot-plug monitoring
+    pub fn hotplug(mut self, enable: bool) -> Self {
+        self.enable_hotplug = enable;
+        self
+    }
+
+    /// Build the audio driver
+    pub async fn build(self) -> Result<AudioDriver> {
+        let driver_type = self.driver_type.unwrap_or_default();
+        AudioDriver::new_with_type(driver_type).await
+    }
+}
+
+impl Default for AudioDriverBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::sleep;
+
+    #[tokio::test]
+    async fn test_driver_creation() {
+        let driver = AudioDriver::new().await;
+        assert!(driver.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_null_driver() {
+        let driver = AudioDriver::new_with_type(DriverType::Null).await.unwrap();
+        assert_eq!(driver.driver_type, DriverType::Null);
+        assert!(driver.get_capabilities().name.contains("Null"));
+    }
+
+    #[tokio::test]
+    async fn test_device_enumeration() {
+        let mut driver = AudioDriver::new_with_type(DriverType::Null).await.unwrap();
+        let devices = driver.enumerate_devices().await.unwrap();
+        assert!(!devices.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_driver_builder() {
+        let driver = AudioDriverBuilder::new()
+            .driver_type(DriverType::Null)
+            .hotplug(false)
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(driver.driver_type, DriverType::Null);
+    }
+
+    #[tokio::test]
+    async fn test_null_stream() {
+        let stream = NullAudioStream::new("test_stream".to_string());
+        assert!(!stream.is_running());
+
+        stream.start().unwrap();
+        assert!(stream.is_running());
+
+        stream.stop().unwrap();
+        assert!(!stream.is_running());
+    }
+}

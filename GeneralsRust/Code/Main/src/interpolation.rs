@@ -1,7 +1,7 @@
-use glam::{Vec3, Quat, Mat4};
+use crate::game_logic::{Object, ObjectId};
+use glam::{Mat4, Quat, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::game_logic::{ObjectId, Object};
 
 /// Interpolation state for a game object
 /// Stores previous and current states for smooth interpolation
@@ -75,7 +75,7 @@ impl InterpolationState {
 
         // Clamp alpha to prevent extrapolation
         let alpha = alpha.clamp(0.0, 1.0);
-        
+
         // Linear interpolation for position
         self.previous_position.lerp(self.current_position, alpha)
     }
@@ -89,7 +89,7 @@ impl InterpolationState {
 
         // Clamp alpha to prevent extrapolation
         let alpha = alpha.clamp(0.0, 1.0);
-        
+
         // Spherical linear interpolation for smooth rotation
         self.previous_rotation.slerp(self.current_rotation, alpha)
     }
@@ -102,7 +102,7 @@ impl InterpolationState {
 
         // Clamp alpha to prevent extrapolation
         let alpha = alpha.clamp(0.0, 1.0);
-        
+
         // Linear interpolation for scale
         self.previous_scale.lerp(self.current_scale, alpha)
     }
@@ -160,7 +160,7 @@ impl CameraInterpolationState {
         self.previous_position = self.current_position;
         self.previous_target = self.current_target;
         self.previous_zoom = self.current_zoom;
-        
+
         self.current_position = position;
         self.current_target = target;
         self.current_zoom = zoom;
@@ -172,7 +172,7 @@ impl CameraInterpolationState {
         if !self.has_valid_data {
             return self.current_position;
         }
-        
+
         let alpha = alpha.clamp(0.0, 1.0);
         self.previous_position.lerp(self.current_position, alpha)
     }
@@ -182,7 +182,7 @@ impl CameraInterpolationState {
         if !self.has_valid_data {
             return self.current_target;
         }
-        
+
         let alpha = alpha.clamp(0.0, 1.0);
         self.previous_target.lerp(self.current_target, alpha)
     }
@@ -192,7 +192,7 @@ impl CameraInterpolationState {
         if !self.has_valid_data {
             return self.current_zoom;
         }
-        
+
         let alpha = alpha.clamp(0.0, 1.0);
         self.previous_zoom * (1.0 - alpha) + self.current_zoom * alpha
     }
@@ -225,7 +225,7 @@ impl ProjectileInterpolationState {
     pub fn update(&mut self, position: Vec3, velocity: Vec3) {
         self.previous_position = self.current_position;
         self.previous_velocity = self.current_velocity;
-        
+
         self.current_position = position;
         self.current_velocity = velocity;
         self.has_valid_data = true;
@@ -237,13 +237,13 @@ impl ProjectileInterpolationState {
         if !self.has_valid_data {
             return self.current_position;
         }
-        
+
         let alpha = alpha.clamp(0.0, 1.0);
-        
+
         // Use velocity-based interpolation for more accurate projectile trajectories
         let base_position = self.previous_position.lerp(self.current_position, alpha);
         let velocity = self.previous_velocity.lerp(self.current_velocity, alpha);
-        
+
         // Add velocity-based offset for smoother movement
         base_position + velocity * (dt * alpha)
     }
@@ -314,7 +314,7 @@ impl InterpolationManager {
         let position = object.get_position();
         let orientation_angle = object.get_orientation();
         let rotation = Quat::from_rotation_y(orientation_angle);
-        
+
         // Scale based on construction progress
         let scale_factor = if object.status.under_construction {
             0.1 + 0.9 * object.construction_percent
@@ -333,7 +333,12 @@ impl InterpolationManager {
     }
 
     /// Update projectile state
-    pub fn update_projectile_state(&mut self, projectile_id: ObjectId, position: Vec3, velocity: Vec3) {
+    pub fn update_projectile_state(
+        &mut self,
+        projectile_id: ObjectId,
+        position: Vec3,
+        velocity: Vec3,
+    ) {
         let state = self.projectile_states.entry(projectile_id).or_default();
         state.update(position, velocity);
     }
@@ -344,7 +349,8 @@ impl InterpolationManager {
             return None;
         }
 
-        self.object_states.get(&object_id)
+        self.object_states
+            .get(&object_id)
             .map(|state| state.get_interpolated_position(self.current_alpha))
     }
 
@@ -354,7 +360,8 @@ impl InterpolationManager {
             return None;
         }
 
-        self.object_states.get(&object_id)
+        self.object_states
+            .get(&object_id)
             .map(|state| state.get_interpolated_rotation(self.current_alpha))
     }
 
@@ -364,7 +371,8 @@ impl InterpolationManager {
             return None;
         }
 
-        self.object_states.get(&object_id)
+        self.object_states
+            .get(&object_id)
             .map(|state| state.get_interpolated_transform(self.current_alpha))
     }
 
@@ -373,8 +381,9 @@ impl InterpolationManager {
         if !self.interpolation_enabled {
             return self.camera_state.current_position;
         }
-        
-        self.camera_state.get_interpolated_position(self.current_alpha)
+
+        self.camera_state
+            .get_interpolated_position(self.current_alpha)
     }
 
     /// Get interpolated camera target
@@ -382,8 +391,9 @@ impl InterpolationManager {
         if !self.interpolation_enabled {
             return self.camera_state.current_target;
         }
-        
-        self.camera_state.get_interpolated_target(self.current_alpha)
+
+        self.camera_state
+            .get_interpolated_target(self.current_alpha)
     }
 
     /// Get interpolated camera zoom
@@ -391,17 +401,22 @@ impl InterpolationManager {
         if !self.interpolation_enabled {
             return self.camera_state.current_zoom;
         }
-        
+
         self.camera_state.get_interpolated_zoom(self.current_alpha)
     }
 
     /// Get interpolated projectile position
-    pub fn get_interpolated_projectile_position(&self, projectile_id: ObjectId, dt: f32) -> Option<Vec3> {
+    pub fn get_interpolated_projectile_position(
+        &self,
+        projectile_id: ObjectId,
+        dt: f32,
+    ) -> Option<Vec3> {
         if !self.interpolation_enabled {
             return None;
         }
 
-        self.projectile_states.get(&projectile_id)
+        self.projectile_states
+            .get(&projectile_id)
             .map(|state| state.get_interpolated_position(self.current_alpha, dt))
     }
 
@@ -481,9 +496,9 @@ mod tests {
         let pos = Vec3::new(10.0, 0.0, 20.0);
         let rot = Quat::from_rotation_y(1.57); // 90 degrees
         let scale = Vec3::ONE;
-        
+
         let state = InterpolationState::new(pos, rot, scale);
-        
+
         assert_eq!(state.current_position, pos);
         assert_eq!(state.previous_position, pos);
         assert!(state.has_valid_data);
@@ -510,10 +525,10 @@ mod tests {
     fn test_interpolation_manager() {
         let mut manager = InterpolationManager::new();
         manager.set_alpha(0.5);
-        
+
         assert_eq!(manager.get_alpha(), 0.5);
         assert!(manager.is_interpolation_enabled());
-        
+
         manager.set_interpolation_enabled(false);
         assert!(!manager.is_interpolation_enabled());
     }
