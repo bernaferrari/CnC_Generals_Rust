@@ -4586,10 +4586,16 @@ impl Object {
 
     /// Get the current victim/target of this object
     /// Returns the object this unit is currently targeting
-    pub fn get_current_victim(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_current_victim_id(&self) -> Option<ObjectID> {
         let ai = self.ai.as_ref()?;
-        let victim_id = ai.get_current_victim()?;
+        let guard = ai.lock().ok()?;
+        guard.get_current_victim()
+    }
+
+    pub fn get_current_victim(&self) -> Option<Arc<RwLock<Object>>> {
+        let victim_id = self.get_current_victim_id()?;
         crate::helpers::TheGameLogic::find_object_by_id(victim_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(victim_id))
     }
 
     /// Get the current victim/target position of this object
@@ -7754,11 +7760,24 @@ impl Object {
     /// Get the current goal object (target) for this object's AI
     /// Returns None if no AI module exists or no goal is set
     /// C++ Reference: Object.cpp - getGoalObject()
-    pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_goal_object_id(&self) -> Option<ObjectID> {
         let ai = self.ai.as_ref()?;
-        let goal = ai.get_goal_object()?;
-        let goal_id = goal.read().ok()?.get_id();
+        let guard = ai.lock().ok()?;
+        let id = guard.get_goal_object_id();
+        if id != INVALID_ID {
+            return Some(id);
+        }
+        let goal = guard.get_goal_object()?;
+        goal.read()
+            .ok()
+            .map(|g| g.get_id())
+            .filter(|id| *id != INVALID_ID)
+    }
+
+    pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+        let goal_id = self.get_goal_object_id()?;
         crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
     }
 
     /// Get the thing template for this object
@@ -11325,12 +11344,18 @@ impl Object {
     ///
     /// # Returns
     /// An optional Arc to the container object
-    pub fn get_container(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_container_id(&self) -> Option<ObjectID> {
         if self.contained_by_id == INVALID_ID {
-            return None;
+            None
+        } else {
+            Some(self.contained_by_id)
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.contained_by_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.contained_by_id))
+    }
+
+    pub fn get_container(&self) -> Option<Arc<RwLock<Object>>> {
+        let container_id = self.get_container_id()?;
+        crate::helpers::TheGameLogic::find_object_by_id(container_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(container_id))
     }
 
     pub fn get_indicator_color(&self) -> Color {

@@ -2053,12 +2053,20 @@ impl Player {
         self.player_template.as_ref()
     }
 
+    pub fn get_object_ids(&self) -> Vec<ObjectID> {
+        let obj_manager = get_object_manager();
+        if let Ok(manager) = obj_manager.read() {
+            manager.get_objects_owned_by_player(self.player_index as UnsignedInt)
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn get_objects(&self) -> Vec<Arc<RwLock<Object>>> {
         let mut objects = Vec::new();
         let obj_manager = get_object_manager();
         if let Ok(manager) = obj_manager.read() {
-            let object_ids = manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
-            for obj_id in object_ids {
+            for obj_id in manager.get_objects_owned_by_player(self.player_index as UnsignedInt) {
                 if let Some(obj_arc) = manager.get_object(obj_id) {
                     if let Ok(obj_instance) = obj_arc.read() {
                         objects.push(obj_instance.base());
