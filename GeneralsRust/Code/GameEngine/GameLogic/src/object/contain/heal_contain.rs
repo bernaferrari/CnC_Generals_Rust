@@ -118,7 +118,12 @@ impl HealContain {
 
         // Process each contained object for healing
         for obj in contained_objects {
-            let done_healing = self.do_heal(obj.clone(), module_data.frames_for_full_heal)?;
+            let patient_id = obj
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID);
+            let done_healing = self.do_heal(patient_id, module_data.frames_for_full_heal)?;
 
             if done_healing {
                 // Reserve door for exit
@@ -154,18 +159,19 @@ impl HealContain {
     }
 
     /// Perform healing on a single object for a single frame
-    pub fn do_heal(
-        &mut self,
-        obj: Arc<RwLock<Object>>,
-        frames_for_full_heal: u32,
-    ) -> GameResult<bool> {
+    pub fn do_heal(&mut self, obj_id: ObjectID, frames_for_full_heal: u32) -> GameResult<bool> {
         let mut done_healing = false;
 
+        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("HealContain patient not found")?;
+
         // Setup healing damage info structure
-        let source_id = self
-            .get_object()
-            .and_then(|o| o.read().ok().map(|guard| guard.get_id()))
-            .unwrap_or_default();
+        let source_id = if self.object_id == crate::common::INVALID_ID {
+            0
+        } else {
+            self.object_id
+        };
 
         let mut heal_info = DamageInfo::new();
         heal_info.input.damage_type = DamageType::Healing;
@@ -638,7 +644,16 @@ mod tests {
                 .expect("heal contain");
 
         assert!(
-            contain.do_heal(patient.clone(), 0).expect("heal succeeds"),
+            contain
+                .do_heal(
+                    patient
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID),
+                    0,
+                )
+                .expect("heal succeeds"),
             "TimeForFullHeal=0 should immediately finish healing"
         );
 
@@ -661,7 +676,16 @@ mod tests {
                 .expect("heal contain");
 
         assert!(
-            !contain.do_heal(patient.clone(), 50).expect("heal succeeds"),
+            !contain
+                .do_heal(
+                    patient
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID),
+                    50,
+                )
+                .expect("heal succeeds"),
             "patient should remain contained until the full-heal frame"
         );
 
