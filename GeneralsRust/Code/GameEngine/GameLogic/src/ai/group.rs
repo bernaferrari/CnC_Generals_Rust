@@ -583,7 +583,11 @@ impl AIGroup {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if let Ok(mut ai_guard) = ai.try_lock() {
-                            ai_guard.set_surrendered(obj_we_surrendered_to, surrender);
+                            ai_guard.set_surrendered(
+                                obj_we_surrendered_to
+                                    .and_then(|o| o.read().ok().map(|g| g.get_id())),
+                                surrender,
+                            );
                         }
                     }
                 }

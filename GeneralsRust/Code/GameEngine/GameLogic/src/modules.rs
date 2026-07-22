@@ -1146,8 +1146,8 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Set surrendered state (matches C++ AIUpdateInterface::setSurrendered).
-    fn set_surrendered(&mut self, to_object: Option<&Arc<RwLock<Object>>>, surrendered: bool) {
-        let _ = (to_object, surrendered);
+    fn set_surrendered(&mut self, to_object_id: Option<ObjectID>, surrendered: bool) {
+        let _ = (to_object_id, surrendered);
     }
 
     /// Check if this unit is surrendered (matches C++ AIUpdateInterface::isSurrendered).
@@ -1448,8 +1448,8 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Set goal object (friend_setGoalObject parity).
-    fn set_goal_object(&mut self, obj: Option<&Arc<RwLock<Object>>>) {
-        let _ = obj;
+    fn set_goal_object(&mut self, obj_id: Option<ObjectID>) {
+        let _ = obj_id;
     }
 
     /// Goal position from the AI state machine (matches C++ getGoalPosition).
