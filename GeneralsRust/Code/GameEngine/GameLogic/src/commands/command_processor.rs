@@ -4150,7 +4150,11 @@ impl DefaultCommandHandler {
             };
 
             if let Some(target) = &target_arc {
-                ai.ai_attack_object(target, max_shots_to_fire, CommandSourceType::FromPlayer);
+                ai.ai_attack_object(
+                    target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                    max_shots_to_fire,
+                    CommandSourceType::FromPlayer,
+                );
             } else if let Some(position) = target_position {
                 ai.ai_attack_position(&position, max_shots_to_fire, CommandSourceType::FromPlayer);
             } else if let Some(position) = own_position {

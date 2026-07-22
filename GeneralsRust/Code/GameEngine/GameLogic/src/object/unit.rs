@@ -7633,14 +7633,18 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.is_recruitable = recruitable;
     }
 
-    fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+    fn get_goal_object_id(&self) -> ObjectID {
         let Some(machine) = self.ai_state_machine.as_ref() else {
-            return None;
+            return INVALID_ID;
         };
         let Ok(guard) = machine.lock() else {
-            return None;
+            return INVALID_ID;
         };
-        guard.get_goal_object()
+        // StateMachine stores goal_object_id; get_goal_object resolves Arc.
+        guard
+            .get_goal_object()
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+            .unwrap_or(INVALID_ID)
     }
 
     fn set_goal_object(&mut self, obj_id: Option<ObjectID>) {
@@ -8502,30 +8506,32 @@ impl AIUpdateInterface for UnitAIUpdate {
         guard.attack_target = victim;
     }
 
-    fn check_for_crate_to_pickup(&self) -> Option<Arc<RwLock<Object>>> {
-        {
-            let Ok(mut guard) = self.crate_created.lock() else {
-                return None;
-            };
-            if *guard == crate::common::INVALID_ID {
-                return None;
-            }
-            // C++ clears m_crateCreated before the lookup, so the processed marker
-            // does not yield a crate object from this path.
-            *guard = crate::common::INVALID_ID;
+    fn check_for_crate_to_pickup_id(&self) -> ObjectID {
+        let Ok(mut guard) = self.crate_created.lock() else {
+            return INVALID_ID;
+        };
+        if *guard == crate::common::INVALID_ID {
+            return INVALID_ID;
         }
-        get_legacy_object(crate::common::INVALID_ID)
+        // C++ clears m_crateCreated before the lookup, so the processed marker
+        // does not yield a crate object from this path.
+        *guard = crate::common::INVALID_ID;
+        INVALID_ID
     }
 
-    fn get_next_mood_target(
+    fn get_next_mood_target_id(
         &mut self,
         use_existing_target: bool,
         _ignore_attacked: bool,
-    ) -> Option<Arc<RwLock<Object>>> {
-        let unit = get_unit_arc(self.unit_id)?;
-        let guard = unit.read().ok()?;
+    ) -> ObjectID {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
+            return INVALID_ID;
+        };
+        let Ok(guard) = unit.read() else {
+            return INVALID_ID;
+        };
         if !guard.can_auto_acquire_now() {
-            return None;
+            return INVALID_ID;
         }
 
         let max_range = guard.engagement_range;
@@ -8548,7 +8554,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             let dy = target_pos.y - self_pos.y;
                             let dist = (dx * dx + dy * dy).sqrt();
                             if dist <= max_range && guard.can_detect_target(&existing_guard, dist) {
-                                return Some(existing_arc.clone());
+                                return existing_id;
                             }
                         }
                     }
@@ -8556,9 +8562,13 @@ impl AIUpdateInterface for UnitAIUpdate {
             }
         }
 
-        let ai = THE_AI.read().ok()?;
+        let Ok(ai) = THE_AI.read() else {
+            return INVALID_ID;
+        };
         let ai_data = ai.get_ai_data();
-        let ai_data_guard = ai_data.read().ok()?;
+        let Ok(ai_data_guard) = ai_data.read() else {
+            return INVALID_ID;
+        };
 
         let mut qualifiers = search_qualifiers::CAN_ATTACK;
         if ai_data_guard.attack_uses_line_of_sight {
@@ -8571,12 +8581,10 @@ impl AIUpdateInterface for UnitAIUpdate {
             qualifiers |= search_qualifiers::ATTACK_BUILDINGS;
         }
 
-        let target_id = ai
-            .find_closest_enemy(guard.get_id(), max_range, qualifiers, None, None)
+        ai.find_closest_enemy(guard.get_id(), max_range, qualifiers, None, None)
             .ok()
-            .flatten()?;
-
-        get_legacy_object(target_id)
+            .flatten()
+            .unwrap_or(INVALID_ID)
     }
 
     fn get_next_mood_check_time(&self) -> u32 {

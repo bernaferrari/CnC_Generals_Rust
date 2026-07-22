@@ -821,7 +821,12 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
         }
     }
 
-    fn unload_prisoners_to_prison(&mut self, prison: &Arc<RwLock<Object>>) {
+    fn unload_prisoners_to_prison(&mut self, prison_id: ObjectID) {
+        let Some(prison) = TheGameLogic::find_object_by_id(prison_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(prison_id))
+        else {
+            return;
+        };
         let Some(owner_arc) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
