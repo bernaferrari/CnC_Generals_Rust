@@ -32,7 +32,7 @@ pub struct GhostObject {
     parent_geometry_is_small: Bool,
     parent_geometry_major_radius: Real,
     parent_geometry_minor_radius: Real,
-    parent_object: Option<Arc<RwLock<Object>>>,
+    parent_object_id: ObjectID,
     parent_geometry_type: GeometryType,
     parent_position: Coord3D,
     partition_data: Option<PartitionData>,
@@ -45,7 +45,7 @@ impl GhostObject {
             parent_geometry_is_small: false,
             parent_geometry_major_radius: 0.0,
             parent_geometry_minor_radius: 0.0,
-            parent_object: None,
+            parent_object_id: INVALID_ID,
             parent_geometry_type: GeometryType::Box,
             parent_position: Coord3D::ZERO,
             partition_data: None,
@@ -53,11 +53,25 @@ impl GhostObject {
     }
 
     pub fn set_parent(&mut self, parent: Option<Arc<RwLock<Object>>>) {
-        self.parent_object = parent;
+        self.parent_object_id = parent
+            .as_ref()
+            .and_then(|arc| arc.read().ok().map(|o| o.get_id()))
+            .unwrap_or(INVALID_ID);
+    }
+
+    pub fn set_parent_id(&mut self, parent_id: ObjectID) {
+        self.parent_object_id = parent_id;
+    }
+
+    pub fn get_parent_id(&self) -> ObjectID {
+        self.parent_object_id
     }
 
     pub fn get_parent(&self) -> Option<Arc<RwLock<Object>>> {
-        self.parent_object.clone()
+        if self.parent_object_id == INVALID_ID {
+            return None;
+        }
+        TheGameLogic::find_object_by_id(self.parent_object_id)
     }
 
     pub fn set_partition_data(&mut self, data: Option<PartitionData>) {
@@ -79,16 +93,12 @@ impl Snapshotable for GhostObject {
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
 
-        let mut parent_id = self
-            .parent_object
-            .as_ref()
-            .and_then(|obj| obj.read().ok().map(|o| o.get_id()))
-            .unwrap_or(INVALID_ID);
+        let mut parent_id = self.parent_object_id;
         xfer.xfer_u32(&mut parent_id).map_err(|e| e.to_string())?;
 
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.parent_object = TheGameLogic::find_object_by_id(parent_id);
-            if parent_id != INVALID_ID && self.parent_object.is_none() {
+            self.parent_object_id = parent_id;
+            if parent_id != INVALID_ID && TheGameLogic::find_object_by_id(parent_id).is_none() {
                 return Err("GhostObject::xfer unable to connect parent object".to_string());
             }
         }
@@ -180,7 +190,7 @@ impl GhostObjectManager {
         };
 
         let ghost = GhostObject {
-            parent_object: Some(object.clone()),
+            parent_object_id: object.read().ok().map(|o| o.get_id()).unwrap_or(INVALID_ID),
             parent_position: position,
             parent_angle: angle,
             parent_geometry_type: geometry_type,

@@ -107,9 +107,10 @@ pub mod test_sync {
     static GLOBAL_TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     pub fn lock() -> MutexGuard<'static, ()> {
-        GLOBAL_TEST_LOCK
-            .lock()
-            .expect("global test synchronization lock poisoned")
+        match GLOBAL_TEST_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
     }
 }
 
