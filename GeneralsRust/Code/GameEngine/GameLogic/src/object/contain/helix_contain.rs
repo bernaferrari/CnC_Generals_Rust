@@ -974,23 +974,12 @@ impl ContainerInterface for HelixContain {
         self.is_valid_container_for(obj, true)
     }
 
-    fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
+    fn add_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.add_to_contain(obj_id)
     }
 
-    fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            false,
-        )
+    fn remove_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.remove_from_contain(obj_id, false)
     }
 
     fn get_usage(&self) -> (u32, u32) {
@@ -1264,8 +1253,15 @@ mod tests {
             &contain,
             &portable.read().expect("portable read")
         ));
-        ContainerInterface::add_object(&mut contain, portable.clone())
-            .expect("portable structure enters as helix rider");
+        ContainerInterface::add_object(
+            &mut contain,
+            portable
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
+        .expect("portable structure enters as helix rider");
 
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 0);
         assert_eq!(
@@ -1313,8 +1309,15 @@ mod tests {
         attach_active_body(&portable);
         let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
             .expect("helix contain constructs");
-        ContainerInterface::add_object(&mut contain, portable.clone())
-            .expect("portable structure enters as helix rider");
+        ContainerInterface::add_object(
+            &mut contain,
+            portable
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
+        .expect("portable structure enters as helix rider");
 
         ContainModuleInterface::on_body_damage_state_change(
             &mut contain,
