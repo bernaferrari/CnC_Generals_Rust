@@ -2055,11 +2055,10 @@ impl Player {
 
     pub fn get_object_ids(&self) -> Vec<ObjectID> {
         let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            manager.get_objects_owned_by_player(self.player_index as UnsignedInt)
-        } else {
-            Vec::new()
-        }
+        let Ok(manager) = obj_manager.read() else {
+            return Vec::new();
+        };
+        manager.get_objects_owned_by_player(self.player_index as UnsignedInt)
     }
 
     pub fn get_objects(&self) -> Vec<Arc<RwLock<Object>>> {
