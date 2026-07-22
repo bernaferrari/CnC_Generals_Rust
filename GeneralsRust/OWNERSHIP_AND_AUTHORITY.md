@@ -205,6 +205,12 @@ mid-frame host combat still runs for C++ armor/side-effect parity.
  Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
+### Selection/helpers with_object residual (2026-07-21)
+
+`RegistryObjectLookup` object info/alive/owner/kind/control/selected peels and
+helpers `get_closest_object(_2d)` use `OBJECT_REGISTRY.with_object`. Resolve-
+selection container dual-lookup and `get_all_objects` Arc walks remain.
+
 ### Player ownership/power with_object deepen (2026-07-21)
 
 `Player::add_owned_object` / `remove_owned_object` / `set_units_vision_spied` /

@@ -3953,18 +3953,16 @@ impl ThePartitionManager {
         let mut min_dist_sqr = radius * radius + 1.0; // Plus 1 to ensure we pick up objects exactly on the radius if needed
 
         for id in candidate_ids {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(id) {
-                if let Ok(obj) = obj_arc.read() {
-                    if filter(&obj) {
-                        let obj_pos = obj.get_position();
-                        let dist_sqr = pos.distance_squared(*obj_pos);
-                        if dist_sqr < min_dist_sqr {
-                            min_dist_sqr = dist_sqr;
-                            closest_id = Some(id);
-                        }
+            let _ = OBJECT_REGISTRY.with_object(id, |obj| {
+                if filter(obj) {
+                    let obj_pos = obj.get_position();
+                    let dist_sqr = pos.distance_squared(*obj_pos);
+                    if dist_sqr < min_dist_sqr {
+                        min_dist_sqr = dist_sqr;
+                        closest_id = Some(id);
                     }
                 }
-            }
+            });
         }
         closest_id
     }
@@ -3985,20 +3983,18 @@ impl ThePartitionManager {
         let mut min_dist_sqr = radius * radius + 1.0;
 
         for id in candidate_ids {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(id) {
-                if let Ok(obj) = obj_arc.read() {
-                    if filter(&obj) {
-                        let obj_pos = obj.get_position();
-                        let dx = obj_pos.x - pos.x;
-                        let dy = obj_pos.y - pos.y;
-                        let dist_sqr = dx * dx + dy * dy;
-                        if dist_sqr < min_dist_sqr {
-                            min_dist_sqr = dist_sqr;
-                            closest_id = Some(id);
-                        }
+            let _ = OBJECT_REGISTRY.with_object(id, |obj| {
+                if filter(obj) {
+                    let obj_pos = obj.get_position();
+                    let dx = obj_pos.x - pos.x;
+                    let dy = obj_pos.y - pos.y;
+                    let dist_sqr = dx * dx + dy * dy;
+                    if dist_sqr < min_dist_sqr {
+                        min_dist_sqr = dist_sqr;
+                        closest_id = Some(id);
                     }
                 }
-            }
+            });
         }
         closest_id
     }
