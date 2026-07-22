@@ -1130,11 +1130,15 @@ impl AIDockProcessDockState {
         Ok(())
     }
 
-    fn find_my_drone(&mut self) -> Result<Option<Arc<RwLock<Object>>>, String> {
+    fn find_my_drone_id(&mut self) -> Result<Option<ObjectID>, String> {
         if let Some(drone_id) = self.drone_id {
-            if let Some(drone) = crate::object::registry::OBJECT_REGISTRY.get_object(drone_id) {
-                return Ok(Some(drone));
+            if crate::object::registry::OBJECT_REGISTRY
+                .get_object(drone_id)
+                .is_some()
+            {
+                return Ok(Some(drone_id));
             }
+            self.drone_id = None;
         }
 
         let owner = self
@@ -1147,17 +1151,21 @@ impl AIDockProcessDockState {
         if let Some(player) = owner_guard.get_controlling_player() {
             let owner_id = owner_guard.get_id();
             if let Ok(player_guard) = player.read() {
-                let drone = player_guard.find_drone_by_producer_id(owner_id)?;
-                if let Some(ref drone_obj) = drone {
-                    if let Ok(drone_guard) = drone_obj.read() {
-                        self.drone_id = Some(drone_guard.get_id());
-                    }
+                let drone_id = player_guard.find_drone_id_by_producer_id(owner_id);
+                if drone_id.is_some() {
+                    self.drone_id = drone_id;
                 }
-                return Ok(drone);
+                return Ok(drone_id);
             }
         }
 
         Ok(None)
+    }
+
+    fn find_my_drone(&mut self) -> Result<Option<Arc<RwLock<Object>>>, String> {
+        Ok(self
+            .find_my_drone_id()?
+            .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id)))
     }
 
     fn unlock_machine(&self) -> Result<(), String> {
@@ -1209,11 +1217,8 @@ impl ClassicState for AIDockProcessDockState {
 
                 self.set_next_dock_action_frame()?;
 
-                let drone = self.find_my_drone()?;
+                let drone_id = self.find_my_drone_id()?;
                 let owner_id = owner.read().map(|g| g.get_id()).unwrap_or(0);
-                let drone_id = drone
-                    .as_ref()
-                    .and_then(|d| d.read().ok().map(|g| g.get_id()));
 
                 if !dock.is_dock_open().into_string_err()?
                     || !dock.action(owner_id, drone_id).into_string_err()?
