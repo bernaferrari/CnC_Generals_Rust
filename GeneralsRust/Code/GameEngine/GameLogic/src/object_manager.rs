@@ -118,8 +118,6 @@ impl Default for ObjectCreationFlags {
 pub struct GameObjectInstance {
     /// Base object id (resolve for the duration of an op)
     object_id: ObjectID,
-    /// Construction pin so resolve works before/without world insertion.
-    base_pin: Arc<RwLock<Object>>,
 
     /// Object template used for creation
     pub template: Option<Arc<dyn ThingTemplate>>,
@@ -218,18 +216,24 @@ impl GameObjectInstance {
         }
     }
 
-    /// Owned handle to the construction-pinned base object (transitional Arc pin).
+    /// Resolve base Object for the duration of a call (registry / legacy).
+    pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
+        if self.object_id == INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
+            .or_else(|| crate::ai::object_registry::get_legacy_object(self.object_id))
+    }
+
+    /// Resolve base Object; panics if unregistered (callers that need soft fail use `base_object`).
     pub fn base(&self) -> Arc<RwLock<Object>> {
-        Arc::clone(&self.base_pin)
+        self.base_object()
+            .expect("GameObjectInstance base unavailable — register via new/from_existing")
     }
 
     pub fn object_id(&self) -> ObjectID {
         self.object_id
-    }
-
-    /// Option-shaped resolve API matching Unit/Structure wrappers.
-    pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
-        Some(self.base())
     }
 
     /// Wrap an existing base object created elsewhere (ObjectFactory) into a manager instance.
@@ -269,9 +273,10 @@ impl GameObjectInstance {
         });
         let (team_id, team_pin) = Self::store_team(team);
 
+        // `base` is kept alive by OBJECT_REGISTRY (strong store).
+        let _ = &base;
         Self {
             object_id,
-            base_pin: base,
             template,
             team_id,
             team_pin,
@@ -319,9 +324,9 @@ impl GameObjectInstance {
             p.read().ok().map(|g| g.get_player_index())
         });
         let (team_id, team_pin) = Self::store_team(team.clone());
+        let _ = &base; // registered above; instance resolves by id
         let mut instance = Self {
             object_id: id,
-            base_pin: base,
             template: Some(template.clone()),
             team_id,
             team_pin,
@@ -390,7 +395,7 @@ impl GameObjectInstance {
         // Extract position from transform matrix
         let cols = self.transform.to_cols_array();
         self.cached_position = Coord3D::new(cols[12], cols[13], cols[14]);
-        if let Ok(mut base) = self.base_pin.write() {
+        if let Ok(mut base) = self.base().write() {
             let _ = base.set_position(&self.cached_position);
         }
     }
@@ -400,7 +405,7 @@ impl GameObjectInstance {
         self.cached_position = position;
         self.transform =
             Matrix3D::from_translation(glam::Vec3::new(position.x, position.y, position.z));
-        if let Ok(mut base) = self.base_pin.write() {
+        if let Ok(mut base) = self.base().write() {
             let _ = base.set_position(&position);
         }
     }
@@ -420,14 +425,7 @@ impl GameObjectInstance {
 
     /// Get object ID
     pub fn get_id(&self) -> ObjectID {
-        if self.object_id != INVALID_ID {
-            self.object_id
-        } else {
-            self.base_pin
-                .read()
-                .map(|base| base.get_id())
-                .unwrap_or(INVALID_ID)
-        }
+        self.object_id
     }
 
     /// Get owning team
@@ -444,7 +442,7 @@ impl GameObjectInstance {
 
     /// Check if object has specific status bit
     pub fn has_status(&self, status: ObjectStatusTypes) -> Bool {
-        if let Ok(base) = self.base_pin.read() {
+        if let Ok(base) = self.base().read() {
             return base.test_status(status);
         }
         let bit = ObjectStatusMaskType::from_bits_truncate(1u64 << (status as u32));
@@ -459,7 +457,7 @@ impl GameObjectInstance {
         } else {
             self.status_bits.remove(bit);
         }
-        if let Ok(mut base) = self.base_pin.write() {
+        if let Ok(mut base) = self.base().write() {
             base.set_status(bit, value);
         }
     }
@@ -548,7 +546,7 @@ impl GameObjectInstance {
     pub fn update(&mut self, current_frame: UnsignedInt) -> GameLogicResult<()> {
         self.last_update_frame = current_frame;
 
-        if let Ok(mut base) = self.base_pin.write() {
+        if let Ok(mut base) = self.base().write() {
             base.update(current_frame as f32)
                 .map_err(GameLogicError::ModuleError)?;
         }
@@ -565,7 +563,7 @@ impl GameObjectInstance {
         current_frame: UnsignedInt,
         sleep: UpdateSleepTime,
     ) {
-        if let Ok(mut base) = self.base_pin.write() {
+        if let Ok(mut base) = self.base().write() {
             base.wake_update_modules_after(current_frame, sleep);
         }
     }
@@ -576,7 +574,7 @@ impl GameObjectInstance {
     /// re-activate modules that were dormant, without disturbing modules that are intentionally
     /// sleeping for timing/performance reasons.
     pub fn wake_update_modules_sleeping_forever(&mut self, current_frame: UnsignedInt) {
-        if let Ok(mut base) = self.base_pin.write() {
+        if let Ok(mut base) = self.base().write() {
             base.wake_update_modules_after(current_frame, UPDATE_SLEEP_NONE);
         }
     }
@@ -586,7 +584,7 @@ impl GameObjectInstance {
         self.pending_destruction = true;
         self.set_status(ObjectStatusTypes::Destroyed, true);
 
-        if let Ok(mut base) = self.base_pin.write() {
+        if let Ok(mut base) = self.base().write() {
             base.on_destroy();
             base.set_status(
                 ObjectStatusMaskType::from_status(ObjectStatusTypes::Destroyed),
@@ -610,7 +608,7 @@ impl GameObjectInstance {
     /// Check if object is effectively dead (dead, dying, or under construction)
     /// Delegates to underlying Object implementation
     pub fn is_effectively_dead(&self) -> bool {
-        if let Ok(base) = self.base_pin.read() {
+        if let Ok(base) = self.base().read() {
             base.is_effectively_dead()
         } else {
             true // If lock fails, consider it dead
@@ -619,7 +617,7 @@ impl GameObjectInstance {
 
     /// Get status bits for this object
     pub fn get_status_bits(&self) -> ObjectStatusMaskType {
-        if let Ok(base) = self.base_pin.read() {
+        if let Ok(base) = self.base().read() {
             return base.get_status_bits();
         }
         self.status_bits
@@ -661,7 +659,7 @@ impl GameObjectInstance {
 
     /// Set the AI update interface for this object
     pub fn set_ai_update_interface(&mut self, ai: Option<Arc<Mutex<dyn AIUpdateInterface>>>) {
-        if let Ok(mut base) = self.base_pin.write() {
+        if let Ok(mut base) = self.base().write() {
             base.set_ai_update_interface(ai);
         }
     }
