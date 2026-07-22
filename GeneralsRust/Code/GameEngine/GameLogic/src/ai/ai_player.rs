@@ -3531,18 +3531,16 @@ impl AIPlayer {
         };
         let mut count = 0;
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_kind_of(KindOf::SupplySource)
-                || obj_guard.is_kind_of(KindOf::ResourceNode)
-                || obj_guard.is_kind_of(KindOf::FSSupplyCenter)
-                || obj_guard.is_kind_of(KindOf::FSSupplyDropzone)
-                || obj_guard.is_kind_of(KindOf::Refinery)
-            {
+            let is_supply = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    obj_guard.is_kind_of(KindOf::SupplySource)
+                        || obj_guard.is_kind_of(KindOf::ResourceNode)
+                        || obj_guard.is_kind_of(KindOf::FSSupplyCenter)
+                        || obj_guard.is_kind_of(KindOf::FSSupplyDropzone)
+                        || obj_guard.is_kind_of(KindOf::Refinery)
+                })
+                .unwrap_or(false);
+            if is_supply {
                 count += 1;
             }
         }
@@ -3565,16 +3563,20 @@ impl AIPlayer {
         let mut total = 0.0;
         let mut count = 0.0;
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(pct) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if !obj_guard.is_kind_of(KindOf::Structure)
+                        && !obj_guard.is_kind_of(KindOf::Building)
+                    {
+                        return None;
+                    }
+                    Some(obj_guard.get_health_percentage())
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(KindOf::Structure) && !obj_guard.is_kind_of(KindOf::Building) {
-                continue;
-            }
-            total += obj_guard.get_health_percentage();
+            total += pct;
             count += 1.0;
         }
         if count > 0.0 {
@@ -3977,16 +3979,13 @@ impl AIPlayer {
     }
 
     fn object_ai_is_idle(object_id: ObjectID) -> bool {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return false;
-        };
-        let Some(ai) = obj.get_ai_update_interface() else {
-            return false;
-        };
-        ai.is_idle()
+        OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                obj.get_ai_update_interface()
+                    .map(|ai| ai.is_idle())
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
 
     fn team_any_member_idle(team_name: &str) -> bool {
@@ -4038,15 +4037,15 @@ impl AIPlayer {
                 let (mut all_idle, mut any_idle) = (true, false);
                 if team_q.reinforcement {
                     if let Some(obj_id) = team_q.reinforcement_id {
-                        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-                            if let Ok(obj) = obj_arc.read() {
-                                if let Some(ai) = obj.get_ai_update_interface() {
-                                    if let Ok(ai_g) = ai.lock() {
-                                        all_idle = ai_g.is_idle();
-                                        any_idle = all_idle;
-                                    }
-                                }
-                            }
+                        if let Some((idle,)) = OBJECT_REGISTRY
+                            .with_object(obj_id, |obj| {
+                                obj.get_ai_update_interface()
+                                    .and_then(|ai| ai.lock().ok().map(|ai_g| (ai_g.is_idle(),)))
+                            })
+                            .flatten()
+                        {
+                            all_idle = idle;
+                            any_idle = idle;
                         }
                     }
                 } else if let Some(team_arc) = team_q.team.as_ref() {
@@ -4055,16 +4054,16 @@ impl AIPlayer {
                         all_idle = tg.is_idle();
                         any_idle = false;
                         for mid in tg.get_members() {
-                            if let Some(oarc) = OBJECT_REGISTRY.get_object(*mid) {
-                                if let Ok(og) = oarc.read() {
-                                    if let Some(ai) = og.get_ai_update_interface() {
-                                        if let Ok(ai_g) = ai.lock() {
-                                            if ai_g.is_idle() {
-                                                any_idle = true;
-                                            }
-                                        }
-                                    }
-                                }
+                            if OBJECT_REGISTRY
+                                .with_object(*mid, |og| {
+                                    let Some(ai) = og.get_ai_update_interface() else {
+                                        return false;
+                                    };
+                                    ai.lock().ok().map(|ai_g| ai_g.is_idle()).unwrap_or(false)
+                                })
+                                .unwrap_or(false)
+                            {
+                                any_idle = true;
                             }
                         }
                     }
@@ -4248,13 +4247,10 @@ impl AIPlayer {
                     if let Ok(tg) = team_arc.read() {
                         let mut idle = false;
                         for mid in tg.get_members() {
-                            let Some(oarc) = OBJECT_REGISTRY.get_object(*mid) else {
-                                continue;
-                            };
-                            let Ok(og) = oarc.read() else {
-                                continue;
-                            };
-                            let Some(ai) = og.get_ai_update_interface() else {
+                            let Some(ai) = OBJECT_REGISTRY
+                                .with_object(*mid, |og| og.get_ai_update_interface())
+                                .flatten()
+                            else {
                                 continue;
                             };
                             let Ok(aig) = ai.lock() else {
@@ -5923,21 +5919,22 @@ impl AIPlayer {
         };
         let mut total = 0;
         for obj_id in pg.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if !obj.is_kind_of(KindOf::Harvester) {
-                continue;
-            }
-            if let Some(ai) = obj.get_ai_update_interface() {
-                if let Ok(ai_g) = ai.lock() {
-                    if ai_g.get_supply_truck_ai_interface().is_some() {
-                        total += 1;
+            let counts = OBJECT_REGISTRY
+                .with_object(obj_id, |obj| {
+                    if !obj.is_kind_of(KindOf::Harvester) {
+                        return false;
                     }
-                }
+                    let Some(ai) = obj.get_ai_update_interface() else {
+                        return false;
+                    };
+                    ai.lock()
+                        .ok()
+                        .map(|ai_g| ai_g.get_supply_truck_ai_interface().is_some())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if counts {
+                total += 1;
             }
         }
         total
@@ -6034,28 +6031,33 @@ impl AIPlayer {
         // Collect dock commands outside locks (C++ aiDock CMD_FROM_PLAYER).
         let mut redock: Vec<ObjectID> = Vec::new();
         for obj_id in pg.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some((preferred, ferrying)) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj| {
+                    if !obj.is_kind_of(KindOf::Harvester) {
+                        return None;
+                    }
+                    let Some(ai) = obj.get_ai_update_interface() else {
+                        return None;
+                    };
+                    let Ok(ai_g) = ai.lock() else {
+                        return None;
+                    };
+                    let Some(truck) = ai_g.get_supply_truck_ai_interface() else {
+                        return None;
+                    };
+                    Some((
+                        truck.get_preferred_dock_id() == Some(center_id),
+                        truck.is_currently_ferrying_supplies(),
+                    ))
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if !obj.is_kind_of(KindOf::Harvester) {
-                continue;
-            }
-            let Some(ai) = obj.get_ai_update_interface() else {
-                continue;
-            };
-            let Ok(ai_g) = ai.lock() else {
-                continue;
-            };
-            let Some(truck) = ai_g.get_supply_truck_ai_interface() else {
-                continue;
-            };
-            if truck.get_preferred_dock_id() == Some(center_id) {
+            if preferred {
                 cur += 1;
                 // C++: if (!isCurrentlyFerryingSupplies()) aiDock(center, CMD_FROM_PLAYER)
-                if !truck.is_currently_ferrying_supplies() {
+                if !ferrying {
                     redock.push(obj_id);
                 }
             }
@@ -6063,12 +6065,11 @@ impl AIPlayer {
         drop(pg);
         drop(list);
         for truck_id in redock {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(truck_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    if let Some(ai) = obj.get_ai_update_interface() {
-                        ai.ai_dock(center_id, CommandSourceType::FromPlayer);
-                    }
-                }
+            if let Some(ai) = OBJECT_REGISTRY
+                .with_object(truck_id, |obj| obj.get_ai_update_interface())
+                .flatten()
+            {
+                ai.ai_dock(center_id, CommandSourceType::FromPlayer);
             }
         }
         cur
@@ -6104,42 +6105,44 @@ impl AIPlayer {
             return Ok(false);
         };
         for obj_id in pg.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if !obj.is_kind_of(KindOf::Harvester) {
-                continue;
-            }
-            let Some(ai) = obj.get_ai_update_interface() else {
-                continue;
-            };
-            let Ok(ai_g) = ai.lock() else {
-                continue;
-            };
-            let Some(truck) = ai_g.get_supply_truck_ai_interface() else {
-                continue;
-            };
-            let dock = truck.get_preferred_dock_id();
-            let dock_alive = dock
-                .map(|id| OBJECT_REGISTRY.get_object(id).is_some())
-                .unwrap_or(false);
-            if dock_alive {
-                continue;
-            }
-            if truck.is_currently_ferrying_supplies() || truck.is_forced_into_wanting_state() {
-                // C++: bump current gatherers and aiDock(center, CMD_FROM_PLAYER).
-                drop(ai_g);
-                drop(obj);
-                // Issue dock before recount so preferred dock can stick.
-                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-                    if let Ok(og) = obj_arc.read() {
-                        if let Some(ai) = og.get_ai_update_interface() {
-                            ai.ai_dock(center_id, CommandSourceType::FromPlayer);
-                        }
+            let Some(should_reattach) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj| {
+                    if !obj.is_kind_of(KindOf::Harvester) {
+                        return None;
                     }
+                    let Some(ai) = obj.get_ai_update_interface() else {
+                        return None;
+                    };
+                    let Ok(ai_g) = ai.lock() else {
+                        return None;
+                    };
+                    let Some(truck) = ai_g.get_supply_truck_ai_interface() else {
+                        return None;
+                    };
+                    let dock = truck.get_preferred_dock_id();
+                    let dock_alive = dock
+                        .map(|id| OBJECT_REGISTRY.with_object(id, |_| ()).is_some())
+                        .unwrap_or(false);
+                    if dock_alive {
+                        return Some(false);
+                    }
+                    Some(
+                        truck.is_currently_ferrying_supplies()
+                            || truck.is_forced_into_wanting_state(),
+                    )
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            if should_reattach {
+                // C++: bump current gatherers and aiDock(center, CMD_FROM_PLAYER).
+                // Issue dock before recount so preferred dock can stick.
+                if let Some(ai) = OBJECT_REGISTRY
+                    .with_object(obj_id, |og| og.get_ai_update_interface())
+                    .flatten()
+                {
+                    ai.ai_dock(center_id, CommandSourceType::FromPlayer);
                 }
                 self.set_build_list_current_gatherers(
                     center_id,
@@ -7312,22 +7315,22 @@ impl AIPlayer {
         let mut struct_max = Coord3D::new(0.0, 0.0, 0.0);
 
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(pos) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    // C++ only enters the AABB expand when isKindOf(STRUCTURE).
+                    if !obj_guard.is_kind_of(KindOf::Structure) {
+                        return None;
+                    }
+                    // C++: conservative && KINDOF_CONSERVATIVE_BUILDING → skip.
+                    if conservative && obj_guard.is_kind_of(KindOf::ConservativeBuilding) {
+                        return None;
+                    }
+                    Some(*obj_guard.get_position())
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            // C++ only enters the AABB expand when isKindOf(STRUCTURE).
-            if !obj_guard.is_kind_of(KindOf::Structure) {
-                continue;
-            }
-            // C++: conservative && KINDOF_CONSERVATIVE_BUILDING → skip.
-            if conservative && obj_guard.is_kind_of(KindOf::ConservativeBuilding) {
-                continue;
-            }
-
-            let pos = *obj_guard.get_position();
             if first_structure {
                 struct_min = Coord3D::new(pos.x, pos.y, pos.z);
                 struct_max = Coord3D::new(pos.x, pos.y, pos.z);
