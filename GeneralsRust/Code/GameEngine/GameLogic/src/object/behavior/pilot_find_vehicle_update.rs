@@ -155,7 +155,7 @@ impl UpdateModuleInterface for PilotFindVehicleUpdate {
             return UpdateSleepTime::Forever;
         };
 
-        if owner_guard.is_destroyed() || owner_guard.get_container().is_some() {
+        if owner_guard.is_destroyed() || owner_guard.get_container_id().is_some() {
             return UpdateSleepTime::Forever;
         }
 

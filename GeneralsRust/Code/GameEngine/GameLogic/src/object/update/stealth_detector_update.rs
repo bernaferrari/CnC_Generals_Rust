@@ -279,7 +279,7 @@ impl StealthDetectorController {
                     self_guard
                         .get_status_bits()
                         .contains(ObjectStatusMaskType::SOLD),
-                    self_guard.get_container().is_some(),
+                    self_guard.get_container_id().is_some(),
                     *self_guard.get_position(),
                     self_guard.get_team_id(),
                 )
@@ -357,7 +357,7 @@ impl StealthDetectorController {
 
             if has_stealth {
                 // Respect containment rules for targets
-                let target_contained = obj_guard.get_container().is_some();
+                let target_contained = obj_guard.get_container_id().is_some();
                 if target_contained
                     && !(self.data.can_detect_while_transported
                         || self.data.can_detect_while_garrisoned)
