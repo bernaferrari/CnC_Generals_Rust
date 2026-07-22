@@ -14,7 +14,7 @@ const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / 30.0;
 use crate::game_logic::GameLogic;
 use crate::graphics::RenderPipeline;
 use crate::ui::{
-    MinimapClickEvent, MinimapUIState, UiColor, UiPos2, UiTextureId, update_minimap_state,
+    update_minimap_state, MinimapClickEvent, MinimapUIState, UiColor, UiPos2, UiTextureId,
 };
 
 /// Example integration struct showing how to use the minimap FOW system
@@ -51,17 +51,10 @@ impl MinimapFowIntegration {
         let mut render_pipeline = RenderPipeline::initialize(graphics_system)?;
 
         // Set world bounds (example: 2048x2048 map)
-        let world_bounds = (
-            Vec3::new(0.0, 0.0, 0.0),
-            Vec3::new(2048.0, 0.0, 2048.0),
-        );
+        let world_bounds = (Vec3::new(0.0, 0.0, 0.0), Vec3::new(2048.0, 0.0, 2048.0));
 
         // Initialize minimap renderer in the pipeline
-        render_pipeline.initialize_minimap_renderer(
-            device.clone(),
-            queue.clone(),
-            world_bounds,
-        )?;
+        render_pipeline.initialize_minimap_renderer(device.clone(), queue.clone(), world_bounds)?;
 
         // Create UI state for minimap
         let minimap_ui_state = MinimapUIState {
@@ -204,9 +197,10 @@ impl MinimapFowIntegration {
         current_player: u32,
     ) {
         // Check if the clicked area is visible/explored
-        if let Some(world_pos) = self.render_pipeline.handle_minimap_click(
-            Vec2::new(event.screen_position.x, event.screen_position.y)
-        ) {
+        if let Some(world_pos) = self
+            .render_pipeline
+            .handle_minimap_click(Vec2::new(event.screen_position.x, event.screen_position.y))
+        {
             if event.is_right_click {
                 // Right-click: Move selected units
                 info!("Move units to world position: {:?}", world_pos);
