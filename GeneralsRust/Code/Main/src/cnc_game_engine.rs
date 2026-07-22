@@ -2079,7 +2079,7 @@ impl CnCGameEngine {
             let label = pres.victory_label.clone().unwrap_or_default();
             (pres.match_over, label)
         } else if let Some(v) = self.game_logic.evaluate_victory_condition() {
-            // Boot residual only.
+            // Menu/loading residual only (no presentation frame yet).
             (true, format!("{v:?}"))
         } else {
             (false, String::new())
@@ -2092,7 +2092,7 @@ impl CnCGameEngine {
             .map(|p| p.world_env.map_name.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| {
-                // Boot residual only.
+                // Menu/loading residual only.
                 let map_name = self.game_logic.get_current_map_name().trim();
                 if map_name.is_empty() {
                     "-".to_string()
@@ -2118,55 +2118,32 @@ impl CnCGameEngine {
             1.0
         };
 
-        let local_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            Some(frame.local_team())
-        } else {
-            self.game_logic
-                .get_player(self.current_player_id)
-                .map(|p| p.team)
-        };
-        let selected_count = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            // Prefer snapshot selected flags; fall back to host selection length.
-            let n = frame.count_selected_friendlies(frame.local_team());
-            if n > 0 {
-                n
+        // Object-roster stats are presentation-only (no live get_objects dual-read).
+        let (local_mobile_units, under_construction, selected_count, sample_unit_pos) =
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                let team = frame.local_team();
+                let n = frame.count_selected_friendlies(team);
+                let selected = if n > 0 {
+                    n
+                } else {
+                    self.selected_objects.len() as u32
+                };
+                (
+                    frame.count_mobile_friendlies(team),
+                    frame.count_under_construction_friendlies(team),
+                    selected,
+                    frame
+                        .first_friendly_sample_label(team)
+                        .unwrap_or_else(|| "-".to_string()),
+                )
             } else {
-                self.selected_objects.len() as u32
-            }
-        } else {
-            self.game_logic
-                .get_player(self.current_player_id)
-                .map(|p| p.selected_objects.len() as u32)
-                .unwrap_or(self.selected_objects.len() as u32)
-        };
-        let local_mobile_units = local_team
-            .map(|team| {
-                if let Some(frame) = self.last_presentation_frame.as_ref() {
-                    frame.count_mobile_friendlies(team)
-                } else {
-                    // Boot residual only.
-                    self.game_logic
-                        .get_objects()
-                        .values()
-                        .filter(|o| o.team == team && o.is_alive() && o.is_mobile())
-                        .count() as u32
-                }
-            })
-            .unwrap_or(0);
-        let under_construction = local_team
-            .map(|team| {
-                if let Some(frame) = self.last_presentation_frame.as_ref() {
-                    frame.count_under_construction_friendlies(team)
-                } else {
-                    // Boot residual only.
-                    self.game_logic
-                        .get_objects()
-                        .values()
-                        .filter(|o| o.is_alive() && o.team == team && o.status.under_construction)
-                        .count() as u32
-                }
-            })
-            .unwrap_or(0);
+                (
+                    0u32,
+                    0u32,
+                    self.selected_objects.len() as u32,
+                    "-".to_string(),
+                )
+            };
 
         {
             let (d, k) = crate::game_logic::host_damage_log::cumulative_totals();
@@ -2260,46 +2237,7 @@ impl CnCGameEngine {
                 "{:.1},{:.1},{:.1}",
                 self.camera_target.x, self.camera_target.y, self.camera_target.z
             ),
-            sample_unit_pos: {
-                if let Some(frame) = self.last_presentation_frame.as_ref() {
-                    frame
-                        .first_friendly_sample_label(frame.local_team())
-                        .unwrap_or_else(|| "-".to_string())
-                } else {
-                    // Boot residual only.
-                    // Prefer presentation residual for status sample (no live walk).
-                    let mut sample = "-".to_string();
-                    if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        let team = frame.local_team();
-                        if let Some(o) = frame
-                            .objects
-                            .iter()
-                            .find(|o| o.team == team && !o.destroyed)
-                        {
-                            let pos = o.position;
-                            sample = format!(
-                                "{:.1},{:.1},{:.1}:{}",
-                                pos.x, pos.y, pos.z, o.template_name
-                            );
-                        }
-                    } else if let Some(team) = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.team)
-                    {
-                        // Boot residual only.
-                        for obj in self.game_logic.get_objects().values() {
-                            if obj.team == team && obj.is_alive() {
-                                let pos = obj.get_position();
-                                sample =
-                                    format!("{:.1},{:.1},{:.1}:{}", pos.x, pos.y, pos.z, obj.name);
-                                break;
-                            }
-                        }
-                    }
-                    sample
-                }
-            },
+            sample_unit_pos,
         }
     }
 
