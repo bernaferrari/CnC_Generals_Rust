@@ -993,7 +993,7 @@ impl GameWorldShadow {
                             }
                         }
                     }
-                    e.engine_bridged = obj.engine_object_id.is_some();
+                    e.engine_bridged = false;
                     e.overlord_bunker_capacity = obj
                         .overlord_bunker_capacity
                         .map(|n| n.min(u16::MAX as usize - 1) as u16)
@@ -1359,7 +1359,7 @@ impl GameWorldShadow {
                         }
                     }
                 }
-                e.engine_bridged = obj.engine_object_id.is_some();
+                e.engine_bridged = false;
                 e.overlord_bunker_capacity = obj
                     .overlord_bunker_capacity
                     .map(|n| n.min(u16::MAX as usize - 1) as u16)
@@ -8005,19 +8005,15 @@ mod tests {
         let id = logic
             .create_object("BrU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("id");
-        {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("o");
-            obj.engine_object_id = Some(42);
-        }
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let eid = shadow.entity_for_host(id).expect("map");
         let e = shadow.world().entity(eid).expect("e");
-        assert!(e.engine_bridged, "engine_bridged residual");
+        assert!(!e.engine_bridged, "dual-id bridge retired — engine_bridged stays false");
         let src = include_str!("gameworld_shadow.rs");
         assert!(
-            src.contains("e.engine_bridged = obj.engine_object_id.is_some()"),
-            "sync must copy engine_bridged residual"
+            src.contains("e.engine_bridged = false"),
+            "sync must force engine_bridged false"
         );
     }
 
@@ -13836,12 +13832,6 @@ mod tests {
         let b = logic
             .create_object("AtkWB", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
             .expect("b");
-        assert!(logic
-            .get_objects()
-            .get(&a)
-            .unwrap()
-            .engine_object_id
-            .is_none());
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.queue_set_attack_target_for_host(a, Some(b)));
@@ -14137,7 +14127,6 @@ mod tests {
             .expect("id");
         {
             let o = logic.get_objects_mut().get_mut(&id).unwrap();
-            o.engine_object_id = Some(42);
             o.movement.path = vec![
                 glam::Vec3::new(0.0, 0.0, 0.0),
                 glam::Vec3::new(50.0, 0.0, 0.0),
@@ -14172,7 +14161,6 @@ mod tests {
         {
             let o = logic.get_objects_mut().get_mut(&id).unwrap();
             // Stale bridge id must not hijack host pose/HP when bridge off.
-            o.engine_object_id = Some(999_999);
             o.health.current = 12.0;
             o.set_position(glam::Vec3::new(3.0, 0.0, 4.0));
         }
@@ -14197,7 +14185,6 @@ mod tests {
             .expect("id");
         {
             let o = logic.get_objects_mut().get_mut(&id).unwrap();
-            o.engine_object_id = Some(42);
             o.health.current = 33.0;
             o.health.maximum = 80.0;
             o.set_position(glam::Vec3::new(7.0, 0.0, 9.0));
@@ -14240,7 +14227,7 @@ mod tests {
 
     #[test]
     fn engine_object_bridge_off_by_default() {
-        // Default path: no dual-tick / bridge env → engine_object_id stays None.
+        // Default path: dual-object factory stamp retired; bridge env off.
         refresh_engine_object_bridge_cache();
         if std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none()
             && std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_none()
@@ -14254,17 +14241,13 @@ mod tests {
         let id = logic
             .create_object("BridgeUnit", Team::USA, glam::Vec3::ZERO)
             .expect("id");
-        if !engine_object_bridge_enabled() {
-            assert!(
-                logic
-                    .get_objects()
-                    .get(&id)
-                    .unwrap()
-                    .engine_object_id
-                    .is_none(),
-                "default create_object must not bridge OBJECT_REGISTRY"
-            );
-        }
+        let _ = id;
+        // create_object no longer dual-creates into ObjectFactory.
+        let src = include_str!("game_logic/game_logic.rs");
+        assert!(
+            !src.contains("obj.engine_object_id = Some(engine_id)"),
+            "create_object must not stamp dual-world engine ids"
+        );
     }
 
     #[test]
@@ -21241,26 +21224,25 @@ mod tests {
             .expect("find_object_id_by_name");
         let body = &src[i..src.len().min(i + 1800)];
         assert!(
-            body.contains("engine_object_bridge_enabled")
-                && body.contains("Prefer host object name residual"),
-            "find_object_id_by_name must prefer host names; engine tracker only when bridge on"
+            body.contains("Prefer host object name residual")
+                && !body.contains("engine_object_id == Some"),
+            "find_object_id_by_name must use host names only (no dual-id reverse lookup)"
         );
         let i = src
             .find("fn transfer_script_object_name")
             .expect("transfer_script_object_name");
         let body = &src[i..src.len().min(i + 1200)];
         assert!(
-            body.contains("engine_object_bridge_enabled") && body.contains("to_id.0"),
-            "transfer_script_object_name must register host id when bridge off"
+            body.contains("let tracker_id = to_id.0") || body.contains("tracker_id = to_id.0"),
+            "transfer_script_object_name must register host ObjectId"
         );
         let i = src
             .find("fn sync_attack_priority_from_script_engine")
             .expect("sync_attack_priority");
         let body = &src[i..src.len().min(i + 1500)];
         assert!(
-            body.contains("engine_object_bridge_enabled")
-                && body.contains("use host ObjectId as script-engine key by default"),
-            "attack priority sync must default to host ObjectId keys"
+            body.contains("host ObjectId is the script-engine key") || body.contains("Some(id.0)"),
+            "attack priority sync must use host ObjectId keys"
         );
     }
 
@@ -21270,23 +21252,16 @@ mod tests {
         let i = src.find("fn command_move").expect("command_move");
         let body = &src[i..src.len().min(i + 1600)];
         assert!(
-            body.contains("Host pathfinding / move channel (default production path)")
-                && body.contains("engine_object_bridge_enabled")
-                && body.contains("move_object_with_pathfinding"),
-            "command_move must default to host pathfinding; bridge residual only"
-        );
-        // Host path must not require engine_object_id for mobility check.
-        assert!(
-            body.contains("obj.is_mobile()") && !body.contains("is_mobile(), obj.engine_object_id"),
-            "command_move mobility check must not couple to engine_object_id"
+            body.contains("move_object_with_pathfinding")
+                && !body.contains("bridge_move_to_engine")
+                && body.contains("obj.is_mobile()"),
+            "command_move must use host pathfinding only (no ObjectFactory bridge)"
         );
         let i = src.find("fn command_attack").expect("command_attack");
         let body = &src[i..src.len().min(i + 2000)];
         assert!(
-            body.contains("Host attack channel (default production path")
-                && body.contains("attack_target(target_id)")
-                && body.contains("engine_object_bridge_enabled"),
-            "command_attack must default to host ObjectId attack_target"
+            body.contains("attack_target(target_id)") && !body.contains("bridge_attack_to_engine"),
+            "command_attack must use host ObjectId attack_target only"
         );
     }
 }

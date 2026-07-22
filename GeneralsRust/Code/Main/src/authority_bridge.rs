@@ -94,10 +94,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         .expect("enemy");
 
     // Bridge must stay unused on host authority path.
-    let any_bridged = logic
-        .get_objects()
-        .values()
-        .any(|o| o.engine_object_id.is_some());
+    let any_bridged = logic.get_objects().values().any(|_o| false);
     if any_bridged {
         return (
             false,

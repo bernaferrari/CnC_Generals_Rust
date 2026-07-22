@@ -887,18 +887,16 @@ mod presentation_identity_tests {
 
     #[test]
     fn golden_skirmish_source_has_no_engine_object_id_force_clear() {
-        let src = include_str!("golden_skirmish.rs");
-        // Match assignment residual only (comments may still mention the field).
-        let force_clear = src.lines().any(|line| {
-            let t = line.trim();
-            !t.starts_with("//")
-                && (t.contains("engine_object_id = None")
-                    || t.contains("engine_object_id=None")
-                    || t.contains(".engine_object_id = None"))
-        });
+        // Dual-world host id field retired — Object has no engine_object_id to clear.
+        let obj = include_str!("game_logic/object.rs");
         assert!(
-            !force_clear,
-            "golden success path must not mid-scenario force-clear engine_object_id"
+            !obj.contains("pub engine_object_id"),
+            "host Object must not expose engine_object_id dual-world field"
+        );
+        let golden = include_str!("golden_skirmish.rs");
+        assert!(
+            !golden.contains("engine_object_id"),
+            "golden path must not reference engine_object_id"
         );
     }
 }
