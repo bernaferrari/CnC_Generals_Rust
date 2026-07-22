@@ -188,15 +188,15 @@ impl StealthedOrStealthGarrisonedFilter {
                 // and if it contains any stealthed units
                 if contain_guard.get_contained_objects().len() > 0 {
                     for &contained_id in contain_guard.get_contained_objects() {
-                        if let Some(contained_obj) = OBJECT_REGISTRY.get_object(contained_id) {
-                            if let Ok(contained_guard) = contained_obj.read() {
-                                if contained_guard
+                        if OBJECT_REGISTRY
+                            .with_object(contained_id, |contained_guard| {
+                                contained_guard
                                     .get_status_bits()
                                     .contains(ObjectStatusMaskType::STEALTHED)
-                                {
-                                    return true;
-                                }
-                            }
+                            })
+                            .unwrap_or(false)
+                        {
+                            return true;
                         }
                     }
                 }
@@ -452,21 +452,24 @@ impl StealthDetectorController {
                 // Set heat vision effect (lines 286-290)
                 // Makes detected stealth units visible through thermal imaging
                 // C++ StealthDetectorUpdate.cpp:286-290
-                if let Some(target_obj) = OBJECT_REGISTRY.get_object(target_id) {
-                    if let Ok(target_guard) = target_obj.read() {
-                        target_pos = Some(*target_guard.get_position());
-
-                        // Don't apply heat vision to mines (C++ line 287)
-                        // Check template name since Mine is not in KindOf enum yet
+                if let Some((pos, drawable, is_mine)) =
+                    OBJECT_REGISTRY.with_object(target_id, |target_guard| {
                         let template_name = target_guard.get_template_name().to_ascii_lowercase();
-                        let is_mine = template_name.contains("mine");
-                        if !is_mine {
-                            if let Some(drawable) = target_guard.get_drawable() {
-                                if let Ok(drawable_guard) = drawable.write() {
-                                    // Second material pass opacity for thermal imaging
-                                    // Handled by drawable rendering system
-                                    drop(drawable_guard);
-                                }
+                        (
+                            *target_guard.get_position(),
+                            target_guard.get_drawable(),
+                            template_name.contains("mine"),
+                        )
+                    })
+                {
+                    target_pos = Some(pos);
+                    // Don't apply heat vision to mines (C++ line 287)
+                    if !is_mine {
+                        if let Some(drawable) = drawable {
+                            if let Ok(drawable_guard) = drawable.write() {
+                                // Second material pass opacity for thermal imaging
+                                // Handled by drawable rendering system
+                                drop(drawable_guard);
                             }
                         }
                     }
@@ -498,20 +501,22 @@ impl StealthDetectorController {
                     if let Ok(contain_guard) = contain.lock() {
                         // Iterate through contained units looking for stealth
                         for &rider_id in contain_guard.get_contained_objects() {
-                            if let Some(rider_obj) = OBJECT_REGISTRY.get_object(rider_id) {
-                                if let Ok(rider_guard) = rider_obj.read() {
-                                    if let Some(stealth_module) = rider_guard.get_stealth_module() {
-                                        found_someone = true;
-                                        // Check relationship before marking detected
-                                        if rider_guard.get_team_id() != self_team_id {
-                                            drop(rider_guard);
-                                            if let Ok(mut stealth_guard) = stealth_module.lock() {
-                                                // Mark garrisoned stealth unit as detected
-                                                stealth_guard.mark_as_detected_for(
-                                                    self.data.update_rate.saturating_add(2),
-                                                );
-                                            }
-                                        }
+                            if let Some((stealth_module, mark)) = OBJECT_REGISTRY
+                                .with_object(rider_id, |rider_guard| {
+                                    rider_guard.get_stealth_module().map(|stealth_module| {
+                                        (stealth_module, rider_guard.get_team_id() != self_team_id)
+                                    })
+                                })
+                                .flatten()
+                            {
+                                found_someone = true;
+                                // Check relationship before marking detected
+                                if mark {
+                                    if let Ok(mut stealth_guard) = stealth_module.lock() {
+                                        // Mark garrisoned stealth unit as detected
+                                        stealth_guard.mark_as_detected_for(
+                                            self.data.update_rate.saturating_add(2),
+                                        );
                                     }
                                 }
                             }
@@ -618,12 +623,9 @@ impl StealthDetectorController {
 
     fn get_vision_range(&self) -> Real {
         // Get vision range from object
-        if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(guard) = obj.read() {
-                return guard.get_vision_range();
-            }
-        }
-        0.0
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| guard.get_vision_range())
+            .unwrap_or(0.0)
     }
 }
 

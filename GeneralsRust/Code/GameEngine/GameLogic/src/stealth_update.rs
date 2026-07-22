@@ -259,31 +259,25 @@ impl StealthController {
     where
         F: FnMut(&mut Object) -> Result<R, StealthUpdateError>,
     {
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return Err(StealthUpdateError::new(format!(
-                "object {} unavailable for StealthUpdate",
-                self.object_id
-            )));
-        };
-
-        let mut guard = object
-            .write()
-            .map_err(|_| StealthUpdateError::new("failed to lock object for stealth update"))?;
-        f(&mut guard)
+        OBJECT_REGISTRY
+            .with_object_mut(self.object_id, |guard| f(guard))
+            .ok_or_else(|| {
+                StealthUpdateError::new(format!(
+                    "object {} unavailable for StealthUpdate",
+                    self.object_id
+                ))
+            })?
     }
 
     fn current_status(&self) -> Result<ObjectStatusMaskType, StealthUpdateError> {
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return Err(StealthUpdateError::new(format!(
-                "object {} unavailable for status query",
-                self.object_id
-            )));
-        };
-
-        let guard = object
-            .read()
-            .map_err(|_| StealthUpdateError::new("failed to read object status"))?;
-        Ok(guard.get_status_bits())
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| guard.get_status_bits())
+            .ok_or_else(|| {
+                StealthUpdateError::new(format!(
+                    "object {} unavailable for status query",
+                    self.object_id
+                ))
+            })
     }
 
     fn enforce_required_status(&self) -> Result<bool, StealthUpdateError> {
@@ -310,25 +304,28 @@ impl StealthController {
         }
 
         let now = TheGameLogic::get_frame();
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        if OBJECT_REGISTRY
+            .with_object(self.object_id, |_| ())
+            .is_none()
+        {
             return Ok(());
-        };
+        }
 
         if self.frames_granted > 0 {
             self.frames_granted = self.frames_granted.saturating_sub(1);
-            if let Ok(obj_guard) = object.read() {
-                if let Some(ai) = obj_guard.get_ai() {
-                    if ai
-                        .try_lock()
-                        .map(|guard| {
+            let from_player = OBJECT_REGISTRY
+                .with_object(self.object_id, |obj_guard| {
+                    obj_guard.get_ai().and_then(|ai| {
+                        ai.try_lock().ok().map(|guard| {
                             guard.get_last_command_source() == CommandSourceType::FromPlayer
                         })
-                        .unwrap_or(false)
-                    {
-                        let _ = self.receive_grant(false, 0, now);
-                        return Ok(());
-                    }
-                }
+                    })
+                })
+                .flatten()
+                .unwrap_or(false);
+            if from_player {
+                let _ = self.receive_grant(false, 0, now);
+                return Ok(());
             }
             if self.frames_granted == 0 {
                 let _ = self.receive_grant(false, 0, now);
@@ -336,14 +333,14 @@ impl StealthController {
             }
         }
 
-        let (allowed, reveal_too_close) = if let Ok(obj_guard) = object.read() {
-            (
-                self.allowed_to_stealth_runtime(&obj_guard, now),
-                self.is_too_close_to_current_target(&obj_guard),
-            )
-        } else {
-            (false, false)
-        };
+        let (allowed, reveal_too_close) = OBJECT_REGISTRY
+            .with_object(self.object_id, |obj_guard| {
+                (
+                    self.allowed_to_stealth_runtime(obj_guard, now),
+                    self.is_too_close_to_current_target(obj_guard),
+                )
+            })
+            .unwrap_or((false, false));
 
         if reveal_too_close {
             self.mark_as_detected();
@@ -502,39 +499,31 @@ impl StealthController {
             self.set_status_flag(ObjectStatusMaskType::CAN_STEALTH, false)?;
             self.set_status_flag(ObjectStatusMaskType::STEALTHED, false)?;
             self.set_status_flag(ObjectStatusMaskType::DETECTED, false)?;
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                if let Ok(obj_guard) = obj.read() {
-                    if let Some(drawable) = obj_guard.get_drawable() {
-                        if let Ok(mut draw_guard) = drawable.write() {
-                            draw_guard.set_effective_opacity(1.0, None);
-                        }
-                    }
+            if let Some(drawable) = OBJECT_REGISTRY
+                .with_object(self.object_id, |obj_guard| obj_guard.get_drawable())
+                .flatten()
+            {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    draw_guard.set_effective_opacity(1.0, None);
                 }
             }
         }
 
-        if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(obj_guard) = object.read() {
-                if let Some(contain) = obj_guard.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        if let Some(rider_id) = contain_guard.friend_get_rider() {
-                            if let Some(rider) = OBJECT_REGISTRY.get_object(rider_id) {
-                                if let Ok(rider_guard) = rider.write() {
-                                    if let Some(stealth) = rider_guard.get_stealth() {
-                                        if let Ok(mut stealth_guard) = stealth.lock() {
-                                            let _ = stealth_guard.receive_grant(
-                                                grant,
-                                                frames,
-                                                current_frame,
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
+        if let Some(rider_id) = OBJECT_REGISTRY
+            .with_object(self.object_id, |obj_guard| {
+                obj_guard
+                    .get_contain()
+                    .and_then(|contain| contain.lock().ok().and_then(|cg| cg.friend_get_rider()))
+            })
+            .flatten()
+        {
+            let _ = OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
+                if let Some(stealth) = rider_guard.get_stealth() {
+                    if let Ok(mut stealth_guard) = stealth.lock() {
+                        let _ = stealth_guard.receive_grant(grant, frames, current_frame);
                     }
                 }
-            }
+            });
         }
 
         Ok(())
@@ -657,16 +646,17 @@ impl StealthController {
                 if let Ok(contain_guard) = contain.lock() {
                     if contain_guard.is_passenger_allowed_to_fire(None) {
                         for rider_id in contain_guard.get_contained_objects() {
-                            let Some(rider_obj) = OBJECT_REGISTRY.get_object(*rider_id) else {
+                            let Some(attacking) =
+                                OBJECT_REGISTRY.with_object(*rider_id, |rider_guard| {
+                                    let rider_status = rider_guard.get_status_bits();
+                                    rider_status.contains(ObjectStatusMaskType::IS_ATTACKING)
+                                        || rider_status
+                                            .contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
+                                })
+                            else {
                                 continue;
                             };
-                            let Ok(rider_guard) = rider_obj.read() else {
-                                continue;
-                            };
-                            let rider_status = rider_guard.get_status_bits();
-                            if rider_status.contains(ObjectStatusMaskType::IS_ATTACKING)
-                                || rider_status.contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
-                            {
+                            if attacking {
                                 return false;
                             }
                         }
@@ -808,11 +798,9 @@ impl StealthUpdateModule {
     }
 
     fn register_with_object(&self) {
-        if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(mut guard) = object.write() {
-                guard.set_stealth_module(self.controller.clone());
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            guard.set_stealth_module(self.controller.clone());
+        });
     }
 }
 
