@@ -144,53 +144,46 @@ impl UpgradeModuleInterface for CommandSetUpgrade {
         use crate::object::registry::OBJECT_REGISTRY;
         use crate::upgrade::center::with_upgrade_center;
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let trigger_alt = self.data.trigger_alt().clone();
+        let command_set_alt = self.data.command_set_alt().clone();
+        let command_set_name = self.data.command_set_name().clone();
+        let Some(use_alt) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
+            let mut use_alt = false;
+            if !trigger_alt.is_empty() {
+                let upgrade =
+                    with_upgrade_center(|center| center.find_upgrade(trigger_alt.as_str()));
+                if let Some(template) = upgrade {
+                    let mask_bits = UpgradeMaskType::from_bits_retain(template.mask().bits());
+
+                    if let Some(player) = object_guard.get_controlling_player() {
+                        if let Ok(player_guard) = player.read() {
+                            if player_guard
+                                .get_completed_upgrade_mask()
+                                .intersects(mask_bits)
+                            {
+                                use_alt = true;
+                            }
+                        }
+                    }
+
+                    if !use_alt && object_guard.completed_upgrades().intersects(mask_bits) {
+                        use_alt = true;
+                    }
+                }
+            }
+
+            if use_alt {
+                object_guard.set_command_set_string_override(&command_set_alt);
+            } else {
+                object_guard.set_command_set_string_override(&command_set_name);
+            }
+            use_alt
+        }) else {
             log::warn!("CommandSetUpgrade: Object {} not found", self.object_id);
             return false;
         };
-
-        let mut object_guard = match object.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "CommandSetUpgrade: Failed to lock object {}",
-                    self.object_id
-                );
-                return false;
-            }
-        };
-
-        let mut use_alt = false;
-        if !self.data.trigger_alt().is_empty() {
-            let upgrade =
-                with_upgrade_center(|center| center.find_upgrade(self.data.trigger_alt().as_str()));
-            if let Some(template) = upgrade {
-                let mask_bits = UpgradeMaskType::from_bits_retain(template.mask().bits());
-
-                if let Some(player) = object_guard.get_controlling_player() {
-                    if let Ok(player_guard) = player.read() {
-                        if player_guard
-                            .get_completed_upgrade_mask()
-                            .intersects(mask_bits)
-                        {
-                            use_alt = true;
-                        }
-                    }
-                }
-
-                if !use_alt && object_guard.completed_upgrades().intersects(mask_bits) {
-                    use_alt = true;
-                }
-            }
-        }
-
-        if use_alt {
-            object_guard.set_command_set_string_override(self.data.command_set_alt());
-            crate::control_bar::mark_ui_dirty();
-        } else {
-            object_guard.set_command_set_string_override(self.data.command_set_name());
-            crate::control_bar::mark_ui_dirty();
-        }
+        let _ = use_alt;
+        crate::control_bar::mark_ui_dirty();
 
         self.applied = true;
         true

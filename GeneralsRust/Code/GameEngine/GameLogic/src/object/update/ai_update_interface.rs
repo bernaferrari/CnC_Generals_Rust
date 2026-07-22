@@ -958,10 +958,12 @@ impl AIUpdateInterface {
                 return;
             }
             self.is_attack_path = false;
-            if let Some(victim) = victim {
-                if let Ok(victim_guard) = victim.read() {
-                    self.requested_destination = *victim_guard.get_position();
-                    self.ignore_obstacle(victim_guard.get_id());
+            if let Some(victim_id) = (victim_id != INVALID_ID).then_some(victim_id) {
+                if let Some((pos, id)) = OBJECT_REGISTRY.with_object(victim_id, |victim_guard| {
+                    (*victim_guard.get_position(), victim_guard.get_id())
+                }) {
+                    self.requested_destination = pos;
+                    self.ignore_obstacle(id);
                 }
             }
         }

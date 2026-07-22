@@ -4928,12 +4928,10 @@ impl AIPlayer {
             };
             let _ = guard.set_position(&pos);
             let _ = guard.set_orientation(angle);
-            if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
-                if let Ok(dozer_g) = dozer_arc.read() {
-                    guard.set_producer(Some(&*dozer_g));
-                    guard.set_builder(Some(&*dozer_g));
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object(dozer_id, |dozer_g| {
+                guard.set_producer(Some(dozer_g));
+                guard.set_builder(Some(dozer_g));
+            });
             guard.set_construction_percent(0.0);
             if build_max_health > 0.0 {
                 let _ = guard.set_health(1.0);
