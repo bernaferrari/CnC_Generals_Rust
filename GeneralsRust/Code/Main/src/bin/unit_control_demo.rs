@@ -274,17 +274,19 @@ impl UnitControlDemo {
     pub async fn get_render_commands(&self) -> anyhow::Result<Vec<UIRenderCommand>> {
         let unit_control = self.unit_input_handler.get_unit_control();
 
-        let commands = self
-            .selection_renderer
-            .render_selection(
-                unit_control,
-                &self.game_logic,
-                &self.camera_view_matrix,
-                &self.camera_proj_matrix,
-                self.window_size,
-                None, // demo path: no presentation frame; live identity fallback
-            )
-            .await;
+        // Presentation-only selection path: snapshot then draw (no live dual-read).
+        let frame = {
+            let logic = self.game_logic.lock().unwrap_or_else(|e| e.into_inner());
+            generals_main::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+        };
+
+        let commands = self.selection_renderer.render_selection(
+            unit_control,
+            &self.camera_view_matrix,
+            &self.camera_proj_matrix,
+            self.window_size,
+            Some(&frame),
+        );
 
         // Add selection box if dragging
         let mut all_commands = commands;
