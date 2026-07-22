@@ -440,9 +440,7 @@ pub struct OpenContain {
     object: Weak<RwLock<Object>>,
     /// UpdateModule base scheduler state.
     next_call_frame_and_phase: UnsignedInt,
-    /// List of contained objects
-    contained_objects: Vec<Arc<RwLock<Object>>>,
-    /// Cached IDs for ContainModuleInterface access.
+    /// Contained object IDs (stable; resolve for the duration of an op).
     contained_object_ids: Vec<ObjectID>,
     /// Track objects requesting enter/exit to support container-specific gating.
     object_enter_exit_info: HashMap<ObjectID, ContainWant>,
@@ -485,7 +483,6 @@ impl OpenContain {
         Ok(Self {
             object,
             next_call_frame_and_phase: 0,
-            contained_objects: Vec::new(),
             contained_object_ids: Vec::new(),
             object_enter_exit_info: HashMap::new(),
             xfer_contain_id_list: Vec::new(),
@@ -658,7 +655,7 @@ impl OpenContain {
 
         // Check capacity if requested
         if check_capacity && self.module_data.contain_max != CONTAIN_MAX_UNKNOWN {
-            if self.contained_objects.len() >= self.module_data.contain_max as usize {
+            if self.contained_object_ids.len() >= self.module_data.contain_max as usize {
                 return false;
             }
         }
@@ -717,13 +714,33 @@ impl OpenContain {
     }
 
     /// Add object to contain list (can be overridden by inheritors)
+
+    /// Resolve contained members for the duration of a caller (owned Arcs, not stored).
+    fn resolve_contained_objects(&self) -> Vec<Arc<RwLock<Object>>> {
+        self.contained_object_ids
+            .iter()
+            .filter_map(|&id| TheGameLogic::find_object_by_id(id))
+            .collect()
+    }
+
     pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        let obj_id = obj.read().map_err(|_| GameError::LockError)?.get_id();
-        let is_stealth_garrison = obj
-            .read()
-            .map(|guard| guard.is_kind_of(KindOf::StealthGarrison))
-            .unwrap_or(false);
-        self.contained_objects.push(obj);
+        let (obj_id, is_stealth_garrison) = {
+            let guard = obj.read().map_err(|_| GameError::LockError)?;
+            (guard.get_id(), guard.is_kind_of(KindOf::StealthGarrison))
+        };
+        self.add_to_contain_list_id(obj_id, is_stealth_garrison)
+    }
+
+    /// Resolve contained members for the duration of a caller (owned Arcs, not stored).
+
+    pub fn add_to_contain_list_id(
+        &mut self,
+        obj_id: ObjectID,
+        is_stealth_garrison: bool,
+    ) -> GameResult<()> {
+        if self.contained_object_ids.contains(&obj_id) {
+            return Ok(());
+        }
         self.contained_object_ids.push(obj_id);
         if is_stealth_garrison {
             self.stealth_units_contained = self.stealth_units_contained.saturating_add(1);
@@ -733,32 +750,19 @@ impl OpenContain {
 
     /// Remove object from contain list without triggering containment callbacks.
     pub fn remove_from_contain_list(&mut self, object_id: ObjectID) {
-        if let Some(id_pos) = self
-            .contained_object_ids
-            .iter()
-            .position(|id| *id == object_id)
-        {
-            self.contained_object_ids.remove(id_pos);
+        if !self.contained_object_ids.iter().any(|&id| id == object_id) {
+            return;
         }
-
-        if let Some(pos) = self
-            .contained_objects
-            .iter()
-            .position(|obj| obj.read().ok().map(|guard| guard.get_id()) == Some(object_id))
-        {
-            let is_stealth_garrison = self
-                .contained_objects
-                .get(pos)
-                .and_then(|obj| {
-                    obj.read()
-                        .ok()
-                        .map(|guard| guard.is_kind_of(KindOf::StealthGarrison))
-                })
-                .unwrap_or(false);
-            self.contained_objects.remove(pos);
-            if is_stealth_garrison {
-                self.stealth_units_contained = self.stealth_units_contained.saturating_sub(1);
-            }
+        let is_stealth_garrison = TheGameLogic::find_object_by_id(object_id)
+            .and_then(|obj| {
+                obj.read()
+                    .ok()
+                    .map(|guard| guard.is_kind_of(KindOf::StealthGarrison))
+            })
+            .unwrap_or(false);
+        self.contained_object_ids.retain(|&id| id != object_id);
+        if is_stealth_garrison {
+            self.stealth_units_contained = self.stealth_units_contained.saturating_sub(1);
         }
     }
 
@@ -778,71 +782,46 @@ impl OpenContain {
             }
         }
 
-        // Find and remove object from list
-        if let Some(pos) = self
-            .contained_objects
-            .iter()
-            .position(|x| Arc::ptr_eq(x, &obj))
-        {
-            let obj_id = self
-                .contained_objects
-                .get(pos)
-                .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()));
-            let is_stealth_garrison = self
-                .contained_objects
-                .get(pos)
-                .and_then(|arc| {
-                    arc.read()
-                        .ok()
-                        .map(|guard| guard.is_kind_of(KindOf::StealthGarrison))
-                })
-                .unwrap_or(false);
-            self.contained_objects.remove(pos);
-            if is_stealth_garrison {
-                self.stealth_units_contained = self.stealth_units_contained.saturating_sub(1);
-            }
-            if expose_stealth_units {
-                if let Ok(obj_guard) = obj.read() {
-                    if let Some(stealth) = obj_guard.get_stealth() {
-                        if let Ok(mut stealth_guard) = stealth.lock() {
-                            stealth_guard.mark_as_detected();
-                        }
-                    }
-                }
-            }
-            self.do_unload_sound();
-            self.on_removing(obj.clone())?;
-            if let Some(obj_id) = obj_id {
-                if let Some(id_pos) = self
-                    .contained_object_ids
-                    .iter()
-                    .position(|id| *id == obj_id)
-                {
-                    self.contained_object_ids.remove(id_pos);
-                }
-            }
+        let obj_id = obj.read().map_err(|_| GameError::LockError)?.get_id();
+        if !self.contained_object_ids.contains(&obj_id) {
+            return Ok(());
+        }
 
+        // ID-first membership remove (handles stealth count).
+        self.remove_from_contain_list(obj_id);
+
+        if expose_stealth_units {
             if let Ok(obj_guard) = obj.read() {
-                if self.is_enclosing_container_for(&*obj_guard) {
-                    let _ = self.add_or_remove_obj_from_world(obj.clone(), true);
-                    if let Some(owner) = self.get_object() {
-                        if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
-                            if let Err(err) = obj_guard.set_position(owner_guard.get_position()) {
-                                log::warn!(
-                                    "OpenContain::remove_from_contain failed to place object {}: {}",
-                                    obj_guard.get_id(),
-                                    err
-                                );
-                            }
+                if let Some(stealth) = obj_guard.get_stealth() {
+                    if let Ok(mut stealth_guard) = stealth.lock() {
+                        stealth_guard.mark_as_detected();
+                    }
+                }
+            }
+        }
+        self.do_unload_sound();
+        self.on_removing(obj.clone())?;
+
+        if let Ok(obj_guard) = obj.read() {
+            if self.is_enclosing_container_for(&*obj_guard) {
+                let _ = self.add_or_remove_obj_from_world(obj.clone(), true);
+                if let Some(owner) = self.get_object() {
+                    if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
+                        if let Err(err) = obj_guard.set_position(owner_guard.get_position()) {
+                            log::warn!(
+                                "OpenContain::remove_from_contain failed to place object {}: {}",
+                                obj_guard.get_id(),
+                                err
+                            );
                         }
                     }
                 }
             }
-            if let Some(owner) = self.get_object() {
-                if let Ok(owner_guard) = owner.read() {
-                    if let Ok(mut obj_guard) = obj.write() {
-                        obj_guard.set_layer(owner_guard.get_layer());
-                    }
+        }
+        if let Some(owner) = self.get_object() {
+            if let Ok(owner_guard) = owner.read() {
+                if let Ok(mut obj_guard) = obj.write() {
+                    obj_guard.set_layer(owner_guard.get_layer());
                 }
             }
         }
@@ -852,7 +831,7 @@ impl OpenContain {
 
     /// Remove all contained objects
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
-        let objects = self.contained_objects.clone();
+        let objects = self.resolve_contained_objects();
         for obj in objects {
             self.remove_from_contain(obj, expose_stealth_units)?;
         }
@@ -862,7 +841,7 @@ impl OpenContain {
     /// Kill all contained objects.
     /// Matches C++ OpenContain::killAllContained.
     pub fn kill_all_contained(&mut self) -> GameResult<()> {
-        while let Some(obj) = self.contained_objects.first().cloned() {
+        while let Some(obj) = self.resolve_contained_objects().first().cloned() {
             self.remove_from_contain(obj.clone(), true)?;
             if let Ok(mut guard) = obj.write() {
                 guard.kill(None, None);
@@ -878,7 +857,7 @@ impl OpenContain {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> GameResult<()> {
-        while let Some(obj) = self.contained_objects.first().cloned() {
+        while let Some(obj) = self.resolve_contained_objects().first().cloned() {
             self.remove_from_contain(obj.clone(), true)?;
             if let Ok(mut guard) = obj.write() {
                 let _ = guard.attempt_damage(damage_info);
@@ -975,7 +954,7 @@ impl OpenContain {
                 let damage_to_units =
                     info.input.amount * self.module_data.damage_percentage_to_units;
 
-                for obj in &self.contained_objects {
+                for obj in &self.resolve_contained_objects() {
                     if let Ok(contained) = obj.read() {
                         if let Some(ai) = contained.get_ai_update_interface() {
                             if let Ok(ai_guard) = ai.lock() {
@@ -1038,7 +1017,7 @@ impl OpenContain {
         if self.module_data.damage_percentage_to_units > 0.0 {
             let damage_to_units = info.input.amount * self.module_data.damage_percentage_to_units;
 
-            for obj in &self.contained_objects {
+            for obj in &self.resolve_contained_objects() {
                 if let Ok(_contained) = obj.read() {
                     // Apply damage to contained unit
                     let mut unit_damage = info.clone();
@@ -1068,14 +1047,12 @@ impl OpenContain {
     where
         F: FnMut(Arc<RwLock<Object>>) -> GameResult<()>,
     {
+        let mut objects = self.resolve_contained_objects();
         if reverse {
-            for obj in self.contained_objects.iter().rev() {
-                func(obj.clone())?;
-            }
-        } else {
-            for obj in &self.contained_objects {
-                func(obj.clone())?;
-            }
+            objects.reverse();
+        }
+        for obj in objects {
+            func(obj)?;
         }
         Ok(())
     }
@@ -1092,7 +1069,7 @@ impl OpenContain {
 
     /// Get list of contained items
     pub fn get_contained_items_list(&self) -> GameResult<Vec<Arc<RwLock<Object>>>> {
-        Ok(self.contained_objects.clone())
+        Ok(self.resolve_contained_objects())
     }
 
     /// Check if passenger is allowed to fire
@@ -1406,13 +1383,13 @@ impl OpenContain {
         } else {
             self.module_data.contain_max
         };
-        let full = self.contained_objects.len() as i32;
+        let full = self.contained_object_ids.len() as i32;
         (total, full)
     }
 
     /// Redeploy occupants (can be overridden)
     pub fn redeploy_occupants(&mut self) -> GameResult<()> {
-        let contained = self.contained_objects.clone();
+        let contained = self.resolve_contained_objects();
         self.redeploy_objects(&contained)
     }
 
@@ -1584,7 +1561,6 @@ impl OpenContain {
                 return Err("Invalid contained_objects data".into());
             }
 
-            self.contained_objects.clear();
             self.contained_object_ids.clear();
             self.xfer_contain_id_list.clear();
 
@@ -1617,7 +1593,7 @@ impl OpenContain {
     }
 
     fn rebuild_contain_list_from_xfer_ids(&mut self) -> Result<(), String> {
-        if !self.contained_objects.is_empty() || !self.contained_object_ids.is_empty() {
+        if !self.contained_object_ids.is_empty() {
             return Err("OpenContain list must be empty before load_post_process".to_string());
         }
 
@@ -1630,7 +1606,6 @@ impl OpenContain {
                 format!("OpenContain could not resolve contained object {object_id}")
             })?;
             self.contained_object_ids.push(object_id);
-            self.contained_objects.push(obj.clone());
             let is_enclosing = obj
                 .read()
                 .map(|obj_guard| self.is_enclosing_container_for(&*obj_guard))
@@ -1652,7 +1627,7 @@ impl OpenContain {
     /// Flash selected for visible contained units.
     /// Matches C++ OpenContain::clientVisibleContainedFlashAsSelected
     pub fn client_visible_contained_flash_as_selected(&self) -> GameResult<()> {
-        for obj in &self.contained_objects {
+        for obj in &self.resolve_contained_objects() {
             if let Ok(obj_guard) = obj.read() {
                 if self.is_enclosing_container_for(&*obj_guard) {
                     continue;
@@ -2018,7 +1993,6 @@ impl Snapshotable for OpenContain {
                 }
             }
             XferMode::Load => {
-                self.contained_objects.clear();
                 self.contained_object_ids.clear();
                 self.xfer_contain_id_list.clear();
 
