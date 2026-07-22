@@ -9,6 +9,17 @@
 use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
 use serde::{Deserialize, Serialize};
+use crate::common::ObjectID;
+use crate::object::Object;
+
+fn resolve_die_object(id: ObjectID) -> Option<std::sync::Arc<std::sync::RwLock<Object>>> {
+    if id == crate::common::INVALID_ID {
+        return None;
+    }
+    crate::helpers::TheGameLogic::find_object_by_id(id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+}
+
 
 use crate::common::*;
 use crate::damage::DamageInfo;
@@ -132,6 +143,12 @@ impl CreateCrateDie {
         let crate_system = get_crate_system();
         let system_lock = crate_system.read().map_err(|_| "Failed to lock crate system")?;
 
+        let object_id = object
+            .read()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        let killer_id = killer.and_then(|k| k.read().ok().map(|g| g.get_id()));
+
         // Try each crate template in the list
         for crate_name in &self.module_data.crate_name_list {
             if let Some(template_arc) = system_lock.find_crate_template(crate_name) {
@@ -144,27 +161,27 @@ impl CreateCrateDie {
 
                 // Test veterancy level if specified
                 if template.veterancy_level != VeterancyLevel::Regular {
-                    if !self.test_veterancy_level(&template, object)? {
+                    if !self.test_veterancy_level(&template, object_id)? {
                         continue;
                     }
                 }
 
                 // Test killer type if specified
                 if template.killed_by_type_kindof != 0 {
-                    if !self.test_killer_type(&template, killer)? {
+                    if !self.test_killer_type(&template, killer_id)? {
                         continue;
                     }
                 }
 
                 // Test killer science if specified
                 if template.killer_science != SCIENCE_INVALID {
-                    if !self.test_killer_science(&template, killer)? {
+                    if !self.test_killer_science(&template, killer_id)? {
                         continue;
                     }
                 }
 
                 // All tests passed - create the crate
-                let crate_id = self.create_crate(&template, object, killer)?;
+                let crate_id = self.create_crate(&template, object_id, killer_id)?;
                 if let Some(id) = crate_id {
                     return Ok(Some(id));
                 }
@@ -194,8 +211,9 @@ impl CreateCrateDie {
     fn test_veterancy_level(
         &self,
         template: &CrateTemplate,
-        object: &Arc<RwLock<Object>>,
+        object_id: ObjectID,
     ) -> Result<bool, String> {
+        let object = resolve_die_object(object_id).ok_or("object unavailable")?;
         let obj_lock = object.read().map_err(|_| "Failed to lock object")?;
         let object_level = obj_lock.get_veterancy_level();
         Ok(template.veterancy_level == object_level)
@@ -206,13 +224,12 @@ impl CreateCrateDie {
     fn test_killer_type(
         &self,
         template: &CrateTemplate,
-        killer: Option<&Arc<RwLock<Object>>>,
+        killer_id: Option<ObjectID>,
     ) -> Result<bool, String> {
-        let killer_obj = match killer {
-            Some(k) => k,
-            None => return Ok(false),
+        let Some(kid) = killer_id else {
+            return Ok(false);
         };
-
+        let killer_obj = resolve_die_object(kid).ok_or("killer unavailable")?;
         let killer_lock = killer_obj.read().map_err(|_| "Failed to lock killer")?;
 
         // Must match the whole group of bits set in the KilledBy description
@@ -228,13 +245,12 @@ impl CreateCrateDie {
     fn test_killer_science(
         &self,
         template: &CrateTemplate,
-        killer: Option<&Arc<RwLock<Object>>>,
+        killer_id: Option<ObjectID>,
     ) -> Result<bool, String> {
-        let killer_obj = match killer {
-            Some(k) => k,
-            None => return Ok(false),
+        let Some(kid) = killer_id else {
+            return Ok(false);
         };
-
+        let killer_obj = resolve_die_object(kid).ok_or("killer unavailable")?;
         let killer_lock = killer_obj.read().map_err(|_| "Failed to lock killer")?;
 
         // Get killer's player
@@ -254,9 +270,10 @@ impl CreateCrateDie {
     fn create_crate(
         &self,
         template: &CrateTemplate,
-        owner_object: &Arc<RwLock<Object>>,
-        _killer: Option<&Arc<RwLock<Object>>>,
+        owner_object_id: ObjectID,
+        _killer_id: Option<ObjectID>,
     ) -> Result<Option<ObjectId>, String> {
+        let owner_object = resolve_die_object(owner_object_id).ok_or("owner unavailable")?;
         let obj_lock = owner_object.read().map_err(|_| "Failed to lock object")?;
         let center_point = obj_lock.get_position();
         let layer = obj_lock.get_layer();
@@ -315,14 +332,14 @@ impl CreateCrateDie {
         // Set team if owned by maker
         if template.is_owned_by_maker {
             if let Some(crate_id_val) = crate_id {
-                self.set_crate_team(crate_id_val, owner_object)?;
+                self.set_crate_team(crate_id_val, owner_object_id)?;
             }
         }
 
         // Notify AI about the crate
         // Matches C++ lines 87-99
         if let Some(crate_id_val) = crate_id {
-            self.notify_ai_about_crate(crate_id_val, _killer)?;
+            self.notify_ai_about_crate(crate_id_val, _killer_id)?;
         }
 
         Ok(crate_id)
@@ -378,8 +395,9 @@ impl CreateCrateDie {
     fn set_crate_team(
         &self,
         crate_id: ObjectId,
-        owner_object: &Arc<RwLock<Object>>,
+        owner_object_id: ObjectID,
     ) -> Result<(), String> {
+        let owner_object = resolve_die_object(owner_object_id).ok_or("owner unavailable")?;
         let obj_lock = owner_object.read().map_err(|_| "Failed to lock object")?;
         let Some(player_arc) = obj_lock.get_controlling_player() else {
             return Ok(());
@@ -402,11 +420,12 @@ impl CreateCrateDie {
     fn notify_ai_about_crate(
         &self,
         crate_id: ObjectId,
-        killer: Option<&Arc<RwLock<Object>>>,
+        killer_id: Option<ObjectID>,
     ) -> Result<(), String> {
-        let Some(killer_obj) = killer else {
+        let Some(kid) = killer_id else {
             return Ok(());
         };
+        let killer_obj = resolve_die_object(kid).ok_or("killer unavailable")?;
         let killer_lock = killer_obj.read().map_err(|_| "Failed to lock killer")?;
 
         if let Some(player) = killer_lock.get_controlling_player() {
