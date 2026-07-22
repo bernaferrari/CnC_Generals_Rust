@@ -1663,17 +1663,30 @@ impl Player {
             self.owned_objects.push(object_id);
         }
 
-        let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
-            return;
-        };
-        let Ok(object_guard) = object.read() else {
+        let Some((under_construction, power, disabled, is_dozer, idle_dozer)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                let under_construction =
+                    object_guard.test_status(ObjectStatusTypes::UnderConstruction);
+                let power = object_guard.get_template().get_energy_production();
+                let disabled = object_guard.is_disabled();
+                let is_dozer = object_guard.is_kind_of(crate::common::KindOf::Dozer);
+                let idle_dozer = if is_dozer {
+                    object_guard
+                        .get_ai_update_interface()
+                        .and_then(|ai| ai.lock().ok().map(|g| g.is_idle()))
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+                (under_construction, power, disabled, is_dozer, idle_dozer)
+            })
+        else {
             return;
         };
 
-        if !object_guard.test_status(ObjectStatusTypes::UnderConstruction) {
-            let power = object_guard.get_template().get_energy_production();
+        if !under_construction {
             if power > 0 {
-                if !object_guard.is_disabled() {
+                if !disabled {
                     self.add_power_production(power);
                 }
             } else if power < 0 {
@@ -1681,17 +1694,12 @@ impl Player {
             }
         }
 
-        if object_guard.is_kind_of(crate::common::KindOf::Dozer) {
-            if let Some(ai) = object_guard.get_ai_update_interface() {
-                if let Ok(ai_guard) = ai.lock() {
-                    if ai_guard.is_idle() {
-                        crate::helpers::TheInGameUI::add_idle_worker(
-                            &*object_guard,
-                            self.player_index,
-                        );
-                    }
-                }
-            }
+        // Idle-worker UI still needs a short Arc borrow (callback takes &Object).
+        if is_dozer && idle_dozer {
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                    crate::helpers::TheInGameUI::add_idle_worker(object_guard, self.player_index);
+                });
         }
     }
 
@@ -1701,18 +1709,15 @@ impl Player {
         producer_id: ObjectID,
     ) -> Result<Option<Arc<RwLock<Object>>>, String> {
         for object_id in &self.owned_objects {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(*object_id) else {
-                continue;
-            };
-            let matches = {
-                let Ok(obj_ref) = obj.read() else {
-                    continue;
-                };
-                obj_ref.get_producer_id() == producer_id
-                    && obj_ref.is_kind_of(crate::common::KindOf::Drone)
-            };
+            let matches = crate::object::registry::OBJECT_REGISTRY
+                .with_object(*object_id, |obj_ref| {
+                    obj_ref.get_producer_id() == producer_id
+                        && obj_ref.is_kind_of(crate::common::KindOf::Drone)
+                })
+                .unwrap_or(false);
             if matches {
-                return Ok(Some(obj.clone()));
+                // Return type still Arc for legacy callers.
+                return Ok(crate::object::registry::OBJECT_REGISTRY.get_object(*object_id));
             }
         }
         Ok(None)
@@ -1723,17 +1728,30 @@ impl Player {
     pub fn remove_owned_object(&mut self, object_id: ObjectID) {
         self.owned_objects.retain(|&id| id != object_id);
 
-        let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
-            return;
-        };
-        let Ok(object_guard) = object.read() else {
+        let Some((under_construction, power, disabled, is_dozer, idle_dozer)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                let under_construction =
+                    object_guard.test_status(ObjectStatusTypes::UnderConstruction);
+                let power = object_guard.get_template().get_energy_production();
+                let disabled = object_guard.is_disabled();
+                let is_dozer = object_guard.is_kind_of(crate::common::KindOf::Dozer);
+                let idle_dozer = if is_dozer {
+                    object_guard
+                        .get_ai_update_interface()
+                        .and_then(|ai| ai.lock().ok().map(|g| g.is_idle()))
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+                (under_construction, power, disabled, is_dozer, idle_dozer)
+            })
+        else {
             return;
         };
 
-        if !object_guard.test_status(ObjectStatusTypes::UnderConstruction) {
-            let power = object_guard.get_template().get_energy_production();
+        if !under_construction {
             if power > 0 {
-                if !object_guard.is_disabled() {
+                if !disabled {
                     self.add_power_production(-power);
                 }
             } else if power < 0 {
@@ -1741,17 +1759,14 @@ impl Player {
             }
         }
 
-        if object_guard.is_kind_of(crate::common::KindOf::Dozer) {
-            if let Some(ai) = object_guard.get_ai_update_interface() {
-                if let Ok(ai_guard) = ai.lock() {
-                    if ai_guard.is_idle() {
-                        crate::helpers::TheInGameUI::remove_idle_worker(
-                            &*object_guard,
-                            self.player_index,
-                        );
-                    }
-                }
-            }
+        if is_dozer && idle_dozer {
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                    crate::helpers::TheInGameUI::remove_idle_worker(
+                        object_guard,
+                        self.player_index,
+                    );
+                });
         }
     }
 
@@ -2369,16 +2384,11 @@ impl Player {
         }
 
         for &object_id in &self.owned_objects {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-
-            let object_lock = &*object_arc;
-            if let Ok(mut obj_guard) = object_lock.write() {
-                if matches_any_kind_of(&*obj_guard, spy_on_kind_of) {
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+                if matches_any_kind_of(obj_guard, spy_on_kind_of) {
                     obj_guard.set_vision_spied_by_player(spying_player_index, on);
                 }
-            };
+            });
         }
     }
 
@@ -3099,60 +3109,68 @@ impl Player {
         let check_production_queue = !template.is_kind_of(crate::common::KindOf::Structure);
         let mut count = 0u32;
         for &object_id in &self.owned_objects {
-            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-            else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() {
-                continue;
-            }
-
-            let object_template = object_guard.get_template();
-            if template.is_equivalent_to(object_template.as_ref())
-                || (link_key != 0 && link_key == object_template.get_max_simultaneous_link_key())
-            {
-                count += 1;
-                if count >= max_simultaneous {
-                    return false;
-                }
-            }
-
-            if check_production_queue {
-                let Some(production_behavior) = object_guard.get_production_update_interface()
-                else {
-                    continue;
-                };
-                let Ok(mut behavior_guard) = production_behavior.lock() else {
-                    continue;
-                };
-                let Some(production) = behavior_guard.get_production_update_interface() else {
-                    continue;
-                };
-
-                for entry in production.get_queue_entries() {
-                    if entry.production_type
-                        != crate::object::production::queue::ProductionType::Unit
-                    {
-                        continue;
+            let Some(at_cap) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                    if object_guard.is_effectively_dead() {
+                        return false;
                     }
-                    let Some(queued_template) =
-                        crate::helpers::TheThingFactory::find_template(&entry.template_name)
-                    else {
-                        continue;
-                    };
-                    if template.is_equivalent_to(queued_template.as_ref())
+
+                    let object_template = object_guard.get_template();
+                    if template.is_equivalent_to(object_template.as_ref())
                         || (link_key != 0
-                            && link_key == queued_template.get_max_simultaneous_link_key())
+                            && link_key == object_template.get_max_simultaneous_link_key())
                     {
                         count += 1;
                         if count >= max_simultaneous {
-                            return false;
+                            return true;
                         }
                     }
-                }
+
+                    if check_production_queue {
+                        let Some(production_behavior) =
+                            object_guard.get_production_update_interface()
+                        else {
+                            return false;
+                        };
+                        let Ok(mut behavior_guard) = production_behavior.lock() else {
+                            return false;
+                        };
+                        let Some(production) = behavior_guard.get_production_update_interface()
+                        else {
+                            return false;
+                        };
+
+                        for entry in production.get_queue_entries() {
+                            if entry.production_type
+                                != crate::object::production::queue::ProductionType::Unit
+                            {
+                                continue;
+                            }
+                            let Some(queued_template) =
+                                crate::helpers::TheThingFactory::find_template(
+                                    &entry.template_name,
+                                )
+                            else {
+                                continue;
+                            };
+                            if template.is_equivalent_to(queued_template.as_ref())
+                                || (link_key != 0
+                                    && link_key == queued_template.get_max_simultaneous_link_key())
+                            {
+                                count += 1;
+                                if count >= max_simultaneous {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    false
+                })
+            else {
+                continue;
+            };
+            if at_cap {
+                return false;
             }
         }
 
