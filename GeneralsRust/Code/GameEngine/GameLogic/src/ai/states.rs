@@ -6268,7 +6268,7 @@ impl ClassicState for AIAttackObjectState {
             true,
             self.force_attack,
         );
-        attack_machine.set_goal_object(Some(&target));
+        attack_machine.set_goal_object(target.read().ok().map(|g| g.get_id()));
         attack_machine.set_goal_position(self.original_victim_pos);
 
         // C++ lines 5540-5545: Init default state and set attacking status
@@ -6347,7 +6347,7 @@ impl ClassicState for AIAttackObjectState {
                     if should_stop {
                         if let Some(ai) = owner_guard.get_ai_update_interface() {
                             if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard.set_goal_object(None::<&Arc<RwLock<Object>>>);
+                                ai_guard.set_goal_object(None);
                                 ai_guard.notify_victim_is_dead();
                             }
                         }
@@ -6444,7 +6444,7 @@ impl ClassicState for AIAttackObjectState {
                         for turret in [TurretType::Primary, TurretType::Secondary] {
                             ai_guard.set_turret_target_object(turret, None, false);
                         }
-                        ai_guard.set_goal_object(None::<&Arc<RwLock<Object>>>);
+                        ai_guard.set_goal_object(None);
                     }
                 }
             }
@@ -6732,7 +6732,7 @@ impl ClassicState for AIAttackPositionState {
                         for turret in [TurretType::Primary, TurretType::Secondary] {
                             ai_guard.set_turret_target_object(turret, None, false);
                         }
-                        ai_guard.set_goal_object(None::<&Arc<RwLock<Object>>>);
+                        ai_guard.set_goal_object(None);
                     }
                 }
             }
@@ -6790,9 +6790,8 @@ impl AIAttackThenIdleStateMachine {
         self.base.init_default_state()
     }
 
-    pub fn set_goal_object(&mut self, obj: Option<&Arc<RwLock<Object>>>) {
-        let id = obj.and_then(|a| a.read().ok().map(|g| g.get_id()));
-        self.base.set_goal_object_by_id(id);
+    pub fn set_goal_object(&mut self, obj_id: Option<ObjectID>) {
+        self.base.set_goal_object_by_id(obj_id);
     }
 
     pub fn set_state(&mut self, state: AIStateType) -> StateReturnType {
@@ -7043,7 +7042,7 @@ impl ClassicState for AIAttackSquadState {
 
         let victim = self.choose_victim();
         if let Some(victim) = victim.as_ref() {
-            attack_machine.set_goal_object(Some(victim));
+            attack_machine.set_goal_object(victim.read().ok().map(|g| g.get_id()));
         }
 
         let result = attack_machine.init_default_state();
@@ -7077,7 +7076,8 @@ impl ClassicState for AIAttackSquadState {
                 if let Ok(ai_guard) = ai.try_lock() {
                     if let Some(crate_obj) = ai_guard.check_for_crate_to_pickup() {
                         if let Some(attack_machine) = self.attack_squad_machine.as_mut() {
-                            attack_machine.set_goal_object(Some(&crate_obj));
+                            attack_machine
+                                .set_goal_object(crate_obj.read().ok().map(|g| g.get_id()));
                             attack_machine.set_state(AIStateType::PickUpCrate);
                         }
                         return Ok(StateReturnType::Continue);
@@ -7092,7 +7092,7 @@ impl ClassicState for AIAttackSquadState {
         };
 
         if let Some(attack_machine) = self.attack_squad_machine.as_mut() {
-            attack_machine.set_goal_object(Some(&victim));
+            attack_machine.set_goal_object(victim.read().ok().map(|g| g.get_id()));
             attack_machine.set_state(AIStateType::AttackObject);
         }
         Ok(StateReturnType::Continue)
@@ -7245,7 +7245,11 @@ impl ClassicState for AIAttackAreaState {
                 .and_then(|owner_guard| self.find_area_victim(&owner_guard));
 
             if let Some(attack_machine) = self.attack_machine.as_mut() {
-                attack_machine.set_goal_object(victim.as_ref());
+                attack_machine.set_goal_object(
+                    victim
+                        .as_ref()
+                        .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                );
 
                 if attack_machine.get_current_state_id() == Some(AIStateType::Idle as u32)
                     && victim.is_some()
@@ -7801,7 +7805,7 @@ impl ClassicState for AIHuntState {
                 if let Ok(ai_guard) = ai.lock() {
                     if let Some(crate_obj) = ai_guard.check_for_crate_to_pickup() {
                         if let Some(hunt_machine) = self.hunt_machine.as_mut() {
-                            hunt_machine.set_goal_object(Some(&crate_obj));
+                            hunt_machine.set_goal_object(crate_obj.read().ok().map(|g| g.get_id()));
                             let _ = hunt_machine.set_state(AIStateType::PickUpCrate);
                             return Ok(StateReturnType::Continue);
                         }
@@ -7826,7 +7830,11 @@ impl ClassicState for AIHuntState {
             let Some(hunt_machine) = self.hunt_machine.as_mut() else {
                 return Ok(StateReturnType::Failure);
             };
-            hunt_machine.set_goal_object(victim.as_ref());
+            hunt_machine.set_goal_object(
+                victim
+                    .as_ref()
+                    .and_then(|a| a.read().ok().map(|g| g.get_id())),
+            );
 
             if hunt_machine.get_current_state_id() == Some(AIStateType::Idle as u32)
                 && victim.is_some()
@@ -9304,9 +9312,8 @@ impl AttackStateMachine {
         }
     }
 
-    pub fn set_goal_object(&mut self, obj: Option<&Arc<RwLock<Object>>>) {
-        let weak = obj.map(|value| Arc::downgrade(&value));
-        self.base.set_goal_object(weak);
+    pub fn set_goal_object(&mut self, obj_id: Option<ObjectID>) {
+        self.base.set_goal_object_by_id(obj_id);
     }
 
     pub fn set_goal_position(&mut self, pos: Coord3D) {
@@ -11306,7 +11313,7 @@ impl Snapshotable for AIAttackObjectState {
                 if let Some(target) = TheGameLogic::find_object_by_id(self.target_id)
                     .or_else(|| OBJECT_REGISTRY.get_object(self.target_id))
                 {
-                    machine.set_goal_object(Some(&target));
+                    machine.set_goal_object(target.read().ok().map(|g| g.get_id()));
                 }
             }
             self.attack_machine = Some(machine);

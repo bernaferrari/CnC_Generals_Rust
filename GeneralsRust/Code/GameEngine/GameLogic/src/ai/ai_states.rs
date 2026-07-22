@@ -1261,7 +1261,7 @@ impl AIState for AIAttackSquadState {
                 )
             }) {
                 if let Some(victim_arc) = get_legacy_object(victim) {
-                    attack_machine.set_goal_object(Some(&victim_arc));
+                    attack_machine.set_goal_object(victim_arc.read().ok().map(|g| g.get_id()));
                     let _ = attack_machine.set_state(LegacyAIStateType::AttackObject);
                 }
             }
@@ -2979,7 +2979,7 @@ impl AIState for AIHuntState {
             if let Some(ai) = owner.get_ai_update_interface() {
                 if let Ok(ai_guard) = ai.lock() {
                     if let Some(crate_obj) = ai_guard.check_for_crate_to_pickup() {
-                        hunt_machine.set_goal_object(Some(&crate_obj));
+                        hunt_machine.set_goal_object(crate_obj.read().ok().map(|g| g.get_id()));
                         let _ = hunt_machine.set_state(LegacyAIStateType::PickUpCrate);
                         return StateReturnType::Continue;
                     }
@@ -2991,7 +2991,7 @@ impl AIState for AIHuntState {
             let victim = self.scan_for_enemies(context);
             self.current_target = victim;
             let victim_arc = victim.and_then(get_legacy_object);
-            hunt_machine.set_goal_object(victim_arc.as_ref());
+            hunt_machine.set_goal_object(victim_arc.as_ref().and_then(|a| a.read().ok().map(|g| g.get_id())));
 
             if hunt_machine.get_current_state_id() == Some(LegacyAIStateType::Idle as u32)
                 && victim_arc.is_some()

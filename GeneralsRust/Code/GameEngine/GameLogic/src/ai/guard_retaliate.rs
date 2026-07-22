@@ -795,7 +795,7 @@ impl StateImplementation for AIGuardRetaliateInnerState {
         attack_machine.set_exit_conditions(Box::new(GuardRetaliateExitConditionsHandle::new(
             self.exit_conditions.clone(),
         )));
-        attack_machine.set_goal_object(Some(&nemesis));
+        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
 
         let result = attack_machine.init_default_state();
         self.is_attacking = matches!(result, StateReturnType::Continue);
@@ -1019,7 +1019,7 @@ impl StateImplementation for AIGuardRetaliateOuterState {
         attack_machine.set_exit_conditions(Box::new(GuardRetaliateExitConditionsHandle::new(
             self.exit_conditions.clone(),
         )));
-        attack_machine.set_goal_object(Some(&nemesis));
+        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
         let result = attack_machine.init_default_state();
 
         self.is_attacking = matches!(result, StateReturnType::Continue);
@@ -1345,7 +1345,7 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
         attack_machine.set_exit_conditions(Box::new(GuardRetaliateExitConditionsHandle::new(
             self.exit_conditions.clone(),
         )));
-        attack_machine.set_goal_object(Some(&nemesis));
+        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
         let result = attack_machine.init_default_state();
 
         self.is_attacking = matches!(result, StateReturnType::Continue);

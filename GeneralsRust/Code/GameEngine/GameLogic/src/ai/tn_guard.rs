@@ -657,7 +657,7 @@ impl StateImplementation for AITNGuardInnerState {
         attack_machine.set_exit_conditions(Box::new(TunnelNetworkExitConditionsHandle::new(
             self.exit_conditions.clone(),
         )));
-        attack_machine.set_goal_object(Some(&nemesis));
+        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
 
         let return_val = attack_machine.init_default_state();
         self.is_attacking = matches!(return_val, StateReturnType::Continue);
@@ -815,7 +815,7 @@ impl StateImplementation for AITNGuardInnerState {
         };
 
         if let Some(goal) = goal_obj.as_ref() {
-            attack_machine.set_goal_object(Some(goal));
+            attack_machine.set_goal_object(goal.read().ok().map(|g| g.get_id()));
         }
 
         attack_machine.update()
@@ -1054,7 +1054,7 @@ impl StateImplementation for AITNGuardOuterState {
         attack_machine.set_exit_conditions(Box::new(TunnelNetworkExitConditionsHandle::new(
             self.exit_conditions.clone(),
         )));
-        attack_machine.set_goal_object(Some(&nemesis));
+        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
 
         let return_val = attack_machine.init_default_state();
         self.is_attacking = matches!(return_val, StateReturnType::Continue);
@@ -1121,7 +1121,7 @@ impl StateImplementation for AITNGuardOuterState {
         }
 
         if let Some(goal) = goal_obj.as_ref() {
-            attack_machine.set_goal_object(Some(goal));
+            attack_machine.set_goal_object(goal.read().ok().map(|g| g.get_id()));
         }
 
         attack_machine.update()
@@ -1472,7 +1472,7 @@ impl StateImplementation for AITNGuardAttackAggressorState {
         attack_machine.set_exit_conditions(Box::new(TunnelNetworkExitConditionsHandle::new(
             self.exit_conditions.clone(),
         )));
-        attack_machine.set_goal_object(Some(&nemesis));
+        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
 
         let return_val = attack_machine.init_default_state();
         self.is_attacking = matches!(return_val, StateReturnType::Continue);
@@ -1509,7 +1509,7 @@ impl StateImplementation for AITNGuardAttackAggressorState {
                     }
                 }
             }
-            attack_machine.set_goal_object(Some(&goal));
+            attack_machine.set_goal_object(goal.read().ok().map(|g| g.get_id()));
         }
 
         attack_machine.update()

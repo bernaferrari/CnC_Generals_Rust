@@ -7646,7 +7646,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         guard.get_goal_object()
     }
 
-    fn set_goal_object(&mut self, obj: Option<&Arc<RwLock<Object>>>) {
+    fn set_goal_object(&mut self, obj_id: Option<ObjectID>) {
         let Some(machine) = self.ai_state_machine.as_ref() else {
             return;
         };
@@ -7655,10 +7655,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         };
         let was_locked = guard.is_locked();
         guard.unlock();
-        let obj_id = obj
-            .and_then(|handle| handle.read().ok().map(|o| o.get_id()))
-            .unwrap_or(INVALID_ID);
-        guard.set_goal_object(obj_id);
+        guard.set_goal_object(obj_id.unwrap_or(INVALID_ID));
         if was_locked {
             guard.lock();
         }
@@ -7895,7 +7892,11 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.is_safe_path = false;
         self.waiting_for_path = true;
         let victim = get_legacy_object(victim_id);
-        let _ = self.set_goal_object(victim.as_ref());
+        let _ = self.set_goal_object(
+            victim
+                .as_ref()
+                .and_then(|a| a.read().ok().map(|g| g.get_id())),
+        );
         let _ = self.ignore_obstacle(victim.as_ref());
         let now = TheGameLogic::get_frame();
         if self.path_timestamp > now.saturating_sub(3) {
@@ -8301,13 +8302,17 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
     }
 
-    fn set_surrendered(&mut self, to_object: Option<&Arc<RwLock<Object>>>, surrendered: bool) {
+    fn set_surrendered(&mut self, to_object_id: Option<ObjectID>, surrendered: bool) {
         if surrendered {
             self.surrendered_frames_left = self.surrender_duration_frames;
-            self.surrendered_player_index = to_object
-                .and_then(|obj| obj.read().ok())
-                .and_then(|guard| guard.get_controlling_player_id())
-                .map(|idx| idx as PlayerIndex);
+            self.surrendered_player_index = to_object_id.and_then(|id| {
+                let obj = crate::helpers::TheGameLogic::find_object_by_id(id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))?;
+                let guard = obj.read().ok()?;
+                guard
+                    .get_controlling_player_id()
+                    .map(|idx| idx as PlayerIndex)
+            });
         } else {
             self.surrendered_frames_left = 0;
             self.surrendered_player_index = None;
@@ -8331,7 +8336,11 @@ impl AIUpdateInterface for UnitAIUpdate {
         if let Some(ref obj) = goal_obj {
             if let Ok(g) = obj.read() {
                 if g.get_id() == from_id {
-                    self.set_goal_object(new_target.as_ref());
+                    self.set_goal_object(
+                        new_target
+                            .as_ref()
+                            .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                    );
                 }
             }
         }
