@@ -1731,24 +1731,12 @@ impl ContainerInterface for RiderChangeContain {
         ContainerInterface::can_contain(&self.base, obj)
     }
 
-    fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            false,
-        )
+    fn add_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.add_to_contain(obj_id, false)
     }
 
-    fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            false,
-        )
+    fn remove_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.remove_from_contain(obj_id, false)
     }
 
     fn get_usage(&self) -> (u32, u32) {

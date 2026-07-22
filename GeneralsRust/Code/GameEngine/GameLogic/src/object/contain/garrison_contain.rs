@@ -2745,23 +2745,12 @@ impl ContainerInterface for GarrisonContain {
         self.is_valid_container_for(obj, true)
     }
 
-    fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        let oid = obj
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
-        self.add_to_contain(oid)
+    fn add_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.add_to_contain(obj_id)
     }
 
-    fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            true,
-        )
+    fn remove_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.remove_from_contain(obj_id, false)
     }
 
     fn get_usage(&self) -> (u32, u32) {

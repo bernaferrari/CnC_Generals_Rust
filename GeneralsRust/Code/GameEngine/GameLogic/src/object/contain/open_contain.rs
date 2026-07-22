@@ -2208,21 +2208,11 @@ impl ContainerInterface for OpenContain {
         self.is_valid_container_for(obj, true)
     }
 
-    fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        let obj_id = obj
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
+    fn add_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
         self.add_to_contain(obj_id)
     }
 
-    fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        let obj_id = obj
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
+    fn remove_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
         self.remove_from_contain(obj_id, false)
     }
 

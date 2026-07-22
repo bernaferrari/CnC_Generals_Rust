@@ -221,12 +221,12 @@ impl ContainerInterface for RailedTransportContain {
         ContainerInterface::can_contain(&self.base, obj)
     }
 
-    fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.add_object(obj)
+    fn add_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.base.add_object(obj_id)
     }
 
-    fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.remove_object(obj)
+    fn remove_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.base.remove_object(obj_id)
     }
 
     fn get_usage(&self) -> (u32, u32) {

@@ -1011,23 +1011,12 @@ impl ContainerInterface for CaveContain {
         self.is_valid_container_for(obj, true).unwrap_or(false)
     }
 
-    fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        let oid = obj
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
-        self.add_to_contain(oid)
+    fn add_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.add_to_contain(obj_id)
     }
 
-    fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            true,
-        )
+    fn remove_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.remove_from_contain(obj_id, false)
     }
 
     fn get_usage(&self) -> (u32, u32) {
@@ -1201,10 +1190,26 @@ mod tests {
         let passenger = test_object("CaveUsagePassenger", 93004);
         let (mut cave, _cave_system) = cave_with_registered_tracker(&owner, 0);
 
-        ContainerInterface::add_object(&mut cave, passenger.clone()).expect("add object");
+        ContainerInterface::add_object(
+            &mut cave,
+            passenger
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
+        .expect("add object");
 
         assert_eq!(ContainerInterface::get_usage(&cave), (1, u32::MAX));
-        ContainerInterface::remove_object(&mut cave, passenger.clone()).expect("remove object");
+        ContainerInterface::remove_object(
+            &mut cave,
+            passenger
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
+        .expect("remove object");
         assert_eq!(ContainerInterface::get_usage(&cave), (0, u32::MAX));
         assert_eq!(
             passenger.read().expect("passenger read").get_contained_by(),
