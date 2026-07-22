@@ -18946,17 +18946,19 @@ mod tests {
         let attacker_id = 8450;
         let target_id = 8451;
         let attacker = crate::object_manager::GameObjectInstance::new(
-                attacker_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test attacker instance");
+            attacker_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test attacker instance");
         let target = crate::object_manager::GameObjectInstance::new(
-                target_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test target instance");
+            target_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test target instance");
 
         {
             let __base_arc = attacker.base();
@@ -19017,7 +19019,15 @@ mod tests {
             )]
         );
         assert_eq!(
-            get_object_manager().read().unwrap().with_object(attacker_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
+            get_object_manager()
+                .read()
+                .unwrap()
+                .with_object(attacker_id, |o| o
+                    .base()
+                    .read()
+                    .ok()
+                    .and_then(|b| b.get_group_id()))
+                .flatten(),
             None
         );
     }
@@ -19053,11 +19063,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let attacker_id = 8460;
         let attacker = crate::object_manager::GameObjectInstance::new(
-                attacker_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test attacker instance");
+            attacker_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test attacker instance");
 
         {
             let instance = &attacker;
@@ -19142,11 +19153,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let attacker_id = 8471;
         let attacker = crate::object_manager::GameObjectInstance::new(
-                attacker_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test attacker instance");
+            attacker_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test attacker instance");
 
         {
             let __base_arc = attacker.base();
@@ -19199,7 +19211,15 @@ mod tests {
             )
         );
         assert_eq!(
-            get_object_manager().read().unwrap().with_object(attacker_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
+            get_object_manager()
+                .read()
+                .unwrap()
+                .with_object(attacker_id, |o| o
+                    .base()
+                    .read()
+                    .ok()
+                    .and_then(|b| b.get_group_id()))
+                .flatten(),
             None
         );
     }
@@ -19227,11 +19247,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let attacker_id = 8480;
         let attacker = crate::object_manager::GameObjectInstance::new(
-                attacker_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test attacker instance");
+            attacker_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test attacker instance");
 
         {
             let __base_arc = attacker.base();
@@ -19284,7 +19305,15 @@ mod tests {
             )]
         );
         assert_eq!(
-            get_object_manager().read().unwrap().with_object(attacker_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
+            get_object_manager()
+                .read()
+                .unwrap()
+                .with_object(attacker_id, |o| o
+                    .base()
+                    .read()
+                    .ok()
+                    .and_then(|b| b.get_group_id()))
+                .flatten(),
             None
         );
     }
@@ -19312,11 +19341,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8490;
         let member = crate::object_manager::GameObjectInstance::new(
-                member_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test team member instance");
+            member_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test team member instance");
 
         {
             let instance = &member;
@@ -19378,11 +19408,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let hunter_id = 8495;
         let hunter = crate::object_manager::GameObjectInstance::new(
-                hunter_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test hunter instance");
+            hunter_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test hunter instance");
 
         {
             let __base_arc = hunter.base();
@@ -19429,7 +19460,15 @@ mod tests {
             )]
         );
         assert_eq!(
-            get_object_manager().read().unwrap().with_object(hunter_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
+            get_object_manager()
+                .read()
+                .unwrap()
+                .with_object(hunter_id, |o| o
+                    .base()
+                    .read()
+                    .ok()
+                    .and_then(|b| b.get_group_id()))
+                .flatten(),
             Some(95)
         );
     }
@@ -19443,11 +19482,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let stopper_id = 8496;
         let stopper = crate::object_manager::GameObjectInstance::new(
-                stopper_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test stopper instance");
+            stopper_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test stopper instance");
 
         {
             let instance = &stopper;
@@ -19504,11 +19544,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let guard_id = 8500;
         let guard = crate::object_manager::GameObjectInstance::new(
-                guard_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test guard instance");
+            guard_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test guard instance");
 
         {
             let __base_arc = guard.base();
@@ -19555,7 +19596,15 @@ mod tests {
             )]
         );
         assert_eq!(
-            get_object_manager().read().unwrap().with_object(guard_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
+            get_object_manager()
+                .read()
+                .unwrap()
+                .with_object(guard_id, |o| o
+                    .base()
+                    .read()
+                    .ok()
+                    .and_then(|b| b.get_group_id()))
+                .flatten(),
             None
         );
     }
@@ -19582,11 +19631,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8510;
         let member = crate::object_manager::GameObjectInstance::new(
-                member_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test guard team member instance");
+            member_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test guard team member instance");
 
         {
             let instance = &member;
@@ -19661,11 +19711,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8515;
         let member = crate::object_manager::GameObjectInstance::new(
-                member_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test timed guard team member instance");
+            member_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test timed guard team member instance");
 
         {
             let instance = &member;
@@ -19745,11 +19796,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8520;
         let member = crate::object_manager::GameObjectInstance::new(
-                member_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test object guard team member instance");
+            member_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test object guard team member instance");
 
         {
             let instance = &member;
@@ -19908,11 +19960,12 @@ mod tests {
         let recruitable = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8530;
         let member = crate::object_manager::GameObjectInstance::new(
-                member_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test member instance");
+            member_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test member instance");
         {
             let instance = &member;
             instance
@@ -20000,11 +20053,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let member_id = 8540;
         let member = crate::object_manager::GameObjectInstance::new(
-                member_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test member instance");
+            member_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test member instance");
         {
             let instance = &member;
             instance

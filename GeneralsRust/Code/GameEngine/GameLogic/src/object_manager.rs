@@ -194,9 +194,7 @@ impl GameObjectInstance {
         list.get_player(player_index).cloned()
     }
 
-    fn store_team(
-        team: Option<Arc<RwLock<Team>>>,
-    ) -> (Option<TeamID>, Option<Arc<RwLock<Team>>>) {
+    fn store_team(team: Option<Arc<RwLock<Team>>>) -> (Option<TeamID>, Option<Arc<RwLock<Team>>>) {
         let Some(team_ref) = team else {
             return (None, None);
         };
@@ -268,9 +266,8 @@ impl GameObjectInstance {
             register_legacy_object(&base);
         }
 
-        let player_index = Self::player_from_team(team.as_ref()).and_then(|p| {
-            p.read().ok().map(|g| g.get_player_index())
-        });
+        let player_index = Self::player_from_team(team.as_ref())
+            .and_then(|p| p.read().ok().map(|g| g.get_player_index()));
         let (team_id, team_pin) = Self::store_team(team);
 
         // `base` is kept alive by OBJECT_REGISTRY (strong store).
@@ -320,9 +317,8 @@ impl GameObjectInstance {
             register_legacy_object(&base);
         }
 
-        let player_index = Self::player_from_team(team.as_ref()).and_then(|p| {
-            p.read().ok().map(|g| g.get_player_index())
-        });
+        let player_index = Self::player_from_team(team.as_ref())
+            .and_then(|p| p.read().ok().map(|g| g.get_player_index()));
         let (team_id, team_pin) = Self::store_team(team.clone());
         let _ = &base; // registered above; instance resolves by id
         let mut instance = Self {
@@ -935,15 +931,11 @@ impl ObjectSlot {
         }
     }
 
-    pub fn read(
-        &self,
-    ) -> std::sync::LockResult<std::sync::MutexGuard<'_, GameObjectInstance>> {
+    pub fn read(&self) -> std::sync::LockResult<std::sync::MutexGuard<'_, GameObjectInstance>> {
         self.inner.lock()
     }
 
-    pub fn write(
-        &self,
-    ) -> std::sync::LockResult<std::sync::MutexGuard<'_, GameObjectInstance>> {
+    pub fn write(&self) -> std::sync::LockResult<std::sync::MutexGuard<'_, GameObjectInstance>> {
         self.inner.lock()
     }
 
@@ -1036,7 +1028,11 @@ impl ObjectManager {
 
         self.spatial_partition.add_object(object_id, position);
 
-        if self.objects.insert(object_id, ObjectSlot::new(object)).is_some() {
+        if self
+            .objects
+            .insert(object_id, ObjectSlot::new(object))
+            .is_some()
+        {
             OBJECT_REGISTRY.unregister_object(object_id);
             unregister_legacy_object(object_id);
         }
@@ -1111,7 +1107,11 @@ impl ObjectManager {
         self.spatial_partition.add_object(object_id, position);
 
         // Add to object list
-        if self.objects.insert(object_id, ObjectSlot::new(object)).is_some() {
+        if self
+            .objects
+            .insert(object_id, ObjectSlot::new(object))
+            .is_some()
+        {
             OBJECT_REGISTRY.unregister_object(object_id);
             unregister_legacy_object(object_id);
         }
@@ -1135,13 +1135,9 @@ impl ObjectManager {
     }
 
     fn register_player_ownership(&self, object_id: ObjectID, object: &GameObjectInstance) {
-        let team_arc = object.get_team().or_else(|| {
-            object
-                .base()
-                .read()
-                .ok()
-                .and_then(|base| base.get_team())
-        });
+        let team_arc = object
+            .get_team()
+            .or_else(|| object.base().read().ok().and_then(|base| base.get_team()));
 
         let Some(team_arc) = team_arc else {
             return;
@@ -1667,10 +1663,12 @@ mod tests {
 
         // Create a few objects
         let obj1 = ObjectSlot::new(
-            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new())
+                .expect("failed to create object instance"),
         );
         let obj2 = ObjectSlot::new(
-            GameObjectInstance::new(2, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+            GameObjectInstance::new(2, None, None, ObjectCreationFlags::new())
+                .expect("failed to create object instance"),
         );
 
         manager.objects.insert(1, obj1);
@@ -1688,10 +1686,12 @@ mod tests {
 
         // Create test objects
         let obj1 = ObjectSlot::new(
-            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new())
+                .expect("failed to create object instance"),
         );
         let obj2 = ObjectSlot::new(
-            GameObjectInstance::new(2, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+            GameObjectInstance::new(2, None, None, ObjectCreationFlags::new())
+                .expect("failed to create object instance"),
         );
 
         manager.objects.insert(1, obj1);
@@ -1715,7 +1715,8 @@ mod tests {
 
         // Create object with no team
         let obj = ObjectSlot::new(
-            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new())
+                .expect("failed to create object instance"),
         );
         manager.objects.insert(1, obj);
 
@@ -1733,7 +1734,8 @@ mod tests {
 
         // Create object with no team
         let obj = ObjectSlot::new(
-            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+            GameObjectInstance::new(1, None, None, ObjectCreationFlags::new())
+                .expect("failed to create object instance"),
         );
         manager.objects.insert(1, obj);
 
@@ -1753,7 +1755,8 @@ mod tests {
         // Create multiple objects
         for i in 1..=5 {
             let obj = ObjectSlot::new(
-            GameObjectInstance::new(i, None, None, ObjectCreationFlags::new()).expect("failed to create object instance")
+                GameObjectInstance::new(i, None, None, ObjectCreationFlags::new())
+                    .expect("failed to create object instance"),
             );
             manager.objects.insert(i, obj);
             manager.update_order.push(i);

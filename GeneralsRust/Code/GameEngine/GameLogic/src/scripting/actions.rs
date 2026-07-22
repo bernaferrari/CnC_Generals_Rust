@@ -8288,12 +8288,12 @@ mod tests {
         reset_test_object_manager();
 
         let object = crate::object_manager::GameObjectInstance::new(
-                700,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            )
-            .expect("test object instance");
+            700,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test object instance");
         {
             let manager = get_object_manager();
             manager
@@ -8524,12 +8524,12 @@ mod tests {
             calls.push(Arc::clone(&call_log));
 
             let object = crate::object_manager::GameObjectInstance::new(
-                    object_id,
-                    None,
-                    Some(Arc::clone(&team)),
-                    ObjectCreationFlags::new(),
-                )
-                .expect("test object instance");
+                object_id,
+                None,
+                Some(Arc::clone(&team)),
+                ObjectCreationFlags::new(),
+            )
+            .expect("test object instance");
             {
                 let instance = &object;
                 instance
@@ -8655,12 +8655,12 @@ mod tests {
             calls.push(Arc::clone(&call_log));
 
             let object = crate::object_manager::GameObjectInstance::new(
-                    object_id,
-                    None,
-                    Some(Arc::clone(&team)),
-                    ObjectCreationFlags::new(),
-                )
-                .expect("test object instance");
+                object_id,
+                None,
+                Some(Arc::clone(&team)),
+                ObjectCreationFlags::new(),
+            )
+            .expect("test object instance");
             {
                 let instance = &object;
                 instance
@@ -8783,12 +8783,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let object_id = 8300;
         let object = crate::object_manager::GameObjectInstance::new(
-                object_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            )
-            .expect("test object instance");
+            object_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test object instance");
 
         {
             let __base_arc = object.base();
@@ -8836,7 +8836,11 @@ mod tests {
             )]
         );
         assert_eq!(
-            get_object_manager().read().unwrap().with_object(object_id, |o| o.base().read().unwrap().get_group_id()).unwrap(),
+            get_object_manager()
+                .read()
+                .unwrap()
+                .with_object(object_id, |o| o.base().read().unwrap().get_group_id())
+                .unwrap(),
             None
         );
     }
@@ -8896,12 +8900,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let object_id = 8350;
         let object = crate::object_manager::GameObjectInstance::new(
-                object_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            )
-            .expect("test hunter instance");
+            object_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test hunter instance");
 
         {
             let instance = &object;
@@ -9000,17 +9004,19 @@ mod tests {
         let attacker_id = 8350;
         let target_id = 8351;
         let attacker = crate::object_manager::GameObjectInstance::new(
-                attacker_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test attacker instance");
+            attacker_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test attacker instance");
         let target = crate::object_manager::GameObjectInstance::new(
-                target_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            ).expect("test target instance");
+            target_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test target instance");
 
         {
             let __base_arc = attacker.base();
@@ -9067,7 +9073,15 @@ mod tests {
             )]
         );
         assert_eq!(
-            get_object_manager().read().unwrap().with_object(attacker_id, |o| o.base().read().ok().and_then(|b| b.get_group_id())).flatten(),
+            get_object_manager()
+                .read()
+                .unwrap()
+                .with_object(attacker_id, |o| o
+                    .base()
+                    .read()
+                    .ok()
+                    .and_then(|b| b.get_group_id()))
+                .flatten(),
             None
         );
     }
@@ -9143,12 +9157,12 @@ mod tests {
         let locomotors = Arc::new(Mutex::new(Vec::new()));
         let object_id = 8400;
         let object = crate::object_manager::GameObjectInstance::new(
-                object_id,
-                None,
-                None,
-                ObjectCreationFlags::new(),
-            )
-            .expect("test object instance");
+            object_id,
+            None,
+            None,
+            ObjectCreationFlags::new(),
+        )
+        .expect("test object instance");
 
         {
             let __base_arc = object.base();
@@ -9196,7 +9210,11 @@ mod tests {
             )]
         );
         assert_eq!(
-            get_object_manager().read().unwrap().with_object(object_id, |o| o.base().read().unwrap().get_group_id()).unwrap(),
+            get_object_manager()
+                .read()
+                .unwrap()
+                .with_object(object_id, |o| o.base().read().unwrap().get_group_id())
+                .unwrap(),
             None
         );
     }

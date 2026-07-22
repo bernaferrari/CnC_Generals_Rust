@@ -6938,7 +6938,9 @@ mod tests {
             manager.reset();
 
             let template = Arc::new(DefaultThingTemplate::new("TestObject".to_string()));
-            let instance = GameObjectInstance::new(123, Some(template), None, ObjectCreationFlags::new()).expect("failed to create object instance");
+            let instance =
+                GameObjectInstance::new(123, Some(template), None, ObjectCreationFlags::new())
+                    .expect("failed to create object instance");
             manager
                 .register_object_instance(instance, Coord3D::new(0.0, 0.0, 0.0))
                 .unwrap();

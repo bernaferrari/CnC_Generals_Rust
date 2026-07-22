@@ -1715,7 +1715,8 @@ impl AiStateMachine {
         }
 
         if let Ok(mut factory_guard) = get_object_factory().write() {
-            if let Some(GameObjectInstance::Unit(unit)) = factory_guard.get_object_mut(self.owner_id)
+            if let Some(GameObjectInstance::Unit(unit)) =
+                factory_guard.get_object_mut(self.owner_id)
             {
                 let _ = unit.give_move_order(target, Vec::new(), false, false);
             }
