@@ -2170,39 +2170,42 @@ impl Player {
 
     /// Called when a unit is created by this player
     /// Matches C++ Player::onUnitCreated
-    pub fn on_unit_created(&mut self, producer: &Arc<RwLock<Object>>, unit: &Arc<RwLock<Object>>) {
-        // Update score keeper
-        if let Ok(unit_guard) = unit.read() {
-            // Check if it's a structure or unit
+    /// ID-first unit/structure creation notification.
+    pub fn on_unit_created_id(&mut self, _producer_id: ObjectID, unit_id: ObjectID) {
+        let score_keeper = &mut self.score_keeper;
+        let academy_stats = &mut self.academy_stats;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
             if unit_guard.is_kind_of(KindOf::Structure) {
-                self.score_keeper.add_building_built();
-
-                // Track in academy stats
+                score_keeper.add_building_built();
                 let type_name = unit_guard.get_template().get_name().as_str();
-                self.academy_stats.record_building_built(type_name);
+                academy_stats.record_building_built(type_name);
             } else {
-                self.score_keeper.add_unit_built();
-
-                // Track in academy stats
+                score_keeper.add_unit_built();
                 let type_name = unit_guard.get_template().get_name().as_str();
-                self.academy_stats.record_unit_built(type_name);
+                academy_stats.record_unit_built(type_name);
             }
-        }
+        });
+    }
 
-        // In full implementation, would also:
-        // - Update production queues
-        // - Trigger AI notifications
-        // - Update veterancy on producer if applicable
-        // - Check for achievement/challenge progress
-        let _ = producer; // Mark as used for future implementation
+    pub fn on_unit_created(&mut self, producer: &Arc<RwLock<Object>>, unit: &Arc<RwLock<Object>>) {
+        let producer_id = producer
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(INVALID_ID);
+        let unit_id = unit.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+        self.on_unit_created_id(producer_id, unit_id);
     }
 
     /// Called when a structure is undone (e.g. AI rebuild clears old CC).
     /// Matches C++ Player::onStructureUndone — scoreKeeper.removeObjectBuilt only.
     pub fn on_structure_undone(&mut self, structure: &Arc<RwLock<Object>>) {
-        if let Ok(guard) = structure.read() {
-            self.score_keeper.remove_object_built_obj(&*guard);
-        }
+        let structure_id = structure
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(INVALID_ID);
+        self.on_structure_undone_id(structure_id);
     }
 
     /// Borrow-first ObjectID variant of [`Self::on_structure_undone`].
@@ -2403,40 +2406,52 @@ impl Player {
 
     /// Called when a unit owned by this player is destroyed
     /// Matches C++ Player::onUnitDestroyed
+    pub fn on_unit_destroyed_id(&mut self, unit_id: ObjectID, _by_player: Option<PlayerIndex>) {
+        let score_keeper = &mut self.score_keeper;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
+            if unit_guard.is_kind_of(KindOf::Structure) {
+                score_keeper.buildings_lost += 1;
+            } else {
+                score_keeper.add_unit_lost();
+            }
+        });
+    }
+
     pub fn on_unit_destroyed(
         &mut self,
         unit: &Arc<RwLock<Object>>,
-        _by_player: Option<PlayerIndex>,
+        by_player: Option<PlayerIndex>,
     ) {
-        if let Ok(unit_guard) = unit.read() {
-            // Update score keeper
-            if unit_guard.is_kind_of(KindOf::Structure) {
-                self.score_keeper.buildings_lost += 1;
-            } else {
-                self.score_keeper.add_unit_lost();
-            }
-        }
+        let unit_id = unit.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+        self.on_unit_destroyed_id(unit_id, by_player);
     }
 
     /// Called when this player destroys an enemy unit
     /// Matches C++ Player::onEnemyUnitKilled
+    pub fn on_enemy_unit_killed_id(&mut self, killed_unit_id: ObjectID) {
+        let score_keeper = &mut self.score_keeper;
+        let academy_stats = &mut self.academy_stats;
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(killed_unit_id, |unit_guard| {
+                if unit_guard.is_kind_of(KindOf::Structure) {
+                    score_keeper.add_building_destroyed();
+                    let type_name = unit_guard.get_template().get_name().as_str();
+                    academy_stats.record_building_destroyed(type_name);
+                } else {
+                    score_keeper.add_unit_killed();
+                    let type_name = unit_guard.get_template().get_name().as_str();
+                    academy_stats.record_unit_killed(type_name);
+                }
+            });
+    }
+
     pub fn on_enemy_unit_killed(&mut self, killed_unit: &Arc<RwLock<Object>>) {
-        if let Ok(unit_guard) = killed_unit.read() {
-            // Update score keeper
-            if unit_guard.is_kind_of(KindOf::Structure) {
-                self.score_keeper.add_building_destroyed();
-
-                // Track in academy stats
-                let type_name = unit_guard.get_template().get_name().as_str();
-                self.academy_stats.record_building_destroyed(type_name);
-            } else {
-                self.score_keeper.add_unit_killed();
-
-                // Track in academy stats
-                let type_name = unit_guard.get_template().get_name().as_str();
-                self.academy_stats.record_unit_killed(type_name);
-            }
-        }
+        let killed_unit_id = killed_unit
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(INVALID_ID);
+        self.on_enemy_unit_killed_id(killed_unit_id);
     }
 
     pub fn is_playable_side(&self) -> bool {

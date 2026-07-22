@@ -708,7 +708,19 @@ impl ProductionUpdate {
 
         // Notify player that a unit was created
         if let Ok(mut player_guard) = player.write() {
-            player_guard.on_unit_created(building, &new_obj);
+            {
+                let producer_id = building
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                let unit_id = new_obj
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                player_guard.on_unit_created_id(producer_id, unit_id);
+            }
         }
 
         // Set construction complete on first spawn in this batch
@@ -759,7 +771,19 @@ impl ProductionUpdate {
 
         // Notify player
         if let Ok(mut player_guard) = player.write() {
-            player_guard.on_unit_created(building, &new_obj);
+            {
+                let producer_id = building
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                let unit_id = new_obj
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                player_guard.on_unit_created_id(producer_id, unit_id);
+            }
         }
 
         // Set construction complete on first spawn

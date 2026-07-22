@@ -637,7 +637,19 @@ impl SpawnBehavior {
 
             if let Some(player) = controlling_player {
                 let mut player_guard = player.write().map_err(|_| "Failed to write player")?;
-                player_guard.on_unit_created(&object, &spawn_obj);
+                {
+                    let producer_id = object
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID);
+                    let unit_id = spawn_obj
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID);
+                    player_guard.on_unit_created_id(producer_id, unit_id);
+                }
                 drop(player_guard);
             }
 
