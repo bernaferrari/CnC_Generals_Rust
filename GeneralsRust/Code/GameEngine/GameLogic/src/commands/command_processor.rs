@@ -3064,7 +3064,10 @@ impl DefaultCommandHandler {
                     continue;
                 };
 
-                let Ok(unit_base) = unit_arc.read().map(|unit| unit.base_object()) else {
+                let Ok(unit) = unit_arc.read() else {
+                    continue;
+                };
+                let Some(unit_base) = unit.base_object() else {
                     continue;
                 };
                 let Ok(unit_guard) = unit_base.read() else {
