@@ -70,7 +70,7 @@ impl ObjectManager for ObjectManagerBridge {
         let objects = factory.read().ok()?;
         let instance = objects.get_object(id)?;
         let base = instance.get_base_object();
-        Some(Arc::new(BridgedObject { base }) as Arc<dyn GameObject>)
+        base.map(|base| Arc::new(BridgedObject { base }) as Arc<dyn GameObject>)
     }
 
     fn get_objects_in_region(&self, _region: &crate::common::IRegion2D) -> Vec<ObjectID> {
@@ -191,7 +191,7 @@ impl AIManager for AIManagerBridge {
                 .filter_map(|object_id| {
                     factory
                         .get_object(*object_id)
-                        .map(|instance| (*object_id, instance.get_base_object()))
+                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
                 })
                 .collect()
         };
@@ -249,7 +249,7 @@ impl AIManager for AIManagerBridge {
                 .filter_map(|object_id| {
                     factory
                         .get_object(*object_id)
-                        .map(|instance| (*object_id, instance.get_base_object()))
+                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
                 })
                 .collect()
         };
@@ -307,7 +307,7 @@ impl AIManager for AIManagerBridge {
                 .filter_map(|object_id| {
                     factory
                         .get_object(*object_id)
-                        .map(|instance| (*object_id, instance.get_base_object()))
+                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
                 })
                 .collect()
         };
@@ -366,13 +366,13 @@ impl AIManager for AIManagerBridge {
                 .filter_map(|object_id| {
                     factory
                         .get_object(*object_id)
-                        .map(|instance| (*object_id, instance.get_base_object()))
+                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
                 })
                 .collect::<Vec<_>>();
 
             let target = factory
                 .get_object(target)
-                .map(|instance| instance.get_base_object());
+                .and_then(|instance| instance.get_base_object());
 
             (attackers, target)
         };
@@ -457,6 +457,13 @@ impl AIManager for AIManagerBridge {
             };
 
             instance.get_base_object()
+        };
+        let Some(builder_base) = builder_base else {
+            trace!(
+                "AIManagerBridge::issue_build_order: builder {} base object unavailable",
+                builder
+            );
+            return false;
         };
 
         let Some(thing_template) = TheThingFactory::find_template(template) else {
@@ -562,7 +569,7 @@ impl AIManager for AIManagerBridge {
                 .filter_map(|object_id| {
                     factory
                         .get_object(*object_id)
-                        .map(|instance| (*object_id, instance.get_base_object()))
+                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
                 })
                 .collect()
         };
@@ -634,16 +641,14 @@ impl AIManager for AIManagerBridge {
                 .filter_map(|object_id| {
                     factory
                         .get_object(*object_id)
-                        .map(|instance| (*object_id, instance.get_base_object()))
+                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
                 })
                 .collect::<Vec<_>>();
 
             let target_pos = factory.get_object(target).and_then(|instance| {
                 instance
                     .get_base_object()
-                    .read()
-                    .ok()
-                    .map(|g| *g.get_position())
+                    .and_then(|arc| arc.read().ok().map(|g| *g.get_position()))
             });
 
             (targets, target_pos)
@@ -722,7 +727,7 @@ impl AIManager for AIManagerBridge {
                 .filter_map(|object_id| {
                     factory
                         .get_object(*object_id)
-                        .map(|instance| (*object_id, instance.get_base_object()))
+                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
                 })
                 .collect()
         };
@@ -794,16 +799,14 @@ impl AIManager for AIManagerBridge {
                 .filter_map(|object_id| {
                     factory
                         .get_object(*object_id)
-                        .map(|instance| (*object_id, instance.get_base_object()))
+                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
                 })
                 .collect::<Vec<_>>();
 
             let target_position = factory.get_object(target).and_then(|instance| {
                 instance
                     .get_base_object()
-                    .read()
-                    .ok()
-                    .map(|g| *g.get_position())
+                    .and_then(|arc| arc.read().ok().map(|g| *g.get_position()))
             });
 
             (targets, target_position)
