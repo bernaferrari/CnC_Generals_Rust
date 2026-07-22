@@ -1433,46 +1433,55 @@ impl ObjectLookup for RegistryObjectLookup {
         use crate::common::types::ObjectStatusMaskType;
         use crate::modules::ContainModuleInterfaceExt;
 
-        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-            return object_id;
-        };
-        let Ok(guard) = obj.read() else {
+        let Some((unselectable, container_id, masked)) =
+            OBJECT_REGISTRY.with_object(object_id, |guard| {
+                (
+                    guard
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::UNSELECTABLE),
+                    guard.get_contained_by(),
+                    guard
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::MASKED),
+                )
+            })
+        else {
             return object_id;
         };
 
-        if !guard
-            .get_status_bits()
-            .contains(ObjectStatusMaskType::UNSELECTABLE)
-        {
+        if !unselectable {
             return object_id;
         }
 
-        let Some(container_id) = guard.get_contained_by() else {
+        let Some(container_id) = container_id else {
             return object_id;
         };
 
         // Enclosing containers hide their contents; don't propagate selection in that case.
         // Prefer the container's contain module answer if available, otherwise fall back to MASKED.
-        let Some(container) = OBJECT_REGISTRY.get_object(container_id) else {
-            return object_id;
-        };
-        let Ok(container_guard) = container.read() else {
+        let Some((has_drawable, contain)) =
+            OBJECT_REGISTRY.with_object(container_id, |container_guard| {
+                (
+                    container_guard.get_drawable().is_some(),
+                    container_guard.get_contain(),
+                )
+            })
+        else {
             return object_id;
         };
 
-        let is_enclosing = container_guard
-            .get_contain()
-            .map(|contain| contain.is_enclosing_container_for(&*guard))
-            .unwrap_or_else(|| {
-                guard
-                    .get_status_bits()
-                    .contains(ObjectStatusMaskType::MASKED)
-            });
+        let is_enclosing = if let Some(contain) = contain {
+            OBJECT_REGISTRY
+                .with_object(object_id, |guard| contain.is_enclosing_container_for(guard))
+                .unwrap_or(masked)
+        } else {
+            masked
+        };
         if is_enclosing {
             return object_id;
         }
 
-        if container_guard.get_drawable().is_none() {
+        if !has_drawable {
             return object_id;
         }
 

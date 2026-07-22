@@ -240,15 +240,13 @@ impl StealthDetectorController {
     /// Check if target is an enemy
     fn is_enemy(&self, target: &Object) -> bool {
         // Get both objects' team info
-        let Some(detector_obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let Some(detector_team_id) = OBJECT_REGISTRY
+            .with_object(self.object_id, |detector_guard| {
+                detector_guard.get_team_id()
+            })
+        else {
             return false;
         };
-
-        let Ok(detector_guard) = detector_obj.read() else {
-            return false;
-        };
-
-        let detector_team_id = detector_guard.get_team_id();
         let target_team_id = target.get_team_id();
         detector_team_id != target_team_id
     }
