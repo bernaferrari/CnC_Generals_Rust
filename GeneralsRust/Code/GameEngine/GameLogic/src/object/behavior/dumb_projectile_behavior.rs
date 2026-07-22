@@ -818,35 +818,38 @@ impl DumbProjectileBehavior {
                                     if num_killed >= self.module_data.garrison_hit_kill_count {
                                         break;
                                     }
-                                    let Some(contained_arc) =
-                                        OBJECT_REGISTRY.get_object(contained_id)
-                                    else {
-                                        continue;
-                                    };
-                                    let Ok(mut contained_guard) = contained_arc.write() else {
-                                        continue;
-                                    };
-                                    if contained_guard.is_effectively_dead() {
-                                        continue;
-                                    }
-                                    if !contained_guard.is_kind_of_multi(
-                                        self.module_data.garrison_hit_kill_kindof,
-                                        self.module_data.garrison_hit_kill_kindof_not,
-                                    ) {
-                                        continue;
-                                    }
-
-                                    if self.launcher_id != OBJECT_INVALID_ID {
-                                        if let Some(launcher_arc) =
-                                            OBJECT_REGISTRY.get_object(self.launcher_id)
-                                        {
-                                            if let Ok(mut launcher_guard) = launcher_arc.write() {
-                                                launcher_guard.score_the_kill(&contained_guard);
+                                    let kindof = self.module_data.garrison_hit_kill_kindof;
+                                    let kindof_not = self.module_data.garrison_hit_kill_kindof_not;
+                                    let launcher_id = self.launcher_id;
+                                    let Some(killed) = OBJECT_REGISTRY.with_object_mut(
+                                        contained_id,
+                                        |contained_guard| {
+                                            if contained_guard.is_effectively_dead() {
+                                                return false;
                                             }
-                                        }
+                                            if !contained_guard.is_kind_of_multi(kindof, kindof_not)
+                                            {
+                                                return false;
+                                            }
+
+                                            if launcher_id != OBJECT_INVALID_ID {
+                                                let _ = OBJECT_REGISTRY.with_object_mut(
+                                                    launcher_id,
+                                                    |launcher_guard| {
+                                                        launcher_guard
+                                                            .score_the_kill(contained_guard);
+                                                    },
+                                                );
+                                            }
+                                            contained_guard.kill(None, None);
+                                            true
+                                        },
+                                    ) else {
+                                        continue;
+                                    };
+                                    if killed {
+                                        num_killed += 1;
                                     }
-                                    contained_guard.kill(None, None);
-                                    num_killed += 1;
                                 }
 
                                 if num_killed > 0 {

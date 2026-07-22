@@ -2464,8 +2464,8 @@ fn kill_enemies_in_container(killer_id: ObjectID, container_id: ObjectID, max_to
             break;
         };
 
-        if let Some(enemy) = crate::object::registry::OBJECT_REGISTRY.get_object(enemy_id) {
-            if let Ok(mut enemy_guard) = enemy.write() {
+        let Some(()) =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(enemy_id, |enemy_guard| {
                 if let Some(contained_by_id) = enemy_guard.get_contained_by() {
                     if let Some(contain) = crate::object::registry::OBJECT_REGISTRY
                         .with_object(contained_by_id, |container_guard| {
@@ -2479,18 +2479,18 @@ fn kill_enemies_in_container(killer_id: ObjectID, container_id: ObjectID, max_to
                     }
                 }
 
-                if let Some(killer) = crate::object::registry::OBJECT_REGISTRY.get_object(killer_id)
-                {
-                    if let Ok(mut killer_guard) = killer.write() {
-                        killer_guard.score_the_kill(&enemy_guard);
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    killer_id,
+                    |killer_guard| {
+                        killer_guard.score_the_kill(enemy_guard);
+                    },
+                );
                 enemy_guard.kill(None, None);
-                num_killed += 1;
-            }
-        } else {
+            })
+        else {
             break;
-        }
+        };
+        num_killed += 1;
     }
 
     num_killed

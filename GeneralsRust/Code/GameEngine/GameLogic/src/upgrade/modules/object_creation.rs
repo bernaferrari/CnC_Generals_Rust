@@ -184,23 +184,19 @@ impl RuntimeUpgradeModuleInterface for ObjectCreationUpgrade {
             return false;
         }
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            // C++ still marks upgrade as executed even if object is missing.
-            self.mux.set_upgrade_executed(true);
-            return true;
-        };
-
-        let mut object_guard = match object.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.mux.set_upgrade_executed(true);
-                return true;
+        let mux_data = self.mux.data.clone();
+        let ocl = self.data.ocl.clone();
+        let applied = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
+            mux_data.perform_upgrade_fx(object_guard);
+            mux_data.process_upgrade_removal(object_guard);
+            // Spawn everything in the OCL
+            // Matches C++ ObjectCreationUpgrade.cpp lines 68-75
+            if let Some(ocl) = ocl.as_ref() {
+                let ctx = live_creation_context();
+                let _ = ocl.create_with_objects(&ctx, object_guard, None, 0);
             }
-        };
-
-        self.mux.data.perform_upgrade_fx(&mut object_guard);
-        self.mux.data.process_upgrade_removal(&mut object_guard);
-        self.upgrade_implementation(&mut object_guard);
+        });
+        // C++ still marks upgrade as executed even if object is missing.
         self.mux.set_upgrade_executed(true);
         true
     }
