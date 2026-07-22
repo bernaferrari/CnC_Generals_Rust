@@ -2078,9 +2078,15 @@ impl ModuleExitInterface for FlightDeckBehavior {
 
     fn exit_object_via_door(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
+        obj_id: ObjectID,
         door: ModuleExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if matches!(
             door,
             ModuleExitDoorType::None | ModuleExitDoorType::NoneAvailable
@@ -2098,8 +2104,8 @@ impl ModuleExitInterface for FlightDeckBehavior {
 
     fn exit_object_by_budding(
         &mut self,
-        _obj: &Arc<RwLock<crate::object::Object>>,
-        _host: Option<&Arc<RwLock<crate::object::Object>>>,
+        _obj_id: ObjectID,
+        _host_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }

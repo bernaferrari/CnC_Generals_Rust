@@ -250,7 +250,10 @@ impl PropagandaCenterBehavior {
                 }
 
                 if let Ok(mut exit_guard) = exit_interface.lock() {
-                    let _ = exit_guard.exit_object_via_door(&subject_arc, exit_door);
+                    let _ = exit_guard.exit_object_via_door(
+                        subject_arc.read().map(|g| g.get_id()).unwrap_or(0),
+                        exit_door,
+                    );
                 };
             }
         }
@@ -354,20 +357,32 @@ impl ContainModuleInterface for PropagandaCenterBehavior {
 
     fn on_containing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.prison_behavior.on_containing(obj, was_selected)
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.prison_behavior.on_containing(obj_id, was_selected)
     }
 
     fn on_removing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if let Ok(guard) = obj.read() {
             self.clear_brainwashing_subject_if_match(guard.get_id());
         }
-        self.prison_behavior.on_removing(obj)
+        self.prison_behavior.on_removing(obj_id)
     }
 
     fn remove_all_contained(

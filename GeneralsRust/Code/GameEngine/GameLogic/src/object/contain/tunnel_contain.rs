@@ -173,7 +173,7 @@ impl TunnelContain {
         }
 
         self.base.redeploy_occupants()?;
-        self.on_containing(obj, was_selected)?;
+        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
 
         Ok(())
     }
@@ -305,12 +305,14 @@ impl TunnelContain {
 
     /// Called when an object enters the tunnel.
     /// Matches C++ TunnelContain::onContaining (TunnelContain.cpp:171-186)
-    pub fn on_containing(
-        &mut self,
-        obj: Arc<RwLock<Object>>,
-        was_selected: bool,
-    ) -> GameResult<()> {
-        self.base.on_containing(obj.clone(), was_selected)?;
+    pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.base.on_containing(obj_id, was_selected)?;
 
         let mut obj_guard = obj.write().map_err(|_| "Object lock poisoned")?;
 
@@ -335,8 +337,14 @@ impl TunnelContain {
 
     /// Called when an object exits the tunnel.
     /// Matches C++ TunnelContain::onRemoving (TunnelContain.cpp:189-208)
-    pub fn on_removing(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.on_removing(obj.clone())?;
+    pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.base.on_removing(obj_id)?;
 
         let mut obj_guard = obj.write().map_err(|_| "Object lock poisoned")?;
 

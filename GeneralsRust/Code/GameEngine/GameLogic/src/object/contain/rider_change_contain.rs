@@ -1002,7 +1002,7 @@ impl RiderChangeContain {
                 .add_or_remove_obj_from_world(rider.clone(), false);
         }
         self.base.redeploy_occupants()?;
-        self.on_containing(rider, was_selected)?;
+        self.on_containing(rider.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
         Ok(())
     }
 
@@ -1054,17 +1054,19 @@ impl RiderChangeContain {
                 }
             }
             self.base.base.do_unload_sound();
-            self.on_removing(rider)?;
+            self.on_removing(rider.read().map(|g| g.get_id()).unwrap_or(0))?;
         }
 
         Ok(())
     }
 
-    pub fn on_containing(
-        &mut self,
-        rider: Arc<RwLock<Object>>,
-        was_selected: bool,
-    ) -> GameResult<()> {
+    pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         self.containing = true;
 
         if self.base.is_payload_created() {
@@ -1137,7 +1139,8 @@ impl RiderChangeContain {
         }
 
         transfer_veterancy(rider_tracker, owner_tracker);
-        self.base.on_containing(rider, was_selected)?;
+        self.base
+            .on_containing(rider.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
         self.containing = false;
         Ok(())
     }
@@ -1289,7 +1292,13 @@ impl RiderChangeContain {
         owner_has_drawable && rider_has_drawable
     }
 
-    pub fn on_removing(&mut self, rider: Arc<RwLock<Object>>) -> GameResult<()> {
+    pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1306,9 +1315,12 @@ impl RiderChangeContain {
         }
 
         if self.base.is_payload_created() {
-            self.base.on_removing(rider.clone())?;
+            self.base
+                .on_removing(rider.read().map(|g| g.get_id()).unwrap_or(0))?;
         } else {
-            self.base.base.on_removing(rider.clone())?;
+            self.base
+                .base
+                .on_removing(rider.read().map(|g| g.get_id()).unwrap_or(0))?;
         }
 
         let rider_template = rider

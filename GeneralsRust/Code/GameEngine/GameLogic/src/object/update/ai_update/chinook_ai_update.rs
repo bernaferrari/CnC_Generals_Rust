@@ -865,7 +865,10 @@ impl ChinookAIUpdate {
                         if exit_door != crate::modules::DOOR_NONE_AVAILABLE {
                             if let Some(exit) = exit_interface {
                                 let _ = exit.lock().ok().map(|mut guard| {
-                                    guard.exit_object_via_door(&rappeller, exit_door)
+                                    guard.exit_object_via_door(
+                                        rappeller.read().map(|g| g.get_id()).unwrap_or(0),
+                                        exit_door,
+                                    )
                                 });
                             }
                         }

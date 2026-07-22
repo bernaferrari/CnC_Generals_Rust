@@ -141,12 +141,14 @@ impl CaveContain {
     }
 
     /// Called when this object starts containing another object
-    pub fn on_containing(
-        &mut self,
-        obj: Arc<RwLock<Object>>,
-        was_selected: bool,
-    ) -> GameResult<()> {
-        self.base.on_containing(obj.clone(), was_selected)?;
+    pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.base.on_containing(obj_id, was_selected)?;
 
         // Objects inside a building are held
         if let Ok(mut object) = obj.write() {
@@ -160,8 +162,14 @@ impl CaveContain {
     }
 
     /// Called when removing an object from containment
-    pub fn on_removing(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.on_removing(obj.clone())?;
+    pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.base.on_removing(obj_id)?;
 
         // Object is no longer held inside a garrisoned building
         if let Ok(mut object) = obj.write() {
@@ -286,7 +294,7 @@ impl CaveContain {
 
         let contained = self.get_contained_items_list()?;
         self.base.redeploy_objects(&contained)?;
-        self.on_containing(obj, was_selected)?;
+        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
         Ok(())
     }
 
@@ -314,7 +322,7 @@ impl CaveContain {
             self.contained_object_ids.retain(|id| *id != guard.get_id());
         }
 
-        self.on_removing(obj.clone())?;
+        self.on_removing(obj.read().map(|g| g.get_id()).unwrap_or(0))?;
 
         Ok(())
     }

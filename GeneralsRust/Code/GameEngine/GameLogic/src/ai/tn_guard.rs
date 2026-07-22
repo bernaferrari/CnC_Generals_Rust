@@ -944,7 +944,10 @@ impl StateImplementation for AITNGuardIdleState {
                                     if door == ExitDoorType::NoneAvailable {
                                         return StateReturnType::Sleep(0);
                                     }
-                                    let _ = exit_guard.exit_object_via_door(&owner, door);
+                                    let _ = exit_guard.exit_object_via_door(
+                                        owner.read().map(|g| g.get_id()).unwrap_or(0),
+                                        door,
+                                    );
                                     return StateReturnType::Sleep(0);
                                 }
                             }
