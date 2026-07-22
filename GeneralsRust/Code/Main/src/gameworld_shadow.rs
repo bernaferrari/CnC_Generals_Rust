@@ -212,7 +212,11 @@ pub fn gameworld_damage_authority_enabled() -> bool {
 /// Damage HP defer only while shadow can writeback (alias of enabled&&shadow).
 #[inline]
 pub fn gameworld_damage_authority_live() -> bool {
-    gameworld_damage_authority_enabled() && gameworld_shadow_enabled()
+    // Fail-open to host HP when no coupled engine shadow session is active
+    // (unit tests, host-only gates). Matches construction/production sole-tick.
+    gameworld_damage_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// Economy last-writer (player supplies/power). Unset = **on**; `0|false` off.
@@ -14408,6 +14412,28 @@ mod tests {
         assert!(gameworld_construction_sole_tick_enabled() || !gameworld_shadow_enabled());
         end_shadow_coupled_tick();
         assert!(!gameworld_construction_sole_tick_enabled());
+    }
+
+    #[test]
+    fn damage_authority_live_requires_coupled_frame() {
+        // Host-only paths (unit tests, gates without engine shadow session) must
+        // apply HP immediately — defer only on a coupled engine writeback frame.
+        assert!(
+            !shadow_coupled_tick_active(),
+            "tests start outside coupled engine frame"
+        );
+        assert!(
+            !gameworld_damage_authority_live(),
+            "damage HP defer requires coupled engine frame"
+        );
+        begin_shadow_coupled_tick();
+        assert!(
+            gameworld_damage_authority_live()
+                || !gameworld_damage_authority_enabled()
+                || !gameworld_shadow_enabled()
+        );
+        end_shadow_coupled_tick();
+        assert!(!gameworld_damage_authority_live());
     }
 
 #[test]
