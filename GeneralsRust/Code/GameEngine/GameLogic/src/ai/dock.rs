@@ -363,8 +363,8 @@ impl AIDockApproachState {
         Ok(())
     }
 
-    fn goal_owner(&self) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
-        fetch_owner_and_goal_from_move(&self.move_helper, "AIDockApproachState")
+    fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
+        fetch_owner_and_goal_ids_from_move(&self.move_helper, "AIDockApproachState")
     }
 }
 
@@ -378,13 +378,15 @@ impl ClassicState for AIDockApproachState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let (owner, goal) = match self.goal_owner() {
+        let (owner_id, goal_id) = match self.goal_owner() {
             Ok(result) => result,
             Err(_) => {
                 // ensure we cleanly bail if prerequisites are missing
                 return Ok(StateReturnType::Failure);
             }
         };
+        let owner = resolve_dock_object(owner_id, "dock")?;
+        let goal = resolve_dock_object(goal_id, "dock")?;
 
         let goal_guard = goal
             .lock()
@@ -439,7 +441,9 @@ impl ClassicState for AIDockApproachState {
     }
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        if let Ok((owner, goal)) = self.goal_owner() {
+        if let Ok((owner_id, goal_id)) = self.goal_owner() {
+            let owner = resolve_dock_object(owner_id, "dock")?;
+            let goal = resolve_dock_object(goal_id, "dock")?;
             let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
@@ -505,7 +509,7 @@ impl AIDockWaitForClearanceState {
         Ok(())
     }
 
-    fn owner_and_goal(&self) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
+    fn owner_and_goal(&self) -> Result<(ObjectID, ObjectID), String> {
         let goal_id = self
             .base
             .get_machine_goal_object_id()
@@ -526,16 +530,16 @@ impl AIDockWaitForClearanceState {
             .base
             .get_machine_owner_id()
             .ok_or_else(|| "dock wait missing owner".to_string())?;
-        let owner = resolve_dock_object(owner_id, "dock wait")?;
 
-        Ok((owner, goal_object))
+        Ok((owner_id, goal_id))
     }
 
     pub fn able_to_advance(
         state: &Self,
         _user_data: &StateTransitionUserData,
     ) -> Result<bool, String> {
-        let (owner, goal) = state.owner_and_goal()?;
+        let (owner_id, goal_id) = state.owner_and_goal()?;
+        let goal = resolve_dock_object(goal_id, "dock")?;
         let goal_guard = goal
             .lock()
             .map_err(|_| "goal object poisoned".to_string())?;
@@ -543,11 +547,8 @@ impl AIDockWaitForClearanceState {
         goal_guard
             .with_dock_update_interface(|dock| {
                 let approach_position = state.shared.approach_position();
-                dock.is_clear_to_advance(
-                    owner.read().map(|g| g.get_id()).unwrap_or(0),
-                    approach_position,
-                )
-                .into_string_err()
+                dock.is_clear_to_advance(owner_id, approach_position)
+                    .into_string_err()
             })
             .ok_or_else(|| "Missing dock interface".to_string())?
     }
@@ -568,10 +569,12 @@ impl ClassicState for AIDockWaitForClearanceState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let (owner, goal) = match self.owner_and_goal() {
+        let (owner_id, goal_id) = match self.owner_and_goal() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
+        let owner = resolve_dock_object(owner_id, "dock")?;
+        let goal = resolve_dock_object(goal_id, "dock")?;
 
         let goal_guard = goal
             .lock()
@@ -604,7 +607,9 @@ impl ClassicState for AIDockWaitForClearanceState {
     }
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        if let Ok((owner, goal)) = self.owner_and_goal() {
+        if let Ok((owner_id, goal_id)) = self.owner_and_goal() {
+            let owner = resolve_dock_object(owner_id, "dock")?;
+            let goal = resolve_dock_object(goal_id, "dock")?;
             let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
@@ -653,8 +658,8 @@ impl AIDockAdvancePositionState {
         })
     }
 
-    fn goal_owner(&self) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
-        fetch_owner_and_goal_from_move(&self.move_helper, "AIDockAdvancePositionState")
+    fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
+        fetch_owner_and_goal_ids_from_move(&self.move_helper, "AIDockAdvancePositionState")
     }
 }
 
@@ -668,10 +673,12 @@ impl ClassicState for AIDockAdvancePositionState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let (owner, goal) = match self.goal_owner() {
+        let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
+        let owner = resolve_dock_object(owner_id, "dock")?;
+        let goal = resolve_dock_object(goal_id, "dock")?;
 
         let goal_guard = goal
             .lock()
@@ -725,7 +732,9 @@ impl ClassicState for AIDockAdvancePositionState {
     }
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        if let Ok((owner, goal)) = self.goal_owner() {
+        if let Ok((owner_id, goal_id)) = self.goal_owner() {
+            let owner = resolve_dock_object(owner_id, "dock")?;
+            let goal = resolve_dock_object(goal_id, "dock")?;
             let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
@@ -775,8 +784,8 @@ impl AIDockMoveToEntryState {
         })
     }
 
-    fn goal_owner(&self) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
-        fetch_owner_and_goal_from_move(&self.move_helper, "AIDockMoveToEntryState")
+    fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
+        fetch_owner_and_goal_ids_from_move(&self.move_helper, "AIDockMoveToEntryState")
     }
 }
 
@@ -791,10 +800,12 @@ impl ClassicState for AIDockMoveToEntryState {
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
         let goal_object = self.move_helper.get_machine_goal_object()?;
-        let (owner, goal) = match self.goal_owner() {
+        let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
+        let owner = resolve_dock_object(owner_id, "dock")?;
+        let goal = resolve_dock_object(goal_id, "dock")?;
 
         let goal_guard = goal
             .lock()
@@ -848,7 +859,9 @@ impl ClassicState for AIDockMoveToEntryState {
     }
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        if let Ok((owner, goal)) = self.goal_owner() {
+        if let Ok((owner_id, goal_id)) = self.goal_owner() {
+            let owner = resolve_dock_object(owner_id, "dock")?;
+            let goal = resolve_dock_object(goal_id, "dock")?;
             let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
@@ -898,8 +911,8 @@ impl AIDockMoveToDockState {
         })
     }
 
-    fn goal_owner(&self) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
-        fetch_owner_and_goal_from_move(&self.move_helper, "AIDockMoveToDockState")
+    fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
+        fetch_owner_and_goal_ids_from_move(&self.move_helper, "AIDockMoveToDockState")
     }
 
     fn lock_machine(&self) -> Result<(), String> {
@@ -932,10 +945,12 @@ impl ClassicState for AIDockMoveToDockState {
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
         let goal_object = self.move_helper.get_machine_goal_object()?;
-        let (owner, goal) = match self.goal_owner() {
+        let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
+        let owner = resolve_dock_object(owner_id, "dock")?;
+        let goal = resolve_dock_object(goal_id, "dock")?;
 
         let goal_guard = goal
             .lock()
@@ -991,7 +1006,8 @@ impl ClassicState for AIDockMoveToDockState {
             return Ok(StateReturnType::Failure);
         }
 
-        if let Ok((_, goal)) = self.goal_owner() {
+        if let Ok((_, goal_id)) = self.goal_owner() {
+            let goal = resolve_dock_object(goal_id, "dock")?;
             let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
@@ -1010,7 +1026,9 @@ impl ClassicState for AIDockMoveToDockState {
     }
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        if let Ok((owner, goal)) = self.goal_owner() {
+        if let Ok((owner_id, goal_id)) = self.goal_owner() {
+            let owner = resolve_dock_object(owner_id, "dock")?;
+            let goal = resolve_dock_object(goal_id, "dock")?;
             let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
@@ -1064,7 +1082,7 @@ impl AIDockProcessDockState {
         })
     }
 
-    fn owner_and_goal(&self) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
+    fn owner_and_goal(&self) -> Result<(ObjectID, ObjectID), String> {
         let goal_id = self
             .base
             .get_machine_goal_object_id()
@@ -1085,14 +1103,14 @@ impl AIDockProcessDockState {
             .base
             .get_machine_owner_id()
             .ok_or_else(|| "dock process missing owner".to_string())?;
-        let owner = resolve_dock_object(owner_id, "dock process")?;
 
-        Ok((owner, goal_object))
+        Ok((owner_id, goal_id))
     }
 
     fn set_next_dock_action_frame(&mut self) -> Result<(), String> {
-        let (owner, _goal) = self.owner_and_goal()?;
-        let goal_object = _goal; // Reuse it
+        let (owner_id, goal_id) = self.owner_and_goal()?;
+        let owner = resolve_dock_object(owner_id, "dock")?;
+        let goal_object = resolve_dock_object(goal_id, "dock")?;
 
         if let Ok(owner_guard) = owner.read() {
             if let Some(ai) = owner_guard.get_ai() {
@@ -1100,9 +1118,7 @@ impl AIDockProcessDockState {
                     if let Some(supply_truck) = ai_guard.get_supply_truck_ai_interface() {
                         self.next_dock_action_frame = TheGameLogic::try_get_frame()?
                             + supply_truck
-                                .get_action_delay_for_dock(
-                                    goal_object.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                                )
+                                .get_action_delay_for_dock(goal_id)
                                 .map_err(|err| err.to_string())?;
                         return Ok(());
                     }
@@ -1174,10 +1190,12 @@ impl ClassicState for AIDockProcessDockState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let (owner, goal) = match self.owner_and_goal() {
+        let (owner_id, goal_id) = match self.owner_and_goal() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
+        let owner = resolve_dock_object(owner_id, "dock")?;
+        let goal = resolve_dock_object(goal_id, "dock")?;
 
         let goal_guard = goal
             .write()
@@ -1237,8 +1255,8 @@ impl AIDockMoveToExitState {
         })
     }
 
-    fn goal_owner(&self) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
-        fetch_owner_and_goal_from_move(&self.move_helper, "AIDockMoveToExitState")
+    fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
+        fetch_owner_and_goal_ids_from_move(&self.move_helper, "AIDockMoveToExitState")
     }
 }
 
@@ -1253,10 +1271,12 @@ impl ClassicState for AIDockMoveToExitState {
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
         let goal_object = self.move_helper.get_machine_goal_object()?;
-        let (owner, goal) = match self.goal_owner() {
+        let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
+        let owner = resolve_dock_object(owner_id, "dock")?;
+        let goal = resolve_dock_object(goal_id, "dock")?;
 
         let goal_guard = goal
             .lock()
@@ -1308,7 +1328,9 @@ impl ClassicState for AIDockMoveToExitState {
     }
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        if let Ok((owner, goal)) = self.goal_owner() {
+        if let Ok((owner_id, goal_id)) = self.goal_owner() {
+            let owner = resolve_dock_object(owner_id, "dock")?;
+            let goal = resolve_dock_object(goal_id, "dock")?;
             let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
