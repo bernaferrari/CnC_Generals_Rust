@@ -770,48 +770,57 @@ impl EnhancedAiPlayer {
         let partition = crate::helpers::ThePartitionManager::get();
 
         for center_id in &self.controlled_supply_centers {
-            let Some(center_arc) = OBJECT_REGISTRY.get_object(*center_id) else {
+            let Some(center_pos) = OBJECT_REGISTRY
+                .with_object(*center_id, |center_guard| {
+                    if center_guard.get_controlling_player_id() != Some(self.player_id)
+                        || center_guard.is_effectively_dead()
+                    {
+                        return None;
+                    }
+                    Some(*center_guard.get_position())
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(center_guard) = center_arc.read() else {
-                continue;
-            };
-            if center_guard.get_controlling_player_id() != Some(self.player_id)
-                || center_guard.is_effectively_dead()
-            {
-                continue;
-            }
 
             let mut nearby_enemy_threat = 0.0f32;
             let mut nearby_defense = 0.0f32;
             if let Some(partition) = partition {
-                for obj_id in partition.get_objects_in_range(center_guard.get_position(), 250.0) {
-                    let Some(candidate_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                for obj_id in partition.get_objects_in_range(&center_pos, 250.0) {
+                    let Some((defense, threat)) = OBJECT_REGISTRY
+                        .with_object(obj_id, |candidate_guard| {
+                            if candidate_guard.is_effectively_dead()
+                                || candidate_guard.get_id() == *center_id
+                            {
+                                return None;
+                            }
+                            if candidate_guard.get_controlling_player_id() == Some(self.player_id) {
+                                if candidate_guard.is_kind_of(KindOf::Defense)
+                                    || candidate_guard.has_any_weapon()
+                                {
+                                    return Some((1.0, 0.0));
+                                }
+                                return Some((0.0, 0.0));
+                            }
+                            if candidate_guard.has_any_weapon() {
+                                let t = if candidate_guard.is_kind_of(KindOf::Vehicle)
+                                    || candidate_guard.is_kind_of(KindOf::Aircraft)
+                                {
+                                    1.5
+                                } else {
+                                    1.0
+                                };
+                                return Some((0.0, t));
+                            }
+                            Some((0.0, 0.0))
+                        })
+                        .flatten()
+                    else {
                         continue;
                     };
-                    let Ok(candidate_guard) = candidate_arc.read() else {
-                        continue;
-                    };
-                    if candidate_guard.is_effectively_dead()
-                        || candidate_guard.get_id() == center_guard.get_id()
-                    {
-                        continue;
-                    }
-                    if candidate_guard.get_controlling_player_id() == Some(self.player_id) {
-                        if candidate_guard.is_kind_of(KindOf::Defense)
-                            || candidate_guard.has_any_weapon()
-                        {
-                            nearby_defense += 1.0;
-                        }
-                    } else if candidate_guard.has_any_weapon() {
-                        nearby_enemy_threat += if candidate_guard.is_kind_of(KindOf::Vehicle)
-                            || candidate_guard.is_kind_of(KindOf::Aircraft)
-                        {
-                            1.5
-                        } else {
-                            1.0
-                        };
-                    }
+                    nearby_defense += defense;
+                    nearby_enemy_threat += threat;
                 }
             }
 
@@ -838,37 +847,38 @@ impl EnhancedAiPlayer {
 
         let mut threat_points = 0.0f32;
         for obj_id in partition.get_objects_in_range(&base_center, 450.0) {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(contrib) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if obj_guard.is_effectively_dead() {
+                        return None;
+                    }
+                    if obj_guard.get_controlling_player_id() == Some(self.player_id) {
+                        return None;
+                    }
+                    if !obj_guard.has_any_weapon() {
+                        return Some(0.0);
+                    }
+                    let pos = *obj_guard.get_position();
+                    let dx = pos.x - base_center.x;
+                    let dy = pos.y - base_center.y;
+                    let dist = (dx * dx + dy * dy).sqrt().max(1.0);
+                    let distance_factor = (1.0 - (dist / 450.0)).clamp(0.05, 1.0);
+                    let unit_weight = if obj_guard.is_kind_of(KindOf::Aircraft) {
+                        1.4
+                    } else if obj_guard.is_kind_of(KindOf::Vehicle) {
+                        1.2
+                    } else if obj_guard.is_kind_of(KindOf::Infantry) {
+                        0.8
+                    } else {
+                        0.6
+                    };
+                    Some(unit_weight * distance_factor)
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_effectively_dead() {
-                continue;
-            }
-            if obj_guard.get_controlling_player_id() == Some(self.player_id) {
-                continue;
-            }
-
-            let pos = obj_guard.get_position();
-            let dx = pos.x - base_center.x;
-            let dy = pos.y - base_center.y;
-            let dist = (dx * dx + dy * dy).sqrt().max(1.0);
-            let distance_factor = (1.0 - (dist / 450.0)).clamp(0.05, 1.0);
-
-            if obj_guard.has_any_weapon() {
-                let unit_weight = if obj_guard.is_kind_of(KindOf::Aircraft) {
-                    1.4
-                } else if obj_guard.is_kind_of(KindOf::Vehicle) {
-                    1.2
-                } else if obj_guard.is_kind_of(KindOf::Infantry) {
-                    0.8
-                } else {
-                    0.6
-                };
-                threat_points += unit_weight * distance_factor;
-            }
+            threat_points += contrib;
         }
 
         Ok((threat_points / 12.0).clamp(0.0, 1.0))

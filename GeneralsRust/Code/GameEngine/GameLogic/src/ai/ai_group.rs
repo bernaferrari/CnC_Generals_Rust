@@ -486,78 +486,84 @@ impl AiGroup {
 
     /// Determine role for new member based on unit type
     fn determine_member_role(&self, object_id: ObjectID) -> Result<GroupMemberRole, AiError> {
-        let Some(object) = OBJECT_REGISTRY.get_object(object_id) else {
-            return Err(AiError::InvalidObject);
-        };
-        let object_guard = object.read().map_err(|_| AiError::LockFailed)?;
-
         if self.members.is_empty() {
+            // Still require object to exist.
+            if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
+                return Err(AiError::InvalidObject);
+            }
             return Ok(GroupMemberRole::Leader);
         }
 
-        if object_guard.is_kind_of(KindOf::Transport)
-            || object_guard.is_kind_of(KindOf::AmphibiousTransport)
-        {
-            return Ok(GroupMemberRole::Transport);
-        }
+        OBJECT_REGISTRY
+            .with_object(object_id, |object_guard| {
+                if object_guard.is_kind_of(KindOf::Transport)
+                    || object_guard.is_kind_of(KindOf::AmphibiousTransport)
+                {
+                    return GroupMemberRole::Transport;
+                }
 
-        if object_guard.is_kind_of(KindOf::Dozer)
-            || object_guard.get_template_name().to_ascii_lowercase().contains("engineer")
-        {
-            return Ok(GroupMemberRole::Engineer);
-        }
+                if object_guard.is_kind_of(KindOf::Dozer)
+                    || object_guard
+                        .get_template_name()
+                        .to_ascii_lowercase()
+                        .contains("engineer")
+                {
+                    return GroupMemberRole::Engineer;
+                }
 
-        let template_name = object_guard.get_template_name().to_ascii_lowercase();
-        if template_name.contains("medic") || template_name.contains("ambulance") {
-            return Ok(GroupMemberRole::Medic);
-        }
-        if template_name.contains("scout")
-            || template_name.contains("recon")
-            || template_name.contains("radar")
-        {
-            return Ok(GroupMemberRole::Scout);
-        }
-        if template_name.contains("artillery")
-            || template_name.contains("howitzer")
-            || template_name.contains("scud")
-            || template_name.contains("rocket")
-            || template_name.contains("mortar")
-        {
-            return Ok(GroupMemberRole::Artillery);
-        }
-        if (template_name.contains("anti") && template_name.contains("air"))
-            || template_name.contains("stinger")
-            || template_name.contains("avenger")
-            || template_name.contains("gatling")
-        {
-            return Ok(GroupMemberRole::AntiAir);
-        }
+                let template_name = object_guard.get_template_name().to_ascii_lowercase();
+                if template_name.contains("medic") || template_name.contains("ambulance") {
+                    return GroupMemberRole::Medic;
+                }
+                if template_name.contains("scout")
+                    || template_name.contains("recon")
+                    || template_name.contains("radar")
+                {
+                    return GroupMemberRole::Scout;
+                }
+                if template_name.contains("artillery")
+                    || template_name.contains("howitzer")
+                    || template_name.contains("scud")
+                    || template_name.contains("rocket")
+                    || template_name.contains("mortar")
+                {
+                    return GroupMemberRole::Artillery;
+                }
+                if (template_name.contains("anti") && template_name.contains("air"))
+                    || template_name.contains("stinger")
+                    || template_name.contains("avenger")
+                    || template_name.contains("gatling")
+                {
+                    return GroupMemberRole::AntiAir;
+                }
 
-        if object_guard.is_kind_of(KindOf::Aircraft) {
-            return Ok(GroupMemberRole::Scout);
-        }
-        if object_guard.is_kind_of(KindOf::Infantry) {
-            return Ok(GroupMemberRole::Fighter);
-        }
-        if object_guard.is_kind_of(KindOf::Vehicle) {
-            let damage = object_guard.get_max_damage_potential();
-            if damage >= 250.0 {
-                return Ok(GroupMemberRole::Heavy);
-            }
-            if damage > 0.0 {
-                return Ok(GroupMemberRole::Fighter);
-            }
-            return Ok(GroupMemberRole::Support);
-        }
-        if object_guard.is_kind_of(KindOf::Structure) {
-            return Ok(GroupMemberRole::Support);
-        }
+                if object_guard.is_kind_of(KindOf::Aircraft) {
+                    return GroupMemberRole::Scout;
+                }
+                if object_guard.is_kind_of(KindOf::Infantry) {
+                    return GroupMemberRole::Fighter;
+                }
+                if object_guard.is_kind_of(KindOf::Vehicle) {
+                    let damage = object_guard.get_max_damage_potential();
+                    if damage >= 250.0 {
+                        return GroupMemberRole::Heavy;
+                    }
+                    if damage > 0.0 {
+                        return GroupMemberRole::Fighter;
+                    }
+                    return GroupMemberRole::Support;
+                }
+                if object_guard.is_kind_of(KindOf::Structure) {
+                    return GroupMemberRole::Support;
+                }
 
-        if object_guard.has_any_weapon() {
-            return Ok(GroupMemberRole::Fighter);
-        }
+                if object_guard.has_any_weapon() {
+                    return GroupMemberRole::Fighter;
+                }
 
-        Ok(GroupMemberRole::Support)
+                GroupMemberRole::Support
+            })
+            .ok_or(AiError::InvalidObject)
     }
 
     /// Find formation position for new member
@@ -832,15 +838,19 @@ impl AiGroup {
 
     /// Get speed of individual member
     fn get_member_speed(&self, object_id: ObjectID) -> Result<Real, AiError> {
-        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-            return Err(AiError::InvalidObject);
-        };
-        let guard = obj.read().map_err(|_| AiError::LockFailed)?;
-        if let Some(physics) = guard.get_physics() {
-            let physics_guard = physics.lock().map_err(|_| AiError::LockFailed)?;
-            return Ok(physics_guard.get_velocity().length());
-        }
-        Ok(0.0)
+        OBJECT_REGISTRY
+            .with_object(object_id, |guard| {
+                if let Some(physics) = guard.get_physics() {
+                    physics
+                        .lock()
+                        .ok()
+                        .map(|physics_guard| physics_guard.get_velocity().length())
+                        .unwrap_or(0.0)
+                } else {
+                    0.0
+                }
+            })
+            .ok_or(AiError::InvalidObject)
     }
 
     /// Update member status and positions
@@ -850,14 +860,11 @@ impl AiGroup {
                 continue; // Skip dead members
             }
             
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member.object_id) {
-                if let Ok(guard) = obj.read() {
-                    member.last_known_position = *guard.get_position();
-                    member.health_percentage = guard.get_health_percentage();
-                } else {
-                    member.status = GroupMemberStatus::Dead;
-                    continue;
-                }
+            if let Some((pos, health)) = OBJECT_REGISTRY.with_object(member.object_id, |guard| {
+                (*guard.get_position(), guard.get_health_percentage())
+            }) {
+                member.last_known_position = pos;
+                member.health_percentage = health;
             } else {
                 member.status = GroupMemberStatus::Dead;
                 continue;
