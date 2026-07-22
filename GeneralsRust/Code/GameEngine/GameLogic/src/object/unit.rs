@@ -1989,25 +1989,19 @@ impl Unit {
         target_id: ObjectID,
         _delta_time: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let (target_pos, target_relationship, detected) =
-            match crate::object::registry::OBJECT_REGISTRY.get_object(target_id) {
-                Some(obj) => {
-                    let guard = obj.read().ok();
-                    let pos = guard.as_ref().map(|g| *g.get_position());
-                    let rel = guard
-                        .as_ref()
-                        .and_then(|g| {
-                            self.base_object
-                                .read()
-                                .ok()
-                                .map(|me| me.relationship_to(&g))
-                        })
-                        .unwrap_or(Relationship::Neutral);
-                    let detected = guard.map(|g| g.is_detected()).unwrap_or(false);
-                    (pos, rel, detected)
-                }
-                None => (None, Relationship::Neutral, false),
-            };
+        let (target_pos, target_relationship, detected) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |g| {
+                let pos = Some(*g.get_position());
+                let rel = self
+                    .base_object
+                    .read()
+                    .ok()
+                    .map(|me| me.relationship_to(g))
+                    .unwrap_or(Relationship::Neutral);
+                let detected = g.is_detected();
+                (pos, rel, detected)
+            })
+            .unwrap_or((None, Relationship::Neutral, false));
 
         let target_pos = match target_pos {
             Some(pos) => pos,

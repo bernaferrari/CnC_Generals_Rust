@@ -8791,19 +8791,21 @@ fn find_enemy_in_container(killer: &Object, building: &Object) -> Option<ObjectI
     };
     let contained_ids = contain_guard.get_contained_objects();
     for &id in contained_ids {
-        let Some(contained_arc) = OBJECT_REGISTRY.get_object(id) else {
+        let Some(is_enemy) = OBJECT_REGISTRY
+            .with_object(id, |contained_guard| {
+                // Skip dead things (C++ line 398: isEffectivelyDead check)
+                if contained_guard.is_effectively_dead() {
+                    return None;
+                }
+                // C++ line 405: killer->getRelationship(*it) == ENEMIES
+                // Order matters: we check if killer considers it an enemy, not vice versa.
+                Some(killer.relationship_to(contained_guard) == Relationship::Enemies)
+            })
+            .flatten()
+        else {
             continue;
         };
-        let Ok(contained_guard) = contained_arc.read() else {
-            continue;
-        };
-        // Skip dead things (C++ line 398: isEffectivelyDead check)
-        if contained_guard.is_effectively_dead() {
-            continue;
-        }
-        // C++ line 405: killer->getRelationship(*it) == ENEMIES
-        // Order matters: we check if killer considers it an enemy, not vice versa.
-        if killer.relationship_to(&contained_guard) == Relationship::Enemies {
+        if is_enemy {
             return Some(id);
         }
     }
@@ -8856,11 +8858,9 @@ fn kill_enemies_in_container(killer_id: ObjectID, building: &Object, max_to_kill
         }
 
         // Kill the enemy (C++ line 434)
-        if let Some(enemy_arc) = OBJECT_REGISTRY.get_object(enemy_id) {
-            if let Ok(mut enemy_guard) = enemy_arc.write() {
-                enemy_guard.kill(None, None);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(enemy_id, |enemy_guard| {
+            enemy_guard.kill(None, None);
+        });
 
         num_killed += 1;
     }
