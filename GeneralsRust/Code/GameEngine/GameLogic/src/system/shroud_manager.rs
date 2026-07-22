@@ -3373,11 +3373,12 @@ mod tests {
         let target_template = Arc::new(DefaultThingTemplate::new("ShroudTarget".to_string()));
 
         let viewer = GameObjectInstance::new(
-                300,
-                Some(viewer_template),
-                Some(team_player0),
-                ObjectCreationFlags::from_template(),
-            ).expect("failed to create viewer object");
+            300,
+            Some(viewer_template),
+            Some(team_player0),
+            ObjectCreationFlags::from_template(),
+        )
+        .expect("failed to create viewer object");
         {
             let __base_arc = viewer.base();
             let mut base = __base_arc.write().unwrap();
@@ -3386,11 +3387,12 @@ mod tests {
         }
 
         let target = GameObjectInstance::new(
-                301,
-                Some(target_template),
-                None,
-                ObjectCreationFlags::from_template(),
-            ).expect("failed to create target object");
+            301,
+            Some(target_template),
+            None,
+            ObjectCreationFlags::from_template(),
+        )
+        .expect("failed to create target object");
 
         let viewer_pos = Coord3D::new(0.0, 0.0, 0.0);
         let target_pos = Coord3D::new(100.0, 0.0, 0.0);
@@ -3446,18 +3448,20 @@ mod tests {
         let target_template = Arc::new(DefaultThingTemplate::new("SpyTarget".to_string()));
 
         let viewer = GameObjectInstance::new(
-                100,
-                Some(viewer_template),
-                Some(team_player1),
-                ObjectCreationFlags::from_template(),
-            ).expect("failed to create viewer object");
+            100,
+            Some(viewer_template),
+            Some(team_player1),
+            ObjectCreationFlags::from_template(),
+        )
+        .expect("failed to create viewer object");
 
         let target = GameObjectInstance::new(
-                200,
-                Some(target_template),
-                Some(team_player2),
-                ObjectCreationFlags::from_template(),
-            ).expect("failed to create target object");
+            200,
+            Some(target_template),
+            Some(team_player2),
+            ObjectCreationFlags::from_template(),
+        )
+        .expect("failed to create target object");
 
         {
             let mut mgr = manager_arc.write().unwrap();

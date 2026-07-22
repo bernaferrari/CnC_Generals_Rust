@@ -189,9 +189,9 @@ impl AIManager for AIManagerBridge {
             objects
                 .iter()
                 .filter_map(|object_id| {
-                    factory
-                        .get_object(*object_id)
-                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
+                    factory.get_object(*object_id).and_then(|instance| {
+                        instance.get_base_object().map(|base| (*object_id, base))
+                    })
                 })
                 .collect()
         };
@@ -247,9 +247,9 @@ impl AIManager for AIManagerBridge {
             objects
                 .iter()
                 .filter_map(|object_id| {
-                    factory
-                        .get_object(*object_id)
-                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
+                    factory.get_object(*object_id).and_then(|instance| {
+                        instance.get_base_object().map(|base| (*object_id, base))
+                    })
                 })
                 .collect()
         };
@@ -305,9 +305,9 @@ impl AIManager for AIManagerBridge {
             objects
                 .iter()
                 .filter_map(|object_id| {
-                    factory
-                        .get_object(*object_id)
-                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
+                    factory.get_object(*object_id).and_then(|instance| {
+                        instance.get_base_object().map(|base| (*object_id, base))
+                    })
                 })
                 .collect()
         };
@@ -364,9 +364,9 @@ impl AIManager for AIManagerBridge {
             let attackers = attackers
                 .iter()
                 .filter_map(|object_id| {
-                    factory
-                        .get_object(*object_id)
-                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
+                    factory.get_object(*object_id).and_then(|instance| {
+                        instance.get_base_object().map(|base| (*object_id, base))
+                    })
                 })
                 .collect::<Vec<_>>();
 
@@ -567,9 +567,9 @@ impl AIManager for AIManagerBridge {
             objects
                 .iter()
                 .filter_map(|object_id| {
-                    factory
-                        .get_object(*object_id)
-                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
+                    factory.get_object(*object_id).and_then(|instance| {
+                        instance.get_base_object().map(|base| (*object_id, base))
+                    })
                 })
                 .collect()
         };
@@ -639,9 +639,9 @@ impl AIManager for AIManagerBridge {
             let targets = objects
                 .iter()
                 .filter_map(|object_id| {
-                    factory
-                        .get_object(*object_id)
-                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
+                    factory.get_object(*object_id).and_then(|instance| {
+                        instance.get_base_object().map(|base| (*object_id, base))
+                    })
                 })
                 .collect::<Vec<_>>();
 
@@ -725,9 +725,9 @@ impl AIManager for AIManagerBridge {
             objects
                 .iter()
                 .filter_map(|object_id| {
-                    factory
-                        .get_object(*object_id)
-                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
+                    factory.get_object(*object_id).and_then(|instance| {
+                        instance.get_base_object().map(|base| (*object_id, base))
+                    })
                 })
                 .collect()
         };
@@ -797,9 +797,9 @@ impl AIManager for AIManagerBridge {
             let targets = objects
                 .iter()
                 .filter_map(|object_id| {
-                    factory
-                        .get_object(*object_id)
-                        .and_then(|instance| instance.get_base_object().map(|base| (*object_id, base)))
+                    factory.get_object(*object_id).and_then(|instance| {
+                        instance.get_base_object().map(|base| (*object_id, base))
+                    })
                 })
                 .collect::<Vec<_>>();
 
