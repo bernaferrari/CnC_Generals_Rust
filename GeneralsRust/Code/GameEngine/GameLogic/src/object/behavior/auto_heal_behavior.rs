@@ -486,8 +486,10 @@ crate::impl_behavior_module_data_via_base!(AutoHealBehaviorModuleData, base);
 pub struct AutoHealPlayerScanHelper {
     pub kind_of_to_test: KindOfMaskType,
     pub forbidden_kind_of: KindOfMaskType,
-    pub the_healer: Option<Arc<RwLock<GameObject>>>,
-    pub object_list: Vec<Arc<RwLock<GameObject>>>,
+    /// Healer object id (stable; resolve only for the duration of a check).
+    pub the_healer: Option<ObjectID>,
+    /// Candidate object ids to pulse-heal after the scan.
+    pub object_list: Vec<ObjectID>,
     pub skip_self_for_healing: Bool,
 }
 
@@ -502,62 +504,66 @@ impl AutoHealPlayerScanHelper {
         }
     }
 
-    /// Check if an object should be auto-healed
+    /// Check if an object should be auto-healed (ID-first).
     pub fn check_for_auto_heal(
         &mut self,
-        test_obj: Arc<RwLock<GameObject>>,
+        test_obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let test_obj_read = test_obj
-            .read()
-            .map_err(|e| format!("auto-heal lock poisoned: {}", e))?;
-
-        if test_obj_read.is_effectively_dead() {
+        if test_obj_id == OBJECT_INVALID_ID {
             return Ok(());
         }
 
-        if let (Some(healer), Some(controlling_player)) =
-            (&self.the_healer, test_obj_read.get_controlling_player())
-        {
-            let healer_read = healer
-                .read()
-                .map_err(|e| format!("auto-heal healer lock poisoned: {}", e))?;
-            if let Some(healer_player) = healer_read.get_controlling_player() {
-                if !Arc::ptr_eq(&controlling_player, &healer_player) {
-                    return Ok(());
+        let should_queue = OBJECT_REGISTRY
+            .with_object(test_obj_id, |test_obj_read| -> Result<bool, String> {
+                if test_obj_read.is_effectively_dead() {
+                    return Ok(false);
                 }
-            }
-        }
 
-        if test_obj_read.is_off_map() {
-            return Ok(());
-        }
+                if let Some(healer_id) = self.the_healer {
+                    let test_player = test_obj_read.get_controlling_player_id();
+                    let healer_player = OBJECT_REGISTRY
+                        .with_object(healer_id, |healer| healer.get_controlling_player_id());
+                    if let (Some(tp), Some(Some(hp))) = (test_player, healer_player) {
+                        if tp != hp {
+                            return Ok(false);
+                        }
+                    }
 
-        if self.skip_self_for_healing {
-            if let Some(healer) = &self.the_healer {
-                if Arc::ptr_eq(&test_obj, healer) {
-                    return Ok(());
+                    if self.skip_self_for_healing && healer_id == test_obj_id {
+                        return Ok(false);
+                    }
                 }
-            }
-        }
 
-        if !object_matches_kind_mask(&test_obj_read, self.kind_of_to_test) {
-            return Ok(());
-        }
+                if test_obj_read.is_off_map() {
+                    return Ok(false);
+                }
 
-        if object_matches_kind_mask(&test_obj_read, self.forbidden_kind_of) {
-            return Ok(());
-        }
+                if !object_matches_kind_mask(test_obj_read, self.kind_of_to_test) {
+                    return Ok(false);
+                }
 
-        if let Some(body) = test_obj_read.get_body_module() {
-            let body_lock = body
-                .lock()
-                .map_err(|e| format!("auto-heal body lock poisoned: {}", e))?;
-            if body_lock.get_health() >= body_lock.get_max_health() {
-                return Ok(());
-            }
-        }
+                if object_matches_kind_mask(test_obj_read, self.forbidden_kind_of) {
+                    return Ok(false);
+                }
 
-        self.object_list.push(test_obj.clone());
+                if let Some(body) = test_obj_read.get_body_module() {
+                    let body_lock = body
+                        .lock()
+                        .map_err(|e| format!("auto-heal body lock poisoned: {}", e))?;
+                    if body_lock.get_health() >= body_lock.get_max_health() {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            })
+            .transpose()
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?
+            .unwrap_or(false);
+
+        if should_queue {
+            self.object_list.push(test_obj_id);
+        }
         Ok(())
     }
 }
@@ -746,6 +752,20 @@ impl AutoHealBehavior {
         }
 
         Ok(())
+    }
+
+    /// ID-first pulse heal: resolve target for the duration of the heal write.
+    fn pulse_heal_object_id(
+        &mut self,
+        obj_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if obj_id == OBJECT_INVALID_ID {
+            return Ok(());
+        }
+        let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return Ok(());
+        };
+        self.pulse_heal_object(obj)
     }
 
     /// Get the object this behavior belongs to
@@ -942,23 +962,23 @@ impl AutoHealBehavior {
             let mut helper = AutoHealPlayerScanHelper::new();
             helper.kind_of_to_test = kind_of_to_test;
             helper.forbidden_kind_of = forbidden_kind_of;
-            helper.the_healer = Some(obj.clone());
+            helper.the_healer = Some(obj.read().map(|g| g.get_id()).unwrap_or(OBJECT_INVALID_ID));
             helper.skip_self_for_healing = skip_self;
 
             player
                 .read()
                 .map_err(|e| format!("auto-heal player lock poisoned: {}", e))?
-                .iterate_objects(|candidate| {
+                .iterate_object_ids(|candidate_id| {
                     helper
-                        .check_for_auto_heal(candidate)
+                        .check_for_auto_heal(candidate_id)
                         .map_err(|e| crate::common::GameError::ModuleError(e.to_string()))?;
                     Ok(())
                 })
                 .map_err(|e| format!("auto-heal iterate_objects failed: {:?}", e))?;
 
             // Heal all qualifying objects
-            for heal_obj in helper.object_list {
-                self.pulse_heal_object(heal_obj)?;
+            for heal_id in helper.object_list {
+                self.pulse_heal_object_id(heal_id)?;
             }
         }
 

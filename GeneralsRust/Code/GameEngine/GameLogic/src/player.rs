@@ -2873,6 +2873,24 @@ impl Player {
         Ok(())
     }
 
+    /// ID-first owned-object iteration (no Arc retention at the callback boundary).
+    pub fn iterate_object_ids<F>(&self, mut func: F) -> Result<(), GameError>
+    where
+        F: FnMut(ObjectID) -> Result<(), GameError>,
+    {
+        let obj_manager = get_object_manager();
+        if let Ok(manager) = obj_manager.read() {
+            let object_ids = manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
+            for obj_id in object_ids {
+                // Only yield ids that still resolve.
+                if manager.get_object(obj_id).is_some() {
+                    func(obj_id)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Academy stats
     pub fn get_academy_stats(&self) -> &AcademyStats {
         &self.academy_stats
@@ -5126,6 +5144,9 @@ pub trait PlayerArcExt {
     fn iterate_objects<F>(&self, func: F) -> Result<(), GameError>
     where
         F: FnMut(Arc<RwLock<Object>>) -> Result<(), GameError>;
+    fn iterate_object_ids<F>(&self, func: F) -> Result<(), GameError>
+    where
+        F: FnMut(ObjectID) -> Result<(), GameError>;
     fn get_player_template(&self) -> Option<Arc<PlayerTemplate>>;
     fn allowed_to_build(&self, template: &dyn crate::common::ThingTemplate) -> Bool;
 }
@@ -5247,6 +5268,17 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
             Ok(())
         } else {
             Err(GameLogicError::LockError)
+        }
+    }
+
+    fn iterate_object_ids<F>(&self, mut func: F) -> Result<(), GameError>
+    where
+        F: FnMut(ObjectID) -> Result<(), GameError>,
+    {
+        if let Ok(guard) = self.read() {
+            guard.iterate_object_ids(func)
+        } else {
+            Ok(())
         }
     }
 
