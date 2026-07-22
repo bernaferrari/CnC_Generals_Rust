@@ -539,35 +539,32 @@ impl AiStateMachine {
                     state.scratch.path_timestamp = TheGameLogic::get_frame();
                 }
 
-                if let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_id) {
-                    if let Ok(mut owner_guard) = owner.write() {
-                        owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-                        if is_cliff_at(owner_guard.get_position()) {
-                            owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
-                            owner_guard
-                                .clear_model_condition_state(ModelConditionFlags::RAPPELLING);
-                        }
-                        if let Some(ai) = owner_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                if owner_guard
-                                    .test_status(crate::common::ObjectStatusTypes::Parachuting)
-                                    || !ai_guard.is_allowed_to_adjust_destination()
-                                {
-                                    state.adjust_destinations = false;
-                                }
-                                if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-                                    if let Ok(loco_guard) = locomotor.lock() {
-                                        if loco_guard.is_ultra_accurate() {
-                                            state.adjust_destinations = false;
-                                        }
+                let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                    owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
+                    if is_cliff_at(owner_guard.get_position()) {
+                        owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
+                        owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+                    }
+                    if let Some(ai) = owner_guard.get_ai_update_interface() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            if owner_guard
+                                .test_status(crate::common::ObjectStatusTypes::Parachuting)
+                                || !ai_guard.is_allowed_to_adjust_destination()
+                            {
+                                state.adjust_destinations = false;
+                            }
+                            if let Some(locomotor) = ai_guard.get_cur_locomotor() {
+                                if let Ok(loco_guard) = locomotor.lock() {
+                                    if loco_guard.is_ultra_accurate() {
+                                        state.adjust_destinations = false;
                                     }
                                 }
-                                ai_guard.set_adjusts_destination(state.adjust_destinations);
-                                let _ = ai_guard.set_path_extra_distance(0.0);
                             }
+                            ai_guard.set_adjusts_destination(state.adjust_destinations);
+                            let _ = ai_guard.set_path_extra_distance(0.0);
                         }
                     }
-                }
+                });
                 self.start_move_sound(state);
             }
             AiStateType::AttackObject | AiStateType::AttackPosition => {
@@ -607,20 +604,18 @@ impl AiStateMachine {
             AiStateType::FaceObject | AiStateType::FacePosition => {
                 // C++ AIFaceState::onEnter caches whether this locomotor can turn in place.
                 state.scratch.face_can_turn_in_place = false;
-                if let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_id) {
-                    if let Ok(owner_guard) = owner.read() {
-                        if let Some(ai) = owner_guard.get_ai_update_interface() {
-                            if let Ok(ai_guard) = ai.lock() {
-                                if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-                                    if let Ok(loco_guard) = locomotor.lock() {
-                                        state.scratch.face_can_turn_in_place =
-                                            loco_guard.template.min_speed == 0.0;
-                                    }
+                let _ = OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                    if let Some(ai) = owner_guard.get_ai_update_interface() {
+                        if let Ok(ai_guard) = ai.lock() {
+                            if let Some(locomotor) = ai_guard.get_cur_locomotor() {
+                                if let Ok(loco_guard) = locomotor.lock() {
+                                    state.scratch.face_can_turn_in_place =
+                                        loco_guard.template.min_speed == 0.0;
                                 }
                             }
                         }
                     }
-                }
+                });
             }
             _ => {} // Most states don't need special enter logic
         }
@@ -650,18 +645,16 @@ impl AiStateMachine {
                         audio.remove_audio_event(state.scratch.move_sound_handle);
                     }
                 }
-                if let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_id) {
-                    if let Ok(mut owner_guard) = owner.write() {
-                        if let Some(ai) = owner_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard.destroy_path();
-                            }
+                let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                    if let Some(ai) = owner_guard.get_ai_update_interface() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            ai_guard.destroy_path();
                         }
-                        owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-                        owner_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
-                        owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
                     }
-                }
+                    owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
+                    owner_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
+                    owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+                });
             }
             AiStateType::AttackObject => {
                 // Stop attack animations, release weapon lock, etc.
@@ -712,20 +705,18 @@ impl AiStateMachine {
             if let Some(goal_obj) = OBJECT_REGISTRY.get_object(goal_obj_id) {
                 if let Ok(goal_guard) = goal_obj.read() {
                     let mut new_goal = *goal_guard.get_position();
-                    if let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_id) {
-                        if let Ok(owner_guard) = owner.read() {
-                            if owner_guard.is_kind_of(KindOf::Projectile) {
-                                let half_height = goal_guard
-                                    .get_geometry_info()
-                                    .get_max_height_above_position()
-                                    * 0.5;
+                    let _ = OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                        if owner_guard.is_kind_of(KindOf::Projectile) {
+                            let half_height = goal_guard
+                                .get_geometry_info()
+                                .get_max_height_above_position()
+                                * 0.5;
+                            new_goal.z += half_height;
+                            if goal_guard.get_position().z < new_goal.z {
                                 new_goal.z += half_height;
-                                if goal_guard.get_position().z < new_goal.z {
-                                    new_goal.z += half_height;
-                                }
                             }
                         }
-                    }
+                    });
 
                     let mut repath = false;
                     if let Some(prev_goal) = state.scratch.path_goal_position {
@@ -786,50 +777,48 @@ impl AiStateMachine {
             }
         }
 
-        if let Some(obj) = OBJECT_REGISTRY.get_object(self.owner_id) {
-            if let Ok(mut obj_guard) = obj.write() {
-                let mut frames_blocked = 0;
-                let mut moving_backwards = false;
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.lock() {
-                        frames_blocked = ai_guard.get_num_frames_blocked();
-                        moving_backwards = ai_guard
-                            .get_cur_locomotor()
-                            .and_then(|loc| loc.lock().ok().map(|loco| loco.is_moving_backwards()))
-                            .unwrap_or(false);
-                    }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |obj_guard| {
+            let mut frames_blocked = 0;
+            let mut moving_backwards = false;
+            if let Some(ai) = obj_guard.get_ai_update_interface() {
+                if let Ok(ai_guard) = ai.lock() {
+                    frames_blocked = ai_guard.get_num_frames_blocked();
+                    moving_backwards = ai_guard
+                        .get_cur_locomotor()
+                        .and_then(|loc| loc.lock().ok().map(|loco| loco.is_moving_backwards()))
+                        .unwrap_or(false);
+                }
+            }
+
+            if frames_blocked > LOGICFRAMES_PER_SECOND / 4 {
+                obj_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
+                obj_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
+                obj_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+            } else {
+                obj_guard.set_model_condition_state(ModelConditionFlags::MOVING);
+                let mut set_flag = ModelConditionFlags::MOVING;
+                if is_cliff_at(obj_guard.get_position()) {
+                    set_flag = if moving_backwards {
+                        ModelConditionFlags::RAPPELLING
+                    } else {
+                        ModelConditionFlags::CLIMBING
+                    };
                 }
 
-                if frames_blocked > LOGICFRAMES_PER_SECOND / 4 {
-                    obj_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
+                if set_flag == ModelConditionFlags::MOVING {
                     obj_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
                     obj_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
                 } else {
-                    obj_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-                    let mut set_flag = ModelConditionFlags::MOVING;
-                    if is_cliff_at(obj_guard.get_position()) {
-                        set_flag = if moving_backwards {
-                            ModelConditionFlags::RAPPELLING
-                        } else {
-                            ModelConditionFlags::CLIMBING
-                        };
-                    }
-
-                    if set_flag == ModelConditionFlags::MOVING {
-                        obj_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
-                        obj_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+                    let clear_flag = if set_flag == ModelConditionFlags::CLIMBING {
+                        ModelConditionFlags::RAPPELLING
                     } else {
-                        let clear_flag = if set_flag == ModelConditionFlags::CLIMBING {
-                            ModelConditionFlags::RAPPELLING
-                        } else {
-                            ModelConditionFlags::CLIMBING
-                        };
-                        obj_guard.clear_model_condition_state(clear_flag);
-                        obj_guard.set_model_condition_state(set_flag);
-                    }
+                        ModelConditionFlags::CLIMBING
+                    };
+                    obj_guard.clear_model_condition_state(clear_flag);
+                    obj_guard.set_model_condition_state(set_flag);
                 }
             }
-        }
+        });
 
         // Check if we need to request pathfinding
         let pathfinding_requested = state.scratch.pathfinding_requested;
@@ -850,29 +839,27 @@ impl AiStateMachine {
             let mut layer = PathfindLayerEnum::Ground;
             let mut surfaces_from_locomotor = None;
 
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.owner_id) {
-                if let Ok(obj_guard) = obj.read() {
-                    if obj_guard.is_kind_of(KindOf::Amphibious)
-                        || obj_guard.is_kind_of(KindOf::AmphibiousTransport)
-                    {
-                        acceptable_surfaces |= SURFACE_WATER;
-                    }
-
-                    if obj_guard.is_kind_of(KindOf::CliffJumper) {
-                        acceptable_surfaces |= SURFACE_CLIFF;
-                    }
-
-                    if obj_guard.get_crusher_level() > 0 {
-                        acceptable_surfaces |= SURFACE_RUBBLE;
-                        is_crusher = true;
-                    }
-
-                    if obj_guard.is_kind_of(KindOf::Aircraft) {
-                        layer = PathfindLayerEnum::Top;
-                        acceptable_surfaces |= SURFACE_WATER | SURFACE_CLIFF | SURFACE_RUBBLE;
-                    }
+            let _ = OBJECT_REGISTRY.with_object(self.owner_id, |obj_guard| {
+                if obj_guard.is_kind_of(KindOf::Amphibious)
+                    || obj_guard.is_kind_of(KindOf::AmphibiousTransport)
+                {
+                    acceptable_surfaces |= SURFACE_WATER;
                 }
-            }
+
+                if obj_guard.is_kind_of(KindOf::CliffJumper) {
+                    acceptable_surfaces |= SURFACE_CLIFF;
+                }
+
+                if obj_guard.get_crusher_level() > 0 {
+                    acceptable_surfaces |= SURFACE_RUBBLE;
+                    is_crusher = true;
+                }
+
+                if obj_guard.is_kind_of(KindOf::Aircraft) {
+                    layer = PathfindLayerEnum::Top;
+                    acceptable_surfaces |= SURFACE_WATER | SURFACE_CLIFF | SURFACE_RUBBLE;
+                }
+            });
 
             if let Ok(factory_guard) = get_object_factory().read() {
                 if let Some(GameObjectInstance::Unit(unit)) =
@@ -932,19 +919,17 @@ impl AiStateMachine {
                 .unwrap_or(10.0);
 
             let mut close_enough = 5.0;
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.owner_id) {
-                if let Ok(obj_guard) = obj.read() {
-                    if let Some(ai) = obj_guard.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-                                if let Ok(loco_guard) = locomotor.lock() {
-                                    close_enough = loco_guard.get_close_enough_dist();
-                                }
+            let _ = OBJECT_REGISTRY.with_object(self.owner_id, |obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_update_interface() {
+                    if let Ok(ai_guard) = ai.lock() {
+                        if let Some(locomotor) = ai_guard.get_cur_locomotor() {
+                            if let Ok(loco_guard) = locomotor.lock() {
+                                close_enough = loco_guard.get_close_enough_dist();
                             }
                         }
                     }
                 }
-            }
+            });
 
             if dist_to_waypoint < close_enough {
                 // Reached this waypoint, advance to next

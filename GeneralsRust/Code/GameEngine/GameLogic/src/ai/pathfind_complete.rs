@@ -2936,18 +2936,20 @@ impl PathfindingSystem {
                 if oid == ignore_building || oid == INVALID_ID {
                     return 0;
                 }
-                let Some(arc) = OBJECT_REGISTRY.get_object(oid) else {
+                let Some((p, r)) = OBJECT_REGISTRY
+                    .with_object(oid, |g| {
+                        if !g.is_kind_of(KindOf::AircraftPathAround) {
+                            return None;
+                        }
+                        let p = *g.get_position();
+                        let r = g.get_geometry_info().get_bounding_circle_radius()
+                            + 2.0 * PATHFIND_CELL_SIZE_F;
+                        Some((p, r))
+                    })
+                    .flatten()
+                else {
                     return 0;
                 };
-                let Ok(g) = arc.read() else {
-                    return 0;
-                };
-                if !g.is_kind_of(KindOf::AircraftPathAround) {
-                    return 0;
-                }
-                let p = *g.get_position();
-                let r =
-                    g.get_geometry_info().get_bounding_circle_radius() + 2.0 * PATHFIND_CELL_SIZE_F;
                 found = Some((oid, p, r));
                 1 // stop like C++ callback return 1
             },
@@ -3086,24 +3088,27 @@ impl PathfindingSystem {
             if oid == ignore_building || oid == tall_id || oid == INVALID_ID {
                 continue;
             }
-            let Some(arc) = OBJECT_REGISTRY.get_object(oid) else {
+            let Some((p, radius)) = OBJECT_REGISTRY
+                .with_object(oid, |g| {
+                    if !g.is_kind_of(KindOf::AircraftPathAround) {
+                        return None;
+                    }
+                    let p = *g.get_position();
+                    let radius = g.get_geometry_info().get_bounding_circle_radius()
+                        + 2.0 * PATHFIND_CELL_SIZE_F;
+                    Some((p, radius))
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(g) = arc.read() else {
-                continue;
-            };
-            if !g.is_kind_of(KindOf::AircraftPathAround) {
-                continue;
-            }
-            let p = *g.get_position();
             let dx = p.x - adjust_to.x;
             let dy = p.y - adjust_to.y;
             let d = (dx * dx + dy * dy).sqrt();
             if d < best_dist {
                 best_dist = d;
                 other_pos = Some(p);
-                other_radius =
-                    g.get_geometry_info().get_bounding_circle_radius() + 2.0 * PATHFIND_CELL_SIZE_F;
+                other_radius = radius;
             }
         }
         if let Some(op) = other_pos {
@@ -3185,18 +3190,16 @@ impl PathfindingSystem {
                             if let Some(gc) = row.get(coord.y as usize) {
                                 let pos_unit = gc.get_pos_unit(layer);
                                 if pos_unit != INVALID_ID {
-                                    if let Some(obj_arc) = OBJECT_REGISTRY.get_object(pos_unit) {
-                                        if let Ok(og) = obj_arc.read() {
-                                            let crushable = og.get_crushable_level();
-                                            if crusher {
-                                                if crushable > 1 {
-                                                    clear = false;
-                                                }
-                                            } else if crushable > 0 {
+                                    let _ = OBJECT_REGISTRY.with_object(pos_unit, |og| {
+                                        let crushable = og.get_crushable_level();
+                                        if crusher {
+                                            if crushable > 1 {
                                                 clear = false;
                                             }
+                                        } else if crushable > 0 {
+                                            clear = false;
                                         }
-                                    }
+                                    });
                                 }
                             }
                         }
@@ -3793,22 +3796,20 @@ impl PathfindingSystem {
         if object_id == INVALID_ID {
             return false;
         }
-        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        let Ok(g) = arc.read() else {
-            return false;
-        };
-        if let Some(ai) = g.get_ai_update_interface() {
-            if let Ok(ai_g) = ai.lock() {
-                if let Some(loco) = ai_g.get_cur_locomotor() {
-                    if let Ok(loco_g) = loco.lock() {
-                        return loco_g.template.downhill_only;
+        OBJECT_REGISTRY
+            .with_object(object_id, |g| {
+                if let Some(ai) = g.get_ai_update_interface() {
+                    if let Ok(ai_g) = ai.lock() {
+                        if let Some(loco) = ai_g.get_cur_locomotor() {
+                            if let Ok(loco_g) = loco.lock() {
+                                return loco_g.template.downhill_only;
+                            }
+                        }
                     }
                 }
-            }
-        }
-        false
+                false
+            })
+            .unwrap_or(false)
     }
 
     /// True when a standing ally occupies `cell` (C++ PathfindCell::isBlockedByAlly stamp).
@@ -5873,13 +5874,11 @@ impl PathfindingSystem {
 
                 let mut check = false;
                 if flags == UNIT_PRESENT_MOVING || flags == UNIT_GOAL_OTHER_MOVING {
-                    if let Some(unit_arc) = OBJECT_REGISTRY.get_object(pos_unit) {
-                        if let Ok(unit_guard) = unit_arc.read() {
-                            if obj_guard.relationship_to(&unit_guard) == Relationship::Allies {
-                                info.ally_moving = true;
-                            }
+                    let _ = OBJECT_REGISTRY.with_object(pos_unit, |unit_guard| {
+                        if obj_guard.relationship_to(&unit_guard) == Relationship::Allies {
+                            info.ally_moving = true;
                         }
-                    }
+                    });
                     if info.consider_transient {
                         check = true;
                     }
