@@ -3,9 +3,20 @@
 //! A crate (actually a saboteur - mobile crate) that resets the timer on the target supply dropzone.
 //! Author: Kris Morness, June 2003 (original C++), converted to Rust
 
+use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
 use std::cmp;
 use std::sync::{Arc, Mutex, RwLock};
+
+fn resolve_crate_object(
+    id: ObjectID,
+) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
+    if id == crate::common::INVALID_ID {
+        return None;
+    }
+    crate::helpers::TheGameLogic::find_object_by_id(id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+}
 
 // Import types that would be defined in other modules
 use super::format_cash_template;
@@ -268,7 +279,11 @@ impl SabotageSupplyDropzoneCrateCollide {
     }
 
     /// Check if this is a valid target for execution
-    fn is_valid_to_execute(&self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
+    fn is_valid_to_execute(&self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         // First check base validation
         if !self.base.is_valid_to_execute(&other) {
             return Ok(false);
@@ -303,7 +318,11 @@ impl SabotageSupplyDropzoneCrateCollide {
     }
 
     /// Execute the crate behavior
-    fn execute_crate_behavior(&mut self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
+    fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         // Check to make sure that the other object is also the goal object in the AIUpdateInterface
         // in order to prevent an unintentional conversion simply by having the terrorist walk too close
         let object = self.base.get_object().map_err(GameError::from)?;
@@ -330,10 +349,10 @@ impl SabotageSupplyDropzoneCrateCollide {
             .do_sabotage_feedback_fx(&other, SabotageVictimType::DropZone);
 
         // Reset the timer on the dropzone
-        self.reset_dropzone_timer(other.clone())?;
+        self.reset_dropzone_timer(other_id)?;
 
         // Steal cash!
-        let cash_stolen = self.steal_cash(other.clone())?;
+        let cash_stolen = self.steal_cash(other_id)?;
 
         if cash_stolen > 0 {
             // Play the "cash stolen" EVA event if the local player is the victim!
@@ -357,7 +376,11 @@ impl SabotageSupplyDropzoneCrateCollide {
     }
 
     /// Reset the timer on the dropzone by finding and resetting its OCL update
-    fn reset_dropzone_timer(&self, other: Arc<RwLock<Object>>) -> Result<(), GameError> {
+    fn reset_dropzone_timer(&self, other_id: ObjectID) -> Result<(), GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(());
+        };
+
         let other_lock = other.read().map_err(|_| GameError::LockError)?;
 
         if let Some(module) = other_lock.find_update_module("OCLUpdate") {
@@ -377,7 +400,11 @@ impl SabotageSupplyDropzoneCrateCollide {
     }
 
     /// Steal cash from the target and give to the attacker
-    fn steal_cash(&self, other: Arc<RwLock<Object>>) -> Result<u32, GameError> {
+    fn steal_cash(&self, other_id: ObjectID) -> Result<u32, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(0);
+        };
+
         let object = self.base.get_object().map_err(GameError::from)?;
         let object_lock = object.read().map_err(|_| GameError::LockError)?;
         let other_lock = other.read().map_err(|_| GameError::LockError)?;
@@ -461,9 +488,14 @@ impl LegacyCollideAdapter for SabotageSupplyDropzoneCrateCollide {
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if SabotageSupplyDropzoneCrateCollide::is_valid_to_execute(self, other.clone())? {
-            let success =
-                SabotageSupplyDropzoneCrateCollide::execute_crate_behavior(self, other.clone())?;
+        if SabotageSupplyDropzoneCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )? {
+            let success = SabotageSupplyDropzoneCrateCollide::execute_crate_behavior(
+                self,
+                other.read().map(|g| g.get_id()).unwrap_or(0),
+            )?;
             self.base
                 .finish_execution_attempt(&other, success)
                 .map_err(GameError::from)?;
@@ -476,7 +508,10 @@ impl LegacyCollideAdapter for SabotageSupplyDropzoneCrateCollide {
         &self,
         other: Arc<RwLock<Object>>,
     ) -> Result<bool, GameError> {
-        SabotageSupplyDropzoneCrateCollide::is_valid_to_execute(self, other)
+        SabotageSupplyDropzoneCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
     fn legacy_is_sabotage_building_crate_collide(&self) -> bool {
@@ -485,12 +520,26 @@ impl LegacyCollideAdapter for SabotageSupplyDropzoneCrateCollide {
 }
 
 impl CrateCollideModule for SabotageSupplyDropzoneCrateCollide {
-    fn is_valid_to_execute(&self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
-        SabotageSupplyDropzoneCrateCollide::is_valid_to_execute(self, other)
+    fn is_valid_to_execute(&self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
+        SabotageSupplyDropzoneCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
-    fn execute_crate_behavior(&mut self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
-        SabotageSupplyDropzoneCrateCollide::execute_crate_behavior(self, other)
+    fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
+        SabotageSupplyDropzoneCrateCollide::execute_crate_behavior(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
     fn is_sabotage_building_crate_collide(&self) -> bool {

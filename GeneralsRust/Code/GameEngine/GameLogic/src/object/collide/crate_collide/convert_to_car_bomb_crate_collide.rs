@@ -4,7 +4,18 @@
 //! activating its weapon and then activating its AI.
 //! Author: Graham Smallwood, March 2002 (original C++), converted to Rust
 
+use crate::common::ObjectID;
 use std::sync::{Arc, Mutex, RwLock};
+
+fn resolve_crate_object(
+    id: ObjectID,
+) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
+    if id == crate::common::INVALID_ID {
+        return None;
+    }
+    crate::helpers::TheGameLogic::find_object_by_id(id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+}
 
 use crate::common::{
     kindof_from_name, FieldParse, FieldType, KindOf, ObjectStatusMaskType, ObjectStatusTypes,
@@ -268,7 +279,11 @@ impl ConvertToCarBombCrateCollide {
         }
     }
 
-    fn is_valid_to_execute(&self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
+    fn is_valid_to_execute(&self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         if !self.base.is_valid_to_execute(&other) {
             return Ok(false);
         }
@@ -304,7 +319,11 @@ impl ConvertToCarBombCrateCollide {
         Ok(true)
     }
 
-    fn execute_crate_behavior(&mut self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
+    fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         let obj = self.base.get_object().map_err(GameError::from)?;
         let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
         let other_id = other.read().map_err(|_| GameError::LockError)?.get_id();
@@ -427,9 +446,14 @@ impl LegacyCollideAdapter for ConvertToCarBombCrateCollide {
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if ConvertToCarBombCrateCollide::is_valid_to_execute(self, other.clone())? {
-            let success =
-                ConvertToCarBombCrateCollide::execute_crate_behavior(self, other.clone())?;
+        if ConvertToCarBombCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )? {
+            let success = ConvertToCarBombCrateCollide::execute_crate_behavior(
+                self,
+                other.read().map(|g| g.get_id()).unwrap_or(0),
+            )?;
             self.base
                 .finish_execution_attempt(&other, success)
                 .map_err(GameError::from)?;
@@ -442,7 +466,10 @@ impl LegacyCollideAdapter for ConvertToCarBombCrateCollide {
         &self,
         other: Arc<RwLock<Object>>,
     ) -> Result<bool, GameError> {
-        ConvertToCarBombCrateCollide::is_valid_to_execute(self, other)
+        ConvertToCarBombCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
     fn legacy_is_car_bomb_crate_collide(&self) -> bool {
@@ -451,12 +478,26 @@ impl LegacyCollideAdapter for ConvertToCarBombCrateCollide {
 }
 
 impl CrateCollideModule for ConvertToCarBombCrateCollide {
-    fn is_valid_to_execute(&self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
-        ConvertToCarBombCrateCollide::is_valid_to_execute(self, other)
+    fn is_valid_to_execute(&self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
+        ConvertToCarBombCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
-    fn execute_crate_behavior(&mut self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
-        ConvertToCarBombCrateCollide::execute_crate_behavior(self, other)
+    fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
+        ConvertToCarBombCrateCollide::execute_crate_behavior(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 }
 

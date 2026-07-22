@@ -3,8 +3,19 @@
 //! A crate (actually a hijacker - mobile crate) makes the target vehicle switch
 //! sides and hides the hijacker inside. This mirrors the C++ Hijacker behavior.
 
+use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, RwLock};
+
+fn resolve_crate_object(
+    id: ObjectID,
+) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
+    if id == crate::common::INVALID_ID {
+        return None;
+    }
+    crate::helpers::TheGameLogic::find_object_by_id(id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+}
 
 use crate::common::{
     kindof_from_name, CommandSourceType, FieldParse, KindOf, ObjectStatusMaskType,
@@ -253,7 +264,11 @@ impl ConvertToHijackedVehicleCrateCollide {
         }
     }
 
-    fn is_valid_to_execute(&self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
+    fn is_valid_to_execute(&self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         if !self.base.is_valid_to_execute(&other) {
             return Ok(false);
         }
@@ -296,7 +311,11 @@ impl ConvertToHijackedVehicleCrateCollide {
         Ok(true)
     }
 
-    fn execute_crate_behavior(&mut self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
+    fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         let hijacker = self.base.get_object().map_err(GameError::from)?;
         let hijacker_lock = hijacker.read().map_err(|_| GameError::LockError)?;
         let hijacker_id = hijacker_lock.get_id();
@@ -413,7 +432,7 @@ impl ConvertToHijackedVehicleCrateCollide {
         }
 
         // If target cannot eject pilots, destroy hijacker and finish.
-        if !self.target_supports_eject_pilot(&other)? {
+        if !self.target_supports_eject_pilot(other_id)? {
             // C++ path treats this as fire-and-forget cleanup.
             let _ = TheGameLogic::destroy_object_by_id(hijacker_id);
             return Ok(true);
@@ -487,7 +506,11 @@ impl ConvertToHijackedVehicleCrateCollide {
         Ok(false)
     }
 
-    fn target_supports_eject_pilot(&self, other: &Arc<RwLock<Object>>) -> Result<bool, GameError> {
+    fn target_supports_eject_pilot(&self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         let behavior_modules = other
             .read()
             .map_err(|_| GameError::LockError)?
@@ -512,9 +535,14 @@ impl LegacyCollideAdapter for ConvertToHijackedVehicleCrateCollide {
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(self, other.clone())? {
-            let success =
-                ConvertToHijackedVehicleCrateCollide::execute_crate_behavior(self, other.clone())?;
+        if ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )? {
+            let success = ConvertToHijackedVehicleCrateCollide::execute_crate_behavior(
+                self,
+                other.read().map(|g| g.get_id()).unwrap_or(0),
+            )?;
             self.base
                 .finish_execution_attempt(&other, success)
                 .map_err(GameError::from)?;
@@ -527,7 +555,10 @@ impl LegacyCollideAdapter for ConvertToHijackedVehicleCrateCollide {
         &self,
         other: Arc<RwLock<Object>>,
     ) -> Result<bool, GameError> {
-        ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(self, other)
+        ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
     fn legacy_is_hijacked_vehicle_crate_collide(&self) -> bool {
@@ -536,12 +567,26 @@ impl LegacyCollideAdapter for ConvertToHijackedVehicleCrateCollide {
 }
 
 impl CrateCollideModule for ConvertToHijackedVehicleCrateCollide {
-    fn is_valid_to_execute(&self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
-        ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(self, other)
+    fn is_valid_to_execute(&self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
+        ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
-    fn execute_crate_behavior(&mut self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
-        ConvertToHijackedVehicleCrateCollide::execute_crate_behavior(self, other)
+    fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
+        ConvertToHijackedVehicleCrateCollide::execute_crate_behavior(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
     fn is_hijacked_vehicle_crate_collide(&self) -> bool {
