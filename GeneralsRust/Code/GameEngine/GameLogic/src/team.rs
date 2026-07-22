@@ -924,19 +924,46 @@ impl Team {
     /// Iterate all live team member objects and invoke callback for each.
     /// Matches C++ Team::iterateObjects.
     /// Host/presentation path: OBJECT_REGISTRY empty → no dual-world members to visit.
+    /// Iterate live member IDs only (no Arc retention).
+    fn for_each_live_member_id<F>(&self, mut func: F)
+    where
+        F: FnMut(ObjectID),
+    {
+        if self.members.is_empty() {
+            return;
+        }
+        for &object_id in &self.members {
+            if OBJECT_REGISTRY.get_object(object_id).is_some() {
+                func(object_id);
+            }
+        }
+    }
+
+    /// Borrow-first live member access for the duration of `func`.
+    fn for_each_live_member_with<F>(&self, mut func: F)
+    where
+        F: FnMut(ObjectID, &crate::object::Object),
+    {
+        if self.members.is_empty() {
+            return;
+        }
+        for &object_id in &self.members {
+            let _ = OBJECT_REGISTRY.with_object(object_id, |object| {
+                func(object_id, object);
+            });
+        }
+    }
+
     fn for_each_live_member<F>(&self, mut func: F)
     where
         F: FnMut(Arc<RwLock<crate::object::Object>>),
     {
-        if OBJECT_REGISTRY.is_empty() || self.members.is_empty() {
-            return;
-        }
-        for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            func(object_arc);
-        }
+        // Legacy Arc callback path for callers that still need handles.
+        self.for_each_live_member_id(|object_id| {
+            if let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) {
+                func(object_arc);
+            }
+        });
     }
 
     pub fn iterate_objects<F>(&self, mut func: F)
@@ -949,9 +976,10 @@ impl Team {
     /// Add this team's members to an AIGroup.
     /// Matches C++ Team::getTeamAsAIGroup.
     pub fn get_team_as_ai_group(&self, ai_group: &mut AIGroup) {
-        self.iterate_objects(|object_arc| {
-            let _ = ai_group.add(object_arc);
-        });
+        // ID-first: AIGroup stores ObjectIDs; resolve only inside add_by_id.
+        for &object_id in &self.members {
+            let _ = ai_group.add_by_id(object_id);
+        }
     }
 
     /// Try to recruit a matching unit from other teams of this controller.

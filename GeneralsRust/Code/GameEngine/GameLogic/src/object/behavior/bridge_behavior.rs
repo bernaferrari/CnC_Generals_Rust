@@ -10,7 +10,7 @@ use std::any::Any;
 use std::array;
 use std::f32::consts::TAU;
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::ai::{pathfinding_system::PathfindLayerEnum as AiPathfindLayerEnum, THE_AI};
 use crate::common::xfer::XferExt;
@@ -411,7 +411,6 @@ impl Snapshotable for BridgeBehaviorModuleData {
 pub struct BridgeBehavior {
     pub module_data: Arc<BridgeBehaviorModuleData>,
     object_id: ObjectID,
-    object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
     next_call_frame_and_phase: UnsignedInt,
 
     // Tower references
@@ -446,23 +445,10 @@ impl BridgeBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
         module_data: Arc<BridgeBehaviorModuleData>,
-        initial_object: Option<Arc<RwLock<GameObject>>>,
+        _initial_object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
         let fx_count = module_data.fx.len();
         let ocl_count = module_data.ocl.len();
-
-        let initial_handle = initial_object
-            .as_ref()
-            .map(|arc| Arc::downgrade(arc))
-            .or_else(|| {
-                if object_id == OBJECT_INVALID_ID {
-                    None
-                } else {
-                    OBJECT_REGISTRY
-                        .get_object(object_id)
-                        .map(|arc| Arc::downgrade(&arc))
-                }
-            });
 
         let damage_to_ocl: [[Option<Arc<ObjectCreationList>>; MAX_BRIDGE_BODY_FX];
             BODYDAMAGETYPE_COUNT] = array::from_fn(|_| array::from_fn(|_| None));
@@ -480,7 +466,6 @@ impl BridgeBehavior {
         Self {
             module_data,
             object_id,
-            object_handle: Mutex::new(initial_handle),
             next_call_frame_and_phase: 0,
             tower_id: [OBJECT_INVALID_ID; BRIDGE_MAX_TOWERS],
             damage_to_ocl,
@@ -1482,25 +1467,9 @@ impl BridgeBehavior {
         if self.object_id == OBJECT_INVALID_ID {
             return Err("BridgeBehavior missing owning object id".into());
         }
-
-        if let Ok(mut handle) = self.object_handle.lock() {
-            if let Some(weak) = handle.as_ref() {
-                if let Some(object) = weak.upgrade() {
-                    return Ok(object);
-                }
-            }
-
-            if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
-                *handle = Some(Arc::downgrade(&object));
-                return Ok(object);
-            }
-        }
-
-        Err(format!(
-            "BridgeBehavior unable to upgrade handle for object {}",
-            self.object_id
-        )
-        .into())
+        OBJECT_REGISTRY.get_object(self.object_id).ok_or_else(|| {
+            format!("BridgeBehavior object {} not registered", self.object_id).into()
+        })
     }
 
     /// Get current game frame
