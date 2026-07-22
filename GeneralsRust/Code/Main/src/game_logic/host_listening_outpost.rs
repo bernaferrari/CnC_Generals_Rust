@@ -251,11 +251,12 @@ impl HostListeningOutpostRegistry {
 /// Fail-closed: name residual (not full StealthUpdate / TransportContain matrix).
 /// Excludes debris / hulk / weapon tokens.
 pub fn is_listening_outpost_template(template_name: &str) -> bool {
-    let n = template_name
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect::<String>();
+    // Cheap prefilter before normalized-name allocation.
+    let s = template_name.to_ascii_lowercase();
+    if !(s.contains("outpost") || s.contains("listening")) {
+        return false;
+    }
+    let n: String = s.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     if n.is_empty() {
         return false;
     }
