@@ -3753,26 +3753,18 @@ impl PathfindingSystem {
         if object_id == INVALID_ID {
             return false;
         }
-        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        let Ok(g) = arc.read() else {
-            return false;
-        };
-        g.is_kind_of(KindOf::Vehicle)
+        OBJECT_REGISTRY
+            .with_object(object_id, |g| g.is_kind_of(KindOf::Vehicle))
+            .unwrap_or(false)
     }
 
     fn object_is_idle(object_id: ObjectID) -> bool {
         if object_id == INVALID_ID {
             return false;
         }
-        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        let Ok(g) = arc.read() else {
-            return false;
-        };
-        g.is_idle()
+        OBJECT_REGISTRY
+            .with_object(object_id, |g| g.is_idle())
+            .unwrap_or(false)
     }
 
     fn pos_unit_at(&self, cell: GridCoord, layer: PathfindLayerEnum) -> ObjectID {
@@ -3791,13 +3783,9 @@ impl PathfindingSystem {
         if object_id == INVALID_ID {
             return false;
         }
-        let Some(arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        let Ok(g) = arc.read() else {
-            return false;
-        };
-        g.is_kind_of(KindOf::Dozer)
+        OBJECT_REGISTRY
+            .with_object(object_id, |g| g.is_kind_of(KindOf::Dozer))
+            .unwrap_or(false)
     }
 
     /// C++ locomotorSet.isDownhillOnly() for pathing object.

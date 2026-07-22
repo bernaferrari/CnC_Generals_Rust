@@ -2131,12 +2131,9 @@ impl AiStateMachine {
             result,
             Ok(StateReturnType::StateComplete) | Ok(StateReturnType::StateFailed)
         ) {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.owner_id) {
-                if let Ok(mut guard) = obj.write() {
-                    guard
-                        .clear_model_condition_state(crate::common::ModelConditionFlags::PANICKING);
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+                guard.clear_model_condition_state(crate::common::ModelConditionFlags::PANICKING);
+            });
         }
         result
     }
@@ -2174,11 +2171,9 @@ impl AiStateMachine {
         // Set goal position from crate object if not already set.
         if state.goal_position.is_none() {
             if let Some(goal_id) = state.goal_object {
-                if let Some(obj) = OBJECT_REGISTRY.get_object(goal_id) {
-                    if let Ok(guard) = obj.read() {
-                        state.goal_position = Some(*guard.get_position());
-                    }
-                }
+                let _ = OBJECT_REGISTRY.with_object(goal_id, |guard| {
+                    state.goal_position = Some(*guard.get_position());
+                });
             }
         }
         // Delegate to move-to once we have a position.

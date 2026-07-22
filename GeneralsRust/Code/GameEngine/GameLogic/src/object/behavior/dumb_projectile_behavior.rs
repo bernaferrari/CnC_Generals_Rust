@@ -777,17 +777,6 @@ impl DumbProjectileBehavior {
                 if candidate_id == self.object_id {
                     continue;
                 }
-                let Some(other_arc) = OBJECT_REGISTRY.get_object(candidate_id) else {
-                    continue;
-                };
-                let Ok(other_guard) = other_arc.read() else {
-                    continue;
-                };
-
-                if other_guard.is_effectively_dead() {
-                    continue;
-                }
-
                 if let Some(template) = &self.detonation_weapon {
                     if !template.should_projectile_collide_with(
                         self.launcher_id,
@@ -799,16 +788,28 @@ impl DumbProjectileBehavior {
                     }
                 }
 
+                let Some((contain_handle, immune)) = OBJECT_REGISTRY
+                    .with_object(candidate_id, |other_guard| {
+                        if other_guard.is_effectively_dead() {
+                            return None;
+                        }
+                        let immune = other_guard
+                            .get_garrison_contain_module_data()
+                            .ok()
+                            .map(|data| data.immune_to_clear_building_attacks)
+                            .unwrap_or(false);
+                        Some((other_guard.get_contain(), immune))
+                    })
+                    .flatten()
+                else {
+                    continue;
+                };
+
                 if self.module_data.garrison_hit_kill_count > 0 {
-                    if let Some(contain_handle) = other_guard.get_contain() {
+                    if let Some(contain_handle) = contain_handle {
                         if let Ok(contain_guard) = contain_handle.lock() {
                             let garrisoned = contain_guard.get_contained_count() > 0;
                             let garrisonable = contain_guard.is_garrisonable();
-                            let immune = other_guard
-                                .get_garrison_contain_module_data()
-                                .ok()
-                                .map(|data| data.immune_to_clear_building_attacks)
-                                .unwrap_or(false);
                             if garrisoned && garrisonable && !immune {
                                 let contained_ids = contain_guard.get_contained_objects().to_vec();
                                 let mut num_killed = 0;
@@ -854,20 +855,21 @@ impl DumbProjectileBehavior {
 
                                 if num_killed > 0 {
                                     if let Some(fx) = &self.module_data.garrison_hit_kill_fx {
-                                        let _ = fx.do_fx_obj(&other_arc, None);
+                                        let _ = fx.do_fx_obj_ids(candidate_id, None, None);
                                     }
 
-                                    if let Ok(other_guard) = other_arc.read() {
-                                        if let Some(player_arc) =
-                                            other_guard.get_controlling_player()
-                                        {
-                                            if let Ok(mut player_guard) = player_arc.write() {
-                                                player_guard
-                                                    .get_academy_stats_mut()
-                                                    .record_cleared_garrisoned_building();
+                                    let _ =
+                                        OBJECT_REGISTRY.with_object(candidate_id, |other_guard| {
+                                            if let Some(player_arc) =
+                                                other_guard.get_controlling_player()
+                                            {
+                                                if let Ok(mut player_guard) = player_arc.write() {
+                                                    player_guard
+                                                        .get_academy_stats_mut()
+                                                        .record_cleared_garrisoned_building();
+                                                }
                                             }
-                                        }
-                                    }
+                                        });
 
                                     if let Ok(projectile_guard) = self.get_object() {
                                         let guard = projectile_guard.read().map_err(|_| {
