@@ -399,10 +399,7 @@ impl HelixContain {
             .map(|obj_guard| self.is_enclosing_container_for(&*obj_guard))
             .unwrap_or(false);
         if should_remove_from_world {
-            let _ = self
-                .base
-                .base
-                .add_or_remove_obj_from_world(obj.clone(), false);
+            let _ = self.base.base.add_or_remove_obj_from_world(obj_id, false);
         }
         self.redeploy_occupants()?;
         self.on_containing(obj_id, was_selected)?;
