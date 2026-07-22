@@ -247,26 +247,26 @@ impl FireSpreadUpdate {
             }
 
             if self.module_data.spread_try_range != 0.0 {
-                let Some(me_arc) = crate::object::OBJECT_REGISTRY.get_object(self.thing) else {
-                    return UpdateSleepTime::Forever;
-                };
-                let Ok(me) = me_arc.read() else {
-                    return UpdateSleepTime::Forever;
-                };
-                let partition = crate::helpers::ThePartitionManagerBridge;
-                partition.get_closest_object(
-                    &me,
-                    self.module_data.spread_try_range,
-                    PartitionDistanceType::Center3D,
-                    &[PartitionFilter::Flammable],
-                )
+                crate::object::OBJECT_REGISTRY
+                    .with_object(self.thing, |me| {
+                        crate::helpers::ThePartitionManagerBridge.get_closest_object_id(
+                            me,
+                            self.module_data.spread_try_range,
+                            PartitionDistanceType::Center3D,
+                            &[PartitionFilter::Flammable],
+                        )
+                    })
+                    .flatten()
             } else {
                 None
             }
         };
 
-        if let Some(object_to_light) = object_to_light {
-            if let Some(flammable) = object_to_light.find_flammable_update() {
+        if let Some(object_to_light_id) = object_to_light {
+            if let Some(flammable) = crate::object::OBJECT_REGISTRY
+                .with_object(object_to_light_id, |obj| obj.find_flammable_update_module())
+                .flatten()
+            {
                 flammable.try_to_ignite_without_context();
             }
         }
