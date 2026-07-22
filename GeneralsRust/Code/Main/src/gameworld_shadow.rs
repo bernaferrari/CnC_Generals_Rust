@@ -66,9 +66,30 @@ impl GameWorldShadowProbe {
 
 /// Whether the optional engine shadow path is enabled.
 /// True when Main create_object may attach gamelogic OBJECT_REGISTRY ids (opt-in only).
+/// Cached dual-world bridge flag (env is process-stable; per-call getenv was a
+/// Lone Eagle host-frame hotspot via Object::is_alive → engine_bridge_active).
+/// 0 = unset, 1 = off, 2 = on.
+static ENGINE_OBJECT_BRIDGE_CACHE: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(0);
+
+/// Invalidate bridge cache after test env mutation (production never needs this).
+pub fn refresh_engine_object_bridge_cache() {
+    ENGINE_OBJECT_BRIDGE_CACHE.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[inline]
 pub fn engine_object_bridge_enabled() -> bool {
-    std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some()
-        || std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_some()
+    use std::sync::atomic::Ordering::Relaxed;
+    match ENGINE_OBJECT_BRIDGE_CACHE.load(Relaxed) {
+        1 => false,
+        2 => true,
+        _ => {
+            let on = std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some()
+                || std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_some();
+            ENGINE_OBJECT_BRIDGE_CACHE.store(if on { 2 } else { 1 }, Relaxed);
+            on
+        }
+    }
 }
 
 /// True only while the production engine couples host update → shadow_session.
@@ -14081,6 +14102,7 @@ mod tests {
     #[test]
     fn engine_object_bridge_off_by_default() {
         // Default path: no dual-tick / bridge env → engine_object_id stays None.
+        refresh_engine_object_bridge_cache();
         if std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none()
             && std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_none()
         {
