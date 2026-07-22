@@ -3739,12 +3739,12 @@ impl ThePartitionManager {
             }
 
             if let Some(source_id) = options.source_to_path_to_dest_id {
-                if let Some(source_arc) = OBJECT_REGISTRY.get_object(source_id) {
-                    if let Ok(source_guard) = source_arc.read() {
-                        if let Some(terrain) = terrain {
-                            if !terrain.is_clear_line_of_sight(source_guard.get_position(), &pos) {
-                                return false;
-                            }
+                if let Some(source_pos) = OBJECT_REGISTRY
+                    .with_object(source_id, |source_guard| *source_guard.get_position())
+                {
+                    if let Some(terrain) = terrain {
+                        if !terrain.is_clear_line_of_sight(&source_pos, &pos) {
+                            return false;
                         }
                     }
                 }
@@ -4280,14 +4280,17 @@ impl crate::common::types::PartitionManagerInterface for ThePartitionManagerBrid
         let mut best: Option<(f32, ObjectID)> = None;
 
         for id in candidates {
-            let obj_arc = crate::object::registry::OBJECT_REGISTRY.get_object(id)?;
-            let Ok(obj) = obj_arc.read() else {
+            let Some(dist) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(id, |obj| {
+                    if !partition_filter_allows(from, obj, filters) {
+                        return None;
+                    }
+                    Some(self.get_distance_squared(from, obj, distance_type))
+                })
+                .flatten()
+            else {
                 continue;
             };
-            if !partition_filter_allows(from, &*obj, filters) {
-                continue;
-            }
-            let dist = self.get_distance_squared(from, &*obj, distance_type);
             if dist <= max_range * max_range {
                 if best.map_or(true, |(best_dist, _)| dist < best_dist) {
                     best = Some((dist, id));
@@ -4295,6 +4298,7 @@ impl crate::common::types::PartitionManagerInterface for ThePartitionManagerBrid
             }
         }
 
+        // Closest-object API still returns Arc for callers that need a handle.
         best.and_then(|(_, id)| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 }
@@ -4399,62 +4403,58 @@ impl crate::special_power_module::integration::PartitionManagerInterface
                 .and_then(|list| list.get_local_player().cloned())
                 .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()));
             results.retain(|id| {
-                let Some(obj_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(*id) else {
-                    return false;
-                };
-                let Ok(obj) = obj_arc.read() else {
-                    return false;
-                };
-                match filter {
-                    crate::special_power_module::integration::ObjectFilter::All => true,
-                    crate::special_power_module::integration::ObjectFilter::Infantry => {
-                        obj.is_kind_of(crate::common::KindOf::Infantry)
-                    }
-                    crate::special_power_module::integration::ObjectFilter::Vehicles => {
-                        obj.is_kind_of(crate::common::KindOf::Vehicle)
-                    }
-                    crate::special_power_module::integration::ObjectFilter::Structures => {
-                        obj.is_kind_of(crate::common::KindOf::Structure)
-                            || obj.is_kind_of(crate::common::KindOf::Building)
-                    }
-                    crate::special_power_module::integration::ObjectFilter::Aircraft => {
-                        obj.is_kind_of(crate::common::KindOf::Aircraft)
-                    }
-                    crate::special_power_module::integration::ObjectFilter::Enemy => {
-                        let Some(team_arc) = local_team.as_ref() else {
-                            return true;
-                        };
-                        let Ok(team_guard) = team_arc.read() else {
-                            return true;
-                        };
-                        let Some(obj_team) = obj.get_team() else {
-                            return false;
-                        };
-                        let Ok(obj_team_guard) = obj_team.read() else {
-                            return false;
-                        };
-                        team_guard.get_relationship(&obj_team_guard)
-                            == crate::common::Relationship::Enemies
-                    }
-                    crate::special_power_module::integration::ObjectFilter::Friendly => {
-                        let Some(team_arc) = local_team.as_ref() else {
-                            return true;
-                        };
-                        let Ok(team_guard) = team_arc.read() else {
-                            return true;
-                        };
-                        let Some(obj_team) = obj.get_team() else {
-                            return false;
-                        };
-                        let Ok(obj_team_guard) = obj_team.read() else {
-                            return false;
-                        };
-                        matches!(
-                            team_guard.get_relationship(&obj_team_guard),
-                            crate::common::Relationship::Allies
-                        )
-                    }
-                }
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(*id, |obj| match filter {
+                        crate::special_power_module::integration::ObjectFilter::All => true,
+                        crate::special_power_module::integration::ObjectFilter::Infantry => {
+                            obj.is_kind_of(crate::common::KindOf::Infantry)
+                        }
+                        crate::special_power_module::integration::ObjectFilter::Vehicles => {
+                            obj.is_kind_of(crate::common::KindOf::Vehicle)
+                        }
+                        crate::special_power_module::integration::ObjectFilter::Structures => {
+                            obj.is_kind_of(crate::common::KindOf::Structure)
+                                || obj.is_kind_of(crate::common::KindOf::Building)
+                        }
+                        crate::special_power_module::integration::ObjectFilter::Aircraft => {
+                            obj.is_kind_of(crate::common::KindOf::Aircraft)
+                        }
+                        crate::special_power_module::integration::ObjectFilter::Enemy => {
+                            let Some(team_arc) = local_team.as_ref() else {
+                                return true;
+                            };
+                            let Ok(team_guard) = team_arc.read() else {
+                                return true;
+                            };
+                            let Some(obj_team) = obj.get_team() else {
+                                return false;
+                            };
+                            let Ok(obj_team_guard) = obj_team.read() else {
+                                return false;
+                            };
+                            team_guard.get_relationship(&obj_team_guard)
+                                == crate::common::Relationship::Enemies
+                        }
+                        crate::special_power_module::integration::ObjectFilter::Friendly => {
+                            let Some(team_arc) = local_team.as_ref() else {
+                                return true;
+                            };
+                            let Ok(team_guard) = team_arc.read() else {
+                                return true;
+                            };
+                            let Some(obj_team) = obj.get_team() else {
+                                return false;
+                            };
+                            let Ok(obj_team_guard) = obj_team.read() else {
+                                return false;
+                            };
+                            matches!(
+                                team_guard.get_relationship(&obj_team_guard),
+                                crate::common::Relationship::Allies
+                            )
+                        }
+                    })
+                    .unwrap_or(false)
             });
         }
         results

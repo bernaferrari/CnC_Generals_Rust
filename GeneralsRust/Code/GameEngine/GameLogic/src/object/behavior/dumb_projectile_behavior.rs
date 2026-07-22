@@ -1050,17 +1050,13 @@ impl DumbProjectileBehavior {
             }
         }
         let end_pos = if let Some(victim_id) = victim {
-            if let Some(victim_arc) = OBJECT_REGISTRY.get_object(victim_id) {
-                if let Ok(victim_guard) = victim_arc.read() {
+            OBJECT_REGISTRY
+                .with_object(victim_id, |victim_guard| {
                     victim_guard
                         .get_geometry_info()
                         .get_center_position(victim_guard.get_position())
-                } else {
-                    *victim_pos
-                }
-            } else {
-                *victim_pos
-            }
+                })
+                .unwrap_or(*victim_pos)
         } else {
             *victim_pos
         };
@@ -1194,11 +1190,9 @@ impl ProjectileUpdateInterface for DumbProjectileBehavior {
     }
 
     fn projectile_now_jammed(&mut self) {
-        if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(mut guard) = object.write() {
-                guard.set_model_condition_state(MODELCONDITION_JAMMED);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            guard.set_model_condition_state(MODELCONDITION_JAMMED);
+        });
     }
 }
 

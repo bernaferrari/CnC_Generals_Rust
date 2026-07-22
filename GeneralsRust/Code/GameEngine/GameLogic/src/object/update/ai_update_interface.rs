@@ -1710,13 +1710,13 @@ impl AIUpdateInterface {
     }
 
     fn owner_locomotor_inputs(&self) -> Option<(Coord3D, Real, LocoBodyDamageType)> {
-        let owner = OBJECT_REGISTRY.get_object(self.owner_object_id)?;
-        let owner = owner.read().ok()?;
-        Some((
-            *owner.get_position(),
-            owner.get_orientation(),
-            Self::owner_body_damage_type(&owner),
-        ))
+        OBJECT_REGISTRY.with_object(self.owner_object_id, |owner| {
+            (
+                *owner.get_position(),
+                owner.get_orientation(),
+                Self::owner_body_damage_type(owner),
+            )
+        })
     }
 
     fn owner_body_damage_type(owner: &Object) -> LocoBodyDamageType {
@@ -1858,11 +1858,13 @@ impl AIUpdateInterface {
             return None;
         }
 
-        let owner_arc = OBJECT_REGISTRY.get_object(self.owner_object_id)?;
-        let owner = owner_arc.read().ok()?;
-        let position = owner.get_position().clone();
-        let is_crusher = owner.get_crusher_level() > 0;
-        drop(owner);
+        let Some((position, is_crusher)) = OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner| {
+                (owner.get_position().clone(), owner.get_crusher_level() > 0)
+            })
+        else {
+            return None;
+        };
 
         let pathfinder_arc = crate::ai::THE_AI
             .read()
@@ -2097,19 +2099,15 @@ impl AIUpdateInterface {
     }
 
     fn can_crush_or_squish(&self, other_id: ObjectID) -> bool {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(self.owner_object_id) else {
-            return false;
-        };
-        let Some(other_arc) = OBJECT_REGISTRY.get_object(other_id) else {
-            return false;
-        };
-        let Ok(owner) = owner_arc.read() else {
-            return false;
-        };
-        let Ok(other) = other_arc.read() else {
-            return false;
-        };
-        owner.can_crush_or_squish(&other, CrushSquishTestType::TestCrushOrSquish)
+        OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner| {
+                OBJECT_REGISTRY
+                    .with_object(other_id, |other| {
+                        owner.can_crush_or_squish(other, CrushSquishTestType::TestCrushOrSquish)
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
 
     fn has_higher_path_priority(
@@ -2296,13 +2294,13 @@ impl AIUpdateInterface {
         let Some(path) = self.path.as_ref() else {
             return false;
         };
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(self.owner_object_id) else {
+        let Some((position, orientation)) = OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner| {
+                (*owner.get_position(), owner.get_orientation())
+            })
+        else {
             return false;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return false;
-        };
-        let position = *owner.get_position();
         let Some(path_point) = path
             .iter()
             .copied()
@@ -2320,7 +2318,7 @@ impl AIUpdateInterface {
             return false;
         }
         let desired_angle = delta.y.atan2(delta.x);
-        let delta_angle = Self::normalize_relative_angle(desired_angle - owner.get_orientation());
+        let delta_angle = Self::normalize_relative_angle(desired_angle - orientation);
         delta_angle.abs() > (std::f32::consts::PI / 30.0)
     }
 

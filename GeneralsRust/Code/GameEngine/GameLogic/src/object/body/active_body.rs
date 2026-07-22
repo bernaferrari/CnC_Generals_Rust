@@ -434,9 +434,9 @@ fn snapshot_object_for_damage_fx(object_id: ObjectId) -> Option<DamageFxObjectSn
         return None;
     }
 
-    let object = OBJECT_REGISTRY.get_object(object_id)?;
-    let guard = object.read().ok()?;
-    Some(DamageFxObjectSnapshot::from_object(&guard))
+    OBJECT_REGISTRY.with_object(object_id, |guard| {
+        DamageFxObjectSnapshot::from_object(guard)
+    })
 }
 
 /// Thread-safe state for active body
@@ -1261,10 +1261,12 @@ impl BodyModuleInterface for ActiveBody {
 
         // Store source template if damager exists
         if damage_info.input.source_id != INVALID_ID {
-            if let Some(damager) = OBJECT_REGISTRY.get_object(damage_info.input.source_id) {
-                if let Ok(damager_guard) = damager.read() {
-                    damage_info.input.source_template = Some(damager_guard.get_template().clone());
-                }
+            if let Some(template) = OBJECT_REGISTRY
+                .with_object(damage_info.input.source_id, |damager_guard| {
+                    damager_guard.get_template().clone()
+                })
+            {
+                damage_info.input.source_template = Some(template);
             }
         }
 
