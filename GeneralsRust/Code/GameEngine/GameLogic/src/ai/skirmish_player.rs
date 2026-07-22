@@ -1365,10 +1365,8 @@ impl AISkirmishPlayer {
             // C++: m_player->onStructureUndone(obj);
             //      TheAI->pathfinder()->removeObjectFromPathfindMap(obj);
             //      TheGameLogic->destroyObject(obj);
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.on_structure_undone(&obj_arc);
-                }
+            if let Ok(mut player_guard) = player_arc.write() {
+                player_guard.on_structure_undone_id(obj_id);
             }
             let positions: Vec<Coord3D> = OBJECT_REGISTRY
                 .with_object(obj_id, |g| vec![*g.get_position()])

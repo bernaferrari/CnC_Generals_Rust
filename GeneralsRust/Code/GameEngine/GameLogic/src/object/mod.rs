@@ -10561,32 +10561,29 @@ impl Object {
                         return Ok(());
                     }
 
-                    if let Some(target_arc) = OBJECT_REGISTRY.get_object(target.get_id()) {
-                        if options.contains(SpecialPowerCommandOption::ATTACK_OBJECTS_POSITION) {
-                            let mut params =
-                                AiCommandParams::new(AiCommandType::AttackPosition, source);
-                            params.pos = *target.get_position();
-                            params.int_value = command_button.get_max_shots_to_fire();
-                            self.forward_command_to_flight_deck(&params);
-                            ai.ai_attack_position(
-                                target.get_position(),
-                                command_button.get_max_shots_to_fire(),
-                                source,
-                            );
-                        } else {
-                            let mut params =
-                                AiCommandParams::new(AiCommandType::AttackObject, source);
-                            params.obj = Some(target.get_id());
-                            params.int_value = command_button.get_max_shots_to_fire();
-                            self.forward_command_to_flight_deck(&params);
-                            ai.ai_attack_object(
-                                &target_arc,
-                                command_button.get_max_shots_to_fire(),
-                                source,
-                            );
-                        }
-                        return Ok(());
+                    if options.contains(SpecialPowerCommandOption::ATTACK_OBJECTS_POSITION) {
+                        let mut params =
+                            AiCommandParams::new(AiCommandType::AttackPosition, source);
+                        params.pos = *target.get_position();
+                        params.int_value = command_button.get_max_shots_to_fire();
+                        self.forward_command_to_flight_deck(&params);
+                        ai.ai_attack_position(
+                            target.get_position(),
+                            command_button.get_max_shots_to_fire(),
+                            source,
+                        );
+                    } else {
+                        let mut params = AiCommandParams::new(AiCommandType::AttackObject, source);
+                        params.obj = Some(target.get_id());
+                        params.int_value = command_button.get_max_shots_to_fire();
+                        self.forward_command_to_flight_deck(&params);
+                        ai.ai_attack_object_id(
+                            target.get_id(),
+                            command_button.get_max_shots_to_fire(),
+                            source,
+                        );
                     }
+                    return Ok(());
                 }
             }
             CommandType::Enter

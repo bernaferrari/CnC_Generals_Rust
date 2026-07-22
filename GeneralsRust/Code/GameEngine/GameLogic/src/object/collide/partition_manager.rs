@@ -801,29 +801,23 @@ impl PartitionManager {
 
                 // Relationship-based filtering
                 if let Some(rel_id) = options.relationship_object {
-                    if let (Some(rel_handle), Some(other_handle)) = (
-                        OBJECT_REGISTRY.get_object(rel_id),
-                        OBJECT_REGISTRY.get_object(obj_id),
-                    ) {
-                        let relationship = rel_handle.get_relationship(&other_handle);
-
-                        let is_enemy = relationship == Relationship::Enemies;
-                        let is_ally_or_neutral = !is_enemy;
-
-                        // Check if the other is a unit (infantry or vehicle)
-                        let other_guard = other_handle.read().ok();
-                        let is_unit = other_guard
-                            .as_ref()
-                            .map(|g| {
-                                g.is_kind_of(crate::common::KindOf::Infantry)
-                                    || g.is_kind_of(crate::common::KindOf::Vehicle)
+                    if let Some((is_enemy, is_ally_or_neutral, is_unit, is_structure)) =
+                        OBJECT_REGISTRY
+                            .with_object(rel_id, |rel_guard| {
+                                OBJECT_REGISTRY.with_object(obj_id, |other_guard| {
+                                    let relationship = rel_guard.relationship_to(other_guard);
+                                    let is_enemy = relationship == Relationship::Enemies;
+                                    let is_ally_or_neutral = !is_enemy;
+                                    let is_unit = other_guard
+                                        .is_kind_of(crate::common::KindOf::Infantry)
+                                        || other_guard.is_kind_of(crate::common::KindOf::Vehicle);
+                                    let is_structure =
+                                        other_guard.is_kind_of(crate::common::KindOf::Structure);
+                                    (is_enemy, is_ally_or_neutral, is_unit, is_structure)
+                                })
                             })
-                            .unwrap_or(false);
-                        let is_structure = other_guard
-                            .as_ref()
-                            .map(|g| g.is_kind_of(crate::common::KindOf::Structure))
-                            .unwrap_or(false);
-
+                            .flatten()
+                    {
                         if options
                             .flags
                             .contains(FindPositionFlags::IGNORE_ALLY_OR_NEUTRAL_UNITS)

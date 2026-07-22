@@ -2204,6 +2204,14 @@ impl Player {
         }
     }
 
+    /// Borrow-first ObjectID variant of [`Self::on_structure_undone`].
+    pub fn on_structure_undone_id(&mut self, structure_id: ObjectID) {
+        let score_keeper = &mut self.score_keeper;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(structure_id, |guard| {
+            score_keeper.remove_object_built_obj(guard);
+        });
+    }
+
     /// Called when a structure under construction is completed.
     /// Matches C++ Player::onStructureConstructionComplete.
     pub fn on_structure_construction_complete(
