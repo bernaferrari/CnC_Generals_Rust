@@ -339,23 +339,15 @@ impl TurretAI {
         if let Ok(mut guard) = machine.lock() {
             match self.target_kind {
                 TurretTargetKind::Object => {
-                    if let Some(target_id) = self.current_target {
-                        if let Some(target) = OBJECT_REGISTRY.get_object(target_id) {
-                            guard.set_goal_object(Some(Arc::downgrade(&target)));
-                        } else {
-                            guard.set_goal_object(None);
-                        }
-                    } else {
-                        guard.set_goal_object(None);
-                    }
+                    guard.set_goal_object_by_id(self.current_target);
                 }
                 TurretTargetKind::Position => {
-                    guard.set_goal_object(None);
+                    guard.set_goal_object_by_id(None);
                     if let Some(pos) = &self.target_position {
                         guard.set_goal_position(*pos);
                     }
                 }
-                TurretTargetKind::None => guard.set_goal_object(None),
+                TurretTargetKind::None => guard.set_goal_object_by_id(None),
             }
         };
     }
