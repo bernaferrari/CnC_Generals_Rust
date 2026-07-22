@@ -66,8 +66,8 @@ impl GameWorldShadowProbe {
 
 /// Whether the optional engine shadow path is enabled.
 /// True when Main create_object may attach gamelogic OBJECT_REGISTRY ids (opt-in only).
-/// Cached dual-world bridge flag (env is process-stable; per-call getenv was a
-/// Lone Eagle host-frame hotspot via Object::is_alive → engine_bridge_active).
+/// Host Object pose/HP/alive never dual-read the registry — stamp is metadata only.
+/// Cached flag (env is process-stable; per-call getenv was a Lone Eagle hotspot).
 /// 0 = unset, 1 = off, 2 = on.
 static ENGINE_OBJECT_BRIDGE_CACHE: std::sync::atomic::AtomicU8 =
     std::sync::atomic::AtomicU8::new(0);
@@ -14183,6 +14183,40 @@ mod tests {
         let p = o.get_position();
         assert!((p.x - 3.0).abs() < 0.01 && (p.z - 4.0).abs() < 0.01);
         assert!(o.is_alive());
+    }
+
+    #[test]
+    fn host_object_pose_hp_never_dual_read_registry() {
+        // Even with a stamped engine_object_id, host properties stay local.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("HostSolePose");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "HostSoleU", 80.0);
+        let id = logic
+            .create_object("HostSoleU", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            o.engine_object_id = Some(42);
+            o.health.current = 33.0;
+            o.health.maximum = 80.0;
+            o.set_position(glam::Vec3::new(7.0, 0.0, 9.0));
+            o.set_orientation(1.25);
+        }
+        let o = logic.get_objects().get(&id).unwrap();
+        assert_eq!(o.get_position(), glam::Vec3::new(7.0, 0.0, 9.0));
+        assert!((o.get_orientation() - 1.25).abs() < 1e-5);
+        assert!((o.get_health_percentage() - (33.0 / 80.0)).abs() < 1e-5);
+        assert!(o.is_alive());
+        // Source honesty: no OBJECT_REGISTRY dual-read helpers on host Object.
+        let src = include_str!("game_logic/object.rs");
+        assert!(
+            !src.contains("read_engine_position")
+                && !src.contains("read_engine_is_alive")
+                && !src.contains("write_engine_position")
+                && !src.contains("fn engine_bridge_active"),
+            "host Object must not dual-read/write OBJECT_REGISTRY"
+        );
     }
 
     #[test]
