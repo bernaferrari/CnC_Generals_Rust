@@ -22,6 +22,8 @@ use crate::attack::CanAttackResult;
 use crate::common::ObjectID;
 use crate::common::VeterancyLevel;
 use crate::common::*;
+use once_cell::sync::Lazy;
+use std::sync::RwLock as StdRwLock;
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{
     get_game_logic_random_value_real, FindPositionOptions, TheFXListStore, TheGameLogic,
@@ -101,6 +103,60 @@ pub enum CombatMode {
 /// Unit-specific data and behavior
 #[derive(Debug)]
 #[allow(dead_code)]
+
+/// ID-keyed unit handles for AI resolve (borrow for the duration of an op).
+/// Transitional: factory/tests register Arcs; not a second gameplay authority.
+struct UnitRegistry {
+    units: std::collections::HashMap<ObjectID, Weak<RwLock<Unit>>>,
+}
+
+impl UnitRegistry {
+    fn register(&mut self, id: ObjectID, unit: &Arc<RwLock<Unit>>) {
+        if id != INVALID_ID {
+            self.units.insert(id, Arc::downgrade(unit));
+        }
+    }
+
+    fn unregister(&mut self, id: ObjectID) {
+        self.units.remove(&id);
+    }
+
+    fn get(&mut self, id: ObjectID) -> Option<Arc<RwLock<Unit>>> {
+        if id == INVALID_ID {
+            return None;
+        }
+        if let Some(weak) = self.units.get(&id) {
+            if let Some(arc) = weak.upgrade() {
+                return Some(arc);
+            }
+        }
+        self.units.retain(|_, w| w.strong_count() > 0);
+        None
+    }
+}
+
+static UNIT_REGISTRY: Lazy<StdRwLock<UnitRegistry>> = Lazy::new(|| {
+    StdRwLock::new(UnitRegistry {
+        units: std::collections::HashMap::new(),
+    })
+});
+
+pub fn register_unit(id: ObjectID, unit: &Arc<RwLock<Unit>>) {
+    if let Ok(mut g) = UNIT_REGISTRY.write() {
+        g.register(id, unit);
+    }
+}
+
+pub fn unregister_unit(id: ObjectID) {
+    if let Ok(mut g) = UNIT_REGISTRY.write() {
+        g.unregister(id);
+    }
+}
+
+fn get_unit_arc(id: ObjectID) -> Option<Arc<RwLock<Unit>>> {
+    UNIT_REGISTRY.write().ok().and_then(|mut g| g.get(id))
+}
+
 pub struct Unit {
     /// Base object id (resolve for the duration of an op)
     object_id: ObjectID,
@@ -2588,7 +2644,8 @@ fn locomotor_set_type_from_i32(value: i32) -> Result<LocomotorSetType, String> {
 
 /// Basic AI update interface that bridges AI commands to unit orders.
 pub struct UnitAIUpdate {
-    unit: Weak<RwLock<Unit>>,
+    /// Owning unit id; resolve via UNIT_REGISTRY for the duration of an op.
+    unit_id: ObjectID,
     crate_created: Mutex<ObjectID>,
     supply_truck_ai: Option<SupplyTruckAIUpdate>,
     chinook_ai: Option<ChinookAIUpdate>,
@@ -2698,7 +2755,7 @@ impl std::fmt::Debug for UnitAIUpdate {
 
 impl UnitAIUpdate {
     pub fn new(
-        unit: Weak<RwLock<Unit>>,
+        unit_id: ObjectID,
         supply_truck_ai: Option<SupplyTruckAIUpdate>,
         chinook_ai: Option<ChinookAIUpdate>,
         jet_ai: Option<JetAIUpdate>,
@@ -2713,7 +2770,7 @@ impl UnitAIUpdate {
         deploy_style_ai: Option<DeployStyleAIUpdate>,
         wander_ai: Option<WanderAIUpdate>,
     ) -> Self {
-        let ai_state_machine = unit.upgrade().and_then(|unit_arc| {
+        let ai_state_machine = get_unit_arc(unit_id).and_then(|unit_arc| {
             let owner = unit_arc
                 .read()
                 .ok()
@@ -2725,7 +2782,7 @@ impl UnitAIUpdate {
         });
 
         Self {
-            unit,
+            unit_id,
             crate_created: Mutex::new(crate::common::INVALID_ID),
             supply_truck_ai,
             chinook_ai,
@@ -2835,11 +2892,11 @@ impl UnitAIUpdate {
     }
 
     fn owner_object_id(&self) -> Option<ObjectID> {
-        self.unit.upgrade().and_then(|unit| {
-            unit.read()
-                .ok()
-                .and_then(|guard| guard.base_arc().read().ok().map(|object| object.get_id()))
-        })
+        if self.unit_id != INVALID_ID {
+            Some(self.unit_id)
+        } else {
+            None
+        }
     }
 
     fn wake_up_now(&self) {
@@ -2871,7 +2928,7 @@ impl UnitAIUpdate {
         if Self::is_in_region_no_z(&extent, destination) {
             return false;
         }
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -2896,7 +2953,7 @@ impl UnitAIUpdate {
             return false;
         }
 
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -2937,15 +2994,13 @@ impl UnitAIUpdate {
         if self.current_path_snapshot.is_some() {
             return true;
         }
-        self.unit
-            .upgrade()
+        get_unit_arc(self.unit_id)
             .and_then(|unit| unit.read().ok().map(|guard| guard.current_path.is_some()))
             .unwrap_or(false)
     }
 
     fn current_locomotor_is_ultra_accurate(&self) -> bool {
-        self.unit
-            .upgrade()
+        get_unit_arc(self.unit_id)
             .and_then(|unit| {
                 unit.read().ok().and_then(|guard| {
                     guard.current_locomotor.as_ref().and_then(|locomotor| {
@@ -2975,9 +3030,7 @@ impl UnitAIUpdate {
         destination: &Coord3D,
     ) -> Result<bool, String> {
         let request = self.build_classic_path_request(*destination, false)?;
-        let locomotor_set = self
-            .unit
-            .upgrade()
+        let locomotor_set = get_unit_arc(self.unit_id)
             .and_then(|unit| unit.read().ok().map(|guard| guard.locomotor_set.clone()))
             .ok_or_else(|| "unit no longer available".to_string())?;
         let Some(ai) = THE_AI.read().ok() else {
@@ -3024,9 +3077,7 @@ impl UnitAIUpdate {
     }
 
     fn stop_stuck_old_path_after_failed_path(&mut self) -> Result<(), String> {
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let current_pos = unit
             .read()
@@ -3152,7 +3203,7 @@ impl UnitAIUpdate {
     }
 
     fn try_finish_attack_path_if_already_in_range(&mut self) -> Result<bool, String> {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return Ok(false);
         };
         let unit_guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
@@ -3280,9 +3331,7 @@ impl UnitAIUpdate {
     fn do_queued_safe_pathfind_now(&mut self) -> Result<bool, String> {
         self.destroy_path();
 
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
         let base_arc = guard.base_arc();
@@ -3349,7 +3398,7 @@ impl UnitAIUpdate {
     }
 
     fn install_direct_path_from_current_position(&mut self, destination: &Coord3D) -> bool {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(mut guard) = unit.write() else {
@@ -3380,7 +3429,7 @@ impl UnitAIUpdate {
     }
 
     fn xfer_locomotor_set_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             let mut guard = unit
                 .write()
                 .map_err(|_| "unit lock poisoned during locomotor xfer".to_string())?;
@@ -3416,7 +3465,7 @@ impl UnitAIUpdate {
         self.turret_secondary_data = data.turret_secondary().cloned();
         self.locomotor_sets = data.locomotor_sets().clone();
 
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 let allow = (self.auto_acquire_enemies_when_idle
                     & crate::object::update::AUTO_ACQUIRE_IDLE)
@@ -3458,9 +3507,7 @@ impl UnitAIUpdate {
         destination: Coord3D,
         allow_partial: bool,
     ) -> Result<crate::ai::pathfind_complete::PathRequest, String> {
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
         let base_arc = guard.base_arc();
@@ -3524,7 +3571,7 @@ impl UnitAIUpdate {
     }
 
     fn build_turret_machine(&self, turret: TurretType) -> Option<TurretStateMachine> {
-        let unit = self.unit.upgrade()?;
+        let unit = get_unit_arc(self.unit_id)?;
         let base_object = unit.read().ok().map(|guard| guard.base_arc())?;
         let owner = Arc::downgrade(&base_object);
         let turret_ai = Arc::new(Mutex::new(TurretAI::new(Arc::downgrade(&base_object))));
@@ -3570,7 +3617,7 @@ impl UnitAIUpdate {
     }
 
     fn start_rappel_state(&mut self, target_id: Option<ObjectID>) -> Result<(), String> {
-        let unit = self.unit.upgrade().ok_or("unit no longer available")?;
+        let unit = get_unit_arc(self.unit_id).ok_or("unit no longer available")?;
         let base_object = unit.read().map_err(|_| "unit lock poisoned")?.base_arc();
 
         let mut obj_guard = base_object
@@ -3642,7 +3689,7 @@ impl UnitAIUpdate {
     }
 
     fn finish_rappel_state(&mut self) {
-        let unit = self.unit.upgrade();
+        let unit = get_unit_arc(self.unit_id);
         if let Some(unit) = unit {
             let base = unit.read().ok().map(|guard| guard.base_arc());
             if let Some(base) = base {
@@ -3663,7 +3710,7 @@ impl UnitAIUpdate {
             return;
         };
 
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             self.finish_rappel_state();
             return;
         };
@@ -4059,8 +4106,7 @@ impl UnitAIUpdate {
     }
 
     fn has_valid_locomotor_surfaces(&self) -> bool {
-        self.unit
-            .upgrade()
+        get_unit_arc(self.unit_id)
             .and_then(|unit| {
                 unit.read()
                     .ok()
@@ -4075,8 +4121,7 @@ impl UnitAIUpdate {
     }
 
     fn current_path_extra_distance(&self) -> Real {
-        self.unit
-            .upgrade()
+        get_unit_arc(self.unit_id)
             .and_then(|unit| unit.read().ok().map(|guard| guard.path_extra_distance))
             .unwrap_or(0.0)
     }
@@ -4090,7 +4135,7 @@ impl UnitAIUpdate {
         self.destroy_path();
         self.set_locomotor_goal_none();
 
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(guard) = unit.read() {
                 if let Ok(mut object) = guard.base_arc().write() {
                     object.clear_model_condition_state(ModelConditionFlags::MOVING);
@@ -4357,10 +4402,8 @@ impl AIUpdateInterface for UnitAIUpdate {
 
         #[cfg(feature = "allow_surrender")]
         if let Some(mut pow_ai) = self.pow_truck_ai.take() {
-            let owner_id = self
-                .unit
-                .upgrade()
-                .and_then(|unit| unit.read().ok().map(|guard| guard.get_id()))
+            let owner_id = get_unit_arc(self.unit_id)
+            .and_then(|unit| unit.read().ok().map(|guard| guard.get_id()))
                 .unwrap_or(crate::common::INVALID_ID);
             let _ = pow_ai.update(owner_id, self);
             self.pow_truck_ai = Some(pow_ai);
@@ -4443,9 +4486,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             let _ = self.queue_path_request_now(self.requested_destination);
         }
 
-        let update_turrets = self
-            .unit
-            .upgrade()
+        let update_turrets = get_unit_arc(self.unit_id)
             .and_then(|unit| unit.read().ok().map(|guard| guard.base_arc()))
             .and_then(|base| {
                 base.read().ok().map(|obj| {
@@ -4555,10 +4596,8 @@ impl AIUpdateInterface for UnitAIUpdate {
                     Some(crate::ai::AiCommandType::Enter) | Some(crate::ai::AiCommandType::Dock)
                 )
             {
-                let producer_id = self
-                    .unit
-                    .upgrade()
-                    .and_then(|unit| unit.read().ok().map(|guard| guard.base_arc()))
+                let producer_id = get_unit_arc(self.unit_id)
+            .and_then(|unit| unit.read().ok().map(|guard| guard.base_arc()))
                     .and_then(|obj| obj.read().ok().map(|guard| guard.get_producer_id()))
                     .unwrap_or(crate::common::INVALID_ID);
                 if producer_id != crate::common::INVALID_ID {
@@ -4625,7 +4664,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 }
             }
         }
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -4929,8 +4968,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if self.is_idle() {
             return false;
         }
-        self.unit
-            .upgrade()
+        get_unit_arc(self.unit_id)
             .and_then(|unit| {
                 unit.read().ok().map(|guard| {
                     guard.is_movement_active()
@@ -4964,8 +5002,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 }
             }
         }
-        self.unit
-            .upgrade()
+        get_unit_arc(self.unit_id)
             .and_then(|unit| {
                 unit.read().ok().map(|guard| {
                     guard.movement_state == MovementState::Idle
@@ -5009,8 +5046,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 }
             }
         }
-        self.unit
-            .upgrade()
+        get_unit_arc(self.unit_id)
             .and_then(|unit| {
                 unit.read().ok().map(|guard| {
                     guard.movement_state == MovementState::Idle
@@ -5030,9 +5066,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if let Some(path) = self.pending_safe_path.take() {
             return self.set_path_from_coords(&path);
         }
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
         guard
@@ -5072,7 +5106,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if self.blocked_and_stuck {
             return true;
         }
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -5093,7 +5127,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn get_num_frames_blocked(&self) -> u32 {
         let mut frames = self.blocked_frames;
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return frames;
         };
         let Ok(guard) = unit.read() else {
@@ -5109,7 +5143,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.current_path_snapshot = None;
         self.waiting_for_path = false;
         self.is_attack_path = false;
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 guard.current_path = None;
                 guard.path_following_state = None;
@@ -5212,9 +5246,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if command.cmd != crate::ai::AiCommandType::Enter {
             self.enter_target = None;
         }
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
 
@@ -5946,7 +5978,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                         if let Ok(container_guard) = container.write() {
                             if let Some(contain) = container_guard.get_contain() {
                                 if let Ok(mut contain_guard) = contain.lock() {
-                                    if let Some(unit) = self.unit.upgrade() {
+                                    if let Some(unit) = get_unit_arc(self.unit_id) {
                                         if let Ok(unit_guard) = unit.read() {
                                             let base_arc = unit_guard.base_arc();
                                             drop(unit_guard);
@@ -5976,7 +6008,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 }
 
                 let container_id = command.obj.or_else(|| {
-                    self.unit.upgrade().and_then(|unit| {
+                    get_unit_arc(self.unit_id).and_then(|unit| {
                         let unit_guard = unit.read().ok()?;
                         let base_arc = unit_guard.base_arc();
                         drop(unit_guard);
@@ -5989,7 +6021,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                         if let Ok(container_guard) = container.write() {
                             if let Some(contain) = container_guard.get_contain() {
                                 if let Ok(mut contain_guard) = contain.lock() {
-                                    if let Some(unit) = self.unit.upgrade() {
+                                    if let Some(unit) = get_unit_arc(self.unit_id) {
                                         if let Ok(unit_guard) = unit.read() {
                                             let base_arc = unit_guard.base_arc();
                                             drop(unit_guard);
@@ -6018,7 +6050,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                     }
                 }
                 let container_id = command.obj.or_else(|| {
-                    self.unit.upgrade().and_then(|unit| {
+                    get_unit_arc(self.unit_id).and_then(|unit| {
                         let unit_guard = unit.read().ok()?;
                         let base_arc = unit_guard.base_arc();
                         drop(unit_guard);
@@ -6031,7 +6063,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                         if let Ok(container_guard) = container.write() {
                             if let Some(contain) = container_guard.get_contain() {
                                 if let Ok(mut contain_guard) = contain.lock() {
-                                    if let Some(unit) = self.unit.upgrade() {
+                                    if let Some(unit) = get_unit_arc(self.unit_id) {
                                         if let Ok(unit_guard) = unit.read() {
                                             let base_arc = unit_guard.base_arc();
                                             drop(unit_guard);
@@ -6188,7 +6220,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             if let Ok(container_guard) = container.write() {
                                 if let Some(contain) = container_guard.get_contain() {
                                     if let Ok(mut contain_guard) = contain.lock() {
-                                        if let Some(unit) = self.unit.upgrade() {
+                                        if let Some(unit) = get_unit_arc(self.unit_id) {
                                             if let Ok(unit_guard) = unit.read() {
                                                 let base_arc = unit_guard.base_arc();
                                                 drop(unit_guard);
@@ -6485,7 +6517,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn get_preferred_height(&self) -> Option<Real> {
-        let locomotor = self.unit.upgrade().and_then(|unit| {
+        let locomotor = get_unit_arc(self.unit_id).and_then(|unit| {
             unit.read()
                 .ok()
                 .and_then(|guard| guard.current_locomotor.as_ref().cloned())
@@ -6495,10 +6527,8 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn is_allowed_to_adjust_destination(&self) -> bool {
         if let Some(chinook_ai) = self.chinook_ai.as_ref() {
-            let invalid_allowed = self
-                .unit
-                .upgrade()
-                .and_then(|unit| {
+            let invalid_allowed = get_unit_arc(self.unit_id)
+            .and_then(|unit| {
                     let guard = unit.read().ok()?;
                     let locomotor = guard.current_locomotor.as_ref()?.clone();
                     drop(guard);
@@ -6527,7 +6557,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         &mut self,
         distance: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 guard.path_extra_distance = distance;
             }
@@ -6540,9 +6570,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         waypoint: &crate::waypoint::Waypoint,
         group_offset: &Coord2D,
     ) -> Result<(), String> {
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let start_pos = unit
             .read()
@@ -6628,7 +6656,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn is_waypoint_queue_empty(&self) -> bool {
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(guard) = unit.read() {
                 return guard.waypoint_queue.is_empty();
             }
@@ -6650,7 +6678,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if self.queue_for_path_frame > TheGameLogic::get_frame() {
             return true;
         }
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(guard) = unit.read() {
                 return guard
                     .path_following_state
@@ -6666,7 +6694,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if (self.planning_waypoint_count as usize) < AI_UPDATE_MAX_WAYPOINTS {
             self.planning_waypoint_queue[self.planning_waypoint_count as usize] = *pos;
             self.planning_waypoint_count += 1;
-            if let Some(unit) = self.unit.upgrade() {
+            if let Some(unit) = get_unit_arc(self.unit_id) {
                 if let Ok(mut guard) = unit.write() {
                     guard
                         .waypoint_queue
@@ -6682,7 +6710,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             self.executing_waypoint_queue = true;
         }
         let first_pos = {
-            let unit = match self.unit.upgrade() {
+            let unit = match get_unit_arc(self.unit_id) {
                 Some(u) => u,
                 None => return,
             };
@@ -6702,9 +6730,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn append_goal_position_to_path(&mut self, goal: &Coord3D) -> Result<(), String> {
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
 
@@ -6729,9 +6755,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn set_path_from_coords(&mut self, path: &[Coord3D]) -> Result<(), String> {
         let installed_path = self.path_with_cpp_final_node(path)?;
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
 
@@ -6796,7 +6820,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if let Some(jet_ai) = self.jet_ai.as_ref() {
             return jet_ai.is_doing_ground_movement();
         }
-        let unit = self.unit.upgrade();
+        let unit = get_unit_arc(self.unit_id);
         let Some(unit) = unit else {
             return true;
         };
@@ -6884,7 +6908,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if let Some(jet_ai) = self.jet_ai.as_ref() {
             return jet_ai.get_treat_as_aircraft_for_loco_dist_to_goal();
         }
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return true;
         };
         let Ok(guard) = unit.read() else {
@@ -6911,9 +6935,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         layer: crate::common::PathfindLayerEnum,
     ) -> Result<(), String> {
         let is_ground_movement = self.is_doing_ground_movement();
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
 
@@ -7036,7 +7058,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn adjust_destination(&mut self, goal: &mut Coord3D) -> bool {
-        let unit = self.unit.upgrade();
+        let unit = get_unit_arc(self.unit_id);
         let Some(unit) = unit else {
             return false;
         };
@@ -7140,7 +7162,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn set_adjusts_destination(&mut self, adjust: bool) {
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 guard.path_adjusts_destination = adjust;
                 if let Some(state) = guard.path_following_state.as_mut() {
@@ -7154,9 +7176,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         &mut self,
         allow: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
         if let Some(locomotor) = guard.current_locomotor.as_ref() {
@@ -7203,7 +7223,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             return Ok(());
         }
 
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return Ok(());
         };
         let Some(locomotors) = self.locomotor_sets.get(&target_set) else {
@@ -7246,9 +7266,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         &mut self,
         ultra: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
         if let Some(locomotor) = guard.current_locomotor.as_ref() {
@@ -7263,9 +7281,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         &mut self,
         precise: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
         if let Some(locomotor) = guard.current_locomotor.as_ref() {
@@ -7277,7 +7293,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
-        self.unit.upgrade().and_then(|unit| {
+        get_unit_arc(self.unit_id).and_then(|unit| {
             unit.read()
                 .ok()
                 .and_then(|guard| guard.current_locomotor.as_ref().cloned())
@@ -7285,7 +7301,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn get_locomotor_set_clone(&self) -> Option<crate::locomotor::LocomotorSet> {
-        let unit = self.unit.upgrade()?;
+        let unit = get_unit_arc(self.unit_id)?;
         let guard = unit.read().ok()?;
         if guard.locomotor_set.is_empty() {
             return None;
@@ -7294,7 +7310,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn get_path_destination(&self) -> Option<Coord3D> {
-        let unit = self.unit.upgrade()?;
+        let unit = get_unit_arc(self.unit_id)?;
         let guard = unit.read().ok()?;
         if let Some(state) = guard.path_following_state.as_ref() {
             return Some(state.goal_position);
@@ -7311,7 +7327,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn get_locomotor_distance_to_goal(&self) -> Real {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return 0.0;
         };
         let Ok(guard) = unit.read() else {
@@ -7389,8 +7405,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn get_speed(&self) -> f32 {
-        self.unit
-            .upgrade()
+        get_unit_arc(self.unit_id)
             .and_then(|unit| unit.read().ok().map(|guard| guard.current_speed))
             .unwrap_or(0.0)
     }
@@ -7438,7 +7453,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn is_clearing_mines(&self) -> bool {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -7507,7 +7522,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn is_aircraft_that_adjusts_destination(&self) -> bool {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -7582,7 +7597,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn mark_as_dead(&mut self) {
         self.ai_dead = true;
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(unit_guard) = unit.read() {
                 if let Ok(mut object_guard) = unit_guard.base_arc().write() {
                     object_guard.set_effectively_dead(true);
@@ -7652,7 +7667,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if self.is_ai_in_dead_state() {
             return;
         }
-        let Some(unit_arc) = self.unit.upgrade() else {
+        let Some(unit_arc) = get_unit_arc(self.unit_id) else {
             return;
         };
         let (mobile, self_id, team) = {
@@ -7759,7 +7774,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn is_path_available(&self, destination: &Coord3D) -> bool {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -7893,7 +7908,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn can_compute_quick_path(&self) -> bool {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -7924,7 +7939,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if !self.can_compute_quick_path() {
             return false;
         }
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(guard) = unit.read() {
                 if let Some(path) = guard.current_path.as_ref() {
                     if let Some(last) = path.last() {
@@ -7947,7 +7962,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn is_quick_path_available(&self, destination: &Coord3D) -> bool {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -7967,7 +7982,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn is_valid_locomotor_position(&self, pos: &Coord3D) -> bool {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -7998,7 +8013,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if self.is_waiting_for_path() {
             return true;
         }
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -8072,7 +8087,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn get_cur_locomotor_speed(&self) -> Real {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return 0.0;
         };
         let Ok(guard) = unit.read() else {
@@ -8114,7 +8129,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 && jet_ai.allow_air_loco()
                 && !jet_ai.allow_circling()
             {
-                if let Some(unit) = self.unit.upgrade() {
+                if let Some(unit) = get_unit_arc(self.unit_id) {
                     if let Ok(guard) = unit.read() {
                         let (dir_x, dir_y) = guard.get_unit_direction_vector_2d();
                         let mut desired = guard.get_position();
@@ -8127,7 +8142,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             }
         }
 
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 guard.stop_movement();
             }
@@ -8137,7 +8152,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn set_locomotor_goal_orientation(&mut self, angle: Real) {
         self.locomotor_goal_type = 3;
         self.locomotor_goal_data = Coord3D::new(angle, 0.0, 0.0);
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 let _ = guard.set_orientation(angle);
             }
@@ -8156,7 +8171,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.movement_complete = true;
         self.locomotor_goal_type = 0;
         self.locomotor_goal_data = Coord3D::ZERO;
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 guard.stop_movement();
             }
@@ -8167,7 +8182,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
         self.movement_complete = false;
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 guard.movement_state = MovementState::Moving;
             }
@@ -8175,7 +8190,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn evaluate_morale_bonus(&mut self) {
-        let Some(unit_arc) = self.unit.upgrade() else {
+        let Some(unit_arc) = get_unit_arc(self.unit_id) else {
             return;
         };
         let base_object = match unit_arc.read() {
@@ -8279,7 +8294,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
         let new_target = TheGameLogic::find_object_by_id(to_id);
 
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 if guard.attack_target == Some(from_id) {
                     guard.attack_target = Some(to_id);
@@ -8342,9 +8357,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         &mut self,
         pos: &Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
         guard.give_move_order(*pos, Vec::new(), false, false)?;
@@ -8363,7 +8376,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 return Ok(());
             }
         }
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
                 guard.stop_movement();
             }
@@ -8387,9 +8400,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             .read()
             .map(|guard| guard.get_id())
             .map_err(|_| "target lock poisoned")?;
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
         guard.give_attack_order(target_id, true, false)?;
@@ -8400,9 +8411,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         &mut self,
         pos: &Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         self.push_guard_target_type(GuardTargetType::Location);
         self.location_to_guard = *pos;
@@ -8423,13 +8432,13 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn get_current_victim(&self) -> Option<ObjectID> {
-        let unit = self.unit.upgrade()?;
+        let unit = get_unit_arc(self.unit_id)?;
         let guard = unit.read().ok()?;
         guard.attack_target
     }
 
     fn set_current_victim(&mut self, victim: Option<ObjectID>) {
-        let unit = match self.unit.upgrade() {
+        let unit = match get_unit_arc(self.unit_id) {
             Some(u) => u,
             None => return,
         };
@@ -8476,7 +8485,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         use_existing_target: bool,
         _ignore_attacked: bool,
     ) -> Option<Arc<RwLock<Object>>> {
-        let unit = self.unit.upgrade()?;
+        let unit = get_unit_arc(self.unit_id)?;
         let guard = unit.read().ok()?;
         if !guard.can_auto_acquire_now() {
             return None;
@@ -8534,7 +8543,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn get_next_mood_check_time(&self) -> u32 {
-        let unit = self.unit.upgrade();
+        let unit = get_unit_arc(self.unit_id);
         let Some(unit) = unit else {
             return TheGameLogic::get_frame();
         };
@@ -8546,7 +8555,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn reset_next_mood_check_time(&mut self) {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return;
         };
         let Ok(mut guard) = unit.write() else {
@@ -8556,7 +8565,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn set_next_mood_check_time(&mut self, frame: u32) {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return;
         };
         let Ok(mut guard) = unit.write() else {
@@ -8571,7 +8580,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             return 0;
         }
 
-        let Some(unit_arc) = self.unit.upgrade() else {
+        let Some(unit_arc) = get_unit_arc(self.unit_id) else {
             return 0;
         };
         let Ok(unit_guard) = unit_arc.read() else {
@@ -8618,7 +8627,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn get_mood_matrix_action_adjustment(&mut self, action: MoodMatrixAction) -> u32 {
-        let Some(unit_arc) = self.unit.upgrade() else {
+        let Some(unit_arc) = get_unit_arc(self.unit_id) else {
             return mood_matrix_adjustment::ACTION_OK;
         };
         let Ok(unit_guard) = unit_arc.read() else {
@@ -8713,7 +8722,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 guard.set_goal_object(victim);
             }
         }
-        if let Some(unit) = self.unit.upgrade() {
+        if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut unit_guard) = unit.write() {
                 unit_guard.attack_target = Some(victim);
             }
@@ -8891,9 +8900,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             .read()
             .map(|guard| (guard.get_id(), *guard.get_position()))
             .map_err(|_| "target lock poisoned")?;
-        let unit = self
-            .unit
-            .upgrade()
+        let unit = get_unit_arc(self.unit_id)
             .ok_or_else(|| "unit no longer available".to_string())?;
         self.push_guard_target_type(GuardTargetType::Object);
         self.object_to_guard = target_id;
@@ -8907,7 +8914,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn ai_go_prone(&mut self, damage_info: &DamageInfo, _cmd_source: crate::ai::CommandSourceType) {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return;
         };
         let Ok(unit_guard) = unit.read() else {
@@ -8934,7 +8941,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
 impl Drop for UnitAIUpdate {
     fn drop(&mut self) {
-        let Some(unit) = self.unit.upgrade() else {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
             return;
         };
         let Ok(guard) = unit.read() else {
@@ -8978,7 +8985,7 @@ mod tests {
 
     fn unit_ai_update_without_unit() -> UnitAIUpdate {
         UnitAIUpdate::new(
-            Weak::new(),
+            INVALID_ID,
             None,
             None,
             None,
@@ -9036,8 +9043,12 @@ mod tests {
             .add_locomotor(format!("GroundLoco{}", owner_id), Arc::clone(&locomotor));
         unit.current_locomotor = Some(locomotor);
         let unit = Arc::new(RwLock::new(unit));
-        let ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9068,8 +9079,12 @@ mod tests {
         let template = DefaultThingTemplate::new("TestUnit".to_string());
         let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9104,8 +9119,12 @@ mod tests {
         let loco_template = Arc::new(LocomotorTemplate::new_thrust("AirLoco".to_string()));
         unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9147,8 +9166,12 @@ mod tests {
         let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
         unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9190,8 +9213,12 @@ mod tests {
         let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
         unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9238,8 +9265,12 @@ mod tests {
             .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
         unit.current_locomotor = Some(locomotor);
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9285,8 +9316,12 @@ mod tests {
             .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
         unit.current_locomotor = Some(locomotor);
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9324,8 +9359,12 @@ mod tests {
         let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
         unit.current_locomotor = Some(locomotor);
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9373,8 +9412,12 @@ mod tests {
         unit.target_position = Some(Coord3D::new(20.0, 0.0, 0.0));
         unit.movement_state = MovementState::Moving;
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9437,8 +9480,12 @@ mod tests {
         unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
         unit.current_path = Some(vec![Coord2D::new(99.0, 99.0)]);
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9523,8 +9570,12 @@ mod tests {
         unit.current_locomotor = Some(Arc::clone(&locomotor));
         let unit = Arc::new(RwLock::new(unit));
 
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9563,8 +9614,12 @@ mod tests {
         unit.movement_state = MovementState::Moving;
         let unit = Arc::new(RwLock::new(unit));
 
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9611,8 +9666,12 @@ mod tests {
         let unit = Arc::new(RwLock::new(
             Unit::new(Arc::clone(&base_object), &template).unwrap(),
         ));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9654,8 +9713,12 @@ mod tests {
         unit.movement_state = MovementState::Moving;
         let unit = Arc::new(RwLock::new(unit));
 
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9708,8 +9771,12 @@ mod tests {
             .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
         unit.current_locomotor = Some(locomotor);
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9757,8 +9824,12 @@ mod tests {
             .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
         unit.current_locomotor = Some(locomotor);
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9868,8 +9939,12 @@ mod tests {
             .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
         unit.current_locomotor = Some(locomotor);
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9922,8 +9997,12 @@ mod tests {
             .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
         unit.current_locomotor = Some(locomotor);
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -9969,8 +10048,12 @@ mod tests {
             .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
         unit.current_locomotor = Some(locomotor);
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -10060,8 +10143,12 @@ mod tests {
             .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
         unit.current_locomotor = Some(locomotor);
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -10109,8 +10196,12 @@ mod tests {
         loco.set_ultra_accurate(true);
         unit.current_locomotor = Some(Arc::new(Mutex::new(loco)));
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
@@ -10152,8 +10243,12 @@ mod tests {
         let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
         unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
         let unit = Arc::new(RwLock::new(unit));
-        let mut ai = UnitAIUpdate::new(
-            Arc::downgrade(&unit),
+        let mut ai = UnitAIUpdate::new({
+            let __u = &unit;
+            let __id = __u.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+            crate::object::unit::register_unit(__id, __u);
+            __id
+        },
             None,
             None,
             None,
