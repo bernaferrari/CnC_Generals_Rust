@@ -350,7 +350,13 @@ impl GarrisonContain {
                 .map(|guard| guard.is_effectively_dead())
                 .unwrap_or(false);
             if is_dead {
-                self.remove_from_contain(obj.clone(), true)?;
+                self.remove_from_contain(
+                    obj.read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID),
+                    true,
+                )?;
                 if let Ok(mut contained) = obj.write() {
                     contained.set_safe_occlusion_frame(
                         TheGameLogic::get_frame() + crate::common::LOGICFRAMES_PER_SECOND * 1000,
@@ -489,14 +495,14 @@ impl GarrisonContain {
     }
 
     /// Add object to containment using garrison virtual callbacks.
-    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+    pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Contain object not found")?;
         let owner = self.get_object();
         if super::should_cancel_containment_after_booby_trap(
             owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            obj_id,
         ) {
             return Ok(());
         }
@@ -517,12 +523,7 @@ impl GarrisonContain {
         }
         drop(obj_guard);
 
-        self.base.add_to_contain_list(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )?;
+        self.base.add_to_contain_list(obj_id)?;
 
         if obj
             .read()
@@ -533,16 +534,19 @@ impl GarrisonContain {
         }
 
         self.base.redeploy_occupants()?;
-        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
+        self.on_containing(obj_id, was_selected)?;
         Ok(())
     }
 
     /// Remove object from containment using garrison virtual callbacks.
     pub fn remove_from_contain(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
+        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("Contain object not found")?;
         if let Some(owner) = self.get_object() {
             let owner_id = owner.read().ok().map(|guard| guard.get_id());
             if let (Some(owner_id), Ok(obj_guard)) = (owner_id, obj.read()) {
@@ -566,7 +570,7 @@ impl GarrisonContain {
         }
 
         self.base.do_unload_sound();
-        self.on_removing(obj.read().map(|g| g.get_id()).unwrap_or(0))?;
+        self.on_removing(obj_id)?;
 
         if obj
             .read()
@@ -605,7 +609,13 @@ impl GarrisonContain {
         }
         let objects = self.base.get_contained_items_list()?;
         for obj in objects {
-            self.remove_from_contain(obj, expose_stealth_units)?;
+            self.remove_from_contain(
+                obj.read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                expose_stealth_units,
+            )?;
         }
         self.recalc_apparent_controlling_player()?;
         Ok(())
@@ -618,7 +628,12 @@ impl GarrisonContain {
         exit_door: ExitDoorType,
     ) -> GameResult<()> {
         let _ = exit_door;
-        self.remove_from_contain(exit_obj.clone(), true)?;
+        let exit_id = exit_obj
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        self.remove_from_contain(exit_id, true)?;
 
         if let Some(owner_obj) = self.get_object() {
             if let Ok(owner) = owner_obj.read() {
@@ -2484,9 +2499,7 @@ impl ContainModuleInterface for GarrisonContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.add_to_contain(obj).map_err(|e| e.to_string())
+        self.add_to_contain(object_id).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -2494,8 +2507,14 @@ impl ContainModuleInterface for GarrisonContain {
             Some(obj) => obj,
             None => return Ok(()),
         };
-        self.remove_from_contain(obj, true)
-            .map_err(|e| e.to_string())
+        self.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            true,
+        )
+        .map_err(|e| e.to_string())
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
@@ -2742,11 +2761,22 @@ impl ContainerInterface for GarrisonContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(obj)
+        let oid = obj
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        self.add_to_contain(oid)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(obj, true)
+        self.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            true,
+        )
     }
 
     fn get_usage(&self) -> (u32, u32) {
