@@ -903,8 +903,7 @@ impl PartitionManager {
         other_pos: &Coord3D,
     ) -> bool {
         let pos = if let Some(id) = obj_id {
-            if let Some(handle) = OBJECT_REGISTRY.get_object(id) {
-                let p = handle.get_position();
+            if let Some(p) = OBJECT_REGISTRY.with_object(id, |obj| *obj.get_position()) {
                 // Adjust z to top of collision shape (eye level).
                 if let Some((_, geom)) = PARTITION_MANAGER
                     .read()
@@ -923,8 +922,7 @@ impl PartitionManager {
         };
 
         let pos_other = if let Some(id) = other_id {
-            if let Some(handle) = OBJECT_REGISTRY.get_object(id) {
-                let p = handle.get_position();
+            if let Some(p) = OBJECT_REGISTRY.with_object(id, |obj| *obj.get_position()) {
                 if let Some((_, geom)) = PARTITION_MANAGER
                     .read()
                     .ok()
@@ -1545,16 +1543,10 @@ impl PartitionManager {
         for cell_coord in center_cell.neighbors() {
             if let Some(cell) = self.cells.get(&cell_coord) {
                 for &obj_id in &cell.objects {
-                    if let Some(handle) = OBJECT_REGISTRY.get_object(obj_id) {
-                        let guard = handle.read().ok();
-                        let is_structure = guard
-                            .as_ref()
-                            .map(|g| g.is_kind_of(crate::common::KindOf::Structure))
-                            .unwrap_or(false);
-                        if !is_structure {
-                            continue;
-                        }
-                    } else {
+                    let is_structure = OBJECT_REGISTRY
+                        .with_object(obj_id, |g| g.is_kind_of(crate::common::KindOf::Structure))
+                        .unwrap_or(false);
+                    if !is_structure {
                         continue;
                     }
 
