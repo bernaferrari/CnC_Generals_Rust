@@ -794,7 +794,11 @@ impl ClassicState for AIDockMoveToEntryState {
                         if dock.is_allow_passthrough_type().into_string_err()? {
                             if let Ok(mut ai_guard) = ai.lock() {
                                 ai_guard
-                                    .ignore_obstacle(goal_object.as_ref())
+                                    .ignore_obstacle(
+                                        goal_object
+                                            .as_ref()
+                                            .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                                    )
                                     .map_err(|err| err.to_string())?;
                             }
                         }
@@ -942,7 +946,11 @@ impl ClassicState for AIDockMoveToDockState {
                         if let Some(ai) = owner_guard.get_ai_update_interface() {
                             if let Ok(mut ai_guard) = ai.lock() {
                                 ai_guard
-                                    .ignore_obstacle(goal_object.as_ref())
+                                    .ignore_obstacle(
+                                        goal_object
+                                            .as_ref()
+                                            .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                                    )
                                     .map_err(|err| err.to_string())?;
                             }
                             self.move_helper.set_adjusts_destination(false);
@@ -1249,7 +1257,11 @@ impl ClassicState for AIDockMoveToExitState {
                         if let Some(ai) = owner_guard.get_ai_update_interface() {
                             if let Ok(mut ai_guard) = ai.lock() {
                                 ai_guard
-                                    .ignore_obstacle(goal_object.as_ref())
+                                    .ignore_obstacle(
+                                        goal_object
+                                            .as_ref()
+                                            .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                                    )
                                     .map_err(|err| err.to_string())?;
                             }
                             self.move_helper.set_adjusts_destination(false);

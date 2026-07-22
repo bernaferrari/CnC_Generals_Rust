@@ -479,7 +479,7 @@ impl POWTruckAIUpdate {
         self.set_task(POWTruckTask::CollectingTarget, Some(prisoner_id));
 
         if let Some(prisoner_legacy) = get_legacy_object(prisoner_id) {
-            let _ = ai.ignore_obstacle(Some(&prisoner_legacy));
+            let _ = ai.ignore_obstacle(prisoner_legacy.read().ok().map(|g| g.get_id()));
         }
 
         ai.set_ultra_accurate(true)?;

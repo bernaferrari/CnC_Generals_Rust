@@ -583,13 +583,21 @@ impl JetStateMachine {
                     }
                 }
                 let producer = jet_ai.producer_object();
-                let _ = ai.ignore_obstacle(producer.as_ref());
+                let _ = ai.ignore_obstacle(
+                    producer
+                        .as_ref()
+                        .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                );
             }
             Some(JetAIStateType::OrientForParkingPlace) => {
                 jet_ai.set_takeoff_in_progress(false);
                 jet_ai.set_landing_in_progress(true);
                 let producer = jet_ai.producer_object();
-                let _ = ai.ignore_obstacle(producer.as_ref());
+                let _ = ai.ignore_obstacle(
+                    producer
+                        .as_ref()
+                        .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                );
             }
             Some(JetAIStateType::ReloadAmmo) => {
                 jet_ai.set_takeoff_in_progress(false);
@@ -792,7 +800,11 @@ impl JetStateMachine {
                     let _ = ai.set_ultra_accurate(true);
                     let _ = ai.set_precise_z_pos(true);
                     let producer = jet_ai.producer_object();
-                    let _ = ai.ignore_obstacle(producer.as_ref());
+                    let _ = ai.ignore_obstacle(
+                        producer
+                            .as_ref()
+                            .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                    );
                     let mut params = AiCommandParams::new(
                         AiCommandType::FollowPath,
                         crate::ai::CommandSourceType::FromAi,
@@ -850,7 +862,11 @@ impl JetStateMachine {
                     let _ = ai.set_ultra_accurate(true);
                     let _ = ai.set_precise_z_pos(true);
                     let producer = jet_ai.producer_object();
-                    let _ = ai.ignore_obstacle(producer.as_ref());
+                    let _ = ai.ignore_obstacle(
+                        producer
+                            .as_ref()
+                            .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                    );
                     let mut params = AiCommandParams::new(
                         AiCommandType::FollowPath,
                         crate::ai::CommandSourceType::FromAi,
@@ -1521,7 +1537,7 @@ impl JetAIUpdate {
                     .obj
                     .and_then(|id| TheGameLogic::find_object_by_id(id))
                 {
-                    let _ = ai.ignore_obstacle(Some(&ignore));
+                    let _ = ai.ignore_obstacle(ignore.read().ok().map(|g| g.get_id()));
                 }
                 ai.set_last_command_source(params.cmd_source);
                 if let Some(obj) = self.get_object() {

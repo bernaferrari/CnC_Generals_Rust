@@ -861,7 +861,7 @@ impl AIState for AIDockState {
         {
             if let Ok(mut ai_guard) = ai.lock() {
                 let legacy_goal = get_legacy_object(goal_id);
-                let _ = ai_guard.ignore_obstacle(legacy_goal.as_ref());
+                let _ = ai_guard.ignore_obstacle(legacy_goal.as_ref().and_then(|a| a.read().ok().map(|g| g.get_id())));
                 let _ = ai_guard.set_can_path_through_units(true);
             }
         }
@@ -964,7 +964,7 @@ impl AIState for AIEnterState {
             if let Ok(mut ai_guard) = ai.lock() {
                 let _ = ai_guard.set_allow_invalid_position(true);
                 let legacy_goal = get_legacy_object(goal_id);
-                let _ = ai_guard.ignore_obstacle(legacy_goal.as_ref());
+                let _ = ai_guard.ignore_obstacle(legacy_goal.as_ref().and_then(|a| a.read().ok().map(|g| g.get_id())));
                 let _ = ai_guard.set_movement_target(&goal_pos);
             }
         }
