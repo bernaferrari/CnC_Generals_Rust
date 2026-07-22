@@ -11,17 +11,18 @@ use crate::object::Object;
 use crate::scripting::engine::get_script_engine;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 /// Internal storage for the registry.
 #[derive(Default)]
 struct RegistryStore {
-    objects: HashMap<ObjectID, Weak<RwLock<Object>>>,
+    /// Strong handles: registry is the ID→Object authority until unregister/destroy.
+    objects: HashMap<ObjectID, Arc<RwLock<Object>>>,
 }
 
 impl RegistryStore {
     fn register(&mut self, id: ObjectID, object: &Arc<RwLock<Object>>) {
-        self.objects.insert(id, Arc::downgrade(object));
+        self.objects.insert(id, Arc::clone(object));
     }
 
     fn unregister(&mut self, id: ObjectID) {
@@ -29,14 +30,7 @@ impl RegistryStore {
     }
 
     fn get(&mut self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        if let Some(entry) = self.objects.get(&id) {
-            if let Some(obj) = entry.upgrade() {
-                return Some(obj);
-            }
-        }
-        // Drop dead weak references so the map cannot grow unbounded.
-        self.objects.retain(|_, handle| handle.strong_count() > 0);
-        None
+        self.objects.get(&id).cloned()
     }
 
     fn clear(&mut self) {
@@ -98,21 +92,16 @@ impl ObjectRegistry {
     /// Host/presentation path: true when no dual-world factory objects are registered.
     pub fn is_empty(&self) -> bool {
         if let Ok(guard) = self.store.read() {
-            guard.objects.is_empty() || guard.objects.values().all(|weak| weak.strong_count() == 0)
+            guard.objects.is_empty()
         } else {
             true
         }
     }
 
-    /// Retrieve all live objects (dropping stale weak refs on the way).
+    /// Retrieve all registered objects.
     pub fn get_all_objects(&self) -> Vec<Arc<RwLock<Object>>> {
-        if let Ok(mut guard) = self.store.write() {
-            guard.objects.retain(|_, handle| handle.strong_count() > 0);
-            let mut result: Vec<Arc<RwLock<Object>>> = guard
-                .objects
-                .values()
-                .filter_map(|weak| weak.upgrade())
-                .collect();
+        if let Ok(guard) = self.store.read() {
+            let mut result: Vec<Arc<RwLock<Object>>> = guard.objects.values().cloned().collect();
             result.sort_by_key(|obj| obj.read().map(|o| o.get_id()).unwrap_or(0));
             result
         } else {
@@ -122,8 +111,7 @@ impl ObjectRegistry {
 
     /// Object IDs currently registered (no Arc clones).
     pub fn get_all_object_ids(&self) -> Vec<ObjectID> {
-        if let Ok(mut guard) = self.store.write() {
-            guard.objects.retain(|_, handle| handle.strong_count() > 0);
+        if let Ok(guard) = self.store.read() {
             guard.objects.keys().copied().collect()
         } else {
             Vec::new()
@@ -145,14 +133,9 @@ impl ObjectRegistry {
     /// infrequently (or never) do not accumulate as dead entries.
     ///
     /// Returns the number of entries that were removed.
+    /// No-op with strong registry storage (kept for call-site compatibility).
     pub fn cleanup_dead_references(&self) -> usize {
-        if let Ok(mut guard) = self.store.write() {
-            let before = guard.objects.len();
-            guard.objects.retain(|_, handle| handle.strong_count() > 0);
-            before.saturating_sub(guard.objects.len())
-        } else {
-            0
-        }
+        0
     }
 }
 
