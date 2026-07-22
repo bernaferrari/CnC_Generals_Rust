@@ -2136,7 +2136,7 @@ impl ClassicState for AIIdleState {
                                 {
                                     if let Some(enemy) = ai_guard.get_next_mood_target(true, true) {
                                         ai.ai_attack_object(
-                                            &enemy,
+                                            enemy.read().ok().map(|g| g.get_id()).unwrap_or(0),
                                             NO_MAX_SHOTS_LIMIT,
                                             CommandSourceType::FromAi,
                                         );
@@ -8314,7 +8314,7 @@ impl ClassicState for AIEnterState {
                     ) {
                         if let Some(ai) = owner_guard.get_ai_update_interface() {
                             ai.ai_attack_object(
-                                &goal,
+                                goal.read().ok().map(|g| g.get_id()).unwrap_or(0),
                                 NO_MAX_SHOTS_LIMIT,
                                 CommandSourceType::FromAi,
                             );

@@ -1315,7 +1315,7 @@ impl ChinookAIUpdate {
                             if let Some(ai) = pass_guard.get_ai_update_interface() {
                                 if let Some(victim_arc) = victim.as_ref() {
                                     ai.ai_force_attack_object(
-                                        victim_arc,
+                                        victim_arc.read().ok().map(|g| g.get_id()).unwrap_or(0),
                                         max_shots_to_fire,
                                         cmd_source,
                                     );
@@ -1342,7 +1342,11 @@ impl ChinookAIUpdate {
                                     if let Some(ai) = rider_guard.get_ai_update_interface() {
                                         if let Some(victim_arc) = victim.as_ref() {
                                             ai.ai_force_attack_object(
-                                                victim_arc,
+                                                victim_arc
+                                                    .read()
+                                                    .ok()
+                                                    .map(|g| g.get_id())
+                                                    .unwrap_or(0),
                                                 max_shots_to_fire,
                                                 cmd_source,
                                             );
@@ -1776,9 +1780,9 @@ impl SupplyTruckAIInterface for ChinookAIUpdate {
 
     fn get_action_delay_for_dock(
         &self,
-        dock: &Arc<RwLock<Object>>,
+        dock_id: ObjectID,
     ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
-        SupplyTruckAIInterface::get_action_delay_for_dock(&self.base, dock)
+        SupplyTruckAIInterface::get_action_delay_for_dock(&self.base, dock_id)
     }
 
     fn set_force_wanting_state(&mut self, enabled: bool) {

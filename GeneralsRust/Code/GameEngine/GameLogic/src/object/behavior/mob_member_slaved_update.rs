@@ -361,7 +361,11 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
                         .unwrap_or(false)
                         == false
                     {
-                        my_ai.ai_attack_object(&new_target, 999, CommandSourceType::FromAi);
+                        my_ai.ai_attack_object(
+                            new_target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                            999,
+                            CommandSourceType::FromAi,
+                        );
                         self.is_self_tasking = true;
                     }
                 }
@@ -369,7 +373,11 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
 
             if victim.is_none() {
                 if let Some(primary) = primary_victim {
-                    my_ai.ai_attack_object(&primary, 999, CommandSourceType::FromAi);
+                    my_ai.ai_attack_object(
+                        primary.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                        999,
+                        CommandSourceType::FromAi,
+                    );
                 } else if !master_guard.is_attacking() {
                     // Auto acquire mode; leave idle.
                 }
@@ -410,8 +418,13 @@ impl SlavedUpdateInterface for MobMemberSlavedUpdate {
 
     fn on_enslave(
         &mut self,
-        master: &Arc<RwLock<GameObject>>,
+        master_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(master) = crate::helpers::TheGameLogic::find_object_by_id(master_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(master_id))
+        else {
+            return Ok(());
+        };
         let master_guard = master.read().map_err(|_| "slaver lock poisoned")?;
         self.start_slaved_effects(&*master_guard);
         Ok(())

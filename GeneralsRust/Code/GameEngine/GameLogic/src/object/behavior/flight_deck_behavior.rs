@@ -1148,7 +1148,7 @@ impl FlightDeckBehavior {
             AiCommandType::ForceAttackObject | AiCommandType::AttackObject => {
                 if let Some(target_arc) = target_arc {
                     ai.ai_force_attack_object(
-                        &target_arc,
+                        target_arc.read().ok().map(|g| g.get_id()).unwrap_or(0),
                         NO_MAX_SHOTS_LIMIT,
                         CommandSourceType::FromPlayer,
                     );

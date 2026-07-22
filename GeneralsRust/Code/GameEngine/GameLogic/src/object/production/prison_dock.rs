@@ -218,7 +218,7 @@ impl DockUpdateInterface for PrisonDockUpdate {
             .ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::Other, "POW truck AI interface missing")
             })?;
-        pow_ai.unload_prisoners_to_prison(&prison);
+        pow_ai.unload_prisoners_to_prison(prison.read().ok().map(|g| g.get_id()).unwrap_or(0));
 
         Ok(false)
     }

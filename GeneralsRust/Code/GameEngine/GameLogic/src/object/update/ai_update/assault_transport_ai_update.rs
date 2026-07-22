@@ -430,7 +430,11 @@ impl AssaultTransportAIUpdate {
                                                 drop(ai_guard);
                                                 if let Some(target) = legacy_target.as_ref() {
                                                     member_ai.ai_attack_object(
-                                                        target,
+                                                        target
+                                                            .read()
+                                                            .ok()
+                                                            .map(|g| g.get_id())
+                                                            .unwrap_or(0),
                                                         NO_MAX_SHOTS_LIMIT,
                                                         CommandSourceType::FromAi,
                                                     );
@@ -441,7 +445,7 @@ impl AssaultTransportAIUpdate {
                                         drop(ai_guard);
                                         if let Some(target) = legacy_target.as_ref() {
                                             member_ai.ai_attack_object(
-                                                target,
+                                                target.read().ok().map(|g| g.get_id()).unwrap_or(0),
                                                 NO_MAX_SHOTS_LIMIT,
                                                 CommandSourceType::FromAi,
                                             );
@@ -664,7 +668,11 @@ impl AssaultTransportAIUpdate {
 
             if self.is_attack_object {
                 if let Some(target) = get_legacy_object(self.designated_target) {
-                    ai.ai_attack_object(&target, NO_MAX_SHOTS_LIMIT, CommandSourceType::FromPlayer);
+                    ai.ai_attack_object(
+                        target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                        NO_MAX_SHOTS_LIMIT,
+                        CommandSourceType::FromPlayer,
+                    );
                 }
             } else if self.is_attack_move {
                 ai.ai_attack_move_to_position(

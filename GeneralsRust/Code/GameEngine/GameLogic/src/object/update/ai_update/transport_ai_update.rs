@@ -133,7 +133,11 @@ impl TransportAIUpdate {
             return;
         };
         self.relay_attack_to_passengers(|ai| {
-            ai.ai_attack_object(&victim, max_shots_to_fire, cmd_source);
+            ai.ai_attack_object(
+                victim.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                max_shots_to_fire,
+                cmd_source,
+            );
         });
     }
 
@@ -154,7 +158,11 @@ impl TransportAIUpdate {
             return;
         };
         self.relay_attack_to_passengers(|ai| {
-            ai.ai_force_attack_object(&victim, max_shots_to_fire, cmd_source);
+            ai.ai_force_attack_object(
+                victim.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                max_shots_to_fire,
+                cmd_source,
+            );
         });
     }
 

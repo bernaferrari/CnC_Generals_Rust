@@ -1079,7 +1079,9 @@ impl AIDockProcessDockState {
                     if let Some(supply_truck) = ai_guard.get_supply_truck_ai_interface() {
                         self.next_dock_action_frame = TheGameLogic::try_get_frame()?
                             + supply_truck
-                                .get_action_delay_for_dock(&goal_object)
+                                .get_action_delay_for_dock(
+                                    goal_object.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                                )
                                 .map_err(|err| err.to_string())?;
                         return Ok(());
                     }

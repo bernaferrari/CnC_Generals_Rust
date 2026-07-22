@@ -673,7 +673,7 @@ impl RailedTransportDockUpdateInterface for RailedTransportDockUpdate {
         let _ = self.unload_next();
     }
 
-    fn unload_single_object(&mut self, _obj: &Arc<RwLock<Object>>) {
+    fn unload_single_object(&mut self, _obj_id: ObjectID) {
         self.unload_count = 1;
         let _ = self.unload_next();
     }
