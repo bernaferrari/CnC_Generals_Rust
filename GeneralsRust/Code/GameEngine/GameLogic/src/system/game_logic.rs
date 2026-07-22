@@ -4696,24 +4696,18 @@ struct GameLogicEnergyLookup;
 impl EnergyObjectLookup for GameLogicEnergyLookup {
     fn energy_production(&self, obj: ObjectHandle) -> i32 {
         let object_id = obj.value() as ObjectID;
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return 0;
-        };
-        let Ok(guard) = object_arc.read() else {
-            return 0;
-        };
-        guard.get_template().get_energy_production()
+        OBJECT_REGISTRY
+            .with_object(object_id, |guard| {
+                guard.get_template().get_energy_production()
+            })
+            .unwrap_or(0)
     }
 
     fn energy_bonus(&self, obj: ObjectHandle) -> i32 {
         let object_id = obj.value() as ObjectID;
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return 0;
-        };
-        let Ok(guard) = object_arc.read() else {
-            return 0;
-        };
-        guard.get_template().get_energy_bonus()
+        OBJECT_REGISTRY
+            .with_object(object_id, |guard| guard.get_template().get_energy_bonus())
+            .unwrap_or(0)
     }
 }
 

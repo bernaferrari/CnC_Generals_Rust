@@ -3226,33 +3226,31 @@ impl Player {
             return;
         }
         for object_id in &self.owned_objects {
-            let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(*object_id)
+            let Some((is_structure, ai, pos)) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(*object_id, |object_guard| {
+                    (
+                        object_guard.is_kind_of(crate::common::KindOf::Structure),
+                        object_guard.get_ai_update_interface(),
+                        *object_guard.get_position(),
+                    )
+                })
             else {
                 continue;
             };
-            let Ok(object_guard) = object.read() else {
-                continue;
-            };
-
-            if object_guard.is_kind_of(crate::common::KindOf::Structure) {
+            if is_structure {
                 continue;
             }
-
-            let Some(ai) = object_guard.get_ai_update_interface() else {
-                continue;
-            };
-
-            let Ok(mut ai_guard) = ai.lock() else {
+            let Some(ai) = ai else {
                 continue;
             };
 
             if idle {
-                let pos = *object_guard.get_position();
-                drop(ai_guard);
                 ai.ai_move_to_position(&pos, false, source);
-            } else if ai_guard.is_idle() {
-                if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
-                    truck.set_force_wanting_state(true);
+            } else if let Ok(mut ai_guard) = ai.lock() {
+                if ai_guard.is_idle() {
+                    if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
+                        truck.set_force_wanting_state(true);
+                    }
                 }
             }
         }

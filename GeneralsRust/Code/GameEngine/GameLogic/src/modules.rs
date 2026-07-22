@@ -2329,7 +2329,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
         cmd_source: CommandSourceType,
     ) {
         // C++ Reference: AIUpdateInterface::aiAttackObject() with object ID
-        if victim_id == INVALID_ID || OBJECT_REGISTRY.get_object(victim_id).is_none() {
+        if victim_id == INVALID_ID || OBJECT_REGISTRY.with_object(victim_id, |_| ()).is_none() {
             return;
         }
         if let Ok(mut guard) = self.try_lock() {
