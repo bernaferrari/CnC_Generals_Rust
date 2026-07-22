@@ -3440,19 +3440,16 @@ impl DefaultCommandHandler {
         }
 
         for object_id in selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(mut guard) = obj.write() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
-            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-                continue;
-            }
-            guard.set_weapon_lock(weapon_slot, WeaponLockType::LockedPermanently);
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
+                if guard.is_destroyed() {
+                    return;
+                }
+                if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id)
+                {
+                    return;
+                }
+                guard.set_weapon_lock(weapon_slot, WeaponLockType::LockedPermanently);
+            });
         }
 
         CommandExecutionResult::Success
@@ -3477,39 +3474,36 @@ impl DefaultCommandHandler {
         // C++ dispatch unlocks the entire selected group first, then issues
         // evacuation commands.
         for object_id in &selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(*object_id) else {
-                continue;
-            };
-            let Ok(mut guard) = obj.write() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
-            guard.release_weapon_lock(WeaponLockType::LockedTemporarily);
+            let _ = OBJECT_REGISTRY.with_object_mut(*object_id, |guard| {
+                if guard.is_destroyed() {
+                    return;
+                }
+                guard.release_weapon_lock(WeaponLockType::LockedTemporarily);
+            });
         }
 
         for object_id in selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
+            let Some((ai, is_aircraft, is_airborne_target, position, contain)) = OBJECT_REGISTRY
+                .with_object(object_id, |guard| {
+                    if guard.is_destroyed() {
+                        return None;
+                    }
 
-            let ai = guard.get_ai_update_interface();
-            let is_aircraft = guard.is_kind_of(KindOf::Aircraft);
-            let is_airborne_target = guard.is_airborne_target();
-            let position = *guard.get_position();
-            let contain = if ai.is_none() && guard.is_kind_of(KindOf::Structure) {
-                guard.get_contain()
-            } else {
-                None
+                    let ai = guard.get_ai_update_interface();
+                    let is_aircraft = guard.is_kind_of(KindOf::Aircraft);
+                    let is_airborne_target = guard.is_airborne_target();
+                    let position = *guard.get_position();
+                    let contain = if ai.is_none() && guard.is_kind_of(KindOf::Structure) {
+                        guard.get_contain()
+                    } else {
+                        None
+                    };
+                    Some((ai, is_aircraft, is_airborne_target, position, contain))
+                })
+                .flatten()
+            else {
+                continue;
             };
-            drop(guard);
 
             if let Some(ai) = ai {
                 if is_aircraft && is_airborne_target {
@@ -3552,38 +3546,35 @@ impl DefaultCommandHandler {
             .unwrap_or_default();
 
         for object_id in &selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(*object_id) else {
-                continue;
-            };
-            let Ok(mut guard) = obj.write() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
-            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-                continue;
-            }
-            guard.release_weapon_lock(WeaponLockType::LockedTemporarily);
+            let _ = OBJECT_REGISTRY.with_object_mut(*object_id, |guard| {
+                if guard.is_destroyed() {
+                    return;
+                }
+                if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id)
+                {
+                    return;
+                }
+                guard.release_weapon_lock(WeaponLockType::LockedTemporarily);
+            });
         }
 
         for object_id in selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(ai) = OBJECT_REGISTRY
+                .with_object(object_id, |guard| {
+                    if guard.is_destroyed() {
+                        return None;
+                    }
+                    if guard.get_controlling_player_id().map(|id| id as Int)
+                        != Some(context.player_id)
+                    {
+                        return None;
+                    }
+                    guard.get_ai_update_interface()
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
-            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-                continue;
-            }
-            let Some(ai) = guard.get_ai_update_interface() else {
-                continue;
-            };
-            drop(guard);
 
             let ai_lock = ai.lock();
             if let Ok(mut ai_guard) = ai_lock {
@@ -3630,22 +3621,22 @@ impl DefaultCommandHandler {
             .unwrap_or_default();
 
         for object_id in selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(ai) = OBJECT_REGISTRY
+                .with_object(object_id, |guard| {
+                    if guard.is_destroyed() {
+                        return None;
+                    }
+                    if guard.get_controlling_player_id().map(|id| id as Int)
+                        != Some(context.player_id)
+                    {
+                        return None;
+                    }
+                    guard.get_ai_update_interface()
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
-            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-                continue;
-            }
-            let Some(ai) = guard.get_ai_update_interface() else {
-                continue;
-            };
-            drop(guard);
 
             let ai_lock = ai.lock();
             if let Ok(mut ai_guard) = ai_lock {
@@ -3730,9 +3721,6 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Success;
         };
 
-        let Some(exiter) = OBJECT_REGISTRY.get_object(object_wanting_to_exit) else {
-            return CommandExecutionResult::Success;
-        };
         if OBJECT_REGISTRY
             .with_object(object_containing_exiter, |_| ())
             .is_none()
@@ -3740,21 +3728,23 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Success;
         }
 
-        let Ok(mut guard) = exiter.write() else {
-            return CommandExecutionResult::Success;
-        };
-        if guard.is_destroyed() {
-            return CommandExecutionResult::Success;
-        }
-        if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-            return CommandExecutionResult::Success;
-        }
+        let Some(ai) = OBJECT_REGISTRY
+            .with_object_mut(object_wanting_to_exit, |guard| {
+                if guard.is_destroyed() {
+                    return None;
+                }
+                if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id)
+                {
+                    return None;
+                }
 
-        guard.release_weapon_lock(WeaponLockType::LockedTemporarily);
-        let Some(ai) = guard.get_ai_update_interface() else {
+                guard.release_weapon_lock(WeaponLockType::LockedTemporarily);
+                guard.get_ai_update_interface()
+            })
+            .flatten()
+        else {
             return CommandExecutionResult::Success;
         };
-        drop(guard);
 
         if let Ok(mut ai_guard) = ai.lock() {
             let mut params = crate::ai::AiCommandParams::new(
@@ -4016,45 +4006,41 @@ impl DefaultCommandHandler {
             object_id
         };
 
-        let Some(building) = OBJECT_REGISTRY.get_object(building_id) else {
-            return CommandExecutionResult::Success;
-        };
-        let Ok(mut guard) = building.write() else {
-            return CommandExecutionResult::Success;
-        };
-        if guard.is_destroyed() {
-            return CommandExecutionResult::Success;
-        }
-        if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-            return CommandExecutionResult::Success;
-        }
-        if !guard.test_status(ObjectStatusTypes::UnderConstruction) {
-            return CommandExecutionResult::Success;
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(building_id, |guard| {
+            if guard.is_destroyed() {
+                return;
+            }
+            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+                return;
+            }
+            if !guard.test_status(ObjectStatusTypes::UnderConstruction) {
+                return;
+            }
 
-        if !guard.test_status(ObjectStatusTypes::Reconstructing) {
-            let refund = if let Some(player_arc) = guard.get_controlling_player() {
-                if let Ok(player_guard) = player_arc.read() {
-                    guard
-                        .get_template()
-                        .calc_cost_to_build(Some(&*player_guard))
+            if !guard.test_status(ObjectStatusTypes::Reconstructing) {
+                let refund = if let Some(player_arc) = guard.get_controlling_player() {
+                    if let Ok(player_guard) = player_arc.read() {
+                        guard
+                            .get_template()
+                            .calc_cost_to_build(Some(&*player_guard))
+                    } else {
+                        guard.get_template().calc_cost_to_build(None)
+                    }
                 } else {
                     guard.get_template().calc_cost_to_build(None)
-                }
-            } else {
-                guard.get_template().calc_cost_to_build(None)
-            };
+                };
 
-            if refund > 0 {
-                if let Some(player_arc) = guard.get_controlling_player() {
-                    if let Ok(mut player) = player_arc.write() {
-                        player.get_money_mut().add_money(refund);
+                if refund > 0 {
+                    if let Some(player_arc) = guard.get_controlling_player() {
+                        if let Ok(mut player) = player_arc.write() {
+                            player.get_money_mut().add_money(refund);
+                        }
                     }
                 }
             }
-        }
 
-        guard.kill(None, None);
+            guard.kill(None, None);
+        });
 
         CommandExecutionResult::Success
     }
@@ -4134,29 +4120,32 @@ impl DefaultCommandHandler {
             .unwrap_or_default();
 
         for object_id in selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(mut guard) = obj.write() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
-            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-                continue;
-            }
+            let Some((ai, own_position)) = OBJECT_REGISTRY
+                .with_object_mut(object_id, |guard| {
+                    if guard.is_destroyed() {
+                        return None;
+                    }
+                    if guard.get_controlling_player_id().map(|id| id as Int)
+                        != Some(context.player_id)
+                    {
+                        return None;
+                    }
 
-            guard.set_weapon_lock(weapon_slot, WeaponLockType::LockedTemporarily);
-            let Some(ai) = guard.get_ai_update_interface() else {
+                    guard.set_weapon_lock(weapon_slot, WeaponLockType::LockedTemporarily);
+                    let Some(ai) = guard.get_ai_update_interface() else {
+                        return None;
+                    };
+                    let own_position = if cmd_type == CommandType::DoWeapon {
+                        Some(*guard.get_position())
+                    } else {
+                        None
+                    };
+                    Some((ai, own_position))
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let own_position = if cmd_type == CommandType::DoWeapon {
-                Some(*guard.get_position())
-            } else {
-                None
-            };
-            drop(guard);
 
             if let Some(target) = &target_arc {
                 ai.ai_attack_object(target, max_shots_to_fire, CommandSourceType::FromPlayer);
@@ -4319,29 +4308,26 @@ impl DefaultCommandHandler {
         };
 
         for object_id in selected {
-            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(mut guard) = obj.write() else {
-                continue;
-            };
-            if guard.is_destroyed() {
-                continue;
-            }
-            if guard.is_disabled_by_type(crate::common::DisabledType::Held) {
-                continue;
-            }
-            if guard.get_ai_update_interface().is_none() {
-                continue;
-            }
-            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-                continue;
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
+                if guard.is_destroyed() {
+                    return;
+                }
+                if guard.is_disabled_by_type(crate::common::DisabledType::Held) {
+                    return;
+                }
+                if guard.get_ai_update_interface().is_none() {
+                    return;
+                }
+                if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id)
+                {
+                    return;
+                }
 
-            let pos = *guard.get_position();
-            let offset = crate::common::Coord2D::new(pos.x - center.x, pos.y - center.y);
-            guard.set_formation_id(new_id);
-            guard.set_formation_offset(offset);
+                let pos = *guard.get_position();
+                let offset = crate::common::Coord2D::new(pos.x - center.x, pos.y - center.y);
+                guard.set_formation_id(new_id);
+                guard.set_formation_offset(offset);
+            });
         }
 
         CommandExecutionResult::Success
