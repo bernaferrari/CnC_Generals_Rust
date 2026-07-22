@@ -1054,22 +1054,18 @@ impl BridgeBehavior {
         };
 
         for object_id in partition.get_objects_in_range(&bridge_pos, radius) {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some((pos, layer, is_bridge, is_tower, above)) =
+                OBJECT_REGISTRY.with_object(object_id, |obj_read| {
+                    (
+                        *obj_read.get_position(),
+                        obj_read.get_layer(),
+                        obj_read.is_kind_of(KindOf::Bridge),
+                        obj_read.is_kind_of(KindOf::BridgeTower),
+                        obj_read.is_above_terrain(),
+                    )
+                })
+            else {
                 continue;
-            };
-
-            let (pos, layer, is_bridge, is_tower, above) = {
-                let obj_read = match obj_arc.read() {
-                    Ok(guard) => guard,
-                    Err(_) => continue,
-                };
-                (
-                    *obj_read.get_position(),
-                    obj_read.get_layer(),
-                    obj_read.is_kind_of(KindOf::Bridge),
-                    obj_read.is_kind_of(KindOf::BridgeTower),
-                    obj_read.is_above_terrain(),
-                )
             };
 
             if is_bridge || is_tower {
@@ -1088,18 +1084,19 @@ impl BridgeBehavior {
                 continue;
             }
 
-            let mut obj_write = match obj_arc.write() {
-                Ok(guard) => guard,
-                Err(_) => continue,
-            };
-            if obj_write.get_layer() == bridge_layer {
-                obj_write.set_layer(PathfindLayerEnum::Ground);
-            }
+            let applied = OBJECT_REGISTRY.with_object_mut(object_id, |obj_write| {
+                if obj_write.get_layer() == bridge_layer {
+                    obj_write.set_layer(PathfindLayerEnum::Ground);
+                }
 
-            if let Some(physics) = obj_write.get_physics() {
-                physics.set_allow_to_fall(true);
-            } else {
-                obj_write.kill(None, None);
+                if let Some(physics) = obj_write.get_physics() {
+                    physics.set_allow_to_fall(true);
+                } else {
+                    obj_write.kill(None, None);
+                }
+            });
+            if applied.is_none() {
+                continue;
             }
         }
 
