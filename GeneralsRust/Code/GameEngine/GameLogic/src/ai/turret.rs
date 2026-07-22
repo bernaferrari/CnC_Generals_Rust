@@ -447,7 +447,9 @@ impl TurretAI {
     }
 
     /// Calculate angle to target
-    pub fn calculate_angle_to_target(&self, target: &Arc<RwLock<Object>>) -> Option<f32> {
+    pub fn calculate_angle_to_target(&self, target_id: ObjectID) -> Option<f32> {
+        let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))?;
         if let Some(owner_arc) = self.owner_object() {
             if let (Ok(owner_ref), Ok(target_ref)) = (owner_arc.try_read(), target.try_read()) {
                 let owner_pos = owner_ref.get_position();
@@ -463,7 +465,9 @@ impl TurretAI {
     }
 
     /// Calculate pitch to target
-    pub fn calculate_pitch_to_target(&self, target: &Arc<RwLock<Object>>) -> Option<f32> {
+    pub fn calculate_pitch_to_target(&self, target_id: ObjectID) -> Option<f32> {
+        let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))?;
         if let Some(owner_arc) = self.owner_object() {
             if let (Ok(owner_ref), Ok(target_ref)) = (owner_arc.try_read(), target.try_read()) {
                 if !target_ref.is_kind_of(KindOf::Aircraft) && self.ground_unit_pitch != 0.0 {
@@ -556,8 +560,8 @@ impl TurretAI {
     }
 
     /// Check if turret is aimed at target
-    pub fn is_aimed_at_target(&self, target: &Arc<RwLock<Object>>) -> bool {
-        if let Some(desired_angle) = self.calculate_angle_to_target(target) {
+    pub fn is_aimed_at_target(&self, target_id: ObjectID) -> bool {
+        if let Some(desired_angle) = self.calculate_angle_to_target(target_id) {
             let angle_diff = Self::normalize_angle(desired_angle - self.current_angle);
             return angle_diff.abs() < self.turn_rate * 2.0; // Allow some tolerance
         }
@@ -565,15 +569,20 @@ impl TurretAI {
     }
 
     /// Check if turret can fire at target
-    pub fn can_fire_at_target(&self, target: &Arc<RwLock<Object>>) -> bool {
+    pub fn can_fire_at_target(&self, target_id: ObjectID) -> bool {
         if self.fires_while_turning {
-            return self.is_target_in_weapon_range(target);
+            return self.is_target_in_weapon_range(target_id);
         }
-        self.is_aimed_at_target(target) && self.is_target_in_weapon_range(target)
+        self.is_aimed_at_target(target_id) && self.is_target_in_weapon_range(target_id)
     }
 
     /// Check if target is in weapon range
-    pub fn is_target_in_weapon_range(&self, target: &Arc<RwLock<Object>>) -> bool {
+    pub fn is_target_in_weapon_range(&self, target_id: ObjectID) -> bool {
+        let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
+        else {
+            return false;
+        };
         if let Some(owner_arc) = self.owner_object() {
             if let Ok(owner_ref) = owner_arc.try_read() {
                 let Some(weapon) = owner_ref.get_weapon_in_slot(self.weapon_slot) else {
@@ -595,7 +604,12 @@ impl TurretAI {
     }
 
     /// Check if any turret weapon is within range of target (matches C++ friend_isAnyWeaponInRangeOf)
-    pub fn friend_is_any_weapon_in_range_of(&self, target: &Arc<RwLock<Object>>) -> bool {
+    pub fn friend_is_any_weapon_in_range_of(&self, target_id: ObjectID) -> bool {
+        let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
+        else {
+            return false;
+        };
         let owner_arc = match self.owner_object() {
             Some(owner) => owner,
             None => return false,
@@ -670,13 +684,13 @@ impl TurretAI {
                     continue;
                 }
             }
-            if let Some(angle_to_target) = self.calculate_angle_to_target(&candidate_arc) {
+            if let Some(angle_to_target) = self.calculate_angle_to_target(candidate_id) {
                 let angle_diff = Self::normalize_angle(angle_to_target - self.natural_angle).abs();
                 if angle_diff > self.scan_range {
                     continue;
                 }
             }
-            if self.is_target_in_weapon_range(&candidate_arc) {
+            if self.is_target_in_weapon_range(candidate_id) {
                 targets.push(candidate_arc);
             }
         }
@@ -1730,13 +1744,19 @@ impl ClassicState for TurretAIAimTurretState {
                             turret.set_current_target(None);
                             next_state = Some(TurretStateType::Hold);
                         } else if !is_primary_enemy
-                            && !turret.friend_is_any_weapon_in_range_of(&target)
+                            && !turret.friend_is_any_weapon_in_range_of(
+                                target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                            )
                         {
                             turret.set_current_target(None);
                             next_state = Some(TurretStateType::Hold);
                         }
-                    } else if let Some(rel_angle) = turret.calculate_angle_to_target(&target) {
-                        let can_fire = turret.can_fire_at_target(&target);
+                    } else if let Some(rel_angle) = turret.calculate_angle_to_target(
+                        target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                    ) {
+                        let can_fire = turret.can_fire_at_target(
+                            target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                        );
                         let mut aim_angle = rel_angle;
                         let mut turn_speed_modifier = 1.0f32;
                         let sweep =
@@ -1777,7 +1797,9 @@ impl ClassicState for TurretAIAimTurretState {
                                 turret.get_fire_pitch()
                             } else {
                                 turret
-                                    .calculate_pitch_to_target(&target)
+                                    .calculate_pitch_to_target(
+                                        target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                                    )
                                     .unwrap_or(turret.get_natural_pitch())
                             };
                             pitch_aligned = turret.pitch_towards_angle(desired_pitch);
@@ -1889,7 +1911,11 @@ impl ClassicState for TurretAIFireWeaponState {
                         // Check if we can fire at target
                         let can_fire = turret_ai_arc
                             .lock()
-                            .map(|t| t.can_fire_at_target(&target))
+                            .map(|t| {
+                                t.can_fire_at_target(
+                                    target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                                )
+                            })
                             .unwrap_or(false);
 
                         if can_fire {

@@ -574,7 +574,7 @@ impl AIGroup {
     #[cfg(feature = "allow_surrender")]
     pub fn group_surrender(
         &self,
-        obj_we_surrendered_to: Option<&Arc<RwLock<Object>>>,
+        obj_we_surrendered_to: Option<ObjectID>,
         surrender: bool,
         _cmd_source: CommandSourceType,
     ) {
@@ -583,11 +583,7 @@ impl AIGroup {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if let Ok(mut ai_guard) = ai.try_lock() {
-                            ai_guard.set_surrendered(
-                                obj_we_surrendered_to
-                                    .and_then(|o| o.read().ok().map(|g| g.get_id())),
-                                surrender,
-                            );
+                            ai_guard.set_surrendered(obj_we_surrendered_to, surrender);
                         }
                     }
                 }
@@ -611,12 +607,8 @@ impl AIGroup {
 
     /// Pick up a prisoner (matches C++ AIGroup::groupPickUpPrisoner).
     #[cfg(feature = "allow_surrender")]
-    pub fn group_pick_up_prisoner(
-        &self,
-        prisoner: &Arc<RwLock<Object>>,
-        cmd_source: CommandSourceType,
-    ) {
-        let prisoner_id = prisoner.read().ok().map(|p| p.get_id());
+    pub fn group_pick_up_prisoner(&self, prisoner_id: ObjectID, cmd_source: CommandSourceType) {
+        let prisoner_id = Some(prisoner_id);
         for &member_id in &self.member_list {
             if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
@@ -635,12 +627,8 @@ impl AIGroup {
 
     /// Return prisoners to a prison (matches C++ AIGroup::groupReturnToPrison).
     #[cfg(feature = "allow_surrender")]
-    pub fn group_return_to_prison(
-        &self,
-        prison: &Arc<RwLock<Object>>,
-        cmd_source: CommandSourceType,
-    ) {
-        let prison_id = prison.read().ok().map(|p| p.get_id());
+    pub fn group_return_to_prison(&self, prison_id: ObjectID, cmd_source: CommandSourceType) {
+        let prison_id = Some(prison_id);
         for &member_id in &self.member_list {
             if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
@@ -660,11 +648,10 @@ impl AIGroup {
     /// Combat drop (matches C++ AIGroup::groupCombatDrop).
     pub fn group_combat_drop(
         &self,
-        target: Option<&Arc<RwLock<Object>>>,
+        target_id: Option<ObjectID>,
         pos: &Coord3D,
         cmd_source: CommandSourceType,
     ) {
-        let target_id = target.and_then(|t| t.read().ok().map(|obj| obj.get_id()));
         for &member_id in &self.member_list {
             if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
@@ -729,9 +716,12 @@ impl AIGroup {
     pub fn group_do_command_button_at_object(
         &self,
         button_id: u32,
-        target: &Arc<RwLock<Object>>,
+        target_id: ObjectID,
         cmd_source: CommandSourceType,
     ) {
+        let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+            return;
+        };
         let Ok(target_ref) = target.read() else {
             return;
         };
@@ -747,26 +737,26 @@ impl AIGroup {
 
     pub fn group_attack_object(
         &self,
-        victim: &Arc<RwLock<Object>>,
+        victim_id: ObjectID,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
-        self.group_attack_object_private(false, victim, max_shots_to_fire, cmd_source);
+        self.group_attack_object_private(false, victim_id, max_shots_to_fire, cmd_source);
     }
 
     pub fn group_force_attack_object(
         &self,
-        victim: &Arc<RwLock<Object>>,
+        victim_id: ObjectID,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
-        self.group_attack_object_private(true, victim, max_shots_to_fire, cmd_source);
+        self.group_attack_object_private(true, victim_id, max_shots_to_fire, cmd_source);
     }
 
     fn group_attack_object_private(
         &self,
         forced: bool,
-        victim: &Arc<RwLock<Object>>,
+        victim_id: ObjectID,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
@@ -775,17 +765,9 @@ impl AIGroup {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if forced {
-                            ai.ai_force_attack_object(
-                                victim.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                                max_shots_to_fire,
-                                cmd_source,
-                            );
+                            ai.ai_force_attack_object(victim_id, max_shots_to_fire, cmd_source);
                         } else {
-                            ai.ai_attack_object(
-                                victim.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                                max_shots_to_fire,
-                                cmd_source,
-                            );
+                            ai.ai_attack_object(victim_id, max_shots_to_fire, cmd_source);
                         }
                     }
                 }
@@ -855,7 +837,7 @@ impl AIGroup {
 
     pub fn group_guard_object(
         &self,
-        obj_to_guard: &Arc<RwLock<Object>>,
+        obj_to_guard_id: ObjectID,
         guard_mode: GuardMode,
         cmd_source: CommandSourceType,
     ) {
@@ -863,11 +845,7 @@ impl AIGroup {
             if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_guard_object(
-                            obj_to_guard.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                            guard_mode,
-                            cmd_source,
-                        );
+                        ai.ai_guard_object(obj_to_guard_id, guard_mode, cmd_source);
                     }
                 }
             }
