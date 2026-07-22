@@ -688,19 +688,15 @@ impl CollisionSystem {
     }
 
     fn can_crush_or_squish(a_id: ObjectId, b_id: ObjectId) -> bool {
-        let Some(a_obj) = OBJECT_REGISTRY.get_object(a_id) else {
-            return false;
-        };
-        let Some(b_obj) = OBJECT_REGISTRY.get_object(b_id) else {
-            return false;
-        };
-        let Ok(a_guard) = a_obj.read() else {
-            return false;
-        };
-        let Ok(b_guard) = b_obj.read() else {
-            return false;
-        };
-        a_guard.can_crush_or_squish(&b_guard, CrushSquishTestType::TestCrushOrSquish)
+        OBJECT_REGISTRY
+            .with_object(a_id, |a_guard| {
+                OBJECT_REGISTRY
+                    .with_object(b_id, |b_guard| {
+                        a_guard.can_crush_or_squish(b_guard, CrushSquishTestType::TestCrushOrSquish)
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
 
     /// Find all objects within a radius of a position

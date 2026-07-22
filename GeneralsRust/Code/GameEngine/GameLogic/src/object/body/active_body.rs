@@ -1291,19 +1291,14 @@ impl BodyModuleInterface for ActiveBody {
                             if let Some(contain) = obj.get_contain() {
                                 if let Ok(mut cont) = contain.lock() {
                                     if let Some(&victim_id) = cont.get_contained_objects().first() {
-                                        if let Some(victim) = OBJECT_REGISTRY.get_object(victim_id)
-                                        {
-                                            if let Ok(mut v) = victim.write() {
-                                                if let Some(damager) = OBJECT_REGISTRY
-                                                    .get_object(damage_info.input.source_id)
-                                                {
-                                                    if let Ok(mut dam) = damager.write() {
-                                                        dam.score_the_kill(&v);
-                                                    }
-                                                }
-                                                v.kill(None, None);
-                                            }
-                                        }
+                                        let source_id = damage_info.input.source_id;
+                                        let _ = OBJECT_REGISTRY.with_object_mut(victim_id, |v| {
+                                            let _ =
+                                                OBJECT_REGISTRY.with_object_mut(source_id, |dam| {
+                                                    dam.score_the_kill(v);
+                                                });
+                                            v.kill(None, None);
+                                        });
                                         let _ = cont.release_object(victim_id);
                                     }
                                 }
@@ -1336,21 +1331,24 @@ impl BodyModuleInterface for ActiveBody {
                                         if kills_made >= kills_to_make {
                                             break;
                                         }
-                                        if let Some(v) = OBJECT_REGISTRY.get_object(id) {
-                                            if let Ok(mut victim) = v.write() {
-                                                if !victim.is_effectively_dead() {
-                                                    if let Some(damager) = OBJECT_REGISTRY
-                                                        .get_object(damage_info.input.source_id)
-                                                    {
-                                                        if let Ok(mut dam) = damager.write() {
-                                                            dam.score_the_kill(&victim);
-                                                        }
-                                                    }
-                                                    victim.kill(None, None);
-                                                    kills_made += 1;
-                                                    let _ = cont.release_object(id);
+                                        let source_id = damage_info.input.source_id;
+                                        if OBJECT_REGISTRY
+                                            .with_object_mut(id, |victim| {
+                                                if victim.is_effectively_dead() {
+                                                    return false;
                                                 }
-                                            }
+                                                let _ = OBJECT_REGISTRY.with_object_mut(
+                                                    source_id,
+                                                    |dam| {
+                                                        dam.score_the_kill(victim);
+                                                    },
+                                                );
+                                                victim.kill(None, None);
+                                                true
+                                            })
+                                            .unwrap_or(false)
+                                        {
+                                            kills_made += 1;
                                         }
                                     }
                                 }
@@ -1490,16 +1488,13 @@ impl BodyModuleInterface for ActiveBody {
             if current_health <= 0.0 && previous_health > 0.0 {
                 // C++ parity: credit the killer on health-crossing inside ActiveBody.
                 if damage_info.input.source_id != INVALID_ID {
-                    if let (Some(damager), Some(owner)) = (
-                        OBJECT_REGISTRY.get_object(damage_info.input.source_id),
-                        self.get_owner(),
-                    ) {
-                        if let (Ok(mut damager_guard), Ok(owner_guard)) =
-                            (damager.write(), owner.read())
-                        {
-                            damager_guard.score_the_kill(&owner_guard);
-                        }
-                    }
+                    let source_id = damage_info.input.source_id;
+                    let owner_id = self.owner_id;
+                    let _ = OBJECT_REGISTRY.with_object_mut(source_id, |damager_guard| {
+                        let _ = OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                            damager_guard.score_the_kill(owner_guard);
+                        });
+                    });
                 }
 
                 // Object has died - death will be handled by the Object after this returns
