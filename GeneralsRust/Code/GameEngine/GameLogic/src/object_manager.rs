@@ -1406,7 +1406,10 @@ mod tests {
     use super::*;
     use crate::common::DefaultThingTemplate;
     use crate::player::{player_list, Player};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
+
+    /// Global player_list is process-wide; serialize tests that mutate it.
+    static PLAYER_LIST_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn reset_players() {
         player_list().write().expect("player list write").clear();
@@ -1456,6 +1459,7 @@ mod tests {
 
     #[test]
     fn new_object_instance_caches_player_from_team_controller() {
+        let _guard = PLAYER_LIST_TEST_LOCK.lock().expect("player list test lock");
         reset_players();
         let team = player_with_team(0, 42);
         let template = Arc::new(DefaultThingTemplate::new("PlayerOwnedObject".to_string()));
@@ -1471,6 +1475,7 @@ mod tests {
 
     #[test]
     fn wrapped_object_instance_caches_player_from_team_controller() {
+        let _guard = PLAYER_LIST_TEST_LOCK.lock().expect("player list test lock");
         reset_players();
         let team = player_with_team(0, 43);
         let template = Arc::new(DefaultThingTemplate::new(
