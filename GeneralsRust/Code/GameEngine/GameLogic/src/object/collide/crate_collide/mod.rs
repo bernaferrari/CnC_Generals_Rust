@@ -44,9 +44,12 @@ use std::sync::{Arc, RwLock};
 
 /// Marker trait for crate collide modules (mirrors C++ interface hierarchy).
 pub trait CrateCollideModule: CollideModule {
-    fn is_valid_to_execute(&self, other: Arc<RwLock<Object>>) -> Result<bool, GameError>;
+    fn is_valid_to_execute(&self, other_id: crate::common::ObjectID) -> Result<bool, GameError>;
 
-    fn execute_crate_behavior(&mut self, other: Arc<RwLock<Object>>) -> Result<bool, GameError>;
+    fn execute_crate_behavior(
+        &mut self,
+        other_id: crate::common::ObjectID,
+    ) -> Result<bool, GameError>;
 
     fn is_sabotage_building_crate_collide(&self) -> bool {
         false

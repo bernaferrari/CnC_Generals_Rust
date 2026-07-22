@@ -3,8 +3,19 @@
 //! A crate (actually a saboteur - mobile crate) that temporarily disables military factories.
 //! Author: Kris Morness, June 2003 (original C++), converted to Rust
 
+use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, RwLock};
+
+fn resolve_crate_object(
+    id: ObjectID,
+) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
+    if id == crate::common::INVALID_ID {
+        return None;
+    }
+    crate::helpers::TheGameLogic::find_object_by_id(id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+}
 
 // Import types that would be defined in other modules
 use crate::ai::*;
@@ -266,7 +277,11 @@ impl SabotageMilitaryFactoryCrateCollide {
     }
 
     /// Check if this is a valid target for execution
-    fn is_valid_to_execute(&self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
+    fn is_valid_to_execute(&self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         // First check base validation
         if !self.base.is_valid_to_execute(&other) {
             return Ok(false);
@@ -309,7 +324,11 @@ impl SabotageMilitaryFactoryCrateCollide {
     }
 
     /// Execute the crate behavior
-    fn execute_crate_behavior(&mut self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
+    fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
         // Check to make sure that the other object is also the goal object in the AIUpdateInterface
         // in order to prevent an unintentional conversion simply by having the terrorist walk too close
         let object = self.base.get_object().map_err(GameError::from)?;
@@ -371,9 +390,14 @@ impl LegacyCollideAdapter for SabotageMilitaryFactoryCrateCollide {
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if SabotageMilitaryFactoryCrateCollide::is_valid_to_execute(self, other.clone())? {
-            let success =
-                SabotageMilitaryFactoryCrateCollide::execute_crate_behavior(self, other.clone())?;
+        if SabotageMilitaryFactoryCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )? {
+            let success = SabotageMilitaryFactoryCrateCollide::execute_crate_behavior(
+                self,
+                other.read().map(|g| g.get_id()).unwrap_or(0),
+            )?;
             self.base
                 .finish_execution_attempt(&other, success)
                 .map_err(GameError::from)?;
@@ -386,7 +410,10 @@ impl LegacyCollideAdapter for SabotageMilitaryFactoryCrateCollide {
         &self,
         other: Arc<RwLock<Object>>,
     ) -> Result<bool, GameError> {
-        SabotageMilitaryFactoryCrateCollide::is_valid_to_execute(self, other)
+        SabotageMilitaryFactoryCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
     fn legacy_is_sabotage_building_crate_collide(&self) -> bool {
@@ -395,12 +422,26 @@ impl LegacyCollideAdapter for SabotageMilitaryFactoryCrateCollide {
 }
 
 impl CrateCollideModule for SabotageMilitaryFactoryCrateCollide {
-    fn is_valid_to_execute(&self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
-        SabotageMilitaryFactoryCrateCollide::is_valid_to_execute(self, other)
+    fn is_valid_to_execute(&self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
+        SabotageMilitaryFactoryCrateCollide::is_valid_to_execute(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
-    fn execute_crate_behavior(&mut self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
-        SabotageMilitaryFactoryCrateCollide::execute_crate_behavior(self, other)
+    fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
+        let Some(other) = resolve_crate_object(other_id) else {
+            return Ok(false);
+        };
+
+        SabotageMilitaryFactoryCrateCollide::execute_crate_behavior(
+            self,
+            other.read().map(|g| g.get_id()).unwrap_or(0),
+        )
     }
 
     fn is_sabotage_building_crate_collide(&self) -> bool {
