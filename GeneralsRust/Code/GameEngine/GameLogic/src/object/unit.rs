@@ -2081,27 +2081,27 @@ impl Unit {
         }
 
         if let Some(target_id) = self.attack_target {
-            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id) {
-                if let Ok(target_guard) = obj.read() {
-                    if matches!(
-                        self.base_object
-                            .read()
-                            .ok()
-                            .map(|guard| guard.relationship_to(&target_guard)),
-                        Some(Relationship::Enemies)
-                    ) {
-                        let target_pos = *target_guard.get_position();
-                        let self_pos = self.get_position();
-                        let dx = target_pos.x - self_pos.x;
-                        let dy = target_pos.y - self_pos.y;
-                        let distance = (dx * dx + dy * dy).sqrt();
-                        if distance <= max_distance
-                            && self.can_detect_target(&target_guard, distance)
-                        {
-                            return false;
-                        }
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(target_id, |target_guard| {
+                    let is_enemy = self
+                        .base_object
+                        .read()
+                        .ok()
+                        .map(|guard| guard.relationship_to(target_guard))
+                        == Some(Relationship::Enemies);
+                    if !is_enemy {
+                        return false;
                     }
-                }
+                    let target_pos = *target_guard.get_position();
+                    let self_pos = self.get_position();
+                    let dx = target_pos.x - self_pos.x;
+                    let dy = target_pos.y - self_pos.y;
+                    let distance = (dx * dx + dy * dy).sqrt();
+                    distance <= max_distance && self.can_detect_target(target_guard, distance)
+                })
+                .unwrap_or(false)
+            {
+                return false;
             }
         }
         let interval = self.mood_attack_check_rate_frames.max(1);
@@ -2131,32 +2131,37 @@ impl Unit {
         let mut closest: Option<(ObjectID, Real)> = None;
 
         if let Some(current_target) = self.attack_target {
-            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(current_target) {
-                if let Ok(target_guard) = obj.read() {
-                    if matches!(
-                        self.base_object
-                            .read()
-                            .ok()
-                            .map(|guard| guard.relationship_to(&target_guard)),
-                        Some(Relationship::Enemies)
-                    ) {
-                        let target_pos = *target_guard.get_position();
-                        let dx_center = target_pos.x - center.x;
-                        let dy_center = target_pos.y - center.y;
-                        let dist_to_center = (dx_center * dx_center + dy_center * dy_center).sqrt();
-                        let self_pos = self.get_position();
-                        let dx_self = target_pos.x - self_pos.x;
-                        let dy_self = target_pos.y - self_pos.y;
-                        let dist_to_self = (dx_self * dx_self + dy_self * dy_self).sqrt();
-
-                        if dist_to_center <= max_distance
-                            && dist_to_self <= vision_distance
-                            && self.can_detect_target(&target_guard, dist_to_self)
-                        {
-                            closest = Some((current_target, dist_to_self * 1.1));
-                        }
+            if let Some(dist_to_self) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(current_target, |target_guard| {
+                    let is_enemy = self
+                        .base_object
+                        .read()
+                        .ok()
+                        .map(|guard| guard.relationship_to(target_guard))
+                        == Some(Relationship::Enemies);
+                    if !is_enemy {
+                        return None;
                     }
-                }
+                    let target_pos = *target_guard.get_position();
+                    let dx_center = target_pos.x - center.x;
+                    let dy_center = target_pos.y - center.y;
+                    let dist_to_center = (dx_center * dx_center + dy_center * dy_center).sqrt();
+                    let self_pos = self.get_position();
+                    let dx_self = target_pos.x - self_pos.x;
+                    let dy_self = target_pos.y - self_pos.y;
+                    let dist_to_self = (dx_self * dx_self + dy_self * dy_self).sqrt();
+                    if dist_to_center <= max_distance
+                        && dist_to_self <= vision_distance
+                        && self.can_detect_target(target_guard, dist_to_self)
+                    {
+                        Some(dist_to_self)
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+            {
+                closest = Some((current_target, dist_to_self * 1.1));
             }
         }
 

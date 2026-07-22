@@ -291,61 +291,79 @@ impl FoundationValidator {
                         .and_then(|logic| logic.get_player(player_id as u32));
 
                     for object_id in nearby {
-                        let Some(handle) = crate::object::OBJECT_REGISTRY.get_object(object_id)
-                        else {
-                            continue;
-                        };
-                        let Ok(obj_guard) = handle.read() else {
-                            continue;
-                        };
-
-                        if obj_guard.is_stealthed() {
-                            if self.ignore_stealthed {
-                                continue;
-                            }
-                            if self.fail_stealthed_without_feedback {
-                                return Err("Location blocked by stealth".to_string());
-                            }
+                        enum BlockAct {
+                            Continue,
+                            Err(String),
                         }
+                        let act =
+                            crate::object::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                                if obj_guard.is_stealthed() {
+                                    if self.ignore_stealthed {
+                                        return BlockAct::Continue;
+                                    }
+                                    if self.fail_stealthed_without_feedback {
+                                        return BlockAct::Err(
+                                            "Location blocked by stealth".to_string(),
+                                        );
+                                    }
+                                }
 
-                        if obj_guard.is_kind_of(KindOf::Immobile) {
-                            return Err("Location blocked by immobile object".to_string());
-                        }
+                                if obj_guard.is_kind_of(KindOf::Immobile) {
+                                    return BlockAct::Err(
+                                        "Location blocked by immobile object".to_string(),
+                                    );
+                                }
 
-                        let Some(obj_player_id) = obj_guard.get_controlling_player_id() else {
-                            continue;
-                        };
+                                let Some(obj_player_id) = obj_guard.get_controlling_player_id()
+                                else {
+                                    return BlockAct::Continue;
+                                };
 
-                        if obj_player_id as ObjectID == player_id {
-                            continue;
-                        }
+                                if obj_player_id as ObjectID == player_id {
+                                    return BlockAct::Continue;
+                                }
 
-                        let Some(builder_player_arc) = builder_player.as_ref() else {
-                            return Err("Location blocked by enemy object".to_string());
-                        };
+                                let Some(builder_player_arc) = builder_player.as_ref() else {
+                                    return BlockAct::Err(
+                                        "Location blocked by enemy object".to_string(),
+                                    );
+                                };
 
-                        let Ok(builder_guard) = builder_player_arc.read() else {
-                            return Err("Location blocked by enemy object".to_string());
-                        };
+                                let Ok(builder_guard) = builder_player_arc.read() else {
+                                    return BlockAct::Err(
+                                        "Location blocked by enemy object".to_string(),
+                                    );
+                                };
 
-                        let Some(other_player_arc) =
-                            crate::player::player_list().read().ok().and_then(|list| {
-                                obj_player_id
-                                    .try_into()
-                                    .ok()
-                                    .and_then(|index| list.get_player(index).cloned())
-                            })
-                        else {
-                            return Err("Location blocked by enemy object".to_string());
-                        };
-                        let Ok(other_guard) = other_player_arc.read() else {
-                            return Err("Location blocked by enemy object".to_string());
-                        };
+                                let Some(other_player_arc) =
+                                    crate::player::player_list().read().ok().and_then(|list| {
+                                        obj_player_id
+                                            .try_into()
+                                            .ok()
+                                            .and_then(|index| list.get_player(index).cloned())
+                                    })
+                                else {
+                                    return BlockAct::Err(
+                                        "Location blocked by enemy object".to_string(),
+                                    );
+                                };
+                                let Ok(other_guard) = other_player_arc.read() else {
+                                    return BlockAct::Err(
+                                        "Location blocked by enemy object".to_string(),
+                                    );
+                                };
 
-                        if builder_guard.is_enemy_with_player(&other_guard) {
-                            return Err("Location blocked by enemy object".to_string());
-                        } else if !self.overlap_enemy_only {
-                            return Err("Location blocked by object".to_string());
+                                if builder_guard.is_enemy_with_player(&other_guard) {
+                                    BlockAct::Err("Location blocked by enemy object".to_string())
+                                } else if !self.overlap_enemy_only {
+                                    BlockAct::Err("Location blocked by object".to_string())
+                                } else {
+                                    BlockAct::Continue
+                                }
+                            });
+                        match act {
+                            None | Some(BlockAct::Continue) => continue,
+                            Some(BlockAct::Err(msg)) => return Err(msg),
                         }
                     }
                 }

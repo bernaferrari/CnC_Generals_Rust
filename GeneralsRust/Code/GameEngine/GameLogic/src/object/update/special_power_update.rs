@@ -81,17 +81,23 @@ impl SpecialPowerUpdateModule {
             return true;
         }
 
-        let obj_arc = self
-            .object
-            .upgrade()
-            .or_else(|| OBJECT_REGISTRY.get_object(self.owner_object_id));
-        let Some(obj_arc) = obj_arc else {
-            return false;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return false;
-        };
-        does_special_power_update_pass_science_test_for_object(&obj_guard, extra_required_science)
+        if let Some(obj_arc) = self.object.upgrade() {
+            let Ok(obj_guard) = obj_arc.read() else {
+                return false;
+            };
+            return does_special_power_update_pass_science_test_for_object(
+                &obj_guard,
+                extra_required_science,
+            );
+        }
+        OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |obj_guard| {
+                does_special_power_update_pass_science_test_for_object(
+                    obj_guard,
+                    extra_required_science,
+                )
+            })
+            .unwrap_or(false)
     }
 
     /// C++ default: SCIENCE_INVALID (override in derived modules).
