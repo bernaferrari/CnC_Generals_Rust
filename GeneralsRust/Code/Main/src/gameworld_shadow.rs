@@ -235,7 +235,10 @@ pub fn gameworld_economy_authority_enabled() -> bool {
 /// Host-only matches must mutate supplies immediately (same coupling as damage/fire-spawn).
 #[inline]
 pub fn gameworld_economy_authority_live() -> bool {
-    gameworld_economy_authority_enabled() && gameworld_shadow_enabled()
+    // Fail-open to host when no coupled engine shadow writeback frame.
+    gameworld_economy_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// When enabled, GameWorld integrates path/move targets after the host tick and
@@ -253,7 +256,10 @@ pub fn gameworld_movement_authority_enabled() -> bool {
 /// Movement last-writer only while shadow can step/writeback poses.
 #[inline]
 pub fn gameworld_movement_authority_live() -> bool {
-    gameworld_movement_authority_enabled() && gameworld_shadow_enabled()
+    // Fail-open to host when no coupled engine shadow writeback frame.
+    gameworld_movement_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// When enabled (default), GameWorld SetAttackTarget + SetFireIntent writeback is the
@@ -271,7 +277,10 @@ pub fn gameworld_ai_attack_authority_enabled() -> bool {
 /// AI attack/fire-intent channel only while shadow can writeback.
 #[inline]
 pub fn gameworld_ai_attack_authority_live() -> bool {
-    gameworld_ai_attack_authority_enabled() && gameworld_shadow_enabled()
+    // Fail-open to host when no coupled engine shadow writeback frame.
+    gameworld_ai_attack_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// When enabled (default), GameWorld steps projectile flight residual and
@@ -289,7 +298,10 @@ pub fn gameworld_projectile_authority_enabled() -> bool {
 /// Projectile integrate defer only while shadow session steps flight.
 #[inline]
 pub fn gameworld_projectile_authority_live() -> bool {
-    gameworld_projectile_authority_enabled() && gameworld_shadow_enabled()
+    // Fail-open to host when no coupled engine shadow writeback frame.
+    gameworld_projectile_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// When enabled (default), host `update_ai` only *records* AICommand decisions;
@@ -324,7 +336,10 @@ pub fn gameworld_fire_spawn_authority_enabled() -> bool {
 /// Fire-spawn defer only while shadow can drain spawn log.
 #[inline]
 pub fn gameworld_fire_spawn_authority_live() -> bool {
-    gameworld_fire_spawn_authority_enabled() && gameworld_shadow_enabled()
+    // Fail-open to host when no coupled engine shadow writeback frame.
+    gameworld_fire_spawn_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// When enabled, host construction percent is last-written from GameWorld after
@@ -7191,10 +7206,34 @@ pub fn maybe_shadow_after_host_tick(logic: &mut GameLogic) -> Option<GameWorldSh
 ///
 /// With [`gameworld_damage_authority_enabled`], events re-apply as WorldMutations
 /// and HP is written back to host (GameWorld last writer for health).
+
+/// RAII couple mark for shadow_session_after_host_tick (tests + engine).
+struct ShadowCoupleGuard {
+    owned: bool,
+}
+impl ShadowCoupleGuard {
+    fn enter() -> Self {
+        if shadow_coupled_tick_active() {
+            Self { owned: false }
+        } else {
+            begin_shadow_coupled_tick();
+            Self { owned: true }
+        }
+    }
+}
+impl Drop for ShadowCoupleGuard {
+    fn drop(&mut self) {
+        if self.owned {
+            end_shadow_coupled_tick();
+        }
+    }
+}
+
 pub fn shadow_session_after_host_tick(
     shadow: &mut GameWorldShadow,
     logic: &mut GameLogic,
 ) -> GameWorldShadowProbe {
+    let _couple_guard = ShadowCoupleGuard::enter();
     let events = crate::game_logic::host_damage_log::drain();
     let heal_events = crate::game_logic::host_heal_log::drain();
     let max_health_events = crate::game_logic::host_max_health_log::drain();
@@ -13168,7 +13207,18 @@ mod tests {
                 && src.contains("fn update_movement"),
             "host update_movement must early-return under GameWorld movement authority (live)"
         );
+        assert!(
+            gameworld_movement_authority_enabled() && gameworld_shadow_enabled(),
+            "movement authority env armed"
+        );
+        // Live deferral requires coupled engine frame (host-only ticks fail-open).
+        assert!(
+            !gameworld_movement_authority_live(),
+            "host-only tests are outside coupled writeback frame"
+        );
+        begin_shadow_coupled_tick();
         assert!(gameworld_movement_authority_live());
+        end_shadow_coupled_tick();
         // Session integrates then writebacks.
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MvSkip");
@@ -14375,6 +14425,7 @@ mod tests {
             supplies: 100,
             power: 0,
         };
+        begin_shadow_coupled_tick();
         assert!(logic.get_player_mut(hid).unwrap().spend_resources(&cost));
         assert!(
             !logic.get_player_mut(hid).unwrap().spend_resources(&cost),
@@ -14386,6 +14437,8 @@ mod tests {
         let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
         assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 50);
         assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
+
+        end_shadow_coupled_tick();
     }
 
     #[test]
@@ -14447,6 +14500,7 @@ mod tests {
             p.resources.supplies = 1000;
             p.pending_supply_delta = 0;
         }
+        begin_shadow_coupled_tick();
         logic.get_player_mut(hid).unwrap().credit_supplies(250);
         assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1000);
         assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 1250);
@@ -14454,6 +14508,7 @@ mod tests {
         let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
         assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1250);
         assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
+        end_shadow_coupled_tick();
     }
 
     #[test]
@@ -14476,23 +14531,34 @@ mod tests {
     #[test]
     fn damage_authority_live_requires_coupled_frame() {
         // Host-only paths (unit tests, gates without engine shadow session) must
-        // apply HP immediately — defer only on a coupled engine writeback frame.
+        // apply HP/cash/move immediately — defer only on a coupled writeback frame.
         assert!(
             !shadow_coupled_tick_active(),
             "tests start outside coupled engine frame"
         );
-        assert!(
-            !gameworld_damage_authority_live(),
-            "damage HP defer requires coupled engine frame"
-        );
+        assert!(!gameworld_damage_authority_live());
+        assert!(!gameworld_economy_authority_live());
+        assert!(!gameworld_movement_authority_live());
         begin_shadow_coupled_tick();
         assert!(
             gameworld_damage_authority_live()
                 || !gameworld_damage_authority_enabled()
                 || !gameworld_shadow_enabled()
         );
+        assert!(
+            gameworld_economy_authority_live()
+                || !gameworld_economy_authority_enabled()
+                || !gameworld_shadow_enabled()
+        );
+        assert!(
+            gameworld_movement_authority_live()
+                || !gameworld_movement_authority_enabled()
+                || !gameworld_shadow_enabled()
+        );
         end_shadow_coupled_tick();
         assert!(!gameworld_damage_authority_live());
+        assert!(!gameworld_economy_authority_live());
+        assert!(!gameworld_movement_authority_live());
     }
 
     #[test]
@@ -19327,6 +19393,7 @@ mod tests {
             p.resources.supplies = 1000;
             p.pending_supply_delta = 0;
         }
+        begin_shadow_coupled_tick();
         if !logic.templates.contains_key("EconFac") {
             let mut t = ThingTemplate::new("EconFac");
             t.add_kind_of(KindOf::Structure);
@@ -19381,6 +19448,7 @@ mod tests {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
         }
+        end_shadow_coupled_tick();
     }
 
     #[test]
