@@ -1792,12 +1792,10 @@ impl Unit {
         };
 
         if let Ok(mut factory) = get_object_factory().write() {
-            if let Some(GameObjectInstance::Structure(structure_arc)) =
+            if let Some(GameObjectInstance::Structure(structure)) =
                 factory.get_object_mut(building)
             {
-                if let Ok(mut structure_guard) = structure_arc.write() {
-                    let _ = structure_guard.mark_capture_activity(player_id);
-                }
+                let _ = structure.mark_capture_activity(player_id);
             }
         }
         Ok(())
