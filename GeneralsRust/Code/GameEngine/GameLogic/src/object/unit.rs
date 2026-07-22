@@ -193,8 +193,6 @@ fn with_unit_mut<R>(id: ObjectID, f: impl FnOnce(&mut Unit) -> R) -> Option<R> {
 pub struct Unit {
     /// Base object id (resolve for the duration of an op)
     object_id: ObjectID,
-    /// Construction pin so resolve works before world insertion (tests / factory).
-    base_pin: Arc<RwLock<Object>>,
 
     /// Movement and pathfinding
     locomotor_set: LocomotorSet,
@@ -360,7 +358,6 @@ impl Unit {
                 }
                 id
             },
-            base_pin: Arc::clone(&base_object),
             locomotor_set,
             current_locomotor,
             movement_state: MovementState::Idle,
@@ -491,24 +488,21 @@ impl Unit {
     }
 
     fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Construction pin is authoritative while the Unit wrapper lives.
-        Some(Arc::clone(&self.base_pin))
+        if self.object_id == INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            .or_else(|| crate::ai::object_registry::get_legacy_object(self.object_id))
     }
 
     fn base_arc(&self) -> Arc<RwLock<Object>> {
-        Arc::clone(&self.base_pin)
+        self.get_base_object()
+            .expect("Unit base object unavailable — register via Unit::new / OBJECT_REGISTRY")
     }
 
     pub fn get_id(&self) -> ObjectID {
-        if self.object_id != INVALID_ID {
-            self.object_id
-        } else {
-            self.base_pin
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(INVALID_ID)
-        }
+        self.object_id
     }
 
     pub fn get_orientation(&self) -> Real {
@@ -794,15 +788,15 @@ impl Unit {
                     (speed, body_condition, blocked)
                 };
 
+                let unit_object_id = self.object_id;
+                let base_arc = self.base_arc();
+                let current_loco = self.current_locomotor.clone();
                 if let (Some(path_state), Some(locomotor)) = (
                     self.path_following_state.as_mut(),
-                    self.current_locomotor.as_ref(),
+                    current_loco.as_ref(),
                 ) {
                     // Clone the locomotor Arc so we don't keep borrowing self
                     let locomotor_clone = locomotor.clone();
-                    // Field-disjoint: object_id / base_pin vs path_following_state
-                    let unit_object_id = self.object_id;
-                    let base_pin = &self.base_pin;
 
                     if let Ok(ai_guard) = THE_AI.read() {
                         if let Some(pathfinding) = ai_guard.pathfinding_system() {
@@ -825,7 +819,7 @@ impl Unit {
                                     pathfinding,
                                 ) {
                                     Ok(Some((new_pos, new_angle, new_speed))) => {
-                                        if let Ok(mut obj_guard) = base_pin.write() {
+                                        if let Ok(mut obj_guard) = base_arc.write() {
                                             let _ = obj_guard.set_position(&new_pos);
                                             let _ = obj_guard.set_orientation(new_angle as Real);
                                             if let Some(physics) = obj_guard.get_physics() {
@@ -1855,7 +1849,7 @@ impl Unit {
                 .get_geometry_info()
                 .get_bounding_circle_radius();
             let can_capture = TheActionManager::can_capture_building(
-                &*self.base_pin.read().map_err(|_| "Unit lock poisoned")?,
+                &*self.base_arc().read().map_err(|_| "Unit lock poisoned")?,
                 &*building_guard,
                 CommandSourceType::FromAi,
             );
@@ -8980,14 +8974,16 @@ impl Drop for UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return;
         };
-        let owner_id = guard
-            .base_arc()
+        // Object may already be unregistered during teardown; never panic in Drop.
+        let Some(base) = guard.get_base_object() else {
+            return;
+        };
+        let owner_id = base
             .read()
             .ok()
             .map(|obj| obj.get_id())
             .unwrap_or(INVALID_ID);
-        let is_immobile = guard
-            .base_arc()
+        let is_immobile = base
             .read()
             .ok()
             .map(|obj| obj.is_kind_of(KindOf::Immobile))
