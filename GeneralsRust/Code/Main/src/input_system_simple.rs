@@ -505,48 +505,30 @@ impl SimpleInputProcessor {
     ///
     /// This function is kept synchronous since it only reads data and performs calculations.
     /// It's called while holding the GameLogic lock, so it should be fast.
-    fn find_object_at_position(&self, world_pos: Vec3, game_logic: &GameLogic) -> Option<ObjectId> {
+    fn find_object_at_position(
+        &self,
+        world_pos: Vec3,
+        _game_logic: &GameLogic,
+    ) -> Option<ObjectId> {
         const SELECTION_RADIUS: f32 = 5.0; // Units within this radius can be selected
 
-        // Prefer presentation poses when a dual-tick snapshot is installed.
-        if let Some(frame) = self.presentation_frame.as_ref() {
-            let mut closest_object = None;
-            let mut closest_distance = SELECTION_RADIUS;
-            for o in &frame.objects {
-                if o.destroyed {
-                    continue;
-                }
-                let distance = (Vec2::new(o.position.x, o.position.z)
-                    - Vec2::new(world_pos.x, world_pos.z))
-                .length();
-                // Prefer selection_radius residual when present.
-                let radius = o.selection_radius.max(SELECTION_RADIUS);
-                if distance < closest_distance.min(radius) {
-                    closest_distance = distance;
-                    closest_object = Some(o.id);
-                }
-            }
-            if closest_object.is_some() {
-                return closest_object;
-            }
-            // Fall through to live boot residual if snapshot has no nearby units.
-        }
-
+        // Presentation-only: no live GameLogic dual-read residual.
+        let frame = self.presentation_frame.as_ref()?;
         let mut closest_object = None;
         let mut closest_distance = SELECTION_RADIUS;
-
-        // Boot residual: live GameLogic dual-read when presentation is absent/misses.
-        for (object_id, object) in game_logic.get_objects().iter() {
-            let obj_pos = object.get_position();
-            let distance =
-                (Vec2::new(obj_pos.x, obj_pos.z) - Vec2::new(world_pos.x, world_pos.z)).length();
-
-            if distance < closest_distance {
+        for o in &frame.objects {
+            if o.destroyed {
+                continue;
+            }
+            let distance = (Vec2::new(o.position.x, o.position.z)
+                - Vec2::new(world_pos.x, world_pos.z))
+            .length();
+            let radius = o.selection_radius.max(SELECTION_RADIUS);
+            if distance < closest_distance.min(radius) {
                 closest_distance = distance;
-                closest_object = Some(*object_id);
+                closest_object = Some(o.id);
             }
         }
-
         closest_object
     }
 
@@ -716,6 +698,11 @@ mod tests {
             obj.position = glam::Vec3::new(9999.0, 0.0, 9999.0);
         }
         let mut proc = SimpleInputProcessor::new(0, (1024.0, 768.0));
+        assert!(
+            proc.find_object_at_position(glam::Vec3::new(10.0, 0.0, 20.0), &logic)
+                .is_none(),
+            "without presentation frame pick must not dual-read live GameLogic"
+        );
         proc.set_presentation_frame(Some(frame));
         let picked = proc.find_object_at_position(glam::Vec3::new(10.0, 0.0, 20.0), &logic);
         assert_eq!(
@@ -724,9 +711,11 @@ mod tests {
             "must pick presentation pose, not live dual-read"
         );
         let src = include_str!("input_system_simple.rs");
+        let fstart = src.find("fn find_object_at_position").expect("fn");
+        let fbody = &src[fstart..src.len().min(fstart + 900)];
         assert!(
-            src.contains("Prefer presentation poses when a dual-tick snapshot is installed"),
-            "find_object_at_position must prefer presentation residual"
+            fbody.contains("Presentation-only") && !fbody.contains("game_logic.get_objects()"),
+            "find_object_at_position must be presentation-only"
         );
     }
 }
