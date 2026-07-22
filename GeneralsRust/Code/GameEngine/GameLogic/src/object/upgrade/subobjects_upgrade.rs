@@ -118,47 +118,42 @@ impl SubObjectsUpgradeHandle {
             return false;
         }
 
-        let Some(object) = OBJECT_REGISTRY.get_object(guard.object_id) else {
+        let (activation, conflicting) = guard.mux.data.clone().get_upgrade_activation_masks();
+        let _ = activation;
+        let conflicting_bits = UpgradeMaskType::from_bits_retain(conflicting.to_bits());
+        let data = guard.data.clone();
+        let mux_data = guard.mux.data.clone();
+
+        let Some(applied) = OBJECT_REGISTRY.with_object_mut(guard.object_id, |object_guard| {
+            if object_guard
+                .completed_upgrades()
+                .intersects(conflicting_bits)
+            {
+                return false;
+            }
+
+            if let Some(player) = object_guard.get_controlling_player() {
+                if let Ok(player_guard) = player.read() {
+                    if player_guard
+                        .get_completed_upgrade_mask()
+                        .intersects(conflicting_bits)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            mux_data.perform_upgrade_fx(object_guard);
+            mux_data.process_upgrade_removal(object_guard);
+            apply_subobject_visibility(object_guard, data.as_ref());
+            true
+        }) else {
             log::warn!("SubObjectsUpgrade: Object {} not found", guard.object_id);
             return false;
         };
-
-        let mut object_guard = match object.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "SubObjectsUpgrade: Failed to lock object {}",
-                    guard.object_id
-                );
-                return false;
-            }
-        };
-
-        let (activation, conflicting) = guard.mux.data.clone().get_upgrade_activation_masks();
-        let _ = activation;
-
-        let conflicting_bits = UpgradeMaskType::from_bits_retain(conflicting.to_bits());
-        if object_guard
-            .completed_upgrades()
-            .intersects(conflicting_bits)
-        {
+        if !applied {
             return false;
         }
-
-        if let Some(player) = object_guard.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                if player_guard
-                    .get_completed_upgrade_mask()
-                    .intersects(conflicting_bits)
-                {
-                    return false;
-                }
-            }
-        }
-
-        guard.mux.data.perform_upgrade_fx(&mut object_guard);
-        guard.mux.data.process_upgrade_removal(&mut object_guard);
-        apply_subobject_visibility(&mut object_guard, guard.data.as_ref());
         guard.mux.set_upgrade_executed(true);
         true
     }
@@ -343,47 +338,42 @@ impl UpgradeModuleInterface for SubObjectsUpgrade {
             return false;
         }
 
-        let Some(object) = OBJECT_REGISTRY.get_object(guard.object_id) else {
+        let (activation, conflicting) = guard.mux.data.clone().get_upgrade_activation_masks();
+        let _ = activation;
+        let conflicting_bits = UpgradeMaskType::from_bits_retain(conflicting.to_bits());
+        let data = guard.data.clone();
+        let mux_data = guard.mux.data.clone();
+
+        let Some(applied) = OBJECT_REGISTRY.with_object_mut(guard.object_id, |object_guard| {
+            if object_guard
+                .completed_upgrades()
+                .intersects(conflicting_bits)
+            {
+                return false;
+            }
+
+            if let Some(player) = object_guard.get_controlling_player() {
+                if let Ok(player_guard) = player.read() {
+                    if player_guard
+                        .get_completed_upgrade_mask()
+                        .intersects(conflicting_bits)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            mux_data.perform_upgrade_fx(object_guard);
+            mux_data.process_upgrade_removal(object_guard);
+            apply_subobject_visibility(object_guard, data.as_ref());
+            true
+        }) else {
             log::warn!("SubObjectsUpgrade: Object {} not found", guard.object_id);
             return false;
         };
-
-        let mut object_guard = match object.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "SubObjectsUpgrade: Failed to lock object {}",
-                    guard.object_id
-                );
-                return false;
-            }
-        };
-
-        let (activation, conflicting) = guard.mux.data.clone().get_upgrade_activation_masks();
-        let _ = activation;
-
-        let conflicting_bits = UpgradeMaskType::from_bits_retain(conflicting.to_bits());
-        if object_guard
-            .completed_upgrades()
-            .intersects(conflicting_bits)
-        {
+        if !applied {
             return false;
         }
-
-        if let Some(player) = object_guard.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                if player_guard
-                    .get_completed_upgrade_mask()
-                    .intersects(conflicting_bits)
-                {
-                    return false;
-                }
-            }
-        }
-
-        guard.mux.data.perform_upgrade_fx(&mut object_guard);
-        guard.mux.data.process_upgrade_removal(&mut object_guard);
-        apply_subobject_visibility(&mut object_guard, guard.data.as_ref());
         guard.mux.set_upgrade_executed(true);
         self.applied = true;
         true
@@ -406,15 +396,11 @@ fn apply_subobject_visibility_for_object(
     object_id: ObjectID,
     data: &SubObjectsUpgradeModuleData,
 ) -> bool {
-    let Some(object) = OBJECT_REGISTRY.get_object(object_id) else {
-        return false;
-    };
-    let mut object_guard = match object.write() {
-        Ok(guard) => guard,
-        Err(_) => return false,
-    };
-    apply_subobject_visibility(&mut object_guard, data);
-    true
+    OBJECT_REGISTRY
+        .with_object_mut(object_id, |object_guard| {
+            apply_subobject_visibility(object_guard, data);
+        })
+        .is_some()
 }
 
 fn parse_show_sub_objects(

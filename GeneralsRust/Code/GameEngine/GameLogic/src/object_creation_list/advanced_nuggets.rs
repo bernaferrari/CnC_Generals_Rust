@@ -566,11 +566,9 @@ impl ObjectCreationNugget for AttackNugget {
 
         // Lock weapon and attack. The C++ nugget explicitly locks the current weapon slot
         // so that subsequent AI logic uses the desired weapon.
-        if let Some(primary_arc) = OBJECT_REGISTRY.get_object(primary_object.get_id()) {
-            if let Ok(mut primary_write) = primary_arc.write() {
-                primary_write.set_weapon_lock(self.weapon_slot, WeaponLockType::LockedTemporarily);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(primary_object.get_id(), |primary_write| {
+            primary_write.set_weapon_lock(self.weapon_slot, WeaponLockType::LockedTemporarily);
+        });
 
         if let Some(ai_arc) = primary_object.get_ai_update_interface() {
             ai_arc.ai_attack_position(

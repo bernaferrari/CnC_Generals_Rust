@@ -11213,25 +11213,24 @@ impl ScriptActionDispatcher {
         let tracker = get_named_object_tracker();
         let object_id_opt = tracker.get_object_id(&object_name).ok().flatten();
         if let Some(object_id) = object_id_opt {
-            if let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) {
-                if let Ok(object_guard) = object_arc.read() {
-                    let pos = *object_guard.get_position();
-                    let radar_event = Self::radar_event_type_from_int(event_type);
-                    if let Ok(mut radar) = get_radar_system().write() {
-                        let radar_pos = to_radar_coord(&pos);
-                        radar.create_event(&radar_pos, radar_event, 4.0);
-                    }
-                    if let Ok(engine_guard) = get_script_engine().read() {
-                        if let Some(ref script_engine) = *engine_guard {
-                            if let Some(handler) = script_engine.action_handler() {
-                                if let Err(err) =
-                                    handler.create_radar_event(pos.x, pos.y, pos.z, event_type)
-                                {
-                                    log::warn!(
-                                        "Script action handler create_radar_event failed: {}",
-                                        err
-                                    );
-                                }
+            if let Some(pos) =
+                OBJECT_REGISTRY.with_object(object_id, |object_guard| *object_guard.get_position())
+            {
+                let radar_event = Self::radar_event_type_from_int(event_type);
+                if let Ok(mut radar) = get_radar_system().write() {
+                    let radar_pos = to_radar_coord(&pos);
+                    radar.create_event(&radar_pos, radar_event, 4.0);
+                }
+                if let Ok(engine_guard) = get_script_engine().read() {
+                    if let Some(ref script_engine) = *engine_guard {
+                        if let Some(handler) = script_engine.action_handler() {
+                            if let Err(err) =
+                                handler.create_radar_event(pos.x, pos.y, pos.z, event_type)
+                            {
+                                log::warn!(
+                                    "Script action handler create_radar_event failed: {}",
+                                    err
+                                );
                             }
                         }
                     }
@@ -16226,13 +16225,10 @@ impl ScriptConditionEvaluator {
         let wanted = crate::common::AsciiString::from(object_name.as_str());
         let mut is_selected = false;
         for object_id in selection.get_selected_objects() {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if guard.get_name() == &wanted {
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |guard| guard.get_name() == &wanted)
+                .unwrap_or(false)
+            {
                 is_selected = true;
                 break;
             }

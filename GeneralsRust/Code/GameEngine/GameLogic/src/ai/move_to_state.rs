@@ -55,9 +55,9 @@ impl AIMoveToState {
 
     /// Get unit's current locomotor (would be from object in full implementation)
     fn get_locomotor(&self, context: &AIStateMachineContext) -> Option<Arc<Mutex<Locomotor>>> {
-        let owner = OBJECT_REGISTRY.get_object(context.owner_id)?;
-        let owner_guard = owner.read().ok()?;
-        let ai_handle = owner_guard.get_ai_update_interface()?;
+        let ai_handle = OBJECT_REGISTRY.with_object(context.owner_id, |owner_guard| {
+            owner_guard.get_ai_update_interface()
+        })??;
         ai_handle.lock().ok()?.get_cur_locomotor()
     }
 
@@ -104,20 +104,10 @@ impl AIState for AIMoveToState {
     /// Update MoveTo state each frame
     /// Matches C++ AIStates.cpp:2052-2114 update
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let owner = match OBJECT_REGISTRY.get_object(context.owner_id) {
-            Some(obj) => obj,
-            None => return StateReturnType::Failed,
-        };
-
-        let ai_handle = {
-            let guard = match owner.read() {
-                Ok(guard) => guard,
-                Err(_) => return StateReturnType::Failed,
-            };
-            match guard.get_ai_update_interface() {
-                Some(ai) => ai,
-                None => return StateReturnType::Failed,
-            }
+        let Some(ai_handle) = OBJECT_REGISTRY.with_object(context.owner_id, |guard| {
+            guard.get_ai_update_interface()
+        }).flatten() else {
+            return StateReturnType::Failed;
         };
 
         let locomotor_handle = match self.get_locomotor(context) {
@@ -135,11 +125,8 @@ impl AIState for AIMoveToState {
             None => return StateReturnType::Failed,
         };
 
-        let (current_pos, current_angle, condition) = {
-            let guard = match owner.read() {
-                Ok(guard) => guard,
-                Err(_) => return StateReturnType::Failed,
-            };
+        let Some((current_pos, current_angle, condition)) =
+            OBJECT_REGISTRY.with_object(context.owner_id, |guard| {
             let damage_state = guard
                 .get_body()
                 .and_then(|body| body.lock().ok().map(|b| b.get_damage_state()))
@@ -151,6 +138,8 @@ impl AIState for AIMoveToState {
                 LogicBodyDamageType::Rubble => LocoBodyDamageType::Rubble,
             };
             (*guard.get_position(), guard.get_orientation() as f32, condition)
+        }) else {
+            return StateReturnType::Failed;
         };
 
         let current_speed = ai_handle.get_speed();
@@ -185,7 +174,7 @@ impl AIState for AIMoveToState {
 
         match result {
             Ok(Some((new_pos, new_angle, new_speed))) => {
-                if let Ok(mut guard) = owner.write() {
+                let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |guard| {
                     let _ = guard.set_position(&new_pos);
                     let _ = guard.set_orientation(new_angle as Real);
                     if let Some(physics) = guard.get_physics() {
@@ -212,7 +201,7 @@ impl AIState for AIMoveToState {
                             }
                         }
                     }
-                }
+                });
                 StateReturnType::Continue
             }
             Ok(None) => StateReturnType::Complete,
