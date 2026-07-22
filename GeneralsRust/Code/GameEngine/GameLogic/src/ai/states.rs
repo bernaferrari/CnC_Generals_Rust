@@ -1618,10 +1618,10 @@ impl AiCommandInterface for AIStateMachine {
             if let Some(obj_id) = params.obj {
                 self.base.set_goal_object_by_id(Some(obj_id));
             } else {
-                self.base.set_goal_object(None);
+                self.base.set_goal_object_by_id(None);
             }
         } else {
-            self.base.set_goal_object(None);
+            self.base.set_goal_object_by_id(None);
         }
 
         if params.pos != Coord3D::new(0.0, 0.0, 0.0) {
@@ -4203,7 +4203,7 @@ impl ClassicState for AIMoveAwayFromRepulsorsState {
         if let Ok(machine) = self.base.base.get_machine() {
             if let Ok(mut machine_guard) = machine.lock() {
                 machine_guard.set_goal_position(self.goal_position);
-                machine_guard.set_goal_object(None);
+                machine_guard.set_goal_object_by_id(None);
             }
         }
 

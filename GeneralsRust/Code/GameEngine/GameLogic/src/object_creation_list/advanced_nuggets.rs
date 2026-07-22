@@ -21,9 +21,21 @@ use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
 
 fn set_special_power_creator(object: &Arc<RwLock<Object>>, creator_id: ObjectID) {
-    if let Ok(mut guard) = object.write() {
-        guard.set_special_power_completion_creator(creator_id);
+    let object_id = object
+        .read()
+        .ok()
+        .map(|guard| guard.get_id())
+        .unwrap_or(INVALID_ID);
+    set_special_power_creator_id(object_id, creator_id);
+}
+
+fn set_special_power_creator_id(object_id: ObjectID, creator_id: ObjectID) {
+    if object_id == INVALID_ID {
+        return;
     }
+    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
+        guard.set_special_power_completion_creator(creator_id);
+    });
 }
 
 /// Payload information for delivery
@@ -285,10 +297,15 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
             };
 
             // Notify special power tracking
+            let transport_id = transport
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(INVALID_ID);
             if formation_index == 0 {
-                set_special_power_creator(&transport, primary_object.get_id());
+                set_special_power_creator_id(transport_id, primary_object.get_id());
             } else {
-                set_special_power_creator(&transport, INVALID_ID);
+                set_special_power_creator_id(transport_id, INVALID_ID);
             }
 
             // Apply starting velocity if configured
