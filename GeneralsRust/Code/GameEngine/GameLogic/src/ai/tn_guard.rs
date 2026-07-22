@@ -716,10 +716,8 @@ impl StateImplementation for AITNGuardInnerState {
                 if let Some(player_arc) = owner_guard.get_controlling_player() {
                     if let Ok(mut player_guard) = player_arc.write() {
                         if let Some(tunnels) = player_guard.get_tunnel_system_mut() {
-                            if let Ok(Some(nemesis)) = tunnels.get_cur_nemesis() {
-                                if let Ok(nemesis_guard) = nemesis.read() {
-                                    tunnel_nemesis = get_legacy_object(nemesis_guard.get_id());
-                                }
+                            if let Ok(Some(nemesis_id)) = tunnels.get_cur_nemesis_id() {
+                                tunnel_nemesis = get_legacy_object(nemesis_id);
                             }
                         }
                     }
@@ -1267,19 +1265,13 @@ impl StateImplementation for AITNGuardReturnState {
             if let Some(player_arc) = owner_guard.get_controlling_player() {
                 if let Ok(mut player_guard) = player_arc.write() {
                     if let Some(tunnels) = player_guard.get_tunnel_system_mut() {
-                        if let Ok(Some(nemesis)) = tunnels.get_cur_nemesis() {
-                            if let Ok(nemesis_guard) = nemesis.read() {
-                                self.base.set_nemesis_to_attack(nemesis_guard.get_id());
-                                if let Some(target) = get_legacy_object(nemesis_guard.get_id()) {
-                                    let _ = self.base.with_machine(|machine| {
-                                        machine.set_goal_object_by_id(
-                                            target.read().ok().map(|g| g.get_id()),
-                                        )
-                                    });
-                                }
-                            }
-                            return StateReturnType::Failure;
+                        if let Ok(Some(nemesis_id)) = tunnels.get_cur_nemesis_id() {
+                            self.base.set_nemesis_to_attack(nemesis_id);
+                            let _ = self.base.with_machine(|machine| {
+                                machine.set_goal_object_by_id(Some(nemesis_id))
+                            });
                         }
+                        return StateReturnType::Failure;
                     }
                 }
             }
@@ -1558,10 +1550,8 @@ fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
     let mut player_guard = player_arc.write().ok()?;
     let tunnels = player_guard.get_tunnel_system_mut()?;
 
-    if let Ok(Some(nemesis)) = tunnels.get_cur_nemesis() {
-        if let Ok(nemesis_guard) = nemesis.read() {
-            return Some(nemesis_guard.get_id());
-        }
+    if let Ok(Some(nemesis_id)) = tunnels.get_cur_nemesis_id() {
+        return Some(nemesis_id);
     }
 
     let container_list = tunnels.get_container_list().ok()?;

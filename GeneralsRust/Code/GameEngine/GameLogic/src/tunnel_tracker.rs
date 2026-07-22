@@ -85,7 +85,7 @@ impl TunnelTracker {
     pub fn update_nemesis(&mut self, target: Option<&Object>) -> GameResult<()> {
         let current_frame = get_current_frame()?;
 
-        if self.get_cur_nemesis()?.is_none() {
+        if self.get_cur_nemesis_id()?.is_none() {
             if let Some(target_ref) = target {
                 // Only track vehicles, structures, infantry, or aircraft
                 if target_ref.is_kind_of(KindOf::Vehicle)
@@ -97,7 +97,7 @@ impl TunnelTracker {
                     self.nemesis_timestamp = current_frame;
                 }
             }
-        } else if let Some(_current_nemesis) = self.get_cur_nemesis()? {
+        } else if self.get_cur_nemesis_id()?.is_some() {
             if let Some(target_ref) = target {
                 // Update timestamp if target matches our current nemesis by ID
                 if target_ref.get_id() == self.cur_nemesis_id {
@@ -111,7 +111,7 @@ impl TunnelTracker {
 
     /// Get the current nemesis object if still valid.
     /// Matches C++ TunnelTracker::getCurNemesis (TunnelTracker.cpp:103-129)
-    pub fn get_cur_nemesis(&mut self) -> GameResult<Option<Arc<RwLock<Object>>>> {
+    pub fn get_cur_nemesis_id(&mut self) -> GameResult<Option<ObjectID>> {
         if self.cur_nemesis_id == INVALID_ID {
             return Ok(None);
         }
@@ -147,11 +147,18 @@ impl TunnelTracker {
             }
 
             drop(target_read);
-            Ok(Some(target))
+            Ok(Some(self.cur_nemesis_id))
         } else {
             self.cur_nemesis_id = INVALID_ID;
             Ok(None)
         }
+    }
+
+    /// Prefer [`Self::get_cur_nemesis_id`].
+    pub fn get_cur_nemesis(&mut self) -> GameResult<Option<Arc<RwLock<Object>>>> {
+        Ok(self
+            .get_cur_nemesis_id()?
+            .and_then(|id| find_object_by_id(id).ok().flatten()))
     }
 
     /// Add an object to the contained list.
@@ -563,15 +570,19 @@ fn find_object_by_id(id: ObjectID) -> GameResult<Option<Arc<RwLock<Object>>>> {
 
 /// Helper function to destroy an object
 /// Matches C++ TunnelTracker::destroyObject (TunnelTracker.cpp:215-221)
-fn destroy_object(obj: Arc<RwLock<Object>>) -> GameResult<()> {
+fn destroy_object_by_id(object_id: ObjectID) -> GameResult<()> {
+    if object_id == INVALID_ID {
+        return Ok(());
+    }
     if let Ok(mut logic_mutex) = get_game_logic().lock() {
-        let object_id = obj.read().map_err(|_| "Object lock poisoned")?.get_id();
-
-        if object_id != INVALID_ID {
-            logic_mutex.destroy_object(object_id);
-        }
+        logic_mutex.destroy_object(object_id);
     }
     Ok(())
+}
+
+fn destroy_object(obj: Arc<RwLock<Object>>) -> GameResult<()> {
+    let object_id = obj.read().map_err(|_| "Object lock poisoned")?.get_id();
+    destroy_object_by_id(object_id)
 }
 
 #[cfg(test)]
