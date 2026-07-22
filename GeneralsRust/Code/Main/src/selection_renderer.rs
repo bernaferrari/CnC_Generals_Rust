@@ -10,13 +10,11 @@
 //! Wave 79 residual honesty: selection/HUD color + health-bar + pulse defaults
 //! (host-testable; not full W3D Drawable health-bar GPU path).
 
-use crate::game_logic::{GameLogic, ObjectId, Team};
+use crate::game_logic::{ObjectId, Team};
 use crate::presentation_frame::PresentationFrame;
 use crate::ui::{UIRenderCommand, Vertex};
 use crate::unit_control::UnitControlSystem;
 use glam::{Vec2, Vec3, Vec4};
-use std::sync::Arc;
-use std::sync::Mutex as AsyncMutex;
 
 // --- Wave 79 selection / HUD residual defaults ---
 /// Selection ring residual color (green).
@@ -160,88 +158,27 @@ impl SelectionRenderer {
 
     /// Generate UI render commands for selection visualization.
     ///
-    /// When `presentation` is provided, **identity** (position/team/health/selected/
-    /// aliveness) is taken from the immutable snapshot — not a live re-read of
-    /// `GameLogic` objects. Live logic is only used as fallback when no frame is set.
-    pub async fn render_selection(
+    /// Presentation-only: identity (position/team/health/selected/aliveness) comes
+    /// from the immutable snapshot. Returns empty when no frame is provided.
+
+    pub fn render_selection(
         &self,
         unit_control: &UnitControlSystem,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
         camera_view_matrix: &glam::Mat4,
         camera_proj_matrix: &glam::Mat4,
         window_size: (f32, f32),
         presentation: Option<&PresentationFrame>,
     ) -> Vec<UIRenderCommand> {
-        if let Some(frame) = presentation {
-            return self.render_selection_from_presentation(
-                unit_control,
-                frame,
-                camera_view_matrix,
-                camera_proj_matrix,
-                window_size,
-            );
-        }
-
-        let mut commands = Vec::new();
-        let Ok(logic) = game_logic.lock() else {
-            log::warn!("Skipping render_selection: game logic lock poisoned");
-            return commands;
+        let Some(frame) = presentation else {
+            return Vec::new();
         };
-
-        // Fallback: live GameLogic identity when no presentation frame is available.
-        for &object_id in unit_control.get_selected_objects() {
-            if let Some(object) = logic.get_object(object_id) {
-                if let Some(screen_pos) = self.world_to_screen(
-                    object.get_position(),
-                    camera_view_matrix,
-                    camera_proj_matrix,
-                    window_size,
-                ) {
-                    let color = self.get_selection_color_animated();
-                    commands.push(self.create_selection_circle(screen_pos, color));
-
-                    if self.show_health_bars && object.show_health_bar && object.is_alive() {
-                        commands.push(self.create_health_bar(
-                            screen_pos,
-                            object.health.current,
-                            object.health.maximum,
-                        ));
-                    }
-                }
-            }
-        }
-
-        if let Some(hovered_id) = unit_control.get_hovered_object() {
-            if let Some(object) = logic.get_object(hovered_id) {
-                if let Some(screen_pos) = self.world_to_screen(
-                    object.get_position(),
-                    camera_view_matrix,
-                    camera_proj_matrix,
-                    window_size,
-                ) {
-                    let color = self.get_hover_color_animated();
-                    commands.push(self.create_hover_highlight(screen_pos, color));
-                }
-            }
-        }
-
-        for (object_id, object) in logic.get_objects().iter() {
-            if unit_control.is_object_selected(*object_id) {
-                continue;
-            }
-
-            if let Some(screen_pos) = self.world_to_screen(
-                object.get_position(),
-                camera_view_matrix,
-                camera_proj_matrix,
-                window_size,
-            ) {
-                let team_color = self.get_team_color(object.team, unit_control.local_player_team);
-                commands.push(self.create_team_indicator(screen_pos, team_color));
-            }
-        }
-
-        commands
+        self.render_selection_from_presentation(
+            unit_control,
+            frame,
+            camera_view_matrix,
+            camera_proj_matrix,
+            window_size,
+        )
     }
 
     /// Production presentation path: selection/health/team identity from snapshot only.
@@ -747,39 +684,17 @@ impl SelectionRenderer {
         commands
     }
 
-    /// Legacy live-logic control-group path (boot residual only).
-    ///
-    /// Prefer [`Self::render_control_group_numbers_from_presentation`] when a
-    /// presentation frame is installed.
+    /// Presentation-only control-group badges (no live GameLogic dual-read).
+
     pub fn render_control_group_numbers(
         &self,
         unit_control: &UnitControlSystem,
-        game_logic: &GameLogic,
+        presentation: Option<&PresentationFrame>,
     ) -> Vec<UIRenderCommand> {
-        let mut commands = Vec::new();
-
-        for (object_id, object) in game_logic.get_objects() {
-            let groups = unit_control.get_unit_control_groups(*object_id);
-
-            if !groups.is_empty() {
-                let position = object.get_position();
-
-                for (index, &group_num) in groups.iter().enumerate() {
-                    let offset_x = index as f32 * 0.5;
-                    let indicator_pos = Vec2::new(
-                        position.x + offset_x - (groups.len() as f32 * 0.25),
-                        position.z - 3.0, // Above the unit
-                    );
-
-                    let group_color = self.get_group_color(group_num);
-                    let rect_command =
-                        self.create_rectangle(indicator_pos, Vec2::new(0.4, 0.4), group_color);
-                    commands.push(rect_command);
-                }
-            }
-        }
-
-        commands
+        let Some(frame) = presentation else {
+            return Vec::new();
+        };
+        self.render_control_group_numbers_from_presentation(unit_control, frame)
     }
 
     /// Get color for control group indicator (matching C++ Generals group colors)
