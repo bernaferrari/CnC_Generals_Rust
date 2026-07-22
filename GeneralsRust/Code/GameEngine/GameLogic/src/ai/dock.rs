@@ -257,7 +257,10 @@ impl AIDockMachine {
             goal_obj
                 .lock()
                 .map_err(|_| "Failed to lock goal object".to_string())?
-                .with_dock_update_interface(|dock| dock.cancel_dock(&owner).into_string_err())
+                .with_dock_update_interface(|dock| {
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()
+                })
                 .unwrap_or(Ok(()))?;
         }
 
@@ -373,14 +376,19 @@ impl ClassicState for AIDockApproachState {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(&owner).into_string_err()?;
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                     return Ok(StateReturnType::Failure);
                 }
 
                 let mut goal_position = Vec3D::default();
                 let mut approach_position = 0;
                 if !dock
-                    .reserve_approach_position(&owner, &mut goal_position, &mut approach_position)
+                    .reserve_approach_position(
+                        owner.read().map(|g| g.get_id()).unwrap_or(0),
+                        &mut goal_position,
+                        &mut approach_position,
+                    )
                     .into_string_err()?
                 {
                     return Ok(StateReturnType::Failure);
@@ -421,9 +429,11 @@ impl ClassicState for AIDockApproachState {
 
             goal_guard.with_dock_update_interface(|dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(&owner).into_string_err()?;
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                 } else {
-                    dock.on_approach_reached(&owner).into_string_err()?;
+                    dock.on_approach_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                 }
                 Ok::<_, String>(())
             }); // Ignore error on exit if dock missing
@@ -514,8 +524,11 @@ impl AIDockWaitForClearanceState {
         goal_guard
             .with_dock_update_interface(|dock| {
                 let approach_position = state.shared.approach_position();
-                dock.is_clear_to_advance(&owner, approach_position)
-                    .into_string_err()
+                dock.is_clear_to_advance(
+                    owner.read().map(|g| g.get_id()).unwrap_or(0),
+                    approach_position,
+                )
+                .into_string_err()
             })
             .ok_or_else(|| "Missing dock interface".to_string())?
     }
@@ -548,11 +561,15 @@ impl ClassicState for AIDockWaitForClearanceState {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(&owner).into_string_err()?;
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                     return Ok::<StateReturnType, String>(StateReturnType::Failure);
                 }
 
-                if dock.is_clear_to_enter(&owner).into_string_err()? {
+                if dock
+                    .is_clear_to_enter(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    .into_string_err()?
+                {
                     return Ok(StateReturnType::Success);
                 }
 
@@ -575,7 +592,8 @@ impl ClassicState for AIDockWaitForClearanceState {
 
             goal_guard.with_dock_update_interface(|dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(&owner).into_string_err()?;
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                 }
                 Ok::<_, String>(())
             });
@@ -643,14 +661,19 @@ impl ClassicState for AIDockAdvancePositionState {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().map_err(|err| err.to_string())? {
-                    dock.cancel_dock(&owner).into_string_err()?;
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                     return Ok::<StateReturnType, String>(StateReturnType::Failure);
                 }
 
                 let mut goal_position = Vec3D::default();
                 let mut approach_position = 0;
                 if !dock
-                    .advance_approach_position(&owner, &mut goal_position, &mut approach_position)
+                    .advance_approach_position(
+                        owner.read().map(|g| g.get_id()).unwrap_or(0),
+                        &mut goal_position,
+                        &mut approach_position,
+                    )
                     .into_string_err()?
                 {
                     return Ok(StateReturnType::Failure);
@@ -690,9 +713,11 @@ impl ClassicState for AIDockAdvancePositionState {
 
             goal_guard.with_dock_update_interface(|dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(&owner).into_string_err()?;
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                 } else {
-                    dock.on_approach_reached(&owner).into_string_err()?;
+                    dock.on_approach_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                 }
                 Ok::<_, String>(())
             });
@@ -759,7 +784,8 @@ impl ClassicState for AIDockMoveToEntryState {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(&owner).into_string_err()?;
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                     return Ok(StateReturnType::Failure);
                 }
 
@@ -776,8 +802,11 @@ impl ClassicState for AIDockMoveToEntryState {
                 }
 
                 let mut goal_position = Vec3D::default();
-                dock.get_enter_position(&owner, &mut goal_position)
-                    .into_string_err()?;
+                dock.get_enter_position(
+                    owner.read().map(|g| g.get_id()).unwrap_or(0),
+                    &mut goal_position,
+                )
+                .into_string_err()?;
                 self.move_helper.set_goal_position(goal_position);
 
                 self.shared.clear_approach_position();
@@ -803,9 +832,11 @@ impl ClassicState for AIDockMoveToEntryState {
 
             goal_guard.with_dock_update_interface(|dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(&owner).into_string_err()?;
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                 } else {
-                    dock.on_enter_reached(&owner).into_string_err()?;
+                    dock.on_enter_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                 }
                 Ok::<_, String>(())
             });
@@ -890,13 +921,17 @@ impl ClassicState for AIDockMoveToDockState {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(&owner).into_string_err()?;
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                     return Ok(StateReturnType::Failure);
                 }
 
                 let mut goal_position = Vec3D::default();
-                dock.get_dock_position(&owner, &mut goal_position)
-                    .into_string_err()?;
+                dock.get_dock_position(
+                    owner.read().map(|g| g.get_id()).unwrap_or(0),
+                    &mut goal_position,
+                )
+                .into_string_err()?;
                 self.move_helper.set_goal_position(goal_position);
 
                 if dock
@@ -955,9 +990,11 @@ impl ClassicState for AIDockMoveToDockState {
 
             goal_guard.with_dock_update_interface(|dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(&owner).into_string_err()?;
+                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                 } else {
-                    dock.on_dock_reached(&owner).into_string_err()?;
+                    dock.on_dock_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                        .into_string_err()?;
                 }
                 Ok::<_, String>(())
             });
@@ -1124,9 +1161,13 @@ impl ClassicState for AIDockProcessDockState {
                 self.set_next_dock_action_frame()?;
 
                 let drone = self.find_my_drone()?;
+                let owner_id = owner.read().map(|g| g.get_id()).unwrap_or(0);
+                let drone_id = drone
+                    .as_ref()
+                    .and_then(|d| d.read().ok().map(|g| g.get_id()));
 
                 if !dock.is_dock_open().into_string_err()?
-                    || !dock.action(&owner, drone.as_ref()).into_string_err()?
+                    || !dock.action(owner_id, drone_id).into_string_err()?
                 {
                     return Ok(StateReturnType::Success);
                 }
@@ -1193,8 +1234,11 @@ impl ClassicState for AIDockMoveToExitState {
         goal_guard
             .with_dock_update_interface(|dock| {
                 let mut goal_position = Vec3D::default();
-                dock.get_exit_position(&owner, &mut goal_position)
-                    .into_string_err()?;
+                dock.get_exit_position(
+                    owner.read().map(|g| g.get_id()).unwrap_or(0),
+                    &mut goal_position,
+                )
+                .into_string_err()?;
                 self.move_helper.set_goal_position(goal_position);
 
                 if dock
@@ -1235,7 +1279,8 @@ impl ClassicState for AIDockMoveToExitState {
                 .map_err(|_| "goal object poisoned".to_string())?;
 
             goal_guard.with_dock_update_interface(|dock| {
-                dock.on_exit_reached(&owner).into_string_err()?;
+                dock.on_exit_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    .into_string_err()?;
                 Ok::<_, String>(())
             });
         }
