@@ -3500,14 +3500,9 @@ impl ScriptCondition for NamedUnitExistsCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-        Ok(!obj.is_effectively_dead())
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| !obj.is_effectively_dead())
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -3546,14 +3541,9 @@ impl ScriptCondition for NamedUnitDestroyedCondition {
                 return tracker.did_object_exist(&unit_name);
             }
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(true), // Was in tracker but gone from registry = destroyed
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-        Ok(obj.is_effectively_dead())
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| obj.is_effectively_dead())
+            .unwrap_or(true)) // Was in tracker but gone from registry = destroyed
     }
 
     fn name(&self) -> &str {
@@ -3588,14 +3578,9 @@ impl ScriptCondition for NamedUnitDyingCondition {
             Some(id) => id,
             None => return Ok(false), // Already totally dead, not just dying
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-        Ok(obj.is_effectively_dead())
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| obj.is_effectively_dead())
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -3635,12 +3620,11 @@ impl ScriptCondition for NamedUnitTotallyDeadCondition {
             }
         };
         // If still in tracker AND in registry, not totally dead
-        match OBJECT_REGISTRY.get_object(object_id) {
-            Some(_) => Ok(false),
-            None => {
-                let tracker = get_named_object_tracker();
-                tracker.did_object_exist(&unit_name)
-            }
+        if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_some() {
+            Ok(false)
+        } else {
+            let tracker = get_named_object_tracker();
+            tracker.did_object_exist(&unit_name)
         }
     }
 
@@ -3685,14 +3669,11 @@ impl ScriptCondition for NamedOwnedByPlayerCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-        Ok(obj.get_controlling_player_id() == Some(player_id))
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                obj.get_controlling_player_id() == Some(player_id)
+            })
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -3728,13 +3709,9 @@ impl ScriptCondition for NamedInsideAreaCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let _obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
+        if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
+            return Ok(false);
+        }
 
         // Check if object is in the area's tracked objects
         let area_tracker = get_area_tracker();
@@ -3817,20 +3794,15 @@ impl ScriptCondition for NamedDiscoveredCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-
-        // Held/disabled objects are not visible
-        if obj.is_disabled_by_type(crate::common::DisabledType::Held) {
-            return Ok(false);
-        }
-
-        Ok(obj.is_visible_to_player(player_index))
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                // Held/disabled objects are not visible
+                if obj.is_disabled_by_type(crate::common::DisabledType::Held) {
+                    return false;
+                }
+                obj.is_visible_to_player(player_index)
+            })
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -3865,20 +3837,18 @@ impl ScriptCondition for NamedBuildingIsEmptyCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-
-        if let Some(contain) = obj.get_contain() {
-            if let Ok(contain_guard) = contain.lock() {
-                return Ok(contain_guard.get_contain_count() == 0);
-            }
-        }
-        Ok(false)
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                let Some(contain) = obj.get_contain() else {
+                    return false;
+                };
+                contain
+                    .lock()
+                    .ok()
+                    .map(|contain_guard| contain_guard.get_contain_count() == 0)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -3913,22 +3883,22 @@ impl ScriptCondition for NamedHasFreeContainerSlotsCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-
-        if let Some(contain) = obj.get_contain() {
-            if let Ok(contain_guard) = contain.lock() {
-                let max = contain_guard.get_contain_max() as u32;
-                let cur = contain_guard.get_contain_count();
-                return Ok(cur < max);
-            }
-        }
-        Ok(false)
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                let Some(contain) = obj.get_contain() else {
+                    return false;
+                };
+                contain
+                    .lock()
+                    .ok()
+                    .map(|contain_guard| {
+                        let max = contain_guard.get_contain_max() as u32;
+                        let cur = contain_guard.get_contain_count();
+                        cur < max
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -3961,7 +3931,7 @@ impl ScriptCondition for NamedCreatedCondition {
         match lookup_named_object_id(&unit_name)? {
             Some(id) => {
                 // Also verify the object actually exists in the registry
-                Ok(OBJECT_REGISTRY.get_object(id).is_some())
+                Ok(OBJECT_REGISTRY.with_object(id, |_| ()).is_some())
             }
             None => Ok(false),
         }
@@ -4040,20 +4010,17 @@ impl ScriptCondition for NamedReachedWaypointsEndCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-
-        if let Some(ai) = obj.get_ai_update_interface() {
-            if let Ok(ai_guard) = ai.try_lock() {
-                return Ok(ai_guard.is_idle());
-            }
-        }
-        Ok(false)
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                let Some(ai) = obj.get_ai_update_interface() else {
+                    return false;
+                };
+                ai.try_lock()
+                    .ok()
+                    .map(|ai_guard| ai_guard.is_idle())
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -4359,14 +4326,14 @@ impl ScriptCondition for TeamDiscoveredCondition {
             .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
 
         for &member_id in team.get_members() {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    if !obj.is_disabled_by_type(crate::common::DisabledType::Held)
+            let visible = OBJECT_REGISTRY
+                .with_object(member_id, |obj| {
+                    !obj.is_disabled_by_type(crate::common::DisabledType::Held)
                         && obj.is_visible_to_player(player_index)
-                    {
-                        return Ok(true);
-                    }
-                }
+                })
+                .unwrap_or(false);
+            if visible {
+                return Ok(true);
             }
         }
         Ok(false)
@@ -4704,21 +4671,21 @@ impl ScriptCondition for BuildingEnteredByPlayerCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-
-        if let Some(contain) = obj.get_contain() {
-            if let Ok(contain_guard) = contain.lock() {
-                let entered_mask = contain_guard.get_player_who_entered();
-                return Ok(!entered_mask.is_empty() && entered_mask == player_mask);
-            }
-        }
-        Ok(false)
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                let Some(contain) = obj.get_contain() else {
+                    return false;
+                };
+                contain
+                    .lock()
+                    .ok()
+                    .map(|contain_guard| {
+                        let entered_mask = contain_guard.get_player_who_entered();
+                        !entered_mask.is_empty() && entered_mask == player_mask
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -4754,16 +4721,12 @@ impl ScriptCondition for UnitHasObjectStatusCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-
         let status_mask = parse_object_status_mask(&status_str);
-        Ok(obj.get_status_bits().intersects(status_mask))
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                obj.get_status_bits().intersects(status_mask)
+            })
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -4817,15 +4780,12 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
             .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
 
         for &member_id in team.get_members() {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    if !obj.get_status_bits().intersects(status_mask) {
-                        return Ok(false);
-                    }
-                } else {
-                    return Ok(false);
-                }
-            } else {
+            let ok = OBJECT_REGISTRY
+                .with_object(member_id, |obj| {
+                    obj.get_status_bits().intersects(status_mask)
+                })
+                .unwrap_or(false);
+            if !ok {
                 return Ok(false);
             }
         }
@@ -4883,16 +4843,12 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
             .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
 
         for &member_id in team.get_members() {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    if obj.get_status_bits().intersects(status_mask) {
-                        return Ok(true);
-                    }
-                } else {
-                    return Ok(false);
-                }
-            } else {
-                return Ok(false);
+            match OBJECT_REGISTRY.with_object(member_id, |obj| {
+                obj.get_status_bits().intersects(status_mask)
+            }) {
+                Some(true) => return Ok(true),
+                Some(false) => {}
+                None => return Ok(false),
             }
         }
         Ok(false)
@@ -4998,14 +4954,11 @@ impl ScriptCondition for NamedEnteredAreaCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
+        let Some(is_dead) = OBJECT_REGISTRY.with_object(object_id, |obj| obj.is_effectively_dead())
+        else {
+            return Ok(false);
         };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-        if obj.is_effectively_dead() {
+        if is_dead {
             return Ok(false);
         }
 
@@ -5050,14 +5003,11 @@ impl ScriptCondition for NamedExitedAreaCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
+        let Some(is_dead) = OBJECT_REGISTRY.with_object(object_id, |obj| obj.is_effectively_dead())
+        else {
+            return Ok(false);
         };
-        let obj = obj_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-        if obj.is_effectively_dead() {
+        if is_dead {
             return Ok(false);
         }
 
@@ -6880,12 +6830,13 @@ impl ScriptCondition for PlayerHasObjectComparisonCondition {
         let mut count: i64 = 0;
         let all_objects = player_guard.get_all_objects();
         for obj_id in all_objects {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    if obj_guard.is_alive() && obj_guard.get_template_name() == object_type_name {
-                        count += 1;
-                    }
-                }
+            let matches = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    obj_guard.is_alive() && obj_guard.get_template_name() == object_type_name
+                })
+                .unwrap_or(false);
+            if matches {
+                count += 1;
             }
         }
 

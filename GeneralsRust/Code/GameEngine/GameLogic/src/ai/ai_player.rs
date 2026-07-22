@@ -1523,7 +1523,7 @@ impl AIPlayer {
                 && info.get_desired_gatherers() > info.get_current_gatherers()
             {
                 let oid = info.get_object_id();
-                if oid != INVALID_ID && OBJECT_REGISTRY.get_object(oid).is_some() {
+                if oid != INVALID_ID && OBJECT_REGISTRY.with_object(oid, |_| ()).is_some() {
                     info.set_current_gatherers(info.get_current_gatherers() + 1);
                     return Some(oid);
                 }
@@ -4523,7 +4523,10 @@ impl AIPlayer {
         let mut bridge_id = None;
         while bridge_id.is_none() && self.structures_in_queue > 0 {
             let head = self.structures_to_repair[0];
-            if head.and_then(|id| OBJECT_REGISTRY.get_object(id)).is_some() {
+            if head
+                .and_then(|id| OBJECT_REGISTRY.with_object(id, |_| ()))
+                .is_some()
+            {
                 bridge_id = head;
             } else {
                 // shift left
