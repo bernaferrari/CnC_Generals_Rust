@@ -327,13 +327,11 @@ impl StealthUpdateController {
             if let Some(contain) = obj_guard.get_contain() {
                 if let Ok(contain_guard) = contain.lock() {
                     if let Some(&rider_id) = contain_guard.get_contained_objects().first() {
-                        if let Some(rider) = OBJECT_REGISTRY.get_object(rider_id) {
-                            if let Ok(rider_guard) = rider.write() {
-                                if let Some(stealth) = rider_guard.get_stealth() {
-                                    stealth.receive_grant(active, frames, current_frame);
-                                }
+                        let _ = OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
+                            if let Some(stealth) = rider_guard.get_stealth() {
+                                let _ = stealth.receive_grant(active, frames, current_frame);
                             }
-                        }
+                        });
                     }
                 }
             }
@@ -365,14 +363,19 @@ impl StealthUpdateController {
         } else {
             // Get stealth level from rider (C++ lines 244-258)
             let mut rider_level = None;
-            if let Some(owner) = OBJECT_REGISTRY.get_object(stealth_owner_id) {
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(stealth) = owner_guard.get_stealth() {
-                        if let Ok(stealth_guard) = stealth.lock() {
-                            rider_level = Some(stealth_guard.get_stealth_level());
-                        }
-                    }
-                }
+            if let Some(level) = OBJECT_REGISTRY
+                .with_object(stealth_owner_id, |owner_guard| {
+                    let Some(stealth) = owner_guard.get_stealth() else {
+                        return None;
+                    };
+                    stealth
+                        .lock()
+                        .ok()
+                        .map(|stealth_guard| stealth_guard.get_stealth_level())
+                })
+                .flatten()
+            {
+                rider_level = Some(level);
             }
             rider_level.unwrap_or(self.data.stealth_level)
         };
@@ -466,15 +469,15 @@ impl StealthUpdateController {
             if let Some(contain) = obj_guard.get_contain() {
                 if let Ok(contain_guard) = contain.lock() {
                     for contained_id in contain_guard.get_contained_objects() {
-                        if let Some(rider) = OBJECT_REGISTRY.get_object(*contained_id) {
-                            if let Ok(rider_guard) = rider.read() {
+                        let attacking = OBJECT_REGISTRY
+                            .with_object(*contained_id, |rider_guard| {
                                 let rider_status = rider_guard.get_status_bits();
-                                if rider_status.contains(ObjectStatusMaskType::IS_ATTACKING)
+                                rider_status.contains(ObjectStatusMaskType::IS_ATTACKING)
                                     || rider_status.contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
-                                {
-                                    return false;
-                                }
-                            }
+                            })
+                            .unwrap_or(false);
+                        if attacking {
+                            return false;
                         }
                     }
                 }
@@ -526,17 +529,13 @@ impl StealthUpdateController {
         // Order idle enemies to attack if configured (lines 892-911)
         if self.data.order_idle_enemies_to_attack_upon_reveal {
             // Wake up idle enemy units in range to attack revealed unit
-            let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
+            let Some((self_pos, self_team_id)) = OBJECT_REGISTRY
+                .with_object(self.object_id, |obj_guard| {
+                    (*obj_guard.get_position(), obj_guard.get_team_id())
+                })
+            else {
                 return;
             };
-
-            let Ok(obj_guard) = obj.read() else {
-                return;
-            };
-
-            let self_pos = *obj_guard.get_position();
-            let self_team_id = obj_guard.get_team_id();
-            drop(obj_guard);
 
             // Find enemy units in range (C++ uses 500.0 range at line 896)
             const WAKEUP_RANGE: Real = 500.0;
@@ -588,15 +587,9 @@ impl StealthUpdateController {
             // Start disguising (lines 919-940)
             self.disguise_as_template_name = Some(template.clone());
             // Use our controlling player as disguise owner until target info is available.
-            let disguise_player = if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                if let Ok(guard) = obj.read() {
-                    guard.get_controlling_player_id()
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let disguise_player = OBJECT_REGISTRY
+                .with_object(self.object_id, |guard| guard.get_controlling_player_id())
+                .flatten();
             self.disguise_as_player_index = disguise_player.map(|id| id as Int).unwrap_or(0);
 
             self.enabled = true;
@@ -632,16 +625,20 @@ impl StealthUpdateController {
         }
 
         // Mark UI dirty if selected (lines 951-955)
-        if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(guard) = obj.read() {
-                if let Some(drawable) = guard.get_drawable() {
-                    if let Ok(drawable) = drawable.read() {
-                        if drawable.is_selected() {
-                            crate::control_bar::mark_ui_dirty();
-                        }
-                    }
-                }
-            }
+        let selected = OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| {
+                let Some(drawable) = guard.get_drawable() else {
+                    return false;
+                };
+                drawable
+                    .read()
+                    .ok()
+                    .map(|d| d.is_selected())
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if selected {
+            crate::control_bar::mark_ui_dirty();
         }
     }
 
@@ -656,12 +653,10 @@ impl StealthUpdateController {
         if self.disguise_as_template_name.is_some() {
             // Apply disguise
             self.disguised = true;
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                if let Ok(mut guard) = obj.write() {
-                    guard.set_status(ObjectStatusMaskType::DISGUISED, true);
-                    guard.set_model_condition_state(ModelConditionFlags::DISGUISED);
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+                guard.set_status(ObjectStatusMaskType::DISGUISED, true);
+                guard.set_model_condition_state(ModelConditionFlags::DISGUISED);
+            });
             // Play disguise sound (C++ lines 1011-1013)
             // Audio events are managed by the audio system, triggered by status bits
             debug!("Applied disguise to object {}", self.object_id);
@@ -669,12 +664,10 @@ impl StealthUpdateController {
             // Remove disguise
             self.disguise_as_player_index = -1;
             self.disguised = false;
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                if let Ok(mut guard) = obj.write() {
-                    guard.set_status(ObjectStatusMaskType::DISGUISED, false);
-                    guard.clear_model_condition_state(ModelConditionFlags::DISGUISED);
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+                guard.set_status(ObjectStatusMaskType::DISGUISED, false);
+                guard.clear_model_condition_state(ModelConditionFlags::DISGUISED);
+            });
             // Play reveal sound (C++ lines 1072-1082)
             // Audio events are managed by the audio system, triggered by status bits
             debug!("Removed disguise from object {}", self.object_id);
@@ -1019,21 +1012,20 @@ impl StealthUpdateController {
             return self.object_id;
         }
 
-        let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return self.object_id;
-        };
-
-        if let Ok(guard) = obj.read() {
-            if let Some(contain) = guard.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    if let Some(&rider_id) = contain_guard.get_contained_objects().first() {
-                        return rider_id;
-                    }
-                }
-            }
-        }
-
-        self.object_id
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| {
+                let Some(contain) = guard.get_contain() else {
+                    return self.object_id;
+                };
+                contain
+                    .lock()
+                    .ok()
+                    .and_then(|contain_guard| {
+                        contain_guard.get_contained_objects().first().copied()
+                    })
+                    .unwrap_or(self.object_id)
+            })
+            .unwrap_or(self.object_id)
     }
 
     fn apply_stealth_look(&self, drawable: &mut Drawable, look: StealthLookType) {
@@ -1063,20 +1055,15 @@ impl StealthUpdateController {
     }
 
     fn is_too_close_to_current_target(&self, max_distance: Real) -> bool {
-        let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return false;
-        };
-
-        let Ok(obj_guard) = obj.read() else {
-            return false;
-        };
-
-        let Some(target_pos) = obj_guard.get_current_victim_pos() else {
-            return false;
-        };
-
-        let delta = *obj_guard.get_position() - target_pos;
-        delta.length() < max_distance
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |obj_guard| {
+                let Some(target_pos) = obj_guard.get_current_victim_pos() else {
+                    return false;
+                };
+                let delta = *obj_guard.get_position() - target_pos;
+                delta.length() < max_distance
+            })
+            .unwrap_or(false)
     }
 
     /// Check if player owns an active black market building
@@ -1191,11 +1178,9 @@ impl Module for StealthUpdate {
     fn on_object_created(&mut self) {
         // Initialize stealth status if innate (C++ lines 132-136)
         if self.data.innate_stealth {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
-                if let Ok(mut guard) = obj.write() {
-                    guard.set_status(ObjectStatusMaskType::CAN_STEALTH, true);
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+                guard.set_status(ObjectStatusMaskType::CAN_STEALTH, true);
+            });
         }
 
         debug!(
