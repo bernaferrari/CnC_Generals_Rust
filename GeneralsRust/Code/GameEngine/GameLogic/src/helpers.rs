@@ -3673,9 +3673,7 @@ impl ThePartitionManager {
             }
 
             if (options.flags & FPF_IGNORE_ALL_OBJECTS) == 0 {
-                let relation_obj = options
-                    .relationship_object_id
-                    .and_then(|id| OBJECT_REGISTRY.get_object(id));
+                let relation_id = options.relationship_object_id;
 
                 // Host path: empty dual-world registry — no object residual for path find.
                 if !OBJECT_REGISTRY.is_empty() {
@@ -3692,37 +3690,43 @@ impl ThePartitionManager {
                             continue;
                         }
 
-                        if let Some(rel_arc) = &relation_obj {
-                            if let Ok(rel_guard) = rel_arc.read() {
-                                let relation = rel_guard.relationship_to(&obj_guard);
-                                let is_unit = obj_guard.is_kind_of(KindOf::Infantry)
-                                    || obj_guard.is_kind_of(KindOf::Vehicle);
-                                let is_structure = obj_guard.is_kind_of(KindOf::Structure);
+                        if let Some(rel_id) = relation_id {
+                            let should_skip = OBJECT_REGISTRY
+                                .with_object(rel_id, |rel_guard| {
+                                    let relation = rel_guard.relationship_to(&obj_guard);
+                                    let is_unit = obj_guard.is_kind_of(KindOf::Infantry)
+                                        || obj_guard.is_kind_of(KindOf::Vehicle);
+                                    let is_structure = obj_guard.is_kind_of(KindOf::Structure);
 
-                                if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS) != 0
-                                    && relation != Relationship::Enemies
-                                    && is_unit
-                                {
-                                    continue;
-                                }
-                                if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_STRUCTURES) != 0
-                                    && relation != Relationship::Enemies
-                                    && is_structure
-                                {
-                                    continue;
-                                }
-                                if (options.flags & FPF_IGNORE_ENEMY_UNITS) != 0
-                                    && relation == Relationship::Enemies
-                                    && is_unit
-                                {
-                                    continue;
-                                }
-                                if (options.flags & FPF_IGNORE_ENEMY_STRUCTURES) != 0
-                                    && relation == Relationship::Enemies
-                                    && is_structure
-                                {
-                                    continue;
-                                }
+                                    if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS) != 0
+                                        && relation != Relationship::Enemies
+                                        && is_unit
+                                    {
+                                        return true;
+                                    }
+                                    if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_STRUCTURES) != 0
+                                        && relation != Relationship::Enemies
+                                        && is_structure
+                                    {
+                                        return true;
+                                    }
+                                    if (options.flags & FPF_IGNORE_ENEMY_UNITS) != 0
+                                        && relation == Relationship::Enemies
+                                        && is_unit
+                                    {
+                                        return true;
+                                    }
+                                    if (options.flags & FPF_IGNORE_ENEMY_STRUCTURES) != 0
+                                        && relation == Relationship::Enemies
+                                        && is_structure
+                                    {
+                                        return true;
+                                    }
+                                    false
+                                })
+                                .unwrap_or(false);
+                            if should_skip {
+                                continue;
                             }
                         }
 

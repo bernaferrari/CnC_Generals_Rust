@@ -508,39 +508,37 @@ impl StealthDetectorUpdate {
 
                 // For each nearby object (C++ lines 182-335)
                 for obj_id in nearby_objects {
-                    if let Some(target_obj) =
-                        crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-                    {
-                        if let Ok(target) = target_obj.read() {
+                    if let Some(hit) = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(obj_id, |target| {
                             if obj_id == self_id {
-                                continue;
+                                return None;
                             }
 
                             // Check if effectively dead (C++ lines 184-185)
                             if target.is_effectively_dead() {
-                                continue;
+                                return None;
                             }
 
                             if obj.is_off_map() != target.is_off_map() {
-                                continue;
+                                return None;
                             }
 
-                            let relationship = obj.relationship_to(&target);
+                            let relationship = obj.relationship_to(target);
                             if !matches!(
                                 relationship,
                                 crate::common::Relationship::Enemies
                                     | crate::common::Relationship::Neutral
                             ) {
-                                continue;
+                                return None;
                             }
 
                             // Apply KindOf filters (C++ line 168)
                             if !self.passes_kindof_filters(
-                                &target,
+                                target,
                                 self.module_data.extra_detect_kindof,
                                 self.module_data.extra_detect_kindof_not,
                             ) {
-                                continue;
+                                return None;
                             }
 
                             let target_contained = target.get_container().is_some();
@@ -548,27 +546,42 @@ impl StealthDetectorUpdate {
                                 && !(self.module_data.can_detect_while_garrisoned
                                     || self.module_data.can_detect_while_transported)
                             {
-                                continue;
+                                return None;
                             }
 
                             // Check if stealthed (C++ line 187)
                             if target.is_stealthed() {
                                 let distance = (*target.get_position() - position).length();
                                 if distance > vision_range {
-                                    continue;
+                                    return None;
                                 }
+                                return Some((
+                                    true,
+                                    target.get_stealth_module(),
+                                    *target.get_position(),
+                                    None,
+                                ));
+                            }
 
+                            // Check if container holds stealthed units
+                            if let Some(contain) = target.get_contain() {
+                                return Some((false, None, *target.get_position(), Some(contain)));
+                            }
+
+                            None
+                        })
+                        .flatten()
+                    {
+                        match hit {
+                            (true, stealth_module, target_pos, _) => {
                                 found_someone = true;
 
-                                if let Some(stealth_module) = target.get_stealth_module() {
-                                    drop(target);
+                                if let Some(stealth_module) = stealth_module {
                                     if let Ok(mut stealth_guard) = stealth_module.lock() {
                                         stealth_guard.mark_as_detected_for(
                                             self.module_data.update_rate.saturating_add(1),
                                         );
                                     }
-                                } else {
-                                    drop(target);
                                 }
 
                                 if let Some(template_name) =
@@ -578,15 +591,7 @@ impl StealthDetectorUpdate {
                                         if let Some(system_id) = ps_manager
                                             .create_particle_system(Some(template_name.as_str()))
                                         {
-                                            let mut grid_pos = position;
-                                            if let Some(pos) =
-                                                crate::object::registry::OBJECT_REGISTRY
-                                                    .with_object(obj_id, |target_guard| {
-                                                        *target_guard.get_position()
-                                                    })
-                                            {
-                                                grid_pos = pos;
-                                            }
+                                            let mut grid_pos = target_pos;
                                             grid_pos.z = position.z + 17.0;
                                             let ix = grid_pos.x as i32;
                                             let iy = grid_pos.y as i32;
@@ -598,13 +603,8 @@ impl StealthDetectorUpdate {
                                         }
                                     }
                                 }
-
-                                continue;
                             }
-
-                            // Check if container holds stealthed units
-                            if let Some(contain) = target.get_contain() {
-                                drop(target);
+                            (false, _, _, Some(contain)) => {
                                 if let Ok(contain_guard) = contain.lock() {
                                     for &rider_id in contain_guard.get_contained_objects() {
                                         if let Some(stealth_module) =
@@ -630,6 +630,7 @@ impl StealthDetectorUpdate {
                                     }
                                 }
                             }
+                            _ => {}
                         }
                     }
                 }

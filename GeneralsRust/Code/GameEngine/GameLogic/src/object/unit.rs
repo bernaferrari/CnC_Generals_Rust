@@ -7529,6 +7529,14 @@ impl AIUpdateInterface for UnitAIUpdate {
         Ok(())
     }
 
+    fn ignore_obstacle_id(
+        &mut self,
+        id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.ignore_obstacle_id = id;
+        Ok(())
+    }
+
     fn get_ignored_obstacle_id(&self) -> ObjectID {
         self.ignore_obstacle_id
     }
