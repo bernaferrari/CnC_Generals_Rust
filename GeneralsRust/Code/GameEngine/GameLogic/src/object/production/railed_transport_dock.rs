@@ -200,7 +200,8 @@ impl RailedTransportDockUpdate {
         }
 
         if reached {
-            self.base.cancel_dock(&docker)?;
+            self.base
+                .cancel_dock(docker.read().map(|g| g.get_id()).unwrap_or(0))?;
 
             if let Ok(docker_guard) = docker.read() {
                 if let Some(ai) = docker_guard.get_ai_update_interface() {
@@ -235,7 +236,10 @@ impl RailedTransportDockUpdate {
         };
 
         let mut dest_pos = Coord3D::new(0.0, 0.0, 0.0);
-        self.base.get_exit_position(&unloader, &mut dest_pos)?;
+        self.base.get_exit_position(
+            unloader.read().map(|g| g.get_id()).unwrap_or(0),
+            &mut dest_pos,
+        )?;
         if let Some(terrain) = TheTerrainLogic::get() {
             dest_pos.z = terrain.get_ground_height(dest_pos.x, dest_pos.y, None);
         }
@@ -370,7 +374,10 @@ impl RailedTransportDockUpdate {
         }
 
         let mut dock_position = Coord3D::new(0.0, 0.0, 0.0);
-        self.base.get_exit_position(&unloader, &mut dock_position)?;
+        self.base.get_exit_position(
+            unloader.read().map(|g| g.get_id()).unwrap_or(0),
+            &mut dock_position,
+        )?;
 
         let unloader_pos = {
             let unloader_guard = unloader.read().map_err(|_| "Failed to lock unloader")?;
@@ -448,9 +455,14 @@ impl BehaviorModule for RailedTransportDockUpdate {
 impl DockUpdateInterface for RailedTransportDockUpdate {
     fn action(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
-        _drone: Option<&Arc<RwLock<Object>>>,
+        obj_id: ObjectID,
+        _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(false);
+        };
         let docker_id = {
             let docker_guard = obj.read().map_err(|_| "Failed to lock docker")?;
             docker_guard.get_id()
@@ -502,9 +514,9 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
 
     fn is_clear_to_enter(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        if !self.base.is_clear_to_enter(obj)? {
+        if !self.base.is_clear_to_enter(obj_id)? {
             return Ok(false);
         }
 
@@ -521,6 +533,11 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
             return Ok(true);
         };
 
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(false);
+        };
         let obj_guard = obj.read().map_err(|_| "Failed to lock docker")?;
         let contain_guard = contain.lock().map_err(|_| "Failed to lock contain")?;
         Ok(contain_guard.is_valid_container_for(&*obj_guard, true))
@@ -553,95 +570,92 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
 
     fn cancel_dock(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Ok(obj_guard) = obj.read() {
-            let obj_id = obj_guard.get_id();
-            if self.docking_object_id == obj_id {
-                self.docking_object_id = INVALID_ID;
-            }
+        if self.docking_object_id == obj_id {
+            self.docking_object_id = INVALID_ID;
         }
-        self.base.cancel_dock(obj)
+        self.base.cancel_dock(obj_id)
     }
 
     fn reserve_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .reserve_approach_position(obj, goal_pos, approach_pos)
+            .reserve_approach_position(obj_id, goal_pos, approach_pos)
     }
 
     fn advance_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .advance_approach_position(obj, goal_pos, approach_pos)
+            .advance_approach_position(obj_id, goal_pos, approach_pos)
     }
 
     fn is_clear_to_advance(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         approach_position: i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.base.is_clear_to_advance(obj, approach_position)
+        self.base.is_clear_to_advance(obj_id, approach_position)
     }
 
     fn on_approach_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_approach_reached(obj)
+        self.base.on_approach_reached(obj_id)
     }
 
     fn get_enter_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_enter_position(obj, goal_pos)
+        self.base.get_enter_position(obj_id, goal_pos)
     }
 
     fn on_enter_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_enter_reached(obj)
+        self.base.on_enter_reached(obj_id)
     }
 
     fn get_dock_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_dock_position(obj, goal_pos)
+        self.base.get_dock_position(obj_id, goal_pos)
     }
 
     fn on_dock_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_dock_reached(obj)
+        self.base.on_dock_reached(obj_id)
     }
 
     fn get_exit_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_exit_position(obj, goal_pos)
+        self.base.get_exit_position(obj_id, goal_pos)
     }
 
     fn on_exit_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_exit_reached(obj)
+        self.base.on_exit_reached(obj_id)
     }
 }
 
