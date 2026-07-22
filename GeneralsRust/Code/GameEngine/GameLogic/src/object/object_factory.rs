@@ -52,7 +52,8 @@ pub enum GameObjectInstance {
     Structure(Structure),
     /// Owned by the factory registry (borrow via get_object_mut).
     SimpleObject(SimpleObject),
-    BaseObject(Arc<RwLock<Object>>),
+    /// Base/projectile entry: identity only; resolve Object via registry.
+    BaseObject(ObjectID),
 }
 
 impl std::fmt::Debug for GameObjectInstance {
@@ -61,7 +62,7 @@ impl std::fmt::Debug for GameObjectInstance {
             GameObjectInstance::Unit(_) => f.write_str("GameObjectInstance::Unit(..)"),
             GameObjectInstance::Structure(_) => f.write_str("GameObjectInstance::Structure(..)"),
             GameObjectInstance::SimpleObject(_) => f.write_str("GameObjectInstance::SimpleObject(..)"),
-            GameObjectInstance::BaseObject(_) => f.write_str("GameObjectInstance::BaseObject(..)"),
+            GameObjectInstance::BaseObject(id) => write!(f, "GameObjectInstance::BaseObject({id})"),
         }
     }
 }
@@ -73,15 +74,23 @@ impl GameObjectInstance {
             GameObjectInstance::Unit(unit) => unit.base_object(),
             GameObjectInstance::Structure(structure) => structure.base_object(),
             GameObjectInstance::SimpleObject(simple_object) => simple_object.base_object(),
-            GameObjectInstance::BaseObject(object) => Some(object.clone()),
+            GameObjectInstance::BaseObject(id) => {
+                crate::object::registry::OBJECT_REGISTRY
+                    .get_object(*id)
+                    .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(*id))
+            }
         }
     }
 
     /// Get object ID
     pub fn get_id(&self) -> ObjectID {
-        self.get_base_object()
-            .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()))
-            .unwrap_or(INVALID_ID)
+        match self {
+            GameObjectInstance::BaseObject(id) => *id,
+            _ => self
+                .get_base_object()
+                .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()))
+                .unwrap_or(INVALID_ID),
+        }
     }
 
     /// Update the object for one frame
@@ -680,9 +689,9 @@ impl ObjectFactory {
                 GameObjectInstance::SimpleObject(simple_object)
             }
 
-            ObjectType::BaseObject => GameObjectInstance::BaseObject(base_object.clone()),
+            ObjectType::BaseObject => GameObjectInstance::BaseObject(object_id),
 
-            ObjectType::Projectile => GameObjectInstance::BaseObject(base_object.clone()),
+            ObjectType::Projectile => GameObjectInstance::BaseObject(object_id),
         };
 
         // Create drawable if needed
@@ -781,17 +790,21 @@ impl ObjectFactory {
                     GameObjectInstance::SimpleObject(_) => {
                         self.update_pool_stats_destroyed(&ObjectType::SimpleObject);
                     }
-                    GameObjectInstance::BaseObject(object) => {
-                        let object_type = object
-                            .read()
-                            .map(|object| {
-                                if object.is_kind_of(KindOf::Projectile) {
-                                    ObjectType::Projectile
-                                } else {
-                                    ObjectType::BaseObject
-                                }
+                    GameObjectInstance::BaseObject(id) => {
+                        let is_projectile = crate::object::registry::OBJECT_REGISTRY
+                            .get_object(id)
+                            .and_then(|object| {
+                                object
+                                    .read()
+                                    .ok()
+                                    .map(|guard| guard.is_kind_of(KindOf::Projectile))
                             })
-                            .unwrap_or(ObjectType::BaseObject);
+                            .unwrap_or(false);
+                        let object_type = if is_projectile {
+                            ObjectType::Projectile
+                        } else {
+                            ObjectType::BaseObject
+                        };
                         self.update_pool_stats_destroyed(&object_type);
                     }
                 }
