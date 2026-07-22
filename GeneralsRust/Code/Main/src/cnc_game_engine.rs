@@ -16558,25 +16558,16 @@ impl CnCGameEngine {
     /// which queues MeshClass instances into the WW3D Renderer and issues real draw calls.
     #[allow(dead_code)] // Legacy stub: superseded by RenderPipeline, retained for reference
     fn render_game_objects<'a>(&'a self, _render_pass: &mut wgpu::RenderPass<'a>) {
-        // Prefer presentation identity when installed (no live get_objects dual-read).
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            log::trace!(
-                "Legacy stub: presentation has {} objects (RenderPipeline is sole draw path)",
-                frame.objects.len()
-            );
-            return;
-        }
-        // Boot residual only — not active render path.
-        let objects: Vec<_> = self.game_logic.get_objects().values().cloned().collect();
+        // Presentation-only stub: RenderPipeline is the sole draw path.
+        let n = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|f| f.objects.len())
+            .unwrap_or(0);
         log::trace!(
-            "Rendering {} objects in scene (boot residual stub)",
-            objects.len()
+            "Legacy stub: presentation has {} objects (RenderPipeline is sole draw path)",
+            n
         );
-        for obj in &objects {
-            if obj.is_alive() {
-                self.render_object(obj, _render_pass);
-            }
-        }
     }
 
     /// Legacy per-object render stub -- logs model status but does NOT submit draw calls.
@@ -18264,16 +18255,7 @@ impl CnCGameEngine {
         for key in frame.unique_model_keys() {
             unique_models.insert(key);
         }
-        if unique_models.is_empty() {
-            // Boot residual only — presentation unique_model_keys empty.
-            for object in game_logic.get_objects().values() {
-                if !object.is_alive() {
-                    continue;
-                }
-                let model_name = object.get_template().get_model_name();
-                unique_models.insert(model_name.to_string());
-            }
-        }
+        // Presentation unique_model_keys is authoritative (no live get_objects dual-read).
 
         println!("📦 Loading {} models...", unique_models.len());
 
