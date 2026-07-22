@@ -1336,11 +1336,11 @@ impl ClassicState for AIDockMoveToRallyState {
     }
 }
 
-/// Helper struct for drone finding
+/// Helper struct for drone finding (ID-first).
 #[derive(Debug)]
 pub struct DroneInfo {
     pub owner_id: ObjectID,
-    pub drone: Option<Arc<RwLock<Object>>>,
+    pub drone_id: Option<ObjectID>,
     pub found: bool,
 }
 
@@ -1348,8 +1348,13 @@ impl DroneInfo {
     pub fn new(owner_id: ObjectID) -> Self {
         Self {
             owner_id,
-            drone: None,
+            drone_id: None,
             found: false,
         }
+    }
+
+    pub fn drone(&self) -> Option<Arc<RwLock<Object>>> {
+        self.drone_id
+            .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 }
