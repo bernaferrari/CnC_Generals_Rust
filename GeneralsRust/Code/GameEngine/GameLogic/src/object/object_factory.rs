@@ -55,12 +55,13 @@ pub enum GameObjectInstance {
 
 impl GameObjectInstance {
     /// Get the base object reference
-    pub fn get_base_object(&self) -> Arc<RwLock<Object>> {
+    pub fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
         match self {
-            GameObjectInstance::Unit(unit) => unit
-                .read()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .base_object(),
+            GameObjectInstance::Unit(unit) => Some(
+                unit.read()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .base_object(),
+            ),
             GameObjectInstance::Structure(structure) => structure
                 .read()
                 .unwrap_or_else(|poison| poison.into_inner())
@@ -69,15 +70,14 @@ impl GameObjectInstance {
                 .read()
                 .unwrap_or_else(|poison| poison.into_inner())
                 .base_object(),
-            GameObjectInstance::BaseObject(object) => object.clone(),
+            GameObjectInstance::BaseObject(object) => Some(object.clone()),
         }
     }
 
     /// Get object ID
     pub fn get_id(&self) -> ObjectID {
         self.get_base_object()
-            .read()
-            .map(|guard| guard.get_id())
+            .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()))
             .unwrap_or(INVALID_ID)
     }
 
@@ -121,8 +121,11 @@ impl GameObjectInstance {
 
     pub fn is_projectile(&self) -> bool {
         self.get_base_object()
-            .read()
-            .map(|object| object.is_kind_of(KindOf::Projectile))
+            .and_then(|arc| {
+                arc.read()
+                    .ok()
+                    .map(|object| object.is_kind_of(KindOf::Projectile))
+            })
             .unwrap_or(false)
     }
 
@@ -721,7 +724,9 @@ impl ObjectFactory {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(game_object) = self.object_registry.get(&object_id) {
             // Call destroy callbacks on the base object
-            let base_object = game_object.get_base_object();
+            let Some(base_object) = game_object.get_base_object() else {
+                return Ok(());
+            };
             if let Ok(mut obj_guard) = base_object.write() {
                 obj_guard.on_destroy();
                 let _ = TheGameLogic::destroy_object(&obj_guard);

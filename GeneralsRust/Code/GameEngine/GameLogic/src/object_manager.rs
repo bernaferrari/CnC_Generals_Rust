@@ -981,7 +981,7 @@ impl ObjectManager {
             })?;
             factory
                 .get_object(object_id)
-                .map(|instance| instance.get_base_object())
+                .and_then(|instance| instance.get_base_object())
                 .ok_or_else(|| {
                     GameLogicError::SystemNotInitialized(
                         "Created object missing from factory".to_string(),
