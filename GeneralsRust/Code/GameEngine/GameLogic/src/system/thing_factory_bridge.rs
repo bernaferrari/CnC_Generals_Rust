@@ -111,22 +111,15 @@ impl ObjectCreator for GameLogicObjectCreator {
             )
             .map_err(|e| ThingCreationError::CreationFailed(e.to_string()))?;
 
-        let instance = get_object_manager()
+        let base = get_object_manager()
             .read()
             .map_err(|_| {
                 ThingCreationError::CreationFailed("ObjectManager lock poisoned".to_string())
             })?
-            .get_object(object_id)
+            .with_object(object_id, |instance| instance.base())
             .ok_or_else(|| {
                 ThingCreationError::CreationFailed("Created object not found".to_string())
             })?;
-
-        let base = instance
-            .read()
-            .map_err(|_| {
-                ThingCreationError::CreationFailed("GameObjectInstance lock poisoned".to_string())
-            })?
-            .base();
 
         let mask = GameLogicStatusMask::from_bits_truncate(status_bits as u64);
         if !mask.is_empty() {

@@ -3381,16 +3381,11 @@ impl TheThingFactory {
             )
             .map_err(|e| e.to_string())?;
 
-        let instance = get_object_manager()
+        let base = get_object_manager()
             .read()
             .map_err(|_| "ObjectManager lock poisoned")?
-            .get_object(object_id)
+            .with_object(object_id, |instance| instance.base())
             .ok_or_else(|| "Created object not found in ObjectManager".to_string())?;
-
-        let base = instance
-            .read()
-            .map_err(|_| "GameObjectInstance lock poisoned")?
-            .base();
 
         Ok(base)
     }
@@ -3423,16 +3418,11 @@ impl TheThingFactory {
             )
             .map_err(|e| e.to_string())?;
 
-        let instance = get_object_manager()
+        let base = get_object_manager()
             .read()
             .map_err(|_| "ObjectManager lock poisoned")?
-            .get_object(object_id)
+            .with_object(object_id, |instance| instance.base())
             .ok_or_else(|| "Created object not found in ObjectManager".to_string())?;
-
-        let base = instance
-            .read()
-            .map_err(|_| "GameObjectInstance lock poisoned")?
-            .base();
 
         Ok(base)
     }
@@ -3470,16 +3460,11 @@ impl TheThingFactory {
             )
             .map_err(|e| e.to_string())?;
 
-        let instance = get_object_manager()
+        let base = get_object_manager()
             .read()
             .map_err(|_| "ObjectManager lock poisoned")?
-            .get_object(object_id)
+            .with_object(object_id, |instance| instance.base())
             .ok_or_else(|| "Created object not found in ObjectManager".to_string())?;
-
-        let base = instance
-            .read()
-            .map_err(|_| "GameObjectInstance lock poisoned")?
-            .base();
 
         Ok(base)
     }
