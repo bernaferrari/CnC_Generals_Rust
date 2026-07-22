@@ -624,15 +624,13 @@ impl GarrisonContain {
     /// Exit object via door
     pub fn exit_object_via_door(
         &mut self,
-        exit_obj: Arc<RwLock<Object>>,
+        exit_id: ObjectID,
         exit_door: ExitDoorType,
     ) -> GameResult<()> {
         let _ = exit_door;
-        let exit_id = exit_obj
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
+        let exit_obj = TheGameLogic::find_object_by_id(exit_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(exit_id))
+            .ok_or("exit object not found")?;
         self.remove_from_contain(exit_id, true)?;
 
         if let Some(owner_obj) = self.get_object() {
@@ -716,8 +714,8 @@ impl GarrisonContain {
     /// Exit object by budding (no-op for garrison)
     pub fn exit_object_by_budding(
         &mut self,
-        _new_obj: Arc<RwLock<Object>>,
-        _bud_host: Arc<RwLock<Object>>,
+        _new_obj_id: ObjectID,
+        _bud_host_id: ObjectID,
     ) -> GameResult<()> {
         // No-op for garrison contain
         Ok(())
@@ -796,7 +794,13 @@ impl GarrisonContain {
 
         if let Ok(contained) = obj.read() {
             if self.is_enclosing_container_for_internal(Some(&contained)) {
-                self.remove_object_from_garrison_point(obj.clone(), None)?;
+                self.remove_object_from_garrison_point(
+                    obj.read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID),
+                    None,
+                )?;
             } else {
                 self.remove_object_from_station_point(&contained)?;
                 if let Some(terrain) = TheTerrainLogic::get() {
@@ -1247,7 +1251,14 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard));
         if let Some(idx) = current_index {
-            let _ = self.remove_object_from_garrison_point(source.clone(), Some(idx));
+            let _ = self.remove_object_from_garrison_point(
+                source
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                Some(idx),
+            );
         }
 
         let _ = self.put_object_at_best_garrison_point(
@@ -1278,7 +1289,14 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard))
         {
-            let _ = self.remove_object_from_garrison_point(source, Some(idx));
+            let _ = self.remove_object_from_garrison_point(
+                source
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                Some(idx),
+            );
         }
         false
     }
@@ -1304,7 +1322,14 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard));
         if let Some(idx) = current_index {
-            let _ = self.remove_object_from_garrison_point(source.clone(), Some(idx));
+            let _ = self.remove_object_from_garrison_point(
+                source
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                Some(idx),
+            );
         }
 
         let _ = self.put_object_at_best_garrison_point(source.clone(), None, Some(target_pos));
@@ -1325,7 +1350,14 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard))
         {
-            let _ = self.remove_object_from_garrison_point(source, Some(idx));
+            let _ = self.remove_object_from_garrison_point(
+                source
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                Some(idx),
+            );
         }
         false
     }
@@ -1502,8 +1534,13 @@ impl GarrisonContain {
                         None
                     }
                 });
+                let put_id = obj
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
                 self.put_object_at_garrison_point(
-                    obj,
+                    put_id,
                     target_id,
                     condition_index,
                     point_index as usize,
@@ -1517,11 +1554,14 @@ impl GarrisonContain {
     /// Put object at specified garrison point
     fn put_object_at_garrison_point(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         target_id: Option<ObjectId>,
         condition_index: usize,
         point_index: usize,
     ) -> GameResult<()> {
+        let obj = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            .ok_or("garrison point object not found")?;
         if point_index >= MAX_GARRISON_POINTS || condition_index >= MAX_GARRISON_POINT_CONDITIONS {
             return Err("Invalid garrison point index".into());
         }
@@ -1562,10 +1602,11 @@ impl GarrisonContain {
     /// Remove object from garrison point
     fn remove_object_from_garrison_point(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         index: Option<usize>,
     ) -> GameResult<()> {
-        let obj_id = obj.read().map_err(|_| GameError::LockError)?.get_id();
+        let obj = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id));
         let point_index = if let Some(idx) = index {
             idx
         } else {
@@ -1586,7 +1627,7 @@ impl GarrisonContain {
             return Err("Invalid garrison point index".into());
         }
 
-        if let Some(owner) = self.get_object() {
+        if let (Some(owner), Some(obj)) = (self.get_object(), obj) {
             if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
                 if let Err(err) = obj_guard.set_position(owner_guard.get_position()) {
                     log::debug!(
@@ -1693,7 +1734,13 @@ impl GarrisonContain {
 
         // Remove invalid objects
         for (obj, index) in to_remove {
-            self.remove_object_from_garrison_point(obj, Some(index))?;
+            self.remove_object_from_garrison_point(
+                obj.read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                Some(index),
+            )?;
         }
 
         Ok(())
@@ -1745,10 +1792,12 @@ impl GarrisonContain {
                             if new_dist_sq < current_dist_sq {
                                 let obj_clone = obj.clone();
                                 drop(contained);
-                                self.remove_object_from_garrison_point(
-                                    obj_clone.clone(),
-                                    Some(our_index),
-                                )?;
+                                let rem_id = obj_clone
+                                    .read()
+                                    .ok()
+                                    .map(|g| g.get_id())
+                                    .unwrap_or(crate::common::INVALID_ID);
+                                self.remove_object_from_garrison_point(rem_id, Some(our_index))?;
 
                                 let target_id = if let Ok(c) = obj_clone.read() {
                                     c.get_current_victim().and_then(|v| {
@@ -1762,8 +1811,13 @@ impl GarrisonContain {
                                     None
                                 };
 
+                                let put_id = obj_clone
+                                    .read()
+                                    .ok()
+                                    .map(|g| g.get_id())
+                                    .unwrap_or(crate::common::INVALID_ID);
                                 self.put_object_at_garrison_point(
-                                    obj_clone,
+                                    put_id,
                                     target_id,
                                     condition_index,
                                     new_index,
