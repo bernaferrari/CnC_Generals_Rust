@@ -9,6 +9,7 @@ use crate::formation::{
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{AIAttitudeType, AIUpdateInterface, AIUpdateInterfaceExt};
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::get_special_power_store;
 use crate::object::*;
 use crate::path::*;
@@ -165,6 +166,15 @@ impl AIGroup {
         // List has changed, properties need recomputation
         self.dirty = true;
         Ok(())
+    }
+
+    /// Borrow-first group membership: resolve `OBJECT_REGISTRY` once at the group boundary.
+    /// Prefer this over cloning Arc handles at each command_processor call site.
+    pub fn add_by_id(&mut self, object_id: ObjectID) -> Result<(), String> {
+        let obj = OBJECT_REGISTRY
+            .get_object(object_id)
+            .ok_or_else(|| format!("Object {object_id} not in registry"))?;
+        self.add(obj)
     }
 
     /// Remove object from group
