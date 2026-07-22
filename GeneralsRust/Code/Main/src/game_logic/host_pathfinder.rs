@@ -168,6 +168,33 @@ pub fn pathfinder_ms_to_frames(ms: u32) -> u32 {
 ///
 /// Fail-closed: name residual (not full SCIENCE_Pathfinder prereq graph).
 pub fn is_pathfinder_template(template_name: &str) -> bool {
+    // Fast reject before allocating a normalized name (called every stealth tick
+    // for every live object on large maps).
+    if template_name.len() < 10 {
+        return false;
+    }
+    let raw = template_name.as_bytes();
+    let mut has_p = false;
+    // Cheap ASCII case-fold scan for "pathfinder" substring.
+    let needle = b"pathfinder";
+    let mut ni = 0usize;
+    for &b in raw {
+        let c = if b.is_ascii_uppercase() { b + 32 } else { b };
+        if c == needle[ni] {
+            ni += 1;
+            if ni == needle.len() {
+                has_p = true;
+                break;
+            }
+        } else if c == needle[0] {
+            ni = 1;
+        } else {
+            ni = 0;
+        }
+    }
+    if !has_p {
+        return false;
+    }
     let n = template_name
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
