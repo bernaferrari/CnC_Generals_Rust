@@ -205,26 +205,6 @@ impl DamageApplicator {
         use crate::object::registry::OBJECT_REGISTRY;
 
         // Look up target object
-        let target_arc = match OBJECT_REGISTRY.get_object(target_id) {
-            Some(obj) => obj,
-            None => {
-                // Object doesn't exist
-                damage_info.output.no_effect = true;
-                return false;
-            }
-        };
-
-        // Try to get write lock on target
-        let mut target_guard = match target_arc.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                // Lock poisoned
-                log::warn!("Failed to acquire lock on target object {}", target_id);
-                damage_info.output.no_effect = true;
-                return false;
-            }
-        };
-
         // Apply damage to target object
         // The Object::attempt_damage_with_return() method will:
         // - Delegate to body module for armor calculations
@@ -254,7 +234,15 @@ impl DamageApplicator {
         core_damage_info.output.killed_target = damage_info.output.killed_target;
         core_damage_info.output.experience_awarded = damage_info.output.experience_awarded;
 
-        match target_guard.attempt_damage_with_return(&mut core_damage_info) {
+        let Some(result) = OBJECT_REGISTRY.with_object_mut(target_id, |target_guard| {
+            target_guard.attempt_damage_with_return(&mut core_damage_info)
+        }) else {
+            // Object doesn't exist
+            damage_info.output.no_effect = true;
+            return false;
+        };
+
+        match result {
             Ok(actual_damage) => {
                 // Damage was applied successfully
                 // The damage_info.output has been populated by the body module

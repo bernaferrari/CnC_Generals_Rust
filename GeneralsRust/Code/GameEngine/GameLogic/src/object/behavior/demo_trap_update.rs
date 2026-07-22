@@ -354,53 +354,73 @@ impl UpdateModuleInterface for DemoTrapUpdate {
         let mut shall_detonate = false;
 
         for other_id in candidates {
-            if let Some(other_arc) = OBJECT_REGISTRY.get_object(other_id) {
-                let other = other_arc.read().unwrap();
+            let ignore_kind = self.module_data.ignore_kind_of;
+            let friendly = self.module_data.friendly_detonation;
+            enum DemoAct {
+                Continue,
+                Return,
+                Detonate,
+                DetonateBreak,
+            }
+            let act = OBJECT_REGISTRY
+                .with_object(other_id, |other| {
+                    if (other.get_kind_of() & ignore_kind) != 0 {
+                        return DemoAct::Continue;
+                    }
+                    if other.is_effectively_dead() {
+                        return DemoAct::Continue;
+                    }
 
-                if (other.get_kind_of() & self.module_data.ignore_kind_of) != 0 {
-                    continue;
-                }
-                if other.is_effectively_dead() {
-                    continue;
-                }
-
-                // Check for dozers disarming
-                if other.is_kind_of(crate::common::KindOf::Dozer) {
-                    if let Some((weapon, _slot)) = other.get_current_weapon() {
-                        if weapon.get_damage_type() == WeaponDamageType::Disarm {
-                            if other.test_status(ObjectStatusTypes::IsAttacking) {
-                                continue;
+                    // Check for dozers disarming
+                    if other.is_kind_of(crate::common::KindOf::Dozer) {
+                        if let Some((weapon, _slot)) = other.get_current_weapon() {
+                            if weapon.get_damage_type() == WeaponDamageType::Disarm {
+                                if other.test_status(ObjectStatusTypes::IsAttacking) {
+                                    return DemoAct::Continue;
+                                }
                             }
                         }
                     }
-                }
 
-                // order matters: we want to know if I consider it to be an enemy, not vice versa
-                if me.get_relationship_to(&other) != ObjectRelationship::Enemy {
-                    if !self.module_data.friendly_detonation {
-                        // Not allowed to proximity detonate with friends nearby
-                        return UPDATE_SLEEP_NONE;
+                    // order matters: we want to know if I consider it to be an enemy, not vice versa
+                    if me.get_relationship_to(other) != ObjectRelationship::Enemy {
+                        if !friendly {
+                            // Not allowed to proximity detonate with friends nearby
+                            return DemoAct::Return;
+                        }
+                        // Don't shoot our friends!
+                        return DemoAct::Continue;
                     }
-                    // Don't shoot our friends!
-                    continue;
-                }
 
-                if other.is_above_terrain() {
-                    // Don't detonate on anything airborne.
-                    continue;
-                }
+                    if other.is_above_terrain() {
+                        // Don't detonate on anything airborne.
+                        return DemoAct::Continue;
+                    }
 
-                // Anyone close enough?
-                // we've already filtered by radius in candidates, but C++ does a squared distance check again
-                let dx = other.get_position().x - me_pos.x;
-                let dy = other.get_position().y - me_pos.y;
-                let dist_sqr = dx * dx + dy * dy;
+                    // Anyone close enough?
+                    // we've already filtered by radius in candidates, but C++ does a squared distance check again
+                    let dx = other.get_position().x - me_pos.x;
+                    let dy = other.get_position().y - me_pos.y;
+                    let dist_sqr = dx * dx + dy * dy;
 
-                if dist_sqr <= range * range {
+                    if dist_sqr <= range * range {
+                        if friendly {
+                            DemoAct::DetonateBreak
+                        } else {
+                            DemoAct::Detonate
+                        }
+                    } else {
+                        DemoAct::Continue
+                    }
+                })
+                .unwrap_or(DemoAct::Continue);
+            match act {
+                DemoAct::Continue => continue,
+                DemoAct::Return => return UPDATE_SLEEP_NONE,
+                DemoAct::Detonate => shall_detonate = true,
+                DemoAct::DetonateBreak => {
                     shall_detonate = true;
-                    if self.module_data.friendly_detonation {
-                        break;
-                    }
+                    break;
                 }
             }
         }
