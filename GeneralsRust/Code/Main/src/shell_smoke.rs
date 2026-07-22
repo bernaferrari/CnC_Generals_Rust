@@ -4050,7 +4050,9 @@ mod presentation_local_team_tests {
             );
             if needle == "fn find_object_at_position" {
                 // Bound to this method only (next fn starts pathfollowing stub).
-                let end = window.find("fn update_unit_pathfinding").unwrap_or(window.len());
+                let end = window
+                    .find("fn update_unit_pathfinding")
+                    .unwrap_or(window.len());
                 let body = &window[..end];
                 assert!(
                     body.contains("Presentation-only")

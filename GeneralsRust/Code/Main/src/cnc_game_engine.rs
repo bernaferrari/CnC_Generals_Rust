@@ -15323,35 +15323,19 @@ impl CnCGameEngine {
 
     /// Select all friendly structures residual (Ctrl+Alt+S).
     fn select_all_friendly_structures(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            for o in &frame.objects {
-                if o.team == team
-                    && o.is_structure
-                    && !o.destroyed
-                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
-                {
-                    ids.push(o.id);
-                }
-            }
-        } else {
-            // Boot residual only.
-            for (&id, obj) in self.game_logic.get_objects() {
-                if obj.team == team
-                    && obj.is_alive()
-                    && obj.is_selectable()
-                    && obj.is_kind_of(crate::game_logic::KindOf::Structure)
-                {
-                    ids.push(id);
-                }
+        for o in &frame.objects {
+            if o.team == team
+                && o.is_structure
+                && !o.destroyed
+                && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+            {
+                ids.push(o.id);
             }
         }
         ids.sort_by_key(|id| id.0);
@@ -15588,27 +15572,15 @@ impl CnCGameEngine {
         if !self.selected_objects.is_empty() {
             return;
         }
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-        let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame
-                .alive_selectable_friendly_mobile_ids(team)
-                .into_iter()
-                .next()
-        } else {
-            // Boot residual only.
-            self.game_logic
-                .get_objects()
-                .iter()
-                .find(|(_, o)| o.team == team && o.is_alive() && o.is_mobile())
-                .map(|(&id, _)| id)
-        };
+        let team = frame.local_team();
+        let id = frame
+            .alive_selectable_friendly_mobile_ids(team)
+            .into_iter()
+            .next();
         if let Some(id) = id {
             self.selected_objects = vec![id];
             self.game_logic
@@ -16436,36 +16408,15 @@ impl CnCGameEngine {
     }
 
     fn select_all_friendly_on_screen(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let center = self.camera_target;
         // Fail-closed frustum residual: radius scales with zoom.
         let radius = (180.0 * self.camera_zoom.max(0.5)).clamp(120.0, 600.0);
-        let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.alive_selectable_friendly_near(team, center, radius)
-        } else {
-            // Boot residual only.
-            let mut live = Vec::new();
-            let r2 = radius * radius;
-            for (&id, obj) in self.game_logic.get_objects() {
-                if obj.team != team || !obj.is_selectable() || !obj.is_alive() {
-                    continue;
-                }
-                let p = obj.get_position();
-                let dx = p.x - center.x;
-                let dz = p.z - center.z;
-                if dx * dx + dz * dz <= r2 {
-                    live.push(id);
-                }
-            }
-            live
-        };
+        let selection = frame.alive_selectable_friendly_near(team, center, radius);
         if selection.is_empty() {
             let msg = "No units on screen";
             self.game_hud.push_info_message(msg);
@@ -16602,27 +16553,12 @@ impl CnCGameEngine {
 
     /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
     fn select_all_friendly_units(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-
-        let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.alive_selectable_friendly_ids(team)
-        } else {
-            // Boot residual only.
-            let mut live = Vec::new();
-            for (&id, obj) in self.game_logic.get_objects() {
-                if obj.team == team && obj.is_selectable() && obj.is_alive() {
-                    live.push(id);
-                }
-            }
-            live
-        };
+        let team = frame.local_team();
+        let selection = frame.alive_selectable_friendly_ids(team);
 
         self.game_logic
             .select_objects(self.current_player_id, selection.clone());
@@ -16632,32 +16568,12 @@ impl CnCGameEngine {
 
     /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
     fn select_all_friendly_aircraft(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-
-        let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.alive_selectable_friendly_aircraft_ids(team)
-        } else {
-            // Boot residual only.
-            let mut live = Vec::new();
-            for (&id, obj) in self.game_logic.get_objects() {
-                if obj.team == team
-                    && obj.is_selectable()
-                    && obj.is_alive()
-                    && (obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                        || obj.object_type == crate::game_logic::ObjectType::Aircraft)
-                {
-                    live.push(id);
-                }
-            }
-            live
-        };
+        let team = frame.local_team();
+        let selection = frame.alive_selectable_friendly_aircraft_ids(team);
 
         self.game_logic
             .select_objects(self.current_player_id, selection.clone());
