@@ -532,51 +532,53 @@ impl Team {
 
         let mut any_alive_in_team = false;
         for &object_id in &self.members {
-            let Some(source_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(found_enemy) = OBJECT_REGISTRY
+                .with_object(object_id, |source| {
+                    if source.is_effectively_dead() {
+                        return None;
+                    }
+                    any_alive_in_team = true;
+
+                    let source_pos = *source.get_position();
+                    let vision_range = source.get_vision_range();
+                    let source_off_map = source.is_off_map();
+
+                    for candidate_id in partition.get_objects_in_range(&source_pos, vision_range) {
+                        if candidate_id == object_id {
+                            continue;
+                        }
+                        let is_enemy = OBJECT_REGISTRY
+                            .with_object(candidate_id, |candidate| {
+                                if candidate.is_effectively_dead() {
+                                    return false;
+                                }
+                                if candidate.is_off_map() != source_off_map {
+                                    return false;
+                                }
+
+                                let status = candidate.get_status_bits();
+                                if status.contains(ObjectStatusMaskType::STEALTHED)
+                                    && !status.contains(ObjectStatusMaskType::DETECTED)
+                                    && !status.contains(ObjectStatusMaskType::DISGUISED)
+                                {
+                                    return false;
+                                }
+
+                                source.relationship_to(candidate) == Relationship::Enemies
+                            })
+                            .unwrap_or(false);
+                        if is_enemy {
+                            return Some(true);
+                        }
+                    }
+                    Some(false)
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(source) = source_arc.read() else {
-                continue;
-            };
-
-            if source.is_effectively_dead() {
-                continue;
-            }
-            any_alive_in_team = true;
-
-            let source_pos = *source.get_position();
-            let vision_range = source.get_vision_range();
-            let source_off_map = source.is_off_map();
-
-            for candidate_id in partition.get_objects_in_range(&source_pos, vision_range) {
-                if candidate_id == object_id {
-                    continue;
-                }
-                let Some(candidate_arc) = OBJECT_REGISTRY.get_object(candidate_id) else {
-                    continue;
-                };
-                let Ok(candidate) = candidate_arc.read() else {
-                    continue;
-                };
-
-                if candidate.is_effectively_dead() {
-                    continue;
-                }
-                if candidate.is_off_map() != source_off_map {
-                    continue;
-                }
-
-                let status = candidate.get_status_bits();
-                if status.contains(ObjectStatusMaskType::STEALTHED)
-                    && !status.contains(ObjectStatusMaskType::DETECTED)
-                    && !status.contains(ObjectStatusMaskType::DISGUISED)
-                {
-                    continue;
-                }
-
-                if source.relationship_to(&candidate) == Relationship::Enemies {
-                    return (true, true);
-                }
+            if found_enemy {
+                return (true, true);
             }
         }
 
@@ -648,16 +650,14 @@ impl Team {
             self.cur_units = 0;
 
             for &object_id in &self.members {
-                let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                    continue;
-                };
-                let Ok(object_guard) = object_arc.read() else {
-                    continue;
-                };
-                if object_guard.is_effectively_dead() {
-                    continue;
+                let alive = OBJECT_REGISTRY
+                    .with_object(object_id, |object_guard| {
+                        !object_guard.is_effectively_dead()
+                    })
+                    .unwrap_or(false);
+                if alive {
+                    self.cur_units += 1;
                 }
-                self.cur_units += 1;
             }
 
             if self.cur_units != prev_units && self.cur_units <= self.destroy_threshold {
@@ -671,22 +671,23 @@ impl Team {
             let mut any_alive_in_team = false;
 
             for &object_id in &self.members {
-                let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+                let Some(idle) = OBJECT_REGISTRY
+                    .with_object(object_id, |object_guard| {
+                        if object_guard.is_effectively_dead() {
+                            return None;
+                        }
+                        if object_guard.get_ai_update_interface().is_none() {
+                            return None;
+                        }
+                        Some(object_guard.is_idle())
+                    })
+                    .flatten()
+                else {
                     continue;
                 };
-                let Ok(object_guard) = object_arc.read() else {
-                    continue;
-                };
-                if object_guard.is_effectively_dead() {
-                    continue;
-                }
-
-                if object_guard.get_ai_update_interface().is_none() {
-                    continue;
-                }
 
                 any_alive_in_team = true;
-                if !object_guard.is_idle() {
+                if !idle {
                     is_idle = false;
                 }
             }
@@ -1309,13 +1310,12 @@ impl Team {
         let members = self.members.clone();
         if let Ok(mut manager) = get_object_manager().write() {
             for object_id in members {
-                let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                    continue;
-                };
-                let Ok(object_guard) = object_arc.read() else {
-                    continue;
-                };
-                if ignore_dead && object_guard.is_effectively_dead() {
+                let should_destroy = OBJECT_REGISTRY
+                    .with_object(object_id, |object_guard| {
+                        !(ignore_dead && object_guard.is_effectively_dead())
+                    })
+                    .unwrap_or(false);
+                if !should_destroy {
                     continue;
                 }
                 manager.destroy_object(object_id);
@@ -1710,43 +1710,45 @@ impl Team {
         let members = self.members.clone();
         let mut moved_to_neutral = Vec::new();
         for object_id in members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some((_is_beacon, is_tech_building)) = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    let is_beacon = beacon_template.as_ref().is_some_and(|template| {
+                        object_guard
+                            .get_template()
+                            .is_equivalent_to(template.as_ref())
+                    });
+                    let destroyed = object_guard.is_destroyed();
+                    let effectively_dead = object_guard.is_effectively_dead();
+                    let same_team = object_guard.get_team_id() == Some(self.id);
+                    if destroyed || (effectively_dead && !is_beacon) || !same_team {
+                        return None;
+                    }
+                    Some((is_beacon, object_guard.is_kind_of(KindOf::TechBuilding)))
+                })
+                .flatten()
+            else {
                 continue;
             };
-
-            let (destroyed, effectively_dead, is_beacon, is_tech_building, same_team) = {
-                let Ok(object_guard) = object_arc.read() else {
-                    continue;
-                };
-                let is_beacon = beacon_template.as_ref().is_some_and(|template| {
-                    object_guard
-                        .get_template()
-                        .is_equivalent_to(template.as_ref())
-                });
-                (
-                    object_guard.is_destroyed(),
-                    object_guard.is_effectively_dead(),
-                    is_beacon,
-                    object_guard.is_kind_of(KindOf::TechBuilding),
-                    object_guard.get_team_id() == Some(self.id),
-                )
-            };
-
-            if destroyed || (effectively_dead && !is_beacon) || !same_team {
-                continue;
-            }
 
             if is_tech_building {
                 if let Some(neutral_team) = neutral_default_team.clone() {
-                    if let Ok(mut object_guard) = object_arc.write() {
-                        let _ = object_guard.set_team(Some(neutral_team));
+                    let moved = OBJECT_REGISTRY
+                        .with_object_mut(object_id, |object_guard| {
+                            let _ = object_guard.set_team(Some(neutral_team));
+                        })
+                        .is_some();
+                    if moved {
                         moved_to_neutral.push(object_id);
                     }
-                } else if let Ok(mut object_guard) = object_arc.write() {
-                    object_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+                } else {
+                    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+                        object_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+                    });
                 }
-            } else if let Ok(mut object_guard) = object_arc.write() {
-                object_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+            } else {
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+                    object_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+                });
             }
         }
 
@@ -1793,20 +1795,15 @@ impl Team {
         }
         let members = self.members.clone();
         for object_id in members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let contain_arc = {
-                let Ok(object_guard) = object_arc.read() else {
-                    continue;
-                };
-                if object_guard.is_destroyed() || object_guard.is_effectively_dead() {
-                    continue;
-                }
-                object_guard.get_contain()
-            };
-
-            let Some(contain_arc) = contain_arc else {
+            let Some(contain_arc) = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.is_destroyed() || object_guard.is_effectively_dead() {
+                        return None;
+                    }
+                    object_guard.get_contain()
+                })
+                .flatten()
+            else {
                 continue;
             };
             let Ok(mut contain_guard) = contain_arc.lock() else {
