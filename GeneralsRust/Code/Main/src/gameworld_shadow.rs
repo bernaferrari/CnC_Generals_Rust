@@ -79,18 +79,97 @@ pub fn refresh_engine_object_bridge_cache() {
 
 #[inline]
 pub fn engine_object_bridge_enabled() -> bool {
-    use std::sync::atomic::Ordering::Relaxed;
-    match ENGINE_OBJECT_BRIDGE_CACHE.load(Relaxed) {
-        1 => false,
-        2 => true,
-        _ => {
-            let on = std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some()
-                || std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_some();
-            ENGINE_OBJECT_BRIDGE_CACHE.store(if on { 2 } else { 1 }, Relaxed);
-            on
+    #[cfg(test)]
+    {
+        return std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some()
+            || std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_some();
+    }
+    #[cfg(not(test))]
+    {
+        use std::sync::atomic::Ordering::Relaxed;
+        match ENGINE_OBJECT_BRIDGE_CACHE.load(Relaxed) {
+            1 => false,
+            2 => true,
+            _ => {
+                let on = std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some()
+                    || std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_some();
+                ENGINE_OBJECT_BRIDGE_CACHE.store(if on { 2 } else { 1 }, Relaxed);
+                on
+            }
         }
     }
 }
+
+/// Process-stable env bool cache: 0=unset, 1=false, 2=true.
+#[inline]
+fn env_flag_raw(name: &str, default_on: bool) -> bool {
+    match std::env::var(name) {
+        Ok(v) => {
+            let v = v.trim();
+            !(v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => default_on,
+    }
+}
+
+#[inline]
+fn env_flag_cached(cache: &std::sync::atomic::AtomicU8, name: &str, default_on: bool) -> bool {
+    // Unit tests mutate GENERALS_* mid-process; always re-read under cfg(test).
+    #[cfg(test)]
+    {
+        let _ = cache;
+        return env_flag_raw(name, default_on);
+    }
+    #[cfg(not(test))]
+    {
+        use std::sync::atomic::Ordering::Relaxed;
+        match cache.load(Relaxed) {
+            1 => false,
+            2 => true,
+            _ => {
+                let on = env_flag_raw(name, default_on);
+                cache.store(if on { 2 } else { 1 }, Relaxed);
+                on
+            }
+        }
+    }
+}
+
+/// Invalidate authority env caches after test env mutation.
+pub fn refresh_gameworld_authority_env_caches() {
+    refresh_engine_object_bridge_cache();
+    for c in [
+        &SHADOW_ENABLED_CACHE,
+        &DAMAGE_AUTH_CACHE,
+        &ECONOMY_AUTH_CACHE,
+        &MOVEMENT_AUTH_CACHE,
+        &AI_ATTACK_AUTH_CACHE,
+        &PROJECTILE_AUTH_CACHE,
+        &AI_DECISION_AUTH_CACHE,
+        &FIRE_SPAWN_AUTH_CACHE,
+        &CONSTRUCTION_AUTH_CACHE,
+        &SPECIAL_POWER_AUTH_CACHE,
+        &PRODUCTION_AUTH_CACHE,
+    ] {
+        c.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+static SHADOW_ENABLED_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static DAMAGE_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static ECONOMY_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static MOVEMENT_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static AI_ATTACK_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static PROJECTILE_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static AI_DECISION_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static FIRE_SPAWN_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static CONSTRUCTION_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static SPECIAL_POWER_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static PRODUCTION_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 
 /// True only while the production engine couples host update → shadow_session.
 /// Host-only gates (golden/shell) never set this, so construction/production
@@ -117,17 +196,7 @@ pub fn shadow_coupled_tick_active() -> bool {
 }
 
 pub fn gameworld_shadow_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_SHADOW") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        // Unset → session on (authority writebacks remain separately gated).
-        Err(_) => true,
-    }
+    env_flag_cached(&SHADOW_ENABLED_CACHE, "GENERALS_GAMEWORLD_SHADOW", true)
 }
 
 /// When enabled, GameWorld shadow mutations are the **last writer** for HP each tick.
@@ -137,16 +206,7 @@ pub fn gameworld_shadow_enabled() -> bool {
 ///
 /// Env: `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0|false` off; unset/`1` = **on** (production default).
 pub fn gameworld_damage_authority_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        Err(_) => true,
-    }
+    env_flag_cached(&DAMAGE_AUTH_CACHE, "GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", true)
 }
 
 /// Damage HP defer only while shadow can writeback (alias of enabled&&shadow).
@@ -157,16 +217,7 @@ pub fn gameworld_damage_authority_live() -> bool {
 
 /// Economy last-writer (player supplies/power). Unset = **on**; `0|false` off.
 pub fn gameworld_economy_authority_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        Err(_) => true,
-    }
+    env_flag_cached(&ECONOMY_AUTH_CACHE, "GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", true)
 }
 
 /// Economy last-writer is only meaningful while a shadow session can write back cash.
@@ -181,16 +232,7 @@ pub fn gameworld_economy_authority_live() -> bool {
 ///
 /// Env: `GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_movement_authority_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        Err(_) => true,
-    }
+    env_flag_cached(&MOVEMENT_AUTH_CACHE, "GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", true)
 }
 
 /// Movement last-writer only while shadow can step/writeback poses.
@@ -204,16 +246,7 @@ pub fn gameworld_movement_authority_live() -> bool {
 /// Host still *decides* and discharges weapons; opt out with `=0|false`.
 /// Env: `GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_ai_attack_authority_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        Err(_) => true,
-    }
+    env_flag_cached(&AI_ATTACK_AUTH_CACHE, "GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", true)
 }
 
 /// AI attack/fire-intent channel only while shadow can writeback.
@@ -227,16 +260,7 @@ pub fn gameworld_ai_attack_authority_live() -> bool {
 /// Host still owns spawn/fire and hit/damage application.
 /// Env: `GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_projectile_authority_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        Err(_) => true,
-    }
+    env_flag_cached(&PROJECTILE_AUTH_CACHE, "GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", true)
 }
 
 /// Projectile integrate defer only while shadow session steps flight.
@@ -250,16 +274,7 @@ pub fn gameworld_projectile_authority_live() -> bool {
 /// Combat runs before AI in the host tick, so deferred apply is next-frame parity.
 /// Env: `GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_ai_decision_authority_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        Err(_) => true,
-    }
+    env_flag_cached(&AI_DECISION_AUTH_CACHE, "GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", true)
 }
 
 /// AI decision last-writer only while shadow can apply/writeback decisions.
@@ -272,16 +287,7 @@ pub fn gameworld_ai_decision_authority_live() -> bool {
 /// applies them into host CombatSystem before projectile integrate authority.
 /// Env: `GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_fire_spawn_authority_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        Err(_) => true,
-    }
+    env_flag_cached(&FIRE_SPAWN_AUTH_CACHE, "GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", true)
 }
 
 /// Fire-spawn defer only while shadow can drain spawn log.
@@ -294,16 +300,7 @@ pub fn gameworld_fire_spawn_authority_live() -> bool {
 /// progress logs (host still computes projected percent for completion side effects).
 /// Env: `GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_construction_authority_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        Err(_) => true,
-    }
+    env_flag_cached(&CONSTRUCTION_AUTH_CACHE, "GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", true)
 }
 
 /// Construction progress last-writer only while shadow can sole-tick percent.
@@ -323,16 +320,7 @@ pub fn gameworld_construction_sole_tick_enabled() -> bool {
 
 /// Env: `GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_special_power_authority_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        Err(_) => true,
-    }
+    env_flag_cached(&SPECIAL_POWER_AUTH_CACHE, "GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", true)
 }
 
 /// Host skips SP countdown advance only when authority AND shadow session run.
@@ -349,16 +337,7 @@ pub fn gameworld_special_power_sole_tick_enabled() -> bool {
 ///
 /// Env: `GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
 pub fn gameworld_production_authority_enabled() -> bool {
-    match std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY") {
-        Ok(v) => {
-            let v = v.trim();
-            !(v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("off")
-                || v.eq_ignore_ascii_case("no"))
-        }
-        Err(_) => true,
-    }
+    env_flag_cached(&PRODUCTION_AUTH_CACHE, "GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", true)
 }
 
 /// Production queue last-writer only while shadow can sole-tick progress.
@@ -386,6 +365,8 @@ pub fn ensure_gate_damage_authority() {
     }
     ensure_gate_economy_authority();
     ensure_gate_production_authority();
+    // Caches may have been primed before gate env force-on.
+    refresh_gameworld_authority_env_caches();
 }
 
 /// Gates/smoke: force economy authority env to `1` when unset.

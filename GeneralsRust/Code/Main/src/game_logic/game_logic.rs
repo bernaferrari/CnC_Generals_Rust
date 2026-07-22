@@ -48621,15 +48621,29 @@ impl GameLogic {
     /// - Factories with non-empty production queue get the bit set
     /// - Cleared when idle / empty queue
     pub fn update_actively_constructing_model_conditions(&mut self) {
+        use crate::game_logic::host_enum_table_residual::actively_constructing_model_bit;
+        let ac_mask = 1u128 << actively_constructing_model_bit();
         let mut updates = 0u32;
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        // Only workers / producers / objects already carrying the bit — skip the
+        // rest of Lone Eagle's ~900 decorative props each frame.
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && (o.can_construct()
+                        || o.building_data
+                            .as_ref()
+                            .map(|b| !b.production_queue.is_empty())
+                            .unwrap_or(false)
+                        || (o.model_condition_bits & ac_mask) != 0)
+            })
+            .map(|(&id, _)| id)
+            .collect();
         for id in ids {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
-            if !obj.is_alive() {
-                continue;
-            }
             // C++ DozerAIUpdate: ACTIVELY_CONSTRUCTING for BUILD and REPAIR.
             let is_dozer_building = obj.can_construct()
                 && matches!(obj.ai_state, AIState::Constructing | AIState::Repairing);
@@ -48651,6 +48665,7 @@ impl GameLogic {
                 self.actively_constructing_updates.saturating_add(updates);
         }
     }
+
 
     /// C++ BuildAssistant::sellObject residual — start multi-frame sell process.
 
