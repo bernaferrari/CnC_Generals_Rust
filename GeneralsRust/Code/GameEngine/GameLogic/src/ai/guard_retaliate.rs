@@ -67,7 +67,11 @@ fn scan_guard_retaliate_inner_target(
     let is_enter_guard = owner_guard.get_template().is_enter_guard();
     let is_hijack_guard = owner_guard.get_template().is_hijack_guard();
 
-    let vision_range = AIGuardRetaliateMachine::get_std_guard_range(owner_arc);
+    let vision_range = owner_arc
+        .read()
+        .ok()
+        .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
+        .unwrap_or(100.0);
     let Some(partition) = ThePartitionManager::get() else {
         return None;
     };
@@ -211,7 +215,11 @@ impl GuardRetaliateExitConditions {
                                 my_pos.y - self.center.y,
                                 0.0,
                             );
-                            let guard_range = AIGuardRetaliateMachine::get_std_guard_range(&owner);
+                            let guard_range = owner
+                                .read()
+                                .ok()
+                                .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
+                                .unwrap_or(100.0);
                             if Vector3Ext::length_sqr(&my_range) > guard_range * guard_range {
                                 return true;
                             }
@@ -570,17 +578,11 @@ impl AIGuardRetaliateMachine {
         false
     }
 
-    pub fn get_std_guard_range(obj: &Arc<RwLock<Object>>) -> f32 {
-        let Ok(obj_guard) = obj.read() else {
-            return 100.0;
-        };
-        let id = obj_guard.get_id();
-        drop(obj_guard);
-
+    pub fn get_std_guard_range(obj_id: ObjectID) -> f32 {
         let ai = THE_AI.read().ok();
         ai.and_then(|ai| {
             ai.get_adjusted_vision_range_for_object(
-                id,
+                obj_id,
                 vision_factors::OWNER_TYPE | vision_factors::MOOD | vision_factors::GUARD_INNER,
             )
             .ok()
@@ -776,7 +778,12 @@ impl StateImplementation for AIGuardRetaliateInnerState {
 
         let pos = self.base.get_position_to_guard();
         if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-            let radius = 1.5 * AIGuardRetaliateMachine::get_std_guard_range(&owner);
+            let radius = 1.5
+                * owner
+                    .read()
+                    .ok()
+                    .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
+                    .unwrap_or(100.0);
             exit_guard.set_center(pos);
             exit_guard.set_radius_sqr(radius * radius);
             exit_guard.set_conditions(
@@ -977,7 +984,11 @@ impl StateImplementation for AIGuardRetaliateOuterState {
         };
 
         let pos = self.base.get_position_to_guard();
-        let std_guard_range = AIGuardRetaliateMachine::get_std_guard_range(&owner);
+        let std_guard_range = owner
+            .read()
+            .ok()
+            .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
+            .unwrap_or(100.0);
         let range = {
             let Ok(owner_guard) = owner.read() else {
                 return StateReturnType::Failure;
@@ -1046,7 +1057,11 @@ impl StateImplementation for AIGuardRetaliateOuterState {
                         exit_guard.center.z - goal_guard.get_position().z,
                     );
                     if let Some(owner) = self.base.state().get_machine_owner() {
-                        let vision = AIGuardRetaliateMachine::get_std_guard_range(&owner);
+                        let vision = owner
+                            .read()
+                            .ok()
+                            .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
+                            .unwrap_or(100.0);
                         if Vector3Ext::length_sqr(&delta) <= vision * vision {
                             exit_guard.set_attack_give_up_frame(
                                 TheGameLogic::get_frame()
@@ -1304,7 +1319,11 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
         };
 
         let pos = self.base.get_position_to_guard();
-        let std_guard_range = AIGuardRetaliateMachine::get_std_guard_range(&owner);
+        let std_guard_range = owner
+            .read()
+            .ok()
+            .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
+            .unwrap_or(100.0);
         let range = {
             let Ok(owner_guard) = owner.read() else {
                 return StateReturnType::Failure;

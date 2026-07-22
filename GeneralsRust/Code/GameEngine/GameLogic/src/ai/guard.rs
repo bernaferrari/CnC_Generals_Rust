@@ -72,7 +72,11 @@ fn scan_guard_inner_target(
     let is_enter_guard = owner_guard.get_template().is_enter_guard();
     let is_hijack_guard = owner_guard.get_template().is_hijack_guard();
 
-    let mut vision_range = AIGuardMachine::get_std_guard_range(owner_arc);
+    let mut vision_range = owner_arc
+        .read()
+        .ok()
+        .map(|g| AIGuardMachine::get_std_guard_range(g.get_id()))
+        .unwrap_or(100.0);
     let mut center = *pos;
     if let Some(area) = area {
         vision_range = area.get_radius();
@@ -689,17 +693,11 @@ impl AIGuardMachine {
         false
     }
 
-    pub fn get_std_guard_range(_obj: &Arc<RwLock<Object>>) -> f32 {
-        let Ok(obj_guard) = _obj.read() else {
-            return 100.0;
-        };
-        let id = obj_guard.get_id();
-        drop(obj_guard);
-
+    pub fn get_std_guard_range(obj_id: ObjectID) -> f32 {
         let ai = THE_AI.read().ok();
         ai.and_then(|ai| {
             ai.get_adjusted_vision_range_for_object(
-                id,
+                obj_id,
                 vision_factors::OWNER_TYPE | vision_factors::MOOD | vision_factors::GUARD_INNER,
             )
             .ok()
@@ -967,7 +965,11 @@ impl ClassicState for AIGuardInnerState {
         }
 
         if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-            let radius = AIGuardMachine::get_std_guard_range(&owner);
+            let radius = owner
+                .read()
+                .ok()
+                .map(|g| AIGuardMachine::get_std_guard_range(g.get_id()))
+                .unwrap_or(100.0);
             exit_guard.set_center(center);
             exit_guard.set_radius_sqr(radius * radius);
             exit_guard.set_conditions(
@@ -1311,7 +1313,13 @@ impl ClassicState for AIGuardOuterState {
                     .get_id(),
                 vision_factors::OWNER_TYPE | vision_factors::MOOD,
             )
-            .unwrap_or_else(|_| AIGuardMachine::get_std_guard_range(&owner))
+            .unwrap_or_else(|_| {
+                owner
+                    .read()
+                    .ok()
+                    .map(|g| AIGuardMachine::get_std_guard_range(g.get_id()))
+                    .unwrap_or(100.0)
+            })
         };
 
         if let Some(area) = self.base.get_area_to_guard() {
@@ -1381,13 +1389,16 @@ impl ClassicState for AIGuardOuterState {
                         exit_guard.center.y - goal_guard.get_position().y,
                         exit_guard.center.z - goal_guard.get_position().z,
                     );
-                    let vision = AIGuardMachine::get_std_guard_range(
-                        &self
-                            .base
-                            .state()
-                            .get_machine_owner()
-                            .ok_or_else(|| "guard outer missing owner".to_string())?,
-                    );
+                    let owner = self
+                        .base
+                        .state()
+                        .get_machine_owner()
+                        .ok_or_else(|| "guard outer missing owner".to_string())?;
+                    let vision = owner
+                        .read()
+                        .ok()
+                        .map(|g| AIGuardMachine::get_std_guard_range(g.get_id()))
+                        .unwrap_or(100.0);
                     if Vector3Ext::length_sqr(&delta) <= vision * vision {
                         exit_guard.set_attack_give_up_frame(
                             TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
@@ -1767,7 +1778,11 @@ impl ClassicState for AIGuardAttackAggressorState {
         }
 
         if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-            let radius = AIGuardMachine::get_std_guard_range(&owner);
+            let radius = owner
+                .read()
+                .ok()
+                .map(|g| AIGuardMachine::get_std_guard_range(g.get_id()))
+                .unwrap_or(100.0);
             exit_guard.set_center(center);
             exit_guard.set_radius_sqr(radius * radius);
             exit_guard.set_attack_give_up_frame(
