@@ -854,15 +854,11 @@ impl Team {
         }
         let mut count = 0;
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_kind_of(KindOf::Structure) {
-                count += 1;
-            }
+            let _ = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                if object_guard.is_kind_of(KindOf::Structure) {
+                    count += 1;
+                }
+            });
         }
         count
     }
@@ -887,30 +883,25 @@ impl Team {
         }
 
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-
-            if ignore_dead && object_guard.is_effectively_dead() {
-                continue;
-            }
-            if ignore_under_construction
-                && object_guard.test_status(ObjectStatusTypes::UnderConstruction)
-            {
-                continue;
-            }
-
-            let obj_template = object_guard.get_template();
-            for i in 0..max_templates {
-                if !obj_template.is_equivalent_to(templates[i].as_ref()) {
-                    continue;
+            let _ = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                if ignore_dead && object_guard.is_effectively_dead() {
+                    return;
                 }
-                counts[i] += 1;
-                break;
-            }
+                if ignore_under_construction
+                    && object_guard.test_status(ObjectStatusTypes::UnderConstruction)
+                {
+                    return;
+                }
+
+                let obj_template = object_guard.get_template();
+                for i in 0..max_templates {
+                    if !obj_template.is_equivalent_to(templates[i].as_ref()) {
+                        continue;
+                    }
+                    counts[i] += 1;
+                    break;
+                }
+            });
         }
     }
 
@@ -1095,15 +1086,11 @@ impl Team {
         let mut count = 0;
 
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_kind_of_multi(required, forbidden) {
-                count += 1;
-            }
+            let _ = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                if object_guard.is_kind_of_multi(required, forbidden) {
+                    count += 1;
+                }
+            });
         }
 
         count
@@ -1115,16 +1102,15 @@ impl Team {
             return false;
         }
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
-                continue;
-            }
-            if object_guard.is_kind_of(KindOf::Structure) {
+            if OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
+                        return false;
+                    }
+                    object_guard.is_kind_of(KindOf::Structure)
+                })
+                .unwrap_or(false)
+            {
                 return true;
             }
         }
@@ -1138,16 +1124,15 @@ impl Team {
         }
         let mask = (kind_of as KindOfMaskType) | (1u64 << (KindOf::Structure as u32));
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
-                continue;
-            }
-            if object_guard.is_kind_of_multi(mask, crate::common::KIND_OF_MASK_NONE) {
+            if OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
+                        return false;
+                    }
+                    object_guard.is_kind_of_multi(mask, crate::common::KIND_OF_MASK_NONE)
+                })
+                .unwrap_or(false)
+            {
                 return true;
             }
         }
@@ -1160,22 +1145,23 @@ impl Team {
             return false;
         }
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
-                continue;
-            }
-            if object_guard.is_kind_of(KindOf::Structure)
-                || object_guard.is_kind_of(KindOf::Projectile)
-                || object_guard.is_kind_of(KindOf::Mine)
+            if OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
+                        return false;
+                    }
+                    if object_guard.is_kind_of(KindOf::Structure)
+                        || object_guard.is_kind_of(KindOf::Projectile)
+                        || object_guard.is_kind_of(KindOf::Mine)
+                    {
+                        return false;
+                    }
+                    true
+                })
+                .unwrap_or(false)
             {
-                continue;
+                return true;
             }
-            return true;
         }
         false
     }
@@ -1186,21 +1172,22 @@ impl Team {
             return false;
         }
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead()
-                || object_guard.is_destroyed()
-                || object_guard.is_kind_of(KindOf::Projectile)
-                || object_guard.is_kind_of(KindOf::Inert)
-                || object_guard.is_kind_of(KindOf::Mine)
+            if OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.is_effectively_dead()
+                        || object_guard.is_destroyed()
+                        || object_guard.is_kind_of(KindOf::Projectile)
+                        || object_guard.is_kind_of(KindOf::Inert)
+                        || object_guard.is_kind_of(KindOf::Mine)
+                    {
+                        return false;
+                    }
+                    true
+                })
+                .unwrap_or(false)
             {
-                continue;
+                return true;
             }
-            return true;
         }
         false
     }
@@ -1211,23 +1198,21 @@ impl Team {
             return false;
         }
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(idle) = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                if object_guard.is_effectively_dead() {
+                    return true; // skip dead
+                }
+                let Some(ai_arc) = object_guard.get_ai_update_interface() else {
+                    return true; // skip non-AI
+                };
+                let Ok(ai_guard) = ai_arc.lock() else {
+                    return false; // lock fail => not idle
+                };
+                ai_guard.is_idle()
+            }) else {
                 continue;
             };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() {
-                continue;
-            }
-
-            let Some(ai_arc) = object_guard.get_ai_update_interface() else {
-                continue;
-            };
-            let Ok(ai_guard) = ai_arc.lock() else {
-                return false;
-            };
-            if !ai_guard.is_idle() {
+            if !idle {
                 return false;
             }
         }
@@ -1260,13 +1245,12 @@ impl Team {
             return false;
         }
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.get_template().is_build_facility() {
+            if OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    object_guard.get_template().is_build_facility()
+                })
+                .unwrap_or(false)
+            {
                 return true;
             }
         }
@@ -1347,9 +1331,7 @@ impl Team {
     /// Get estimated team position (first member position)
     pub fn get_estimate_team_position(&self) -> Option<Coord3D> {
         let object_id = *self.members.first()?;
-        let object_arc = OBJECT_REGISTRY.get_object(object_id)?;
-        let object_guard = object_arc.read().ok()?;
-        Some(*object_guard.get_position())
+        OBJECT_REGISTRY.with_object(object_id, |object_guard| *object_guard.get_position())
     }
 
     fn locomotor_surface_matches(

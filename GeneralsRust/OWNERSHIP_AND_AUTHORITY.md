@@ -205,6 +205,12 @@ mid-frame host combat still runs for C++ armor/side-effect parity.
  Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
+### Team/Player count-predicate with_object residual (2026-07-21)
+
+Team and Player `count_*` / `has_any_*` / `is_idle` / `get_estimate_team_position`
+walk members via `OBJECT_REGISTRY.with_object` (no Arc kept at call sites).
+Iterate-callback surfaces still yield `Arc` for C++-shaped `for_each_live_member`.
+
 ### Team with_object residual (2026-07-21)
 
 `Team::set_controlling_player_id` member refresh, `get_targetable_count`,
