@@ -2379,29 +2379,28 @@ impl DefaultCommandHandler {
         let mut _removed_any = false;
 
         for object_id in selected_ids {
-            let Some(obj_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+            let Some((owner_id, entry_position)) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |obj_guard| {
+                    let owner_id = obj_guard
+                        .get_controlling_player_id()
+                        .map(|id| id as Int)
+                        .unwrap_or(-1);
+                    if owner_id < 0 {
+                        return None;
+                    }
+                    let Some(owner_template) = self.resolve_beacon_template_for_player(owner_id)
+                    else {
+                        return None;
+                    };
+                    if !owner_template.is_equivalent_to(obj_guard.get_template().as_ref()) {
+                        return None;
+                    }
+                    Some((owner_id, *obj_guard.get_position()))
+                })
+                .flatten()
             else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let owner_id = obj_guard
-                .get_controlling_player_id()
-                .map(|id| id as Int)
-                .unwrap_or(-1);
-            if owner_id < 0 {
-                continue;
-            }
-            let Some(owner_template) = self.resolve_beacon_template_for_player(owner_id) else {
-                continue;
-            };
-            if !owner_template.is_equivalent_to(obj_guard.get_template().as_ref()) {
-                continue;
-            }
-
-            let entry_position = *obj_guard.get_position();
-            drop(obj_guard);
 
             if owner_id == context.player_id {
                 let _ = TheGameLogic::destroy_object_by_id(object_id);
@@ -2409,7 +2408,11 @@ impl DefaultCommandHandler {
                 removed_entries.push((owner_id, entry_position));
                 control_bar::mark_ui_dirty();
             } else if is_local_player {
-                self.hide_beacon_for_local(&obj_arc);
+                if let Some(obj_arc) =
+                    crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+                {
+                    self.hide_beacon_for_local(&obj_arc);
+                }
                 removed_entries.push((owner_id, entry_position));
             }
         }
@@ -2492,21 +2495,24 @@ impl DefaultCommandHandler {
 
         let mut beacons = Vec::new();
         for object_id in selected_ids {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(beacon) = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                let owner_id = obj_guard
+                    .get_controlling_player_id()
+                    .map(|id| id as Int)
+                    .unwrap_or(player_id);
+                let Some(owner_template) = self.resolve_beacon_template_for_player(owner_id) else {
+                    return None;
+                };
+                if owner_template.is_equivalent_to(obj_guard.get_template().as_ref()) {
+                    Some((owner_id, *obj_guard.get_position()))
+                } else {
+                    None
+                }
+            }) else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let owner_id = obj_guard
-                .get_controlling_player_id()
-                .map(|id| id as Int)
-                .unwrap_or(player_id);
-            let Some(owner_template) = self.resolve_beacon_template_for_player(owner_id) else {
-                continue;
-            };
-            if owner_template.is_equivalent_to(obj_guard.get_template().as_ref()) {
-                beacons.push((owner_id, *obj_guard.get_position()));
+            if let Some(entry) = beacon {
+                beacons.push(entry);
             }
         }
         beacons
@@ -3734,7 +3740,7 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Success;
         };
         if OBJECT_REGISTRY
-            .get_object(object_containing_exiter)
+            .with_object(object_containing_exiter, |_| ())
             .is_none()
         {
             return CommandExecutionResult::Success;
@@ -3866,20 +3872,15 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Success;
         };
 
-        let Some(producer) = OBJECT_REGISTRY.get_object(producer_id) else {
-            return CommandExecutionResult::Success;
-        };
-        let Ok(guard) = producer.read() else {
-            return CommandExecutionResult::Success;
-        };
-        if guard.is_destroyed() {
-            return CommandExecutionResult::Success;
-        }
-        if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-            return CommandExecutionResult::Success;
-        }
-
-        let _ = guard.cancel_upgrade(&upgrade);
+        let _ = OBJECT_REGISTRY.with_object(producer_id, |guard| {
+            if guard.is_destroyed() {
+                return;
+            }
+            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+                return;
+            }
+            let _ = guard.cancel_upgrade(&upgrade);
+        });
 
         CommandExecutionResult::Success
     }
@@ -3922,20 +3923,19 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Success;
         };
 
-        let Some(producer) = OBJECT_REGISTRY.get_object(producer_id) else {
-            return CommandExecutionResult::Success;
-        };
-        let Ok(guard) = producer.read() else {
-            return CommandExecutionResult::Success;
-        };
-        if guard.is_destroyed() {
-            return CommandExecutionResult::Success;
-        }
-        if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-            return CommandExecutionResult::Success;
-        }
-
-        if guard.queue_unit_with_production_id(&template, production_id) {
+        let queued = OBJECT_REGISTRY
+            .with_object(producer_id, |guard| {
+                if guard.is_destroyed() {
+                    return false;
+                }
+                if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id)
+                {
+                    return false;
+                }
+                guard.queue_unit_with_production_id(&template, production_id)
+            })
+            .unwrap_or(false);
+        if queued {
             return CommandExecutionResult::Success;
         }
 
@@ -3974,25 +3974,21 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Success;
         };
 
-        let Some(producer) = OBJECT_REGISTRY.get_object(producer_id) else {
-            return CommandExecutionResult::Success;
-        };
-        let Ok(guard) = producer.read() else {
-            return CommandExecutionResult::Success;
-        };
-        if guard.is_destroyed() {
-            return CommandExecutionResult::Success;
-        }
-        if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
-            return CommandExecutionResult::Success;
-        }
+        let _ = OBJECT_REGISTRY.with_object(producer_id, |guard| {
+            if guard.is_destroyed() {
+                return;
+            }
+            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+                return;
+            }
 
-        let canceled = template
-            .as_ref()
-            .is_some_and(|template| guard.cancel_unit_by_template(template));
-        if !canceled {
-            let _ = guard.cancel_unit_by_production_id(production_or_template_id);
-        }
+            let canceled = template
+                .as_ref()
+                .is_some_and(|template| guard.cancel_unit_by_template(template));
+            if !canceled {
+                let _ = guard.cancel_unit_by_production_id(production_or_template_id);
+            }
+        });
 
         CommandExecutionResult::Success
     }
