@@ -918,7 +918,13 @@ impl OpenContain {
             .ok_or_else(|| GameError::ModuleError("OpenContain has no owning object".into()))?;
         if let Ok(mut contained) = obj.write() {
             contained
-                .on_contained_by(container)
+                .on_contained_by(
+                    container
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID),
+                )
                 .map_err(|e| GameError::ModuleError(e.to_string()))?;
 
             if let Some(player) = contained.get_controlling_player() {
@@ -948,7 +954,13 @@ impl OpenContain {
             .ok_or_else(|| GameError::ModuleError("OpenContain has no owning object".into()))?;
         if let Ok(mut contained) = obj.write() {
             contained
-                .on_removed_from(container)
+                .on_removed_from(
+                    container
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID),
+                )
                 .map_err(|e| GameError::ModuleError(e.to_string()))?;
         }
 
@@ -1676,7 +1688,13 @@ impl OpenContain {
             {
                 let mut obj_guard = obj.write().map_err(|e| e.to_string())?;
                 obj_guard
-                    .on_contained_by(owner.clone())
+                    .on_contained_by(
+                        owner
+                            .read()
+                            .ok()
+                            .map(|g| g.get_id())
+                            .unwrap_or(crate::common::INVALID_ID),
+                    )
                     .map_err(|e| e.to_string())?;
             }
         }
