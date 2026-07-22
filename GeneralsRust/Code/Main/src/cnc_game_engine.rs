@@ -14440,29 +14440,13 @@ impl CnCGameEngine {
 
     /// Retail SELECT_NEXT/PREV_UNIT residual.
     fn cycle_friendly_selection(&mut self, delta: i32) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
 
-        let all: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.alive_selectable_friendly_ids(team)
-        } else {
-            // Boot residual only.
-            let mut live: Vec<ObjectId> = self
-                .game_logic
-                .get_objects()
-                .iter()
-                .filter(|(_, obj)| obj.team == team && obj.is_selectable() && obj.is_alive())
-                .map(|(&id, _)| id)
-                .collect();
-            live.sort_by_key(|id| id.0);
-            live
-        };
+        let all: Vec<ObjectId> = frame.alive_selectable_friendly_ids(team);
         if all.is_empty() {
             return;
         }
@@ -14490,51 +14474,16 @@ impl CnCGameEngine {
 
     /// Retail SELECT_NEXT/PREV_WORKER residual — prefer dozers/workers/harvesters.
     fn cycle_friendly_worker_selection(&mut self, delta: i32) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
 
-        let (mut idle_workers, mut busy_workers) =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                (
-                    frame.alive_selectable_friendly_idle_worker_ids(team),
-                    frame.alive_selectable_friendly_busy_worker_ids(team),
-                )
-            } else {
-                // Boot residual only.
-                let mut idle_workers: Vec<ObjectId> = Vec::new();
-                let mut busy_workers: Vec<ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_selectable() || !obj.is_alive() {
-                        continue;
-                    }
-                    let n = obj.template_name.to_ascii_lowercase();
-                    let is_worker = obj.is_dozer
-                        || n.contains("dozer")
-                        || n.contains("worker")
-                        || n.contains("chinook")
-                        || n.contains("supply")
-                        || n.contains("hack");
-                    if !is_worker {
-                        continue;
-                    }
-                    // Prefer idle / non-tasked workers residual (retail SELECT_IDLE_WORKER).
-                    let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
-                        && obj.target.is_none()
-                        && !obj.status.moving;
-                    if idle {
-                        idle_workers.push(id);
-                    } else {
-                        busy_workers.push(id);
-                    }
-                }
-                (idle_workers, busy_workers)
-            };
+        let (mut idle_workers, mut busy_workers) = (
+            frame.alive_selectable_friendly_idle_worker_ids(team),
+            frame.alive_selectable_friendly_busy_worker_ids(team),
+        );
         idle_workers.sort_by_key(|id| id.0);
         busy_workers.sort_by_key(|id| id.0);
         // Cycle idle first; fall back to all workers if none idle.
@@ -14573,43 +14522,22 @@ impl CnCGameEngine {
 
     /// Retail-ish SELECT_NEXT/PREV_STRUCTURE residual.
     fn cycle_friendly_structure_selection(&mut self, delta: i32) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-
-        let mut structures: Vec<ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame
-                    .objects
-                    .iter()
-                    .filter(|o| {
-                        !o.destroyed
-                            && o.team == team
-                            && o.is_structure
-                            && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
-                        // Boot residual only.
-                    })
-                    .map(|o| o.id)
-                    .collect()
-            } else {
-                self.game_logic
-                    .get_objects()
-                    .iter()
-                    .filter(|(_, obj)| {
-                        obj.team == team
-                            && obj.is_alive()
-                            && obj.is_selectable()
-                            && (obj.is_kind_of(crate::game_logic::KindOf::Structure)
-                                || obj.object_type == crate::game_logic::ObjectType::Building)
-                    })
-                    .map(|(&id, _)| id)
-                    .collect()
-            };
+        let team = frame.local_team();
+        let mut structures: Vec<ObjectId> = frame
+            .objects
+            .iter()
+            .filter(|o| {
+                !o.destroyed
+                    && o.team == team
+                    && o.is_structure
+                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+            })
+            .map(|o| o.id)
+            .collect();
         structures.sort_by_key(|id| id.0);
         if structures.is_empty() {
             return;
@@ -14631,19 +14559,17 @@ impl CnCGameEngine {
             structures[structures.len() - 1]
         };
 
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
         self.selected_objects = vec![next];
         self.game_logic
             .select_objects(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
-        // Center camera on structure residual.
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            if let Some(o) = frame.objects.iter().find(|o| o.id == next) {
-                let clamped = self.clamp_to_world_bounds(o.position);
-                self.camera_target.x = clamped.x;
-                self.camera_target.z = clamped.z;
-            }
-        } else if let Some(obj) = self.game_logic.find_object(next) {
-            let clamped = self.clamp_to_world_bounds(obj.get_position());
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
@@ -14782,37 +14708,17 @@ impl CnCGameEngine {
     }
 
     fn cycle_unfinished_construction(&mut self, delta: i32) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_unfinished_ids(team)
-            } else {
-                // Boot residual only.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if obj.status.under_construction && !obj.status.sold {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_unfinished_ids(team);
+        ids.sort_by_key(|id| id.0);
         if ids.is_empty() {
-            let msg = "No unfinished construction";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
+
         let next = if let Some(current) = self.selected_objects.first().copied() {
             ids.iter()
                 .position(|id| *id == current)
@@ -14827,11 +14733,18 @@ impl CnCGameEngine {
         } else {
             ids[ids.len() - 1]
         };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.selected_objects = vec![next];
         self.game_logic
             .select_objects(self.current_player_id, vec![next]);
-        self.selected_objects = vec![next];
-        if let Some(obj) = self.game_logic.find_object(next) {
-            let clamped = self.clamp_to_world_bounds(obj.get_position());
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
@@ -14841,47 +14754,17 @@ impl CnCGameEngine {
     }
 
     fn cycle_damaged_structure_selection(&mut self, delta: i32) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-
-        let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_damaged_structure_ids(team)
-            } else {
-                // Boot residual only.
-                let mut damaged: Vec<(crate::game_logic::ObjectId, f32)> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if !obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    if obj.status.under_construction || obj.status.sold {
-                        continue;
-                    }
-                    let max_h = obj.health.maximum.max(1.0);
-                    let ratio = obj.health.current / max_h;
-                    if ratio < 0.999 {
-                        damaged.push((id, ratio));
-                    }
-                }
-
-                damaged.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-                damaged.into_iter().map(|(id, _)| id).collect()
-            };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_damaged_structure_ids(team);
+        ids.sort_by_key(|id| id.0);
         if ids.is_empty() {
-            let msg = "No damaged structures";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
+
         let next = if let Some(current) = self.selected_objects.first().copied() {
             ids.iter()
                 .position(|id| *id == current)
@@ -14896,11 +14779,18 @@ impl CnCGameEngine {
         } else {
             ids[ids.len() - 1]
         };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.selected_objects = vec![next];
         self.game_logic
             .select_objects(self.current_player_id, vec![next]);
-        self.selected_objects = vec![next];
-        if let Some(obj) = self.game_logic.find_object(next) {
-            let clamped = self.clamp_to_world_bounds(obj.get_position());
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
@@ -14996,55 +14886,17 @@ impl CnCGameEngine {
 
     /// Cycle idle friendly combat units residual (Ctrl+Alt+, / .).
     fn cycle_idle_military_selection(&mut self, delta: i32) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-        let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_idle_military_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    let n = obj.template_name.to_ascii_lowercase();
-                    if obj.is_dozer
-                        || n.contains("dozer")
-                        || n.contains("worker")
-                        || n.contains("supply")
-                        || n.contains("harvester")
-                    {
-                        continue;
-                    }
-                    if !obj.can_move() && !obj.can_attack() {
-                        continue;
-                    }
-                    let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
-                        && obj.target.is_none()
-                        && !obj.status.moving;
-                    if idle {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_idle_military_ids(team);
+        ids.sort_by_key(|id| id.0);
         if ids.is_empty() {
-            let msg = "No idle military";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
+
         let next = if let Some(current) = self.selected_objects.first().copied() {
             ids.iter()
                 .position(|id| *id == current)
@@ -15059,11 +14911,18 @@ impl CnCGameEngine {
         } else {
             ids[ids.len() - 1]
         };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.selected_objects = vec![next];
         self.game_logic
             .select_objects(self.current_player_id, vec![next]);
-        self.selected_objects = vec![next];
-        if let Some(obj) = self.game_logic.find_object(next) {
-            let clamped = self.clamp_to_world_bounds(obj.get_position());
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
@@ -15074,31 +14933,13 @@ impl CnCGameEngine {
 
     /// Select all friendly units currently repairing residual (Ctrl+Alt+R).
     fn select_all_repairing_units(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_repairing_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if matches!(obj.ai_state, crate::game_logic::AIState::Repairing) {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_repairing_ids(team);
         if ids.is_empty() {
             let msg = "No repairing units";
             self.game_hud.push_info_message(msg);
@@ -15115,61 +14956,14 @@ impl CnCGameEngine {
     }
 
     fn select_all_idle_military(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
 
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_idle_military_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    if !obj.can_move() {
-                        continue;
-                    }
-                    let n = obj.template_name.to_ascii_lowercase();
-                    // Exclude pure workers/dozers/supply from "military idle" residual.
-                    let is_worker = obj.is_dozer
-                        || n.contains("dozer")
-                        || n.contains("worker")
-                        || n.contains("supply");
-                    if is_worker {
-                        continue;
-                    }
-                    let military = obj.can_attack()
-                        || obj.is_kind_of(crate::game_logic::KindOf::Infantry)
-                        || obj.is_kind_of(crate::game_logic::KindOf::Vehicle)
-                        || obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                        || n.contains("ranger")
-                        || n.contains("tank")
-                        || n.contains("jet")
-                        || n.contains("humvee");
-                    if !military {
-                        continue;
-                    }
-                    let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
-                        && obj.target.is_none()
-                        && !obj.status.moving;
-                    if idle {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_idle_military_ids(team);
         if ids.is_empty() {
             let msg = "No idle military units";
             self.game_hud.push_info_message(msg);
@@ -15186,40 +14980,14 @@ impl CnCGameEngine {
 
     /// Select all friendly harvesters / supply collectors residual (Ctrl+Shift+I).
     fn select_all_harvesters(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
 
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_harvester_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    let n = obj.template_name.to_ascii_lowercase();
-                    // Prefer true collectors; include GLA workers as harvesters residual.
-                    let is_collector = n.contains("supply")
-                        || n.contains("harvester")
-                        || n.contains("chinook")
-                        || (n.contains("worker") && !n.contains("dozer"))
-                        || matches!(obj.ai_state, crate::game_logic::AIState::Gathering);
-                    if !is_collector {
-                        continue;
-                    }
-                    ids.push(id);
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_harvester_ids(team);
         if ids.is_empty() {
             let msg = "No harvesters found";
             self.game_hud.push_info_message(msg);
@@ -15237,42 +15005,13 @@ impl CnCGameEngine {
 
     /// Select idle friendly harvesters residual (Ctrl+Alt+I).
     fn select_idle_harvesters(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_idle_harvester_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    let n = obj.template_name.to_ascii_lowercase();
-                    let is_collector = n.contains("supply")
-                        || n.contains("harvester")
-                        || n.contains("chinook")
-                        || (n.contains("worker") && !n.contains("dozer"));
-                    if !is_collector {
-                        continue;
-                    }
-                    let idle = matches!(obj.ai_state, crate::game_logic::AIState::Idle)
-                        && obj.target.is_none()
-                        && !obj.status.moving;
-                    if idle {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_idle_harvester_ids(team);
         if ids.is_empty() {
             let msg = "No idle harvesters";
             self.game_hud.push_info_message(msg);
@@ -15398,46 +15137,17 @@ impl CnCGameEngine {
 
     /// Cycle damaged friendly mobile units residual (Ctrl+Alt+Up/Down).
     fn cycle_damaged_unit_selection(&mut self, delta: i32) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-        let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_damaged_unit_ids(team)
-            } else {
-                // Boot residual only.
-                let mut damaged: Vec<(crate::game_logic::ObjectId, f32)> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    if !obj.can_move() {
-                        continue;
-                    }
-                    let max_h = obj.health.maximum.max(1.0);
-                    let ratio = obj.health.current / max_h;
-                    if ratio < 0.999 {
-                        damaged.push((id, ratio));
-                    }
-                }
-
-                damaged.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-                damaged.into_iter().map(|(id, _)| id).collect()
-            };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_damaged_unit_ids(team);
+        ids.sort_by_key(|id| id.0);
         if ids.is_empty() {
-            let msg = "No damaged units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
+
         let next = if let Some(current) = self.selected_objects.first().copied() {
             ids.iter()
                 .position(|id| *id == current)
@@ -15452,11 +15162,18 @@ impl CnCGameEngine {
         } else {
             ids[ids.len() - 1]
         };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.selected_objects = vec![next];
         self.game_logic
             .select_objects(self.current_player_id, vec![next]);
-        self.selected_objects = vec![next];
-        if let Some(obj) = self.game_logic.find_object(next) {
-            let clamped = self.clamp_to_world_bounds(obj.get_position());
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
@@ -15513,42 +15230,13 @@ impl CnCGameEngine {
 
     /// Select all friendly units currently attacking residual (Ctrl+Alt+T).
     fn select_all_friendly_attacking(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_attacking_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    let attacking = obj.status.attacking
-                        || obj.target.is_some()
-                        || matches!(
-                            obj.ai_state,
-                            crate::game_logic::AIState::Attacking
-                                | crate::game_logic::AIState::AttackingGround
-                                | crate::game_logic::AIState::Patrolling
-                        );
-                    if attacking {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_attacking_ids(team);
         if ids.is_empty() {
             let msg = "No attacking units";
             self.game_hud.push_info_message(msg);
@@ -15642,47 +15330,13 @@ impl CnCGameEngine {
     }
 
     fn select_all_friendly_moving(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_moving_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    let moving = obj.status.moving
-                        || obj.movement.target_position.is_some()
-                        || !obj.movement.path.is_empty()
-                        || matches!(
-                            obj.ai_state,
-                            crate::game_logic::AIState::Moving
-                                | crate::game_logic::AIState::Gathering
-                                | crate::game_logic::AIState::ReturningResources
-                                | crate::game_logic::AIState::Entering
-                                | crate::game_logic::AIState::Docking
-                                | crate::game_logic::AIState::Attacking
-                                | crate::game_logic::AIState::Patrolling
-                        );
-                    if moving {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_moving_ids(team);
         if ids.is_empty() {
             let msg = "No moving units";
             self.game_hud.push_info_message(msg);
@@ -15699,36 +15353,13 @@ impl CnCGameEngine {
     }
     /// Select friendly transports currently carrying units residual (Ctrl+Alt+J).
     fn select_all_occupied_transports(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let mut ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_occupied_transport_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    if obj.contained_units().is_empty() {
-                        continue;
-                    }
-                    // Occupied non-structure container = transport residual.
-                    ids.push(id);
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_occupied_transport_ids(team);
         ids.dedup();
         if ids.is_empty() {
             let msg = "No occupied transports";
@@ -15774,41 +15405,19 @@ impl CnCGameEngine {
 
     /// Select structures that currently hold garrisoned units residual (Ctrl+Alt+U).
     fn select_all_garrisoned_structures(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
+        {
             for o in frame.garrisoned_structures() {
                 if o.team == team && !o.destroyed {
                     ids.push(o.id);
                 }
             }
-        } else {
-            // Boot residual only.
-            for (&id, obj) in self.game_logic.get_objects() {
-                if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                    continue;
-                }
-                if !obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                    continue;
-                }
-                let occupied = obj
-                    .building_data
-                    .as_ref()
-                    .map(|b| !b.garrisoned_units.is_empty())
-                    .unwrap_or(false)
-                    || !obj.contained_units().is_empty();
-                if occupied {
-                    ids.push(id);
-                }
-            }
-        }
+        };
         ids.sort_by_key(|id| id.0);
         if ids.is_empty() {
             let msg = "No garrisoned structures";
@@ -15916,31 +15525,13 @@ impl CnCGameEngine {
 
     /// Select all friendly effectively stealthed units residual (Ctrl+Alt+K).
     fn select_all_friendly_stealthed(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_stealthed_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if obj.is_effectively_stealthed() {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_stealthed_ids(team);
         if ids.is_empty() {
             let msg = "No stealthed units";
             self.game_hud.push_info_message(msg);
@@ -15958,37 +15549,13 @@ impl CnCGameEngine {
 
     fn select_all_friendly_veterans(&mut self) {
         use crate::game_logic::VeterancyLevel;
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_veteran_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    if matches!(
-                        obj.experience.level,
-                        VeterancyLevel::Veteran | VeterancyLevel::Elite | VeterancyLevel::Heroic
-                    ) {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_veteran_ids(team);
         if ids.is_empty() {
             let msg = "No veteran units";
             self.game_hud.push_info_message(msg);
@@ -16006,38 +15573,13 @@ impl CnCGameEngine {
 
     /// Select aircraft currently docked/parked residual (Ctrl+Alt+W).
     fn select_all_docked_aircraft(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_docked_aircraft_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    let is_ac = obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                        || obj.object_type == crate::game_logic::ObjectType::Aircraft;
-                    if !is_ac {
-                        continue;
-                    }
-                    let docked = matches!(obj.ai_state, crate::game_logic::AIState::Docked)
-                        || obj.contained_by.is_some();
-                    if docked {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_docked_aircraft_ids(team);
         if ids.is_empty() {
             let msg = "No docked aircraft";
             self.game_hud.push_info_message(msg);
@@ -16066,43 +15608,17 @@ impl CnCGameEngine {
 
     /// Cycle friendly producers with a non-empty queue residual (Ctrl+Alt+P).
     fn cycle_busy_producer_selection(&mut self, delta: i32) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_busy_producer_ids(team)
-            } else {
-                // Boot residual only — presentation path owns InGame.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    let busy = obj
-                        .building_data
-                        .as_ref()
-                        .map(|b| !b.production_queue.is_empty())
-                        .unwrap_or(false);
-                    if busy {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-
-                ids
-            };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_busy_producer_ids(team);
+        ids.sort_by_key(|id| id.0);
         if ids.is_empty() {
-            let msg = "No busy producers";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
+
         let next = if let Some(current) = self.selected_objects.first().copied() {
             ids.iter()
                 .position(|id| *id == current)
@@ -16117,11 +15633,18 @@ impl CnCGameEngine {
         } else {
             ids[ids.len() - 1]
         };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.selected_objects = vec![next];
         self.game_logic
             .select_objects(self.current_player_id, vec![next]);
-        self.selected_objects = vec![next];
-        if let Some(obj) = self.game_logic.find_object(next) {
-            let clamped = self.clamp_to_world_bounds(obj.get_position());
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
@@ -16134,31 +15657,13 @@ impl CnCGameEngine {
 
     /// Select all friendly units currently patrolling residual (Ctrl+Alt+Y).
     fn select_all_friendly_patrolling(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_patrolling_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if matches!(obj.ai_state, crate::game_logic::AIState::Patrolling) {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_patrolling_ids(team);
         if ids.is_empty() {
             let msg = "No patrolling units";
             self.game_hud.push_info_message(msg);
@@ -16176,35 +15681,13 @@ impl CnCGameEngine {
 
     /// Select all friendly units currently gathering residual (Ctrl+Alt+H).
     fn select_all_friendly_gathering(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_gathering_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if matches!(
-                        obj.ai_state,
-                        crate::game_logic::AIState::Gathering
-                            | crate::game_logic::AIState::ReturningResources
-                    ) {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_gathering_ids(team);
         if ids.is_empty() {
             let msg = "No gathering units";
             self.game_hud.push_info_message(msg);
@@ -16222,52 +15705,17 @@ impl CnCGameEngine {
 
     /// Cycle structures with ready special power residual (Ctrl+Alt+V).
     fn cycle_ready_special_power_structure(&mut self, delta: i32) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-        let mut ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_ready_special_power_ids(team)
-            } else {
-                // Boot residual only — presentation path owns InGame.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if !obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    if obj.special_power_ready {
-                        ids.push(id);
-                        continue;
-                    }
-                    // Also check per-power ready residual.
-                    if let Some(p) =
-                crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
-                    &obj.template_name,
-                )
-            {
-                if self.game_logic.is_special_power_ready_for(id, &p) {
-                    ids.push(id);
-                }
-            }
-                }
-                ids.sort_by_key(|id| id.0);
-
-                ids
-            };
+        let team = frame.local_team();
+        let mut ids: Vec<ObjectId> = frame.alive_selectable_friendly_ready_special_power_ids(team);
+        ids.sort_by_key(|id| id.0);
         if ids.is_empty() {
-            let msg = "No ready special powers";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
+
         let next = if let Some(current) = self.selected_objects.first().copied() {
             ids.iter()
                 .position(|id| *id == current)
@@ -16282,11 +15730,18 @@ impl CnCGameEngine {
         } else {
             ids[ids.len() - 1]
         };
+
+        let cam_pos = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next && !o.destroyed)
+            .map(|o| o.position);
+        self.selected_objects = vec![next];
         self.game_logic
             .select_objects(self.current_player_id, vec![next]);
-        self.selected_objects = vec![next];
-        if let Some(obj) = self.game_logic.find_object(next) {
-            let clamped = self.clamp_to_world_bounds(obj.get_position());
+        self.play_sound_effect(SoundType::Select);
+        if let Some(pos) = cam_pos {
+            let clamped = self.clamp_to_world_bounds(pos);
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
@@ -16296,37 +15751,13 @@ impl CnCGameEngine {
     }
 
     fn select_all_friendly_guarding(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_guarding_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    let guarding = matches!(
-                        obj.ai_state,
-                        crate::game_logic::AIState::GuardingArea
-                            | crate::game_logic::AIState::GuardingObject
-                    ) || obj.guard_position.is_some()
-                        || obj.guard_target.is_some();
-                    if guarding {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_guarding_ids(team);
         if ids.is_empty() {
             let msg = "No guarding units";
             self.game_hud.push_info_message(msg);
@@ -16354,44 +15785,13 @@ impl CnCGameEngine {
     }
 
     fn select_all_friendly_combat(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_combat_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    if obj.is_kind_of(crate::game_logic::KindOf::Structure) {
-                        continue;
-                    }
-                    let n = obj.template_name.to_ascii_lowercase();
-                    if obj.is_dozer
-                        || n.contains("dozer")
-                        || n.contains("worker")
-                        || n.contains("supply")
-                        || n.contains("harvester")
-                    {
-                        continue;
-                    }
-                    if !obj.can_move() && !obj.can_attack() {
-                        continue;
-                    }
-                    ids.push(id);
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_combat_ids(team);
         if ids.is_empty() {
             let msg = "No combat units";
             self.game_hud.push_info_message(msg);
@@ -16477,40 +15877,13 @@ impl CnCGameEngine {
 
     /// Select friendly dozers/workers currently constructing residual (Ctrl+Alt+B).
     fn select_all_constructing_workers(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
         let ids: Vec<crate::game_logic::ObjectId> =
-            if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.alive_selectable_friendly_constructing_worker_ids(team)
-            } else {
-                // Boot residual only — presentation filter-select owns InGame path.
-                let mut ids: Vec<crate::game_logic::ObjectId> = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team != team || !obj.is_alive() || !obj.is_selectable() {
-                        continue;
-                    }
-                    let n = obj.template_name.to_ascii_lowercase();
-                    let is_worker = obj.is_dozer || n.contains("dozer") || n.contains("worker");
-                    if !is_worker {
-                        continue;
-                    }
-                    if matches!(
-                        obj.ai_state,
-                        crate::game_logic::AIState::Constructing
-                            | crate::game_logic::AIState::Repairing
-                    ) {
-                        ids.push(id);
-                    }
-                }
-                ids.sort_by_key(|id| id.0);
-                ids
-            };
+            frame.alive_selectable_friendly_constructing_worker_ids(team);
         if ids.is_empty() {
             let msg = "No constructing workers";
             self.game_hud.push_info_message(msg);
@@ -16585,29 +15958,14 @@ impl CnCGameEngine {
 
     /// Retail SELECT_HERO (Ctrl+H) residual.
     fn select_hero_units_hotkey(&mut self) {
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let team = frame.local_team();
 
-        let selection: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            // Presentation-owned hero identity (no live GameLogic dual-scan).
-            frame.alive_selectable_friendly_hero_ids(team)
-        } else {
-            // Boot residual only.
-            self.game_logic
-                .get_objects()
-                .iter()
-                .filter(|(_, obj)| {
-                    obj.team == team && obj.is_selectable() && obj.is_alive() && obj.is_hero()
-                })
-                .map(|(&id, _)| id)
-                .collect()
-        };
+        let selection: Vec<ObjectId> = // Presentation-owned hero identity (no live GameLogic dual-scan).
+            frame.alive_selectable_friendly_hero_ids(team);
 
         if selection.is_empty() {
             return;
@@ -16783,50 +16141,18 @@ impl CnCGameEngine {
     }
 
     fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
-        // Prefer presentation-frozen local_team when a frame is installed.
-        let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            // Boot residual only — presentation local_team owns InGame similar-select.
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-
-        // Prefer presentation identity (template/team/selectable) when dual-tick snapshot exists.
-        let (similar_units, template_label) = if let Some(frame) =
-            self.last_presentation_frame.as_ref()
-        {
-            let ids = frame.similar_unit_ids(clicked_object_id, player_team);
-            let label = frame
-                .objects
-                .iter()
-                .find(|o| o.id == clicked_object_id)
-                .map(|o| o.template_name.clone())
-                .unwrap_or_default();
-            (ids, label)
-        } else {
-            // Boot residual only — presentation similar_unit_ids owns InGame path.
-            let Some(clicked_obj) = self.game_logic.find_object(clicked_object_id) else {
-                return;
-            };
-            if clicked_obj.team != player_team || !clicked_obj.is_selectable() {
-                return;
-            }
-            let template = clicked_obj.template_name.clone();
-            // Boot residual only — presentation similar_unit_ids owns InGame path.
-            let ids: Vec<ObjectId> = self
-                .game_logic
-                .get_objects()
-                .iter()
-                .filter(|(_, obj)| {
-                    obj.team == player_team && obj.is_selectable() && obj.template_name == template
-                })
-                .map(|(&id, _)| id)
-                .collect();
-            (ids, template)
-        };
+        let player_team = frame.local_team();
+        let similar_units = frame.similar_unit_ids(clicked_object_id, player_team);
+        let template_label = frame
+            .objects
+            .iter()
+            .find(|o| o.id == clicked_object_id)
+            .map(|o| o.template_name.clone())
+            .unwrap_or_default();
 
         if !similar_units.is_empty() {
             self.game_logic
