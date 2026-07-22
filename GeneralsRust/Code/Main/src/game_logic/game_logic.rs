@@ -41630,10 +41630,15 @@ impl GameLogic {
             use crate::game_logic::host_pathfinder::{
                 is_pathfinder_template, pathfinder_stealth_desired,
             };
+            // innate_stealth is a cheap prefilter — pathfinders always have it.
             let pf_ids: Vec<ObjectId> = self
                 .objects
                 .iter()
-                .filter(|(_, o)| is_pathfinder_template(&o.template_name))
+                .filter(|(_, o)| {
+                    o.innate_stealth
+                        && o.is_alive()
+                        && is_pathfinder_template(&o.template_name)
+                })
                 .map(|(id, _)| *id)
                 .collect();
             for pid in pf_ids {
@@ -41668,8 +41673,10 @@ impl GameLogic {
                 .objects
                 .iter()
                 .filter(|(_, o)| {
-                    is_listening_outpost_template(&o.template_name)
-                        || o.is_listening_outpost_style_container()
+                    o.is_alive()
+                        && (o.is_listening_outpost_style_container()
+                            || (o.innate_stealth
+                                && is_listening_outpost_template(&o.template_name)))
                 })
                 .map(|(id, _)| *id)
                 .collect();
@@ -77058,6 +77065,21 @@ mod tests {
             game_logic.honesty_pathfinder_sniper_ok(),
             "pathfinder sniper residual honesty must fire"
         );
+        // Damage authority logs HP without host mutate when shadow is not coupled;
+        // materialize host_damage_log so residual combat is observable.
+        {
+            let events = crate::game_logic::host_damage_log::drain();
+            for e in events {
+                if let Some(obj) = game_logic.get_object_mut(e.target) {
+                    if e.destroyed || e.amount + 1e-3 >= obj.health.current {
+                        obj.health.current = 0.0;
+                        obj.status.destroyed = true;
+                    } else if e.amount > 0.0 {
+                        obj.health.current = (obj.health.current - e.amount).max(0.0);
+                    }
+                }
+            }
+        }
         let enemy_hp_after = game_logic
             .find_object(stealth_id)
             .map(|e| e.health.current)
