@@ -869,19 +869,22 @@ impl AiUnitGroup {
         let mut stale_targets = Vec::new();
 
         for &enemy_id in &self.engaged_enemies {
-            let Some(enemy_arc) = OBJECT_REGISTRY.get_object(enemy_id) else {
+            let Some((destroyed, health_ratio, cost)) =
+                OBJECT_REGISTRY.with_object(enemy_id, |enemy_guard| {
+                    (
+                        enemy_guard.is_destroyed(),
+                        enemy_guard.get_health_percentage(),
+                        enemy_guard.get_template().calc_cost_to_build(None).max(1) as f32,
+                    )
+                })
+            else {
                 stale_targets.push(enemy_id);
                 continue;
             };
-            let Ok(enemy_guard) = enemy_arc.read() else {
-                continue;
-            };
-            if enemy_guard.is_destroyed() {
+            if destroyed {
                 stale_targets.push(enemy_id);
                 continue;
             }
-            let health_ratio = enemy_guard.get_health_percentage();
-            let cost = enemy_guard.get_template().calc_cost_to_build(None).max(1) as f32;
             let score = cost * (1.0 + (1.0 - health_ratio) * 0.75);
             if score > best_score {
                 best_score = score;
@@ -933,16 +936,18 @@ impl AiUnitGroup {
         let mut threat_dir = Coord2D::new(0.0, 0.0);
         let mut threat_count = 0;
         for &enemy_id in &self.engaged_enemies {
-            let Some(enemy_arc) = OBJECT_REGISTRY.get_object(enemy_id) else {
+            let Some(pos) = OBJECT_REGISTRY
+                .with_object(enemy_id, |enemy_guard| {
+                    if enemy_guard.is_destroyed() {
+                        None
+                    } else {
+                        Some(*enemy_guard.get_position())
+                    }
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(enemy_guard) = enemy_arc.read() else {
-                continue;
-            };
-            if enemy_guard.is_destroyed() {
-                continue;
-            }
-            let pos = enemy_guard.get_position();
             threat_dir.x += pos.x - self.center_position.x;
             threat_dir.y += pos.y - self.center_position.y;
             threat_count += 1;
@@ -1023,13 +1028,11 @@ impl AiUnitGroup {
             else {
                 continue;
             };
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(*target_id) else {
+            let Some(target_pos) = OBJECT_REGISTRY
+                .with_object(*target_id, |target_guard| *target_guard.get_position())
+            else {
                 continue;
             };
-            let Ok(target_guard) = target_arc.read() else {
-                continue;
-            };
-            let target_pos = *target_guard.get_position();
             if let Ok(mut sm) = state_machine.write() {
                 sm.set_goal_position(target_pos);
                 sm.set_state(AIStateType::MoveTo as u32);

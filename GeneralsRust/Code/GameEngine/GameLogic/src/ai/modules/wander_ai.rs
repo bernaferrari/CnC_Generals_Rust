@@ -25,24 +25,22 @@ impl WanderAIUpdate {
     }
 
     fn get_object_position(&self, object_id: ObjectID) -> Option<Coord3D> {
-        let obj = OBJECT_REGISTRY.get_object(object_id)?;
-        let guard = obj.read().ok()?;
-        Some(*guard.get_position())
+        OBJECT_REGISTRY.with_object(object_id, |guard| *guard.get_position())
     }
 
     fn issue_wander_move(&self, object_id: ObjectID) {
-        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-            return;
-        };
-        let Ok(guard) = obj.read() else {
-            return;
-        };
-        let Some(ai) = guard.get_ai_update_interface() else {
+        let Some((ai, pos)) = OBJECT_REGISTRY
+            .with_object(object_id, |guard| {
+                guard
+                    .get_ai_update_interface()
+                    .map(|ai| (ai, *guard.get_position()))
+            })
+            .flatten()
+        else {
             return;
         };
         let dx: Real = get_game_logic_random_value_real(5.0, 50.0);
         let dy: Real = get_game_logic_random_value_real(5.0, 50.0);
-        let pos = guard.get_position();
         let dest = Coord3D::new(pos.x + dx, pos.y + dy, pos.z);
         ai.ai_move_to_position(&dest, false, CommandSourceType::FromAi);
     }
@@ -77,16 +75,15 @@ impl AIUpdateModuleTrait for WanderAIUpdate {
         };
         context.position = pos;
 
-        let Some(obj) = OBJECT_REGISTRY.get_object(context.object_id) else {
+        let Some(is_idle) = OBJECT_REGISTRY
+            .with_object(context.object_id, |guard| {
+                guard.get_ai_update_interface().map(|ai| ai.is_idle())
+            })
+            .flatten()
+        else {
             return Ok(());
         };
-        let Ok(guard) = obj.read() else {
-            return Ok(());
-        };
-        let Some(ai) = guard.get_ai_update_interface() else {
-            return Ok(());
-        };
-        if ai.is_idle() {
+        if is_idle {
             self.issue_wander_move(context.object_id);
         }
         Ok(())

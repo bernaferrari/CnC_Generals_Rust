@@ -228,7 +228,7 @@ impl AISkirmishPlayer {
                 // C++: Object *bldg = findObjectByID; if (bldg) continue — live object only.
                 let obj_id = info.get_object_id();
                 if obj_id != crate::common::INVALID_ID
-                    && OBJECT_REGISTRY.get_object(obj_id).is_some()
+                    && OBJECT_REGISTRY.with_object(obj_id, |_| ()).is_some()
                 {
                     info_opt = info.get_next_mut();
                     continue;
@@ -1371,8 +1371,7 @@ impl AISkirmishPlayer {
                 }
             }
             let positions: Vec<Coord3D> = OBJECT_REGISTRY
-                .get_object(obj_id)
-                .and_then(|arc| arc.read().ok().map(|g| vec![*g.get_position()]))
+                .with_object(obj_id, |g| vec![*g.get_position()])
                 .unwrap_or_default();
             if let Ok(ai_guard) = THE_AI.read() {
                 if let Some(pf_arc) = ai_guard.pathfinder() {

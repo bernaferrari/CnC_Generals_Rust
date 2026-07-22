@@ -668,10 +668,10 @@ impl AsyncAiPlayer {
         if let Some(player) = player_arc.as_ref().and_then(|arc| arc.read().ok()) {
             owned_objects.extend(player.get_all_objects());
             for obj_id in &player.get_all_objects() {
-                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
-                    if let Ok(obj_guard) = obj_arc.read() {
-                        owned_positions.push(*obj_guard.get_position());
-                    }
+                if let Some(pos) =
+                    OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| *obj_guard.get_position())
+                {
+                    owned_positions.push(pos);
                 }
             }
         }
@@ -836,10 +836,10 @@ impl AsyncAiPlayer {
 
         let mut own_strength = 0.0f32;
         for obj_id in owned_objects {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    own_strength += obj_guard.get_health();
-                }
+            if let Some(health) =
+                OBJECT_REGISTRY.with_object(obj_id, |obj_guard| obj_guard.get_health())
+            {
+                own_strength += health;
             }
         }
 
@@ -1165,8 +1165,9 @@ impl AsyncAiPlayer {
                 }
                 StrategyGoal::DefensiveAction => {
                     if let Some(pos) = context.game_state.owned_objects.iter()
-                        .filter_map(|id| OBJECT_REGISTRY.get_object(*id))
-                        .filter_map(|arc| arc.read().ok().map(|g| *g.get_position()))
+                        .filter_map(|id| {
+                            OBJECT_REGISTRY.with_object(*id, |g| *g.get_position())
+                        })
                         .next() {
                         tasks.push(AiTask::DefendLocation {
                             location: pos,
