@@ -79,6 +79,22 @@ impl ObjectRegistry {
         }
     }
 
+    /// Borrow-first object access without keeping an Arc at the call site.
+    /// Prefer this over `get_object(id).read()` when the registry handle need
+    /// not outlive the callback. Intermediate step toward retiring Arc stores.
+    pub fn with_object<R>(&self, id: ObjectID, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        let arc = self.get_object(id)?;
+        let guard = arc.read().ok()?;
+        Some(f(&guard))
+    }
+
+    /// Mutable borrow-first object access without keeping an Arc at the call site.
+    pub fn with_object_mut<R>(&self, id: ObjectID, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        let arc = self.get_object(id)?;
+        let mut guard = arc.write().ok()?;
+        Some(f(&mut guard))
+    }
+
     /// Host/presentation path: true when no dual-world factory objects are registered.
     pub fn is_empty(&self) -> bool {
         if let Ok(guard) = self.store.read() {
