@@ -851,9 +851,9 @@ impl SpecialAbilityUpdate {
             if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
                 if let Some(ai) = obj_guard.get_ai_update_interface() {
                     if let Ok(_target_guard) = target.read() {
-                        let _ = ai
-                            .lock()
-                            .map(|mut ai_guard| ai_guard.ignore_obstacle(Some(&target)));
+                        let _ = ai.lock().map(|mut ai_guard| {
+                            ai_guard.ignore_obstacle(target.read().ok().map(|g| g.get_id()))
+                        });
                     }
                     ai.ai_move_to_object(self.target_id, CMD_FROM_AI);
                     return true;
@@ -1774,7 +1774,8 @@ impl SpecialAbilityUpdate {
                         if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
                             if let Ok(_target_guard) = target.read() {
                                 let _ = ai.lock().map(|mut guard| {
-                                    let _ = guard.ignore_obstacle(Some(&target));
+                                    let _ = guard
+                                        .ignore_obstacle(target.read().ok().map(|g| g.get_id()));
                                 });
                             }
                         }

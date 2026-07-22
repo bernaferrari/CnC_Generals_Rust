@@ -7964,7 +7964,7 @@ impl ClassicState for AIDockState {
         if let Ok(owner_guard) = owner.try_read() {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.lock() {
-                    let _ = ai_guard.ignore_obstacle(Some(&goal));
+                    let _ = ai_guard.ignore_obstacle(goal.read().ok().map(|g| g.get_id()));
                 }
             }
         }
@@ -8244,7 +8244,7 @@ impl ClassicState for AIEnterState {
 
             if let Some(ai) = owner_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.lock() {
-                    let _ = ai_guard.ignore_obstacle(Some(&goal));
+                    let _ = ai_guard.ignore_obstacle(goal.read().ok().map(|g| g.get_id()));
                     let _ = ai_guard.set_allow_invalid_position(true);
                 }
             }
@@ -9491,7 +9491,7 @@ impl ClassicState for AIAttackAimAtTargetState {
                         for turret in [TurretType::Primary, TurretType::Secondary] {
                             ai_guard.set_turret_target_object(
                                 turret,
-                                Some(&target),
+                                target.read().ok().map(|g| g.get_id()),
                                 self.force_attacking,
                             );
                         }
@@ -9500,7 +9500,7 @@ impl ClassicState for AIAttackAimAtTargetState {
                         if turret != TurretType::Invalid {
                             ai_guard.set_turret_target_object(
                                 turret,
-                                Some(&target),
+                                target.read().ok().map(|g| g.get_id()),
                                 self.force_attacking,
                             );
                         } else if weapon.is_contact_weapon() && in_range && !preventing {
@@ -9568,7 +9568,7 @@ impl ClassicState for AIAttackAimAtTargetState {
                     if turret != TurretType::Invalid {
                         ai_guard.set_turret_target_object(
                             turret,
-                            Some(&target),
+                            target.read().ok().map(|g| g.get_id()),
                             self.force_attacking,
                         );
                         return Ok(StateReturnType::Continue);
@@ -10270,7 +10270,11 @@ impl AIAttackPursueTargetState {
                 None,
             )
         {
-            ai_guard.set_turret_target_object(turret, Some(&victim), self.force_attacking);
+            ai_guard.set_turret_target_object(
+                turret,
+                victim.read().ok().map(|g| g.get_id()),
+                self.force_attacking,
+            );
             self.is_initial_approach = false;
 
             let mut desired_speed = victim_guard
@@ -10390,7 +10394,11 @@ impl ClassicState for AIAttackPursueTargetState {
                 if turret == TurretType::Invalid {
                     return Ok(StateReturnType::Success);
                 }
-                ai_guard.set_turret_target_object(turret, Some(&victim), self.force_attacking);
+                ai_guard.set_turret_target_object(
+                    turret,
+                    victim.read().ok().map(|g| g.get_id()),
+                    self.force_attacking,
+                );
             }
         }
         drop(victim_guard);
@@ -10423,7 +10431,7 @@ impl ClassicState for AIAttackPursueTargetState {
                                 {
                                     ai_guard.set_turret_target_object(
                                         turret,
-                                        Some(&temporary_target),
+                                        temporary_target.read().ok().map(|g| g.get_id()),
                                         self.force_attacking,
                                     );
                                 }
@@ -10546,7 +10554,7 @@ impl AIAttackApproachTargetState {
 
             self.base.set_adjusts_destination(true);
             if weapon.is_contact_weapon() {
-                let _ = ai_guard.ignore_obstacle(Some(&victim));
+                let _ = ai_guard.ignore_obstacle(victim.read().ok().map(|g| g.get_id()));
                 self.base.set_adjusts_destination(false);
                 let _ = ai_guard.set_path_extra_distance(10.0 * PATHFIND_CELL_SIZE_F);
             }
@@ -10833,7 +10841,7 @@ impl ClassicState for AIAttackApproachTargetState {
                         if let Some(victim) = self.base.base.get_machine_goal_object() {
                             ai_guard.set_turret_target_object(
                                 turret,
-                                Some(&victim),
+                                victim.read().ok().map(|g| g.get_id()),
                                 self.force_attacking,
                             );
                         }
@@ -10904,7 +10912,7 @@ impl ClassicState for AIAttackApproachTargetState {
                                 {
                                     ai_guard.set_turret_target_object(
                                         turret,
-                                        Some(&temporary_target),
+                                        temporary_target.read().ok().map(|g| g.get_id()),
                                         self.force_attacking,
                                     );
                                 }

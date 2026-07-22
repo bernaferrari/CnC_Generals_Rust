@@ -3323,7 +3323,7 @@ impl UnitAIUpdate {
             .get_position()
             .to_owned();
         self.requested_destination = victim_pos;
-        let _ = self.ignore_obstacle(Some(&victim));
+        let _ = self.ignore_obstacle(victim.read().ok().map(|g| g.get_id()));
         Ok(())
     }
 
@@ -6899,13 +6899,12 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn set_turret_target_object(
         &mut self,
         turret: TurretType,
-        target: Option<&Arc<RwLock<Object>>>,
+        target_id: Option<ObjectID>,
         force_attacking: bool,
     ) {
         if let Some(machine) = self.ensure_turret_machine(turret) {
             if let Some(turret_ai) = machine.get_turret_ai() {
                 if let Ok(mut guard) = turret_ai.lock() {
-                    let target_id = target.and_then(|arc| arc.read().ok().map(|g| g.get_id()));
                     guard.set_current_target_with_force(target_id, force_attacking);
                 }
             }
@@ -7596,11 +7595,9 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn ignore_obstacle(
         &mut self,
-        obj: Option<&Arc<RwLock<Object>>>,
+        obj_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.ignore_obstacle_id = obj
-            .and_then(|handle| handle.read().ok().map(|guard| guard.get_id()))
-            .unwrap_or(INVALID_ID);
+        self.ignore_obstacle_id = obj_id.unwrap_or(INVALID_ID);
         Ok(())
     }
 
@@ -7897,7 +7894,11 @@ impl AIUpdateInterface for UnitAIUpdate {
                 .as_ref()
                 .and_then(|a| a.read().ok().map(|g| g.get_id())),
         );
-        let _ = self.ignore_obstacle(victim.as_ref());
+        let _ = self.ignore_obstacle(
+            victim
+                .as_ref()
+                .and_then(|a| a.read().ok().map(|g| g.get_id())),
+        );
         let now = TheGameLogic::get_frame();
         if self.path_timestamp > now.saturating_sub(3) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
@@ -8374,7 +8375,13 @@ impl AIUpdateInterface for UnitAIUpdate {
                 false
             };
             if needs_transfer {
-                self.set_turret_target_object(turret, new_target.as_ref(), true);
+                self.set_turret_target_object(
+                    turret,
+                    new_target
+                        .as_ref()
+                        .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                    true,
+                );
             }
         }
     }
@@ -8428,12 +8435,8 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn ai_attack_object(
         &mut self,
-        target: &Arc<RwLock<Object>>,
+        target_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let target_id = target
-            .read()
-            .map(|guard| guard.get_id())
-            .map_err(|_| "target lock poisoned")?;
         let unit =
             get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
@@ -8928,12 +8931,12 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn ai_guard_object(
         &mut self,
-        obj_to_guard: &Arc<RwLock<Object>>,
+        target_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let (target_id, target_pos) = obj_to_guard
-            .read()
-            .map(|guard| (guard.get_id(), *guard.get_position()))
-            .map_err(|_| "target lock poisoned")?;
+        let target_pos = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
+            .and_then(|arc| arc.read().ok().map(|g| *g.get_position()))
+            .ok_or("guard target not found")?;
         let unit =
             get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
         self.push_guard_target_type(GuardTargetType::Object);
