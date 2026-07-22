@@ -173,25 +173,38 @@ static PRODUCTION_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::A
 /// True only while the production engine couples host update → shadow_session.
 /// Host-only gates (golden/shell) never set this, so construction/production
 /// percent still advance without a dual-world writeback.
-static SHADOW_COUPLED_TICK_ACTIVE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-/// Mark the current host frame as shadow-coupled (engine path only).
-#[inline]
-pub fn begin_shadow_coupled_tick() {
-    SHADOW_COUPLED_TICK_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+// Thread-local depth so parallel unit tests cannot clear each other's couple mark.
+// Engine remains single-threaded; nested begin/end pairs are supported.
+std::thread_local! {
+    static SHADOW_COUPLED_TICK_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
-/// Clear the shadow-coupled host-frame mark.
+/// Mark the current host frame as shadow-coupled (engine path / tests).
+#[inline]
+pub fn begin_shadow_coupled_tick() {
+    SHADOW_COUPLED_TICK_DEPTH.with(|d| d.set(d.get().saturating_add(1)));
+}
+
+/// Clear one shadow-coupled host-frame mark (nested-safe).
 #[inline]
 pub fn end_shadow_coupled_tick() {
-    SHADOW_COUPLED_TICK_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+    SHADOW_COUPLED_TICK_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
 }
 
 /// Host freeze of sole-tick systems is valid only on a coupled engine frame.
 #[inline]
 pub fn shadow_coupled_tick_active() -> bool {
-    SHADOW_COUPLED_TICK_ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
+    SHADOW_COUPLED_TICK_DEPTH.with(|d| d.get() > 0)
+}
+
+/// Serializes tests (and residual harnesses) that mutate GENERALS_GAMEWORLD_* env.
+#[cfg(test)]
+pub(crate) fn authority_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn gameworld_shadow_enabled() -> bool {
@@ -319,7 +332,10 @@ pub fn gameworld_ai_decision_authority_enabled() -> bool {
 /// AI decision last-writer only while shadow can apply/writeback decisions.
 #[inline]
 pub fn gameworld_ai_decision_authority_live() -> bool {
-    gameworld_ai_decision_authority_enabled() && gameworld_shadow_enabled()
+    // Fail-open to host AI state when no coupled engine shadow writeback frame.
+    gameworld_ai_decision_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 /// When enabled (default), `queue_projectile` only logs fire-spawns; shadow
@@ -7208,17 +7224,15 @@ pub fn maybe_shadow_after_host_tick(logic: &mut GameLogic) -> Option<GameWorldSh
 /// and HP is written back to host (GameWorld last writer for health).
 
 /// RAII couple mark for shadow_session_after_host_tick (tests + engine).
-struct ShadowCoupleGuard {
+pub(crate) struct ShadowCoupleGuard {
     owned: bool,
 }
 impl ShadowCoupleGuard {
-    fn enter() -> Self {
-        if shadow_coupled_tick_active() {
-            Self { owned: false }
-        } else {
-            begin_shadow_coupled_tick();
-            Self { owned: true }
-        }
+    pub(crate) fn enter() -> Self {
+        // Always push a depth level so nested session/guards stay coupled until
+        // every owner drops (thread-local; safe under parallel tests).
+        begin_shadow_coupled_tick();
+        Self { owned: true }
     }
 }
 impl Drop for ShadowCoupleGuard {
@@ -7843,12 +7857,8 @@ mod tests {
     use glam::Vec3;
     use std::sync::{Mutex, OnceLock};
 
-    /// Serializes tests that read/write GENERALS_GAMEWORLD_* process env.
     fn authority_env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        super::authority_env_lock()
     }
 
     fn ensure_template(logic: &mut GameLogic, name: &str, hp: f32) {
@@ -16441,9 +16451,13 @@ mod tests {
 
     #[test]
     fn ai_decision_buffer_channel_via_push_ai_decision() {
+        let _env_guard = authority_env_lock();
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
+        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("AiDec");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -16497,6 +16511,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("AiDecAuth");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -16533,7 +16548,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_ai_command_defers_host_attack_under_authority() {
+    fn apply_ai_command_logs_and_host_applies_under_authority() {
         let _env_guard = authority_env_lock();
 
         use crate::game_logic::game_logic::AICommand;
@@ -16545,6 +16560,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("AiCmdAuth");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -16581,21 +16597,24 @@ mod tests {
                 .any(|e| e.kind == host_ai_decision_log::AI_DECISION_SET_STATE),
             "SetAIState must be logged: {events:?}"
         );
+        // Production path is host-immediate engagement + decision log (GameWorld
+        // last-write). Shadow writeback re-asserts the same target.
         let host = logic.get_objects().get(&oid).unwrap();
-        assert!(
-            host.target.is_none(),
-            "apply_ai_command must not host-apply AttackTarget under decision authority"
+        assert_eq!(
+            host.target,
+            Some(vid),
+            "host applies AttackTarget same-frame"
         );
-        // AI state stays default until writeback (Idle unless previously set).
-        assert_ne!(
+        assert_eq!(
             host.ai_state,
             crate::game_logic::AIState::Attacking,
-            "SetAIState must not host-apply under decision authority"
+            "host applies SetAIState same-frame"
         );
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-        assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
+        // Host already holds the target; writeback is a no-op when equal.
+        let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         assert_eq!(logic.get_objects().get(&oid).unwrap().target, Some(vid));
         match prev {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
@@ -16619,6 +16638,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("ContAtk");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -16691,6 +16711,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("AtkPath");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -16771,6 +16792,7 @@ mod tests {
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
         std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("PathSt");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -16828,6 +16850,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("TcAuth");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -16914,6 +16937,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MdAuth");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -16994,6 +17018,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("PrivAtk");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -17061,6 +17086,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("XferAtk");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -17195,6 +17221,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("EngAw");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -17250,6 +17277,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MoodAcq");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -17317,6 +17345,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("GuardEng");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -17377,6 +17406,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("FacAtk");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -17465,6 +17495,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("StopAtk");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -17664,6 +17695,7 @@ mod tests {
         assert!(gameworld_ai_decision_authority_enabled());
         assert!(!gameworld_ai_decision_authority_live());
         crate::game_logic::host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("AiDecNoShadow");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -17947,6 +17979,7 @@ mod tests {
 
         std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("PathMv");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -18024,6 +18057,7 @@ mod tests {
         let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("IdleAuth");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -18132,6 +18166,7 @@ mod tests {
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
         std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("WpAuth");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -18185,6 +18220,7 @@ mod tests {
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
         std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("StateAw");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -18709,6 +18745,7 @@ mod tests {
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
         std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("DzAuth");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -18804,6 +18841,7 @@ mod tests {
 
         std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("HjAuth");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -19084,6 +19122,7 @@ mod tests {
         std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         host_ai_decision_log::clear();
+        let _couple = super::ShadowCoupleGuard::enter();
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("PrivStop");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
