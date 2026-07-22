@@ -653,11 +653,7 @@ impl SpecialAbilityUpdate {
         }
     }
 
-    fn init_laser(
-        &mut self,
-        special_object: &Arc<RwLock<Object>>,
-        target: Option<&Arc<RwLock<Object>>>,
-    ) -> bool {
+    fn init_laser(&mut self, special_object_id: ObjectID, target_id: Option<ObjectID>) -> bool {
         let Some(owner) = self.get_object() else {
             self.kill_special_objects();
             return false;
@@ -670,6 +666,7 @@ impl SpecialAbilityUpdate {
                 return false;
             }
         };
+        let owner_id = owner_guard.get_id();
         let (found, start_pos, _mat) = owner_guard.get_single_logical_bone_position(
             self.module_data.special_object_attach_to_bone_name.as_str(),
         );
@@ -679,16 +676,27 @@ impl SpecialAbilityUpdate {
             *owner_guard.get_position()
         };
 
-        let target_guard = target.and_then(|t| t.read().ok());
-        let end_pos = target_guard
-            .as_ref()
-            .map(|guard| {
-                guard
-                    .get_geometry_info()
-                    .get_center_position(guard.get_position())
-            })
-            .unwrap_or(start_pos);
+        let end_pos = if let Some(id) = target_id {
+            TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+                .and_then(|target| {
+                    target.read().ok().map(|guard| {
+                        guard
+                            .get_geometry_info()
+                            .get_center_position(guard.get_position())
+                    })
+                })
+                .unwrap_or(start_pos)
+        } else {
+            start_pos
+        };
 
+        let Some(special_object) = TheGameLogic::find_object_by_id(special_object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(special_object_id))
+        else {
+            self.kill_special_objects();
+            return false;
+        };
         let client_modules = {
             let Ok(guard) = special_object.read() else {
                 self.kill_special_objects();
@@ -701,8 +709,8 @@ impl SpecialAbilityUpdate {
             module.with_module(|module| {
                 if let Some(laser_update) = module.get_laser_update_interface() {
                     laser_update.init_laser(
-                        Some(owner_guard.get_id()),
-                        target_guard.as_deref().map(|target| target.get_id()),
+                        Some(owner_id),
+                        target_id,
                         Some(start_pos.to_array()),
                         Some(end_pos.to_array()),
                         self.module_data
@@ -879,8 +887,8 @@ impl SpecialAbilityUpdate {
         match template.get_special_power_type() {
             crate::object::special_power_types::SpecialPowerType::MissileDefenderLaserGuidedMissiles => {
                 if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                    if let Some(special_object) = self.create_special_object() {
-                        let _ = self.init_laser(&special_object, Some(&target));
+                    if let Some(special_object_id) = self.create_special_object() {
+                        let _ = self.init_laser(special_object_id, Some(self.target_id));
                     }
                 }
             }
@@ -945,8 +953,8 @@ impl SpecialAbilityUpdate {
                             return;
                         }
                     }
-                    if let Some(special_object) = self.create_special_object() {
-                        let _ = self.init_laser(&special_object, Some(&target));
+                    if let Some(special_object_id) = self.create_special_object() {
+                        let _ = self.init_laser(special_object_id, Some(self.target_id));
                         if let Some(obj) = self.get_object() {
                             if let Ok(mut obj_guard) = obj.write() {
                                 obj_guard.clear_and_set_model_condition_flags(
@@ -1029,10 +1037,8 @@ impl SpecialAbilityUpdate {
 
                 let special_ids = self.special_object_id_list.clone();
                 for id in special_ids {
-                    if let Some(special_object) = TheGameLogic::find_object_by_id(id) {
-                        if !self.init_laser(&special_object, Some(&target)) {
-                            return false;
-                        }
+                    if !self.init_laser(id, Some(self.target_id)) {
+                        return false;
                     }
                 }
             }
@@ -1183,11 +1189,15 @@ impl SpecialAbilityUpdate {
                     }
                 }
 
-                if let Some(charge) = self.create_special_object() {
-                    let module = match charge.read() {
-                        Ok(guard) => guard.find_update_module("StickyBombUpdate"),
-                        Err(_) => None,
-                    };
+                if let Some(charge_id) = self.create_special_object() {
+                    let module = TheGameLogic::find_object_by_id(charge_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(charge_id))
+                        .and_then(|charge| {
+                            charge
+                                .read()
+                                .ok()
+                                .and_then(|guard| guard.find_update_module("StickyBombUpdate"))
+                        });
                     if let Some(module) = module {
                         let target_id = target
                             .read()
@@ -1377,11 +1387,15 @@ impl SpecialAbilityUpdate {
                         Some(target) => target,
                         None => return,
                     };
-                    if let Some(charge) = self.create_special_object() {
-                        let module = match charge.read() {
-                            Ok(guard) => guard.find_update_module("StickyBombUpdate"),
-                            Err(_) => None,
-                        };
+                    if let Some(charge_id) = self.create_special_object() {
+                        let module = TheGameLogic::find_object_by_id(charge_id)
+                            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(charge_id))
+                            .and_then(|charge| {
+                                charge
+                                    .read()
+                                    .ok()
+                                    .and_then(|guard| guard.find_update_module("StickyBombUpdate"))
+                            });
                         if let Some(module) = module {
                             let target_id = target
                                 .read()
@@ -1451,7 +1465,7 @@ impl SpecialAbilityUpdate {
         }
     }
 
-    fn create_special_object(&mut self) -> Option<Arc<RwLock<Object>>> {
+    fn create_special_object(&mut self) -> Option<ObjectID> {
         if self.special_object_id_list.len() as UnsignedInt == self.module_data.max_special_objects
         {
             if self.module_data.special_objects_persistent {
@@ -1477,7 +1491,9 @@ impl SpecialAbilityUpdate {
         };
 
         let owner_guard = owner.read().ok();
+        let mut new_id = INVALID_ID;
         if let Ok(mut new_guard) = new_object.write() {
+            new_id = new_guard.get_id();
             if let Some(owner_guard) = owner_guard.as_ref() {
                 let _ = new_guard.set_position(owner_guard.get_position());
                 let _ = new_guard.set_orientation(owner_guard.get_orientation());
@@ -1495,11 +1511,11 @@ impl SpecialAbilityUpdate {
             }
         }
 
-        if let Ok(new_guard) = new_object.read() {
-            self.special_object_id_list.push(new_guard.get_id());
+        if new_id == INVALID_ID {
+            return None;
         }
-
-        Some(new_object)
+        self.special_object_id_list.push(new_id);
+        Some(new_id)
     }
 
     fn is_facing(&mut self) -> bool {
