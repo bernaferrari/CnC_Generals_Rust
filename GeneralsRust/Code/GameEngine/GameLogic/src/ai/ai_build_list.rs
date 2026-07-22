@@ -1134,16 +1134,14 @@ impl AIBuildList {
             return Ok(false);
         };
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(KindOf::Structure) && !obj_guard.is_kind_of(KindOf::Building) {
-                continue;
-            }
-            if obj_guard.get_template_name() == building {
+            let matches = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    (obj_guard.is_kind_of(KindOf::Structure)
+                        || obj_guard.is_kind_of(KindOf::Building))
+                        && obj_guard.get_template_name() == building
+                })
+                .unwrap_or(false);
+            if matches {
                 return Ok(true);
             }
         }
@@ -1188,16 +1186,16 @@ impl AIBuildList {
         let mut sum = Coord3D::new(0.0, 0.0, 0.0);
         let mut count = 0.0;
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(pos) = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                if !obj_guard.is_kind_of(KindOf::Structure)
+                    && !obj_guard.is_kind_of(KindOf::Building)
+                {
+                    return None;
+                }
+                Some(*obj_guard.get_position())
+            }).flatten() else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(KindOf::Structure) && !obj_guard.is_kind_of(KindOf::Building) {
-                continue;
-            }
-            let pos = obj_guard.get_position();
             sum.x += pos.x;
             sum.y += pos.y;
             sum.z += pos.z;
@@ -1216,14 +1214,12 @@ impl AIBuildList {
     }
 
     fn get_builder_position(&self, builder_id: ObjectID) -> Result<Coord3D, AiError> {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(builder_id) else {
-            return Ok(Vec3::new(0.0, 0.0, 0.0));
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Ok(Vec3::new(0.0, 0.0, 0.0));
-        };
-        let pos = obj_guard.get_position();
-        Ok(Vec3::new(pos.x, pos.y, pos.z))
+        Ok(OBJECT_REGISTRY
+            .with_object(builder_id, |obj_guard| {
+                let pos = obj_guard.get_position();
+                Vec3::new(pos.x, pos.y, pos.z)
+            })
+            .unwrap_or(Vec3::new(0.0, 0.0, 0.0)))
     }
 
     fn find_idle_builders(&self, player_id: u32) -> Result<Vec<ObjectID>, AiError> {
@@ -1235,21 +1231,22 @@ impl AIBuildList {
         };
         let mut builders = Vec::new();
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(KindOf::Dozer) {
-                continue;
-            }
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                if let Ok(ai_guard) = ai.lock() {
-                    if ai_guard.is_idle() {
-                        builders.push(obj_id);
+            let idle_dozer = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if !obj_guard.is_kind_of(KindOf::Dozer) {
+                        return false;
                     }
-                }
+                    let Some(ai) = obj_guard.get_ai_update_interface() else {
+                        return false;
+                    };
+                    ai.lock()
+                        .ok()
+                        .map(|ai_guard| ai_guard.is_idle())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if idle_dozer {
+                builders.push(obj_id);
             }
         }
         Ok(builders)
@@ -1346,18 +1343,19 @@ impl AIBuildList {
         };
         let mut count = 0;
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if building_only {
-                if !obj_guard.is_kind_of(KindOf::Structure) && !obj_guard.is_kind_of(KindOf::Building) {
-                    continue;
-                }
-            }
-            if obj_guard.get_template_name() == template {
+            let matches = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if building_only {
+                        if !obj_guard.is_kind_of(KindOf::Structure)
+                            && !obj_guard.is_kind_of(KindOf::Building)
+                        {
+                            return false;
+                        }
+                    }
+                    obj_guard.get_template_name() == template
+                })
+                .unwrap_or(false);
+            if matches {
                 count += 1;
             }
         }
@@ -1378,19 +1376,20 @@ impl AIBuildList {
         };
         let mut count = 0;
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(KindOf::Structure) && !obj_guard.is_kind_of(KindOf::Building) {
-                continue;
-            }
-            let pos = obj_guard.get_position();
-            let dx = pos.x - position.x;
-            let dy = pos.y - position.y;
-            if dx * dx + dy * dy < min_spacing * min_spacing {
+            let near = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if !obj_guard.is_kind_of(KindOf::Structure)
+                        && !obj_guard.is_kind_of(KindOf::Building)
+                    {
+                        return false;
+                    }
+                    let pos = obj_guard.get_position();
+                    let dx = pos.x - position.x;
+                    let dy = pos.y - position.y;
+                    dx * dx + dy * dy < min_spacing * min_spacing
+                })
+                .unwrap_or(false);
+            if near {
                 count += 1;
             }
         }

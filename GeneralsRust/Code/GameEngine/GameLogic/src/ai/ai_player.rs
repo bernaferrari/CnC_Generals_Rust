@@ -1538,18 +1538,16 @@ impl AIPlayer {
     /// If structure has SupplyCenterDockUpdate, mark build-list entry as supply
     /// building and set desired gatherers from AISideInfo + 1 freebie.
     pub fn check_for_supply_center(&mut self, structure_id: ObjectID) -> Result<(), AiError> {
-        let Some(structure_arc) = OBJECT_REGISTRY.get_object(structure_id) else {
-            return Ok(());
-        };
-        let Ok(structure_guard) = structure_arc.read() else {
-            return Ok(());
-        };
-        // C++: findUpdateModule(NAMEKEY("SupplyCenterDockUpdate")) only —
-        // KindOf alone is not sufficient (matches GeneralsMD AIPlayer.cpp).
-        if structure_guard
-            .find_update_module("SupplyCenterDockUpdate")
-            .is_none()
-        {
+        let has_dock = OBJECT_REGISTRY
+            .with_object(structure_id, |structure_guard| {
+                // C++: findUpdateModule(NAMEKEY("SupplyCenterDockUpdate")) only —
+                // KindOf alone is not sufficient (matches GeneralsMD AIPlayer.cpp).
+                structure_guard
+                    .find_update_module("SupplyCenterDockUpdate")
+                    .is_some()
+            })
+            .unwrap_or(false);
+        if !has_dock {
             return Ok(());
         }
 
@@ -4171,18 +4169,13 @@ impl AIPlayer {
         _team: Option<Arc<RwLock<crate::team::Team>>>,
         _team_name: Option<&str>,
     ) {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return;
-        };
-        // C++ joinTeam uses obj->getTeam(); team handle args are unused.
-        let Some(ai) = obj.get_ai_update_interface() else {
-            return;
-        };
-        drop(obj);
-        ai.join_team();
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(obj_id, |obj| obj.get_ai_update_interface())
+            .flatten()
+        {
+            // C++ joinTeam uses obj->getTeam(); team handle args are unused.
+            ai.join_team();
+        }
     }
 
     fn is_skirmish_ai_player(&self) -> bool {
@@ -5374,24 +5367,29 @@ impl AIPlayer {
         busy_ok: bool,
         busy_factory: &mut Option<ObjectID>,
     ) -> Result<Option<ObjectID>, AiError> {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some((module_handles, behaviors)) = OBJECT_REGISTRY
+            .with_object(obj_id, |obj_guard| {
+                if obj_guard.get_controlling_player_id() != Some(self.player_id) {
+                    return None;
+                }
+                if obj_guard.is_destroyed()
+                    || obj_guard.is_under_construction()
+                    || obj_guard.test_status(ObjectStatusTypes::Sold)
+                {
+                    return None;
+                }
+                Some((
+                    obj_guard.behavior_modules(),
+                    obj_guard.get_behavior_modules(),
+                ))
+            })
+            .flatten()
+        else {
             return Ok(None);
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Ok(None);
-        };
-        if obj_guard.get_controlling_player_id() != Some(self.player_id) {
-            return Ok(None);
-        }
-        if obj_guard.is_destroyed()
-            || obj_guard.is_under_construction()
-            || obj_guard.test_status(ObjectStatusTypes::Sold)
-        {
-            return Ok(None);
-        }
 
         let mut checked = false;
-        for module_handle in obj_guard.behavior_modules() {
+        for module_handle in module_handles {
             let mut can_produce = false;
             let mut is_busy = false;
             let matched = module_handle.with_module(|module| {
@@ -5420,7 +5418,7 @@ impl AIPlayer {
         }
 
         if !checked {
-            for behavior in obj_guard.get_behavior_modules() {
+            for behavior in behaviors {
                 let Ok(mut behavior_guard) = behavior.lock() else {
                     continue;
                 };
