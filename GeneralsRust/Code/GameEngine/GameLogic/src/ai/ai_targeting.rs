@@ -587,77 +587,100 @@ impl AITargeting {
 
     /// Gather information about a target
     fn gather_target_info(&self, target_id: ObjectID, context: &TargetingContext) -> Result<TargetInfo, AiError> {
-        let target_arc = OBJECT_REGISTRY
-            .get_object(target_id)
-            .ok_or(AiError::InvalidObject)?;
-        let target_guard = target_arc.read().map_err(|_| AiError::LockFailed)?;
+        let Some((
+            position,
+            target_type,
+            health_percentage,
+            armor_type,
+            movement_speed,
+            predicted_position,
+            visibility,
+        )) = OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+            let position = *target_guard.get_position();
+            let target_type = if target_guard.is_kind_of(KindOf::Projectile) {
+                TargetType::Projectile
+            } else if target_guard.is_kind_of(KindOf::Aircraft) {
+                TargetType::Aircraft
+            } else if target_guard.is_kind_of(KindOf::Infantry) {
+                TargetType::Infantry
+            } else if target_guard.is_kind_of(KindOf::Vehicle) {
+                TargetType::Vehicle
+            } else if target_guard.is_kind_of(KindOf::Structure)
+                || target_guard.is_kind_of(KindOf::Building)
+            {
+                TargetType::Building
+            } else if target_guard.is_kind_of(KindOf::AircraftCarrier) {
+                TargetType::Naval
+            } else if target_guard.is_kind_of(KindOf::Harvester)
+                || target_guard.is_kind_of(KindOf::ResourceNode)
+                || target_guard.is_kind_of(KindOf::SupplySource)
+                || target_guard.is_kind_of(KindOf::SupplySourceOnPreview)
+            {
+                TargetType::Resource
+            } else if target_guard.is_kind_of(KindOf::Hero) {
+                TargetType::Special
+            } else {
+                TargetType::Unknown
+            };
 
-        let position = *target_guard.get_position();
-        let distance = self.calculate_distance(context.attacker_position, position);
-        let target_type = if target_guard.is_kind_of(KindOf::Projectile) {
-            TargetType::Projectile
-        } else if target_guard.is_kind_of(KindOf::Aircraft) {
-            TargetType::Aircraft
-        } else if target_guard.is_kind_of(KindOf::Infantry) {
-            TargetType::Infantry
-        } else if target_guard.is_kind_of(KindOf::Vehicle) {
-            TargetType::Vehicle
-        } else if target_guard.is_kind_of(KindOf::Structure) || target_guard.is_kind_of(KindOf::Building) {
-            TargetType::Building
-        } else if target_guard.is_kind_of(KindOf::AircraftCarrier) {
-            TargetType::Naval
-        } else if target_guard.is_kind_of(KindOf::Harvester)
-            || target_guard.is_kind_of(KindOf::ResourceNode)
-            || target_guard.is_kind_of(KindOf::SupplySource)
-            || target_guard.is_kind_of(KindOf::SupplySourceOnPreview)
-        {
-            TargetType::Resource
-        } else if target_guard.is_kind_of(KindOf::Hero) {
-            TargetType::Special
-        } else {
-            TargetType::Unknown
-        };
+            let health_percentage = target_guard.get_health_percentage();
+            let armor_type = target_guard.get_template_name().to_string();
 
-        let health_percentage = target_guard.get_health_percentage();
-        let armor_type = target_guard.get_template_name().to_string();
-        let last_seen_frame = TheGameLogic::get_frame();
-
-        let movement_speed = target_guard
-            .get_physics()
-            .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity().length()))
-            .unwrap_or(0.0);
-
-        let predicted_position = if self.config.prediction_enabled && movement_speed > 0.0 {
-            let mut predicted = position;
-            let velocity = target_guard
+            let movement_speed = target_guard
                 .get_physics()
-                .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity()))
-                .unwrap_or_else(Coord3D::origin);
-            predicted.x += velocity.x * self.config.prediction_time_seconds;
-            predicted.y += velocity.y * self.config.prediction_time_seconds;
-            predicted.z += velocity.z * self.config.prediction_time_seconds;
-            Some(predicted)
-        } else {
-            None
-        };
+                .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity().length()))
+                .unwrap_or(0.0);
 
-        let visibility = match OBJECT_REGISTRY.with_object(context.attacker_id, |attacker_guard| {
-            attacker_guard.get_controlling_player_id()
-        }) {
-            Some(Some(player_id)) => {
-                if target_guard.is_visible_to_player(player_id) {
-                    TargetVisibility::Visible
-                } else {
-                    match target_guard.get_shrouded_status(player_id as i32) {
-                        ObjectShroudStatus::PartialClear => TargetVisibility::Partially,
-                        ObjectShroudStatus::Fogged => TargetVisibility::Estimated,
-                        ObjectShroudStatus::Shrouded => TargetVisibility::Lost,
-                        ObjectShroudStatus::Clear => TargetVisibility::Visible,
+            let predicted_position = if self.config.prediction_enabled && movement_speed > 0.0 {
+                let mut predicted = position;
+                let velocity = target_guard
+                    .get_physics()
+                    .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity()))
+                    .unwrap_or_else(Coord3D::origin);
+                predicted.x += velocity.x * self.config.prediction_time_seconds;
+                predicted.y += velocity.y * self.config.prediction_time_seconds;
+                predicted.z += velocity.z * self.config.prediction_time_seconds;
+                Some(predicted)
+            } else {
+                None
+            };
+
+            let player_id = OBJECT_REGISTRY
+                .with_object(context.attacker_id, |attacker_guard| {
+                    attacker_guard.get_controlling_player_id()
+                })
+                .flatten();
+            let visibility = match player_id {
+                Some(player_id) => {
+                    if target_guard.is_visible_to_player(player_id) {
+                        TargetVisibility::Visible
+                    } else {
+                        match target_guard.get_shrouded_status(player_id as i32) {
+                            ObjectShroudStatus::PartialClear => TargetVisibility::Partially,
+                            ObjectShroudStatus::Fogged => TargetVisibility::Estimated,
+                            ObjectShroudStatus::Shrouded => TargetVisibility::Lost,
+                            ObjectShroudStatus::Clear => TargetVisibility::Visible,
+                        }
                     }
                 }
-            }
-            _ => TargetVisibility::Visible,
+                None => TargetVisibility::Visible,
+            };
+
+            (
+                position,
+                target_type,
+                health_percentage,
+                armor_type,
+                movement_speed,
+                predicted_position,
+                visibility,
+            )
+        }) else {
+            return Err(AiError::InvalidObject);
         };
+
+        let distance = self.calculate_distance(context.attacker_position, position);
+        let last_seen_frame = TheGameLogic::get_frame();
 
         let target_info = TargetInfo {
             object_id: target_id,
@@ -674,7 +697,7 @@ impl AITargeting {
             predicted_position,
             engagement_history: self.get_engagement_history(context.attacker_id, target_id),
         };
-        
+
         Ok(target_info)
     }
 
