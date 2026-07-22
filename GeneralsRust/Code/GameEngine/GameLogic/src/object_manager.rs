@@ -1162,18 +1162,22 @@ impl ObjectManager {
             return Ok(());
         }
 
-        // Update objects in deterministic order
-        for &object_id in &self.update_order {
-            if let Some(object) = self.objects.get(&object_id) {
-                if let Ok(mut obj) = object.write() {
-                    if !obj.is_destroyed() {
-                        obj.update(current_frame)?;
-
-                        // Update spatial partition if object moved
-                        self.spatial_partition
-                            .add_object(object_id, *obj.get_position());
-                    }
+        // Update objects in deterministic order (borrow-first; no Arc clone).
+        let order = self.update_order.clone();
+        for object_id in order {
+            let pos = self.with_object_mut(object_id, |obj| -> GameLogicResult<Option<_>> {
+                if obj.is_destroyed() {
+                    return Ok(None);
                 }
+                obj.update(current_frame)?;
+                Ok(Some(*obj.get_position()))
+            });
+            match pos {
+                Some(Ok(Some(position))) => {
+                    self.spatial_partition.add_object(object_id, position);
+                }
+                Some(Err(e)) => return Err(e),
+                _ => {}
             }
         }
 

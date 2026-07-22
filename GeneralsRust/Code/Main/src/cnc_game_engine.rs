@@ -4275,25 +4275,14 @@ impl CnCGameEngine {
                         .or_else(|| args.get("z1"))
                         .and_then(|s| s.parse().ok())
                         .unwrap_or(5000.0);
-                    let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        frame.local_team()
-                    } else {
-                        match self.game_logic.get_player(self.current_player_id) {
-                            Some(p) => p.team,
-                            None => {
-                                self.runtime_host_last_gameplay_cmd =
-                                    "box_select_fail_no_player".into();
-                                return;
-                            }
-                        }
+                    let Some(frame) = self.last_presentation_frame.as_ref() else {
+                        self.runtime_host_last_gameplay_cmd =
+                            "box_select_fail_no_presentation".into();
+                        return;
                     };
+                    let player_team = frame.local_team();
                     let boxed: Vec<ObjectId> =
-                        if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            frame.box_select_unit_ids(player_team, min_x, max_x, min_z, max_z)
-                        } else {
-                            // Presentation required (no live get_objects dual-read).
-                            Vec::new()
-                        };
+                        frame.box_select_unit_ids(player_team, min_x, max_x, min_z, max_z);
                     self.selected_objects = boxed.clone();
                     self.game_logic
                         .select_objects(self.current_player_id, boxed.clone());
@@ -10208,6 +10197,33 @@ impl CnCGameEngine {
             .find(|o| o.id == id)
     }
 
+    /// Local/human player id for UI command issue. Prefers presentation freeze.
+    fn local_player_id_for_ui(&self) -> u32 {
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            return frame.local_player_id;
+        }
+        if self.game_logic.get_player(self.current_player_id).is_some() {
+            return self.current_player_id;
+        }
+        self.game_logic
+            .get_players()
+            .keys()
+            .copied()
+            .min()
+            .unwrap_or(0)
+    }
+
+    /// Local team for UI. Prefers presentation freeze.
+    fn local_team_for_ui(&self) -> crate::game_logic::Team {
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            return frame.local_team();
+        }
+        self.game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.team)
+            .unwrap_or(crate::game_logic::Team::USA)
+    }
+
     #[inline]
     fn ui_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
         // Presentation-only identity for InGame UI residual.
@@ -10332,28 +10348,18 @@ impl CnCGameEngine {
             return;
         }
 
-        // Prefer the active local/host player (skirmish human), not hard-coded slot 0.
-        let player_id = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.id)
-            .or_else(|| self.game_logic.get_player(0).map(|p| p.id))
-            .or_else(|| self.game_logic.get_players().keys().copied().min())
-            .unwrap_or(0);
-        let team = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.team)
-            .unwrap_or(crate::game_logic::Team::USA);
+        // Prefer presentation local player/team freeze; selected from engine selection residual.
+        let player_id = self.local_player_id_for_ui();
+        let team = self.local_team_for_ui();
 
-        let mut selected = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_default();
-        if selected.is_empty() {
-            selected = self.selected_objects.clone();
-        }
+        let mut selected = if !self.selected_objects.is_empty() {
+            self.selected_objects.clone()
+        } else {
+            self.game_logic
+                .get_player(player_id)
+                .map(|p| p.selected_objects.clone())
+                .unwrap_or_default()
+        };
         let is_dozer = |id: crate::game_logic::ObjectId| self.ui_object_is_dozer(id);
         let dozers: Vec<_> = selected
             .iter()
@@ -10626,13 +10632,7 @@ impl CnCGameEngine {
         if template_name.trim().is_empty() || quantity == 0 {
             return;
         }
-        let player_id = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.id)
-            .or_else(|| self.game_logic.get_player(0).map(|p| p.id))
-            .or_else(|| self.game_logic.get_players().keys().copied().min())
-            .unwrap_or(0);
+        let player_id = self.local_player_id_for_ui();
         let selected = self.ui_selected_ids(player_id);
         if selected.is_empty() {
             log::debug!(
@@ -10911,16 +10911,8 @@ impl CnCGameEngine {
 
         let mut command_type = command_type;
         // Prefer engine current player; fall back to lowest id residual.
-        let player_id = if self.game_logic.get_player(self.current_player_id).is_some() {
-            self.current_player_id
-        } else {
-            self.game_logic
-                .get_players()
-                .keys()
-                .copied()
-                .min()
-                .unwrap_or(0)
-        };
+        let player_id = self.local_player_id_for_ui();
+
         let mut selected = self
             .game_logic
             .get_player(player_id)
@@ -15652,24 +15644,13 @@ impl CnCGameEngine {
             Vec::new()
         };
 
-        // Prefer presentation-frozen local_team when a frame is installed.
-        let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            // Boot residual only — presentation local_team owns InGame box-select.
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-
-        // Prefer presentation XZ pose/selectable/structure residual when dual-tick snapshot exists.
-        let boxed: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.box_select_unit_ids(player_team, min_x, max_x, min_z, max_z)
-        } else {
-            // Presentation required (no live get_objects dual-read).
-            Vec::new()
-        };
+        let player_team = frame.local_team();
+        let boxed: Vec<ObjectId> =
+            frame.box_select_unit_ids(player_team, min_x, max_x, min_z, max_z);
         for id in boxed {
             if !selection.contains(&id) {
                 selection.push(id);
