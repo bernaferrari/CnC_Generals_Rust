@@ -143,8 +143,10 @@ pub struct CrateCollide {
     module_data: CrateCollideModuleData,
     /// Thread-safe state
     state: Arc<Mutex<CrateCollideState>>,
-    /// Handle to the owning object when available
-    object_handle: Option<Arc<RwLock<Object>>>,
+    /// Lifetime pin when constructed from a handle. Identity is always object_id;
+    /// the registry stores Weak, so production worlds must keep the owner Arc alive
+    /// (object store). This pin only covers handle-based construction.
+    owner_pin: Option<Arc<RwLock<Object>>>,
 }
 
 impl fmt::Debug for CrateCollide {
@@ -164,7 +166,7 @@ impl CrateCollide {
                 is_collected: false,
                 creation_time: TheGameLogic::get_frame() as u64,
             })),
-            object_handle: OBJECT_REGISTRY.get_object(object_id),
+            owner_pin: None,
         }
     }
 
@@ -178,6 +180,9 @@ impl CrateCollide {
             .read()
             .map(|obj| obj.get_id())
             .unwrap_or(crate::common::INVALID_ID);
+        if object_id != crate::common::INVALID_ID {
+            OBJECT_REGISTRY.register_object(object_id, &thing);
+        }
         Self {
             base_module: CollideModule::new(object_id, module_data.base.clone()),
             module_data,
@@ -185,7 +190,7 @@ impl CrateCollide {
                 is_collected: false,
                 creation_time: TheGameLogic::get_frame() as u64,
             })),
-            object_handle: Some(thing),
+            owner_pin: Some(thing),
         }
     }
 
@@ -194,15 +199,12 @@ impl CrateCollide {
     }
 
     pub fn get_object(&self) -> Result<Arc<RwLock<Object>>, CollisionError> {
-        if let Some(handle) = &self.object_handle {
-            return Ok(handle.clone());
+        if let Some(obj) = OBJECT_REGISTRY.get_object(self.base_module.get_object_id()) {
+            return Ok(obj);
         }
-
-        OBJECT_REGISTRY
-            .get_object(self.base_module.get_object_id())
-            .ok_or_else(|| {
-                CollisionError::InvalidObject("crate collide object handle unavailable".to_string())
-            })
+        self.owner_pin.clone().ok_or_else(|| {
+            CollisionError::InvalidObject("crate collide object handle unavailable".to_string())
+        })
     }
 
     pub fn is_collected(&self) -> Result<bool, CollisionError> {
