@@ -205,6 +205,13 @@ mid-frame host combat still runs for C++ armor/side-effect parity.
  Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
+### Player ownership/power with_object deepen (2026-07-21)
+
+`Player::add_owned_object` / `remove_owned_object` / `set_units_vision_spied` /
+`can_build_more_of_type` and Team target/units_entered/move peels use
+`OBJECT_REGISTRY.with_object(_mut)`. `set_units_should_idle_or_resume` and
+`find_drone_by_producer_id` return path still use Arc for legacy AI/UI handles.
+
 ### Team/Player count-predicate with_object residual (2026-07-21)
 
 Team and Player `count_*` / `has_any_*` / `is_idle` / `get_estimate_team_position`
