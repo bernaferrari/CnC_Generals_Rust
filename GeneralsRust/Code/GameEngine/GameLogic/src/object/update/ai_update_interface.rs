@@ -1770,47 +1770,43 @@ impl AIUpdateInterface {
         new_speed: Real,
     ) {
         self.cur_locomotor_speed = new_speed;
-        let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_object_id) else {
-            return;
-        };
-        let Ok(mut owner) = owner.write() else {
-            return;
-        };
-        let _ = owner.set_position(&new_pos);
-        let _ = owner.set_orientation(new_angle);
-        if let Some(physics) = owner.get_physics() {
-            if let Ok(mut physics) = physics.lock() {
-                let delta_time = 1.0 / LOGICFRAMES_PER_SECOND as Real;
-                let velocity = (new_pos - old_pos) / delta_time;
-                physics.set_velocity(&velocity);
+        let _ = OBJECT_REGISTRY.with_object_mut(self.owner_object_id, |owner| {
+            let _ = owner.set_position(&new_pos);
+            let _ = owner.set_orientation(new_angle);
+            if let Some(physics) = owner.get_physics() {
+                if let Ok(mut physics) = physics.lock() {
+                    let delta_time = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+                    let velocity = (new_pos - old_pos) / delta_time;
+                    physics.set_velocity(&velocity);
 
-                let mut yaw_delta = new_angle - old_angle;
-                let two_pi = std::f32::consts::PI * 2.0;
-                while yaw_delta > std::f32::consts::PI {
-                    yaw_delta -= two_pi;
+                    let mut yaw_delta = new_angle - old_angle;
+                    let two_pi = std::f32::consts::PI * 2.0;
+                    while yaw_delta > std::f32::consts::PI {
+                        yaw_delta -= two_pi;
+                    }
+                    while yaw_delta < -std::f32::consts::PI {
+                        yaw_delta += two_pi;
+                    }
+                    physics.set_yaw_rate(yaw_delta / delta_time);
+                    physics.set_turning(if yaw_delta > 0.0 {
+                        1
+                    } else if yaw_delta < 0.0 {
+                        -1
+                    } else {
+                        0
+                    });
                 }
-                while yaw_delta < -std::f32::consts::PI {
-                    yaw_delta += two_pi;
-                }
-                physics.set_yaw_rate(yaw_delta / delta_time);
-                physics.set_turning(if yaw_delta > 0.0 {
-                    1
-                } else if yaw_delta < 0.0 {
-                    -1
-                } else {
-                    0
-                });
             }
-        }
 
-        if let Some(locomotor) = self.cur_locomotor.as_ref() {
-            let airborne = owner.get_height_above_terrain()
-                > locomotor.template.airborne_targeting_height as Real;
-            owner.set_status(
-                ObjectStatusMaskType::from_status(ObjectStatusTypes::AirborneTarget),
-                airborne,
-            );
-        }
+            if let Some(locomotor) = self.cur_locomotor.as_ref() {
+                let airborne = owner.get_height_above_terrain()
+                    > locomotor.template.airborne_targeting_height as Real;
+                owner.set_status(
+                    ObjectStatusMaskType::from_status(ObjectStatusTypes::AirborneTarget),
+                    airborne,
+                );
+            }
+        });
     }
 
     /// C++ AIUpdateInterface::setLocomotorGoalPositionOnPath – sets the
@@ -2029,29 +2025,28 @@ impl AIUpdateInterface {
     }
 
     fn self_collision_snapshot(&self) -> Option<CollisionObjectSnapshot> {
-        let obj_arc = OBJECT_REGISTRY.get_object(self.owner_object_id)?;
-        let obj = obj_arc.read().ok()?;
-        let (velocity, has_physics) = Self::physics_velocity(&obj);
-        Some(CollisionObjectSnapshot {
-            id: obj.get_id(),
-            position: *obj.get_position(),
-            direction: obj.get_unit_direction_vector_2d(),
-            velocity,
-            has_physics,
-            is_infantry: obj.is_kind_of(KindOf::Infantry),
-            is_vehicle: obj.is_kind_of(KindOf::Vehicle),
-            is_dozer: obj.is_kind_of(KindOf::Dozer),
-            moving: self.is_moving,
-            ground: self.is_doing_ground_movement(),
-            dead: self.is_ai_dead,
-            path_destination: self.path.as_ref().and_then(|path| path.last().copied()),
-            frames_blocked: self.blocked_frames,
-            formation_id: obj.get_formation_id(),
+        OBJECT_REGISTRY.with_object(self.owner_object_id, |obj| {
+            let (velocity, has_physics) = Self::physics_velocity(obj);
+            CollisionObjectSnapshot {
+                id: obj.get_id(),
+                position: *obj.get_position(),
+                direction: obj.get_unit_direction_vector_2d(),
+                velocity,
+                has_physics,
+                is_infantry: obj.is_kind_of(KindOf::Infantry),
+                is_vehicle: obj.is_kind_of(KindOf::Vehicle),
+                is_dozer: obj.is_kind_of(KindOf::Dozer),
+                moving: self.is_moving,
+                ground: self.is_doing_ground_movement(),
+                dead: self.is_ai_dead,
+                path_destination: self.path.as_ref().and_then(|path| path.last().copied()),
+                frames_blocked: self.blocked_frames,
+                formation_id: obj.get_formation_id(),
+            }
         })
     }
 
     fn other_collision_snapshot(other_id: ObjectID) -> Option<CollisionObjectSnapshot> {
-        let obj_arc = OBJECT_REGISTRY.get_object(other_id)?;
         let (
             id,
             position,
@@ -2063,10 +2058,9 @@ impl AIUpdateInterface {
             is_dozer,
             formation_id,
             ai,
-        ) = {
-            let obj = obj_arc.read().ok()?;
-            let (velocity, has_physics) = Self::physics_velocity(&obj);
-            (
+        ) = OBJECT_REGISTRY.with_object(other_id, |obj| {
+            let (velocity, has_physics) = Self::physics_velocity(obj);
+            Some((
                 obj.get_id(),
                 *obj.get_position(),
                 obj.get_unit_direction_vector_2d(),
@@ -2077,8 +2071,8 @@ impl AIUpdateInterface {
                 obj.is_kind_of(KindOf::Dozer),
                 obj.get_formation_id(),
                 obj.get_ai_update_interface()?,
-            )
-        };
+            ))
+        })??;
         let ai = ai.lock().ok()?;
         Some(CollisionObjectSnapshot {
             id,

@@ -1139,8 +1139,8 @@ impl UpdateModuleInterface for DumbProjectileBehavior {
         if self.victim_id != OBJECT_INVALID_ID
             && self.module_data.flight_path_adjust_dist_per_frame > 0.0
         {
-            if let Some(victim_arc) = OBJECT_REGISTRY.get_object(self.victim_id) {
-                if let Ok(victim_guard) = victim_arc.read() {
+            if let Some((dist_sqr, delta)) =
+                OBJECT_REGISTRY.with_object(self.victim_id, |victim_guard| {
                     let new_victim_pos = victim_guard
                         .get_geometry_info()
                         .get_center_position(victim_guard.get_position());
@@ -1150,22 +1150,24 @@ impl UpdateModuleInterface for DumbProjectileBehavior {
                         new_victim_pos.z - self.flight_path_end.z,
                     );
                     let dist_sqr = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-                    if dist_sqr > 0.1 {
-                        let mut dist = dist_sqr.sqrt();
-                        if dist > self.module_data.flight_path_adjust_dist_per_frame {
-                            dist = self.module_data.flight_path_adjust_dist_per_frame;
-                        }
-                        if dist > 0.0 {
-                            let inv = 1.0 / dist_sqr.sqrt();
-                            self.flight_path_end.x += dist * delta.x * inv;
-                            self.flight_path_end.y += dist * delta.y * inv;
-                            self.flight_path_end.z += dist * delta.z * inv;
-                            self.flight_path_segments = self.flight_path_segments.max(1);
-                            let object = self.get_object()?;
-                            if self.init_flight_path(&object, false, false).is_err() {
-                                self.detonate()?;
-                                return Ok(crate::modules::UPDATE_SLEEP_NONE);
-                            }
+                    (dist_sqr, delta)
+                })
+            {
+                if dist_sqr > 0.1 {
+                    let mut dist = dist_sqr.sqrt();
+                    if dist > self.module_data.flight_path_adjust_dist_per_frame {
+                        dist = self.module_data.flight_path_adjust_dist_per_frame;
+                    }
+                    if dist > 0.0 {
+                        let inv = 1.0 / dist_sqr.sqrt();
+                        self.flight_path_end.x += dist * delta.x * inv;
+                        self.flight_path_end.y += dist * delta.y * inv;
+                        self.flight_path_end.z += dist * delta.z * inv;
+                        self.flight_path_segments = self.flight_path_segments.max(1);
+                        let object = self.get_object()?;
+                        if self.init_flight_path(&object, false, false).is_err() {
+                            self.detonate()?;
+                            return Ok(crate::modules::UPDATE_SLEEP_NONE);
                         }
                     }
                 }
