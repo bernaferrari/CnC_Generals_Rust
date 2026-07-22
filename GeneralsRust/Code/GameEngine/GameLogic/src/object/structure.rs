@@ -67,8 +67,8 @@ pub enum ProductionState {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Structure {
-    /// Base object functionality
-    base_object: Arc<RwLock<Object>>,
+    /// Base object id (resolve for the duration of an op)
+    object_id: ObjectID,
 
     /// Structure classification
     #[allow(dead_code)]
@@ -249,8 +249,20 @@ pub struct VeterancyBonus {
 }
 
 impl Structure {
-    pub fn base_object(&self) -> Arc<RwLock<Object>> {
-        Arc::clone(&self.base_object)
+    pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
+        self.get_base_object()
+    }
+
+    pub fn object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 
     /// Create a new Structure
@@ -264,7 +276,19 @@ impl Structure {
             && !thing_template.is_kind_of(KindOf::ImmuneToCapture);
 
         Ok(Structure {
-            base_object,
+            object_id: {
+                let id = base_object
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+
+                if id != crate::common::INVALID_ID {
+                    crate::object::registry::OBJECT_REGISTRY.register_object(id, &base_object);
+                }
+
+                id
+            },
             structure_type,
             is_faction_structure,
             is_key_structure: thing_template.is_kind_of(KindOf::KeyStructure),
@@ -385,8 +409,10 @@ impl Structure {
             self.construction_progress = 0.0;
 
             // Set initial health to a small value
-            if let Ok(mut obj_guard) = self.base_object.write() {
-                let _ = obj_guard.set_health(1.0);
+            if let Some(base_arc) = self.get_base_object() {
+                if let Ok(mut obj_guard) = base_arc.write() {
+                    let _ = obj_guard.set_health(1.0);
+                }
             }
         }
         Ok(())
@@ -400,8 +426,10 @@ impl Structure {
         self.construction_progress = 1.0;
 
         // Set to full health
-        if let Ok(mut obj_guard) = self.base_object.write() {
-            let _ = obj_guard.heal_completely();
+        if let Some(base_arc) = self.get_base_object() {
+            if let Ok(mut obj_guard) = base_arc.write() {
+                let _ = obj_guard.heal_completely();
+            }
         }
 
         // Initialize resource production
@@ -557,11 +585,15 @@ impl Structure {
 
     /// Get current health percentage
     pub fn get_health_percentage(&self) -> Real {
-        if let Ok(obj_guard) = self.base_object.read() {
-            let current = obj_guard.get_health();
-            let max = obj_guard.get_max_health();
-            if max > 0.0 {
-                current / max
+        if let Some(base_arc) = self.get_base_object() {
+            if let Ok(obj_guard) = base_arc.read() {
+                let current = obj_guard.get_health();
+                let max = obj_guard.get_max_health();
+                if max > 0.0 {
+                    current / max
+                } else {
+                    0.0
+                }
             } else {
                 0.0
             }
@@ -572,8 +604,12 @@ impl Structure {
 
     /// Check if structure is destroyed
     pub fn is_destroyed(&self) -> bool {
-        if let Ok(obj_guard) = self.base_object.read() {
-            obj_guard.is_destroyed()
+        if let Some(base_arc) = self.get_base_object() {
+            if let Ok(obj_guard) = base_arc.read() {
+                obj_guard.is_destroyed()
+            } else {
+                true
+            }
         } else {
             true
         }
@@ -612,10 +648,12 @@ impl Structure {
                 }
 
                 // Update health based on construction progress
-                if let Ok(mut obj_guard) = self.base_object.write() {
-                    let max_health = obj_guard.get_max_health();
-                    let target_health = max_health * self.construction_progress;
-                    let _ = obj_guard.set_health(target_health);
+                if let Some(base_arc) = self.get_base_object() {
+                    if let Ok(mut obj_guard) = base_arc.write() {
+                        let max_health = obj_guard.get_max_health();
+                        let target_health = max_health * self.construction_progress;
+                        let _ = obj_guard.set_health(target_health);
+                    }
                 }
             }
         }
@@ -650,7 +688,11 @@ impl Structure {
     }
 
     fn update_power_state(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Ok(obj_guard) = self.base_object.read() else {
+        let Some(base_arc) = self.get_base_object() else {
+            self.is_powered = false;
+            return Ok(());
+        };
+        let Ok(obj_guard) = base_arc.read() else {
             self.is_powered = false;
             return Ok(());
         };
@@ -772,13 +814,10 @@ impl Structure {
         // Calculate partial refund based on progress and return resources
         let refund_percentage = item.progress * 0.75; // 75% refund for in-progress items
 
-        if let Some(owner) = self
-            .base_object
-            .read()
-            .ok()
-            .and_then(|o| o.get_player_id())
-            .map(|pid| pid.get())
-        {
+        if let Some(owner) = self.get_base_object().and_then(|arc| {
+            let o = arc.read().ok()?;
+            o.get_player_id().map(|pid| pid.get())
+        }) {
             for (_resource_type, cost) in &item.build_cost {
                 let refund_amount = (*cost as f32 * refund_percentage) as u32;
                 if refund_amount > 0 {
@@ -792,13 +831,10 @@ impl Structure {
     }
 
     fn debit_production_cost(&mut self, item: &ProductionItem) {
-        if let Some(owner) = self
-            .base_object
-            .read()
-            .ok()
-            .and_then(|o| o.get_player_id())
-            .map(|pid| pid.get())
-        {
+        if let Some(owner) = self.get_base_object().and_then(|arc| {
+            let o = arc.read().ok()?;
+            o.get_player_id().map(|pid| pid.get())
+        }) {
             for (_resource_type, cost) in &item.build_cost {
                 if let Some(lock) = crate::player::player_list().write().ok() {
                     let mut manager = lock;
@@ -814,12 +850,16 @@ impl Structure {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Spawn the completed item at the structure's exit point or rally point
         // In full parity this would create a new Object from the template and insert into world.
-        let exit_pos = self
-            .rally_point
-            .or_else(|| self.base_object.read().ok().map(|o| *o.get_position()));
+        let exit_pos = self.rally_point.or_else(|| {
+            self.get_base_object()
+                .and_then(|arc| arc.read().ok().map(|o| *o.get_position()))
+        });
 
         if let Some(exit_pos) = exit_pos {
-            let team = self.base_object.read().ok().and_then(|o| o.get_team());
+            let team = self.get_base_object().and_then(|arc| {
+                let o = arc.read().ok()?;
+                o.get_team()
+            });
             let controlling_player = team
                 .as_ref()
                 .and_then(|t| t.read().ok())
@@ -901,17 +941,18 @@ impl Structure {
             .and_then(|player| player.read().ok())
             .and_then(|player| player.get_default_team());
 
-        let old_owner = self
-            .base_object
-            .read()
-            .ok()
-            .and_then(|obj| obj.get_controlling_player());
+        let old_owner = self.get_base_object().and_then(|arc| {
+            let obj = arc.read().ok()?;
+            obj.get_controlling_player()
+        });
 
-        if let Ok(mut obj_guard) = self.base_object.write() {
-            let _ = obj_guard.set_team(new_team);
-            obj_guard.set_captured(true);
-            let new_owner = obj_guard.get_controlling_player();
-            obj_guard.on_capture(old_owner, new_owner);
+        if let Some(base_arc) = self.get_base_object() {
+            if let Ok(mut obj_guard) = base_arc.write() {
+                let _ = obj_guard.set_team(new_team);
+                obj_guard.set_captured(true);
+                let new_owner = obj_guard.get_controlling_player();
+                obj_guard.on_capture(old_owner, new_owner);
+            }
         }
 
         self.capture_progress = 0.0;

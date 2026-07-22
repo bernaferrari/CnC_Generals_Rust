@@ -43,8 +43,8 @@ pub struct ResourceContent {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct SimpleObject {
-    /// Base object functionality
-    base_object: Arc<RwLock<Object>>,
+    /// Base object id (resolve for the duration of an op)
+    object_id: ObjectID,
 
     /// Object classification
     simple_object_type: SimpleObjectType,
@@ -183,8 +183,20 @@ pub struct LightData {
 }
 
 impl SimpleObject {
-    pub fn base_object(&self) -> Arc<RwLock<Object>> {
-        Arc::clone(&self.base_object)
+    pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
+        self.get_base_object()
+    }
+
+    pub fn object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 
     /// Create a new SimpleObject
@@ -198,7 +210,19 @@ impl SimpleObject {
         let capture_time = if can_be_captured { 1.0 } else { 0.0 };
 
         Ok(SimpleObject {
-            base_object,
+            object_id: {
+                let id = base_object
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+
+                if id != crate::common::INVALID_ID {
+                    crate::object::registry::OBJECT_REGISTRY.register_object(id, &base_object);
+                }
+
+                id
+            },
             simple_object_type,
             is_interactive: false,
             is_destructible: thing_template.is_kind_of(KindOf::Structure),
@@ -369,8 +393,10 @@ impl SimpleObject {
     fn complete_capture(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(new_team) = self.capturing_team.take() {
             // Transfer ownership to capturing team
-            if let Ok(mut obj_guard) = self.base_object.write() {
-                obj_guard.set_team(Some(new_team))?;
+            if let Some(base_arc) = self.get_base_object() {
+                if let Ok(mut obj_guard) = base_arc.write() {
+                    obj_guard.set_team(Some(new_team))?;
+                }
             }
 
             // Apply tech building bonus to new team
@@ -394,9 +420,13 @@ impl SimpleObject {
         }
 
         // Apply damage to base object
-        let destroyed = if let Ok(mut obj_guard) = self.base_object.write() {
-            obj_guard.attempt_damage(&mut damage_info.clone())?;
-            obj_guard.get_health() <= 0.0
+        let destroyed = if let Some(base_arc) = self.get_base_object() {
+            if let Ok(mut obj_guard) = base_arc.write() {
+                obj_guard.attempt_damage(&mut damage_info.clone())?;
+                obj_guard.get_health() <= 0.0
+            } else {
+                false
+            }
         } else {
             false
         };
@@ -435,8 +465,12 @@ impl SimpleObject {
 
     /// Get the current position of the object
     pub fn get_position(&self) -> Coord3D {
-        if let Ok(obj_guard) = self.base_object.read() {
-            *obj_guard.get_position()
+        if let Some(base_arc) = self.get_base_object() {
+            if let Ok(obj_guard) = base_arc.read() {
+                *obj_guard.get_position()
+            } else {
+                Coord3D::new(0.0, 0.0, 0.0)
+            }
         } else {
             Coord3D::new(0.0, 0.0, 0.0)
         }
@@ -476,8 +510,12 @@ impl SimpleObject {
 
     /// Check if object is destroyed
     pub fn is_destroyed(&self) -> bool {
-        if let Ok(obj_guard) = self.base_object.read() {
-            obj_guard.is_destroyed()
+        if let Some(base_arc) = self.get_base_object() {
+            if let Ok(obj_guard) = base_arc.read() {
+                obj_guard.is_destroyed()
+            } else {
+                true
+            }
         } else {
             true
         }
@@ -671,11 +709,15 @@ impl SimpleObject {
     }
 
     fn get_health_percentage(&self) -> Real {
-        if let Ok(obj_guard) = self.base_object.read() {
-            let current = obj_guard.get_health();
-            let max = obj_guard.get_max_health();
-            if max > 0.0 {
-                current / max
+        if let Some(base_arc) = self.get_base_object() {
+            if let Ok(obj_guard) = base_arc.read() {
+                let current = obj_guard.get_health();
+                let max = obj_guard.get_max_health();
+                if max > 0.0 {
+                    current / max
+                } else {
+                    0.0
+                }
             } else {
                 0.0
             }
@@ -688,10 +730,12 @@ impl SimpleObject {
         if animation.is_empty() {
             return;
         }
-        if let Ok(base_guard) = self.base_object.read() {
-            if let Some(drawable) = base_guard.get_drawable() {
-                if let Ok(mut drawable_guard) = drawable.write() {
-                    let _ = drawable_guard.play_animation(animation, false, 0.0);
+        if let Some(base_arc) = self.get_base_object() {
+            if let Ok(base_guard) = base_arc.read() {
+                if let Some(drawable) = base_guard.get_drawable() {
+                    if let Ok(mut drawable_guard) = drawable.write() {
+                        let _ = drawable_guard.play_animation(animation, false, 0.0);
+                    }
                 }
             }
         }
@@ -702,10 +746,9 @@ impl SimpleObject {
             return;
         }
         let pos = self
-            .base_object
-            .read()
-            .map(|guard| *guard.get_position())
-            .unwrap_or_else(|_| Coord3D::origin());
+            .get_base_object()
+            .and_then(|arc| arc.read().ok().map(|guard| *guard.get_position()))
+            .unwrap_or_else(Coord3D::origin);
         if let Some(fx) = crate::helpers::TheFXList::get() {
             fx.do_fx_at_position(effect, &pos);
         }
@@ -715,13 +758,15 @@ impl SimpleObject {
         if sound.is_empty() {
             return;
         }
-        if let Ok(base_guard) = self.base_object.read() {
-            let pos = *base_guard.get_position();
-            if let Some(audio) = crate::helpers::TheAudio::get() {
-                let mut event = crate::common::audio::AudioEventRts::new(sound);
-                event.set_object_id(base_guard.get_id() as u32);
-                event.set_position(&(pos.x, pos.y, pos.z));
-                let _ = audio.add_audio_event(&event);
+        if let Some(base_arc) = self.get_base_object() {
+            if let Ok(base_guard) = base_arc.read() {
+                let pos = *base_guard.get_position();
+                if let Some(audio) = crate::helpers::TheAudio::get() {
+                    let mut event = crate::common::audio::AudioEventRts::new(sound);
+                    event.set_object_id(base_guard.get_id() as u32);
+                    event.set_position(&(pos.x, pos.y, pos.z));
+                    let _ = audio.add_audio_event(&event);
+                }
             }
         }
     }
