@@ -252,7 +252,7 @@ impl CaveContain {
         };
 
         if let Ok(mut tunnel) = tracker.write() {
-            tunnel.add_to_contain_list(obj.clone())?;
+            tunnel.add_to_contain_list(obj_id)?;
         }
         if !self.contained_object_ids.contains(&obj_id) {
             self.contained_object_ids.push(obj_id);
@@ -328,11 +328,11 @@ impl CaveContain {
         };
 
         if let Ok(mut tunnel) = tracker.write() {
-            if !tunnel.is_in_container(&obj)? {
+            if !tunnel.is_in_container(obj_id) {
                 return Ok(());
             }
 
-            tunnel.remove_from_contain(obj.clone(), expose_stealth_units)?;
+            tunnel.remove_from_contain(obj_id, expose_stealth_units)?;
         }
         if let Ok(guard) = obj.read() {
             self.contained_object_ids.retain(|id| *id != guard.get_id());
@@ -1295,8 +1295,14 @@ mod tests {
             .expect("tracker write")
             .on_tunnel_created(&*owner.read().expect("owner read"))
             .expect("register owner tunnel");
-        cave.add_to_contain_list(passenger.clone())
-            .expect("add passenger to tracker");
+        cave.add_to_contain_list(
+            passenger
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
+        .expect("add passenger to tracker");
         assert_eq!(
             ContainModuleInterface::get_contained_objects(&cave),
             &[93010]
