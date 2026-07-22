@@ -777,25 +777,36 @@ const ST_DOCKING: u32 = 4;
 
 const REGROUP_SUCCESS_DISTANCE_SQUARED: Real = 225.0;
 
+fn resolve_supply_object(id: ObjectID) -> Result<Arc<RwLock<Object>>, String> {
+    crate::helpers::TheGameLogic::find_object_by_id(id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        .ok_or_else(|| format!("SupplyTruck object {id} not found"))
+}
+
+fn owner_from_state(state: &dyn StateImplementation) -> Option<Arc<RwLock<Object>>> {
+    let owner_id = state.get_machine_owner_id().ok()?;
+    resolve_supply_object(owner_id).ok()
+}
 fn owner_ai_and_truck(
     state: &State,
-) -> Result<(Arc<RwLock<Object>>, Arc<Mutex<dyn AIUpdateInterface>>), String> {
-    let owner = state
-        .get_machine_owner()
+) -> Result<(ObjectID, Arc<Mutex<dyn AIUpdateInterface>>), String> {
+    let owner_id = state
+        .get_machine_owner_id()
         .ok_or_else(|| "SupplyTruck state missing owner".to_string())?;
+    let owner = resolve_supply_object(owner_id)?;
     let ai = owner
         .read()
         .map_err(|_| "SupplyTruck owner lock poisoned".to_string())?
         .get_ai_update_interface()
         .ok_or_else(|| "SupplyTruck owner missing AIUpdateInterface".to_string())?;
-    Ok((owner, ai))
+    Ok((owner_id, ai))
 }
 
 fn with_supply_truck_interface<R>(
     state: &State,
     f: impl FnOnce(&mut dyn SupplyTruckAIInterface) -> R,
 ) -> Result<R, String> {
-    let (_owner, ai) = owner_ai_and_truck(state)?;
+    let (_owner_id, ai) = owner_ai_and_truck(state)?;
     let mut ai_guard = ai
         .lock()
         .map_err(|_| "SupplyTruck AI lock poisoned".to_string())?;
@@ -932,11 +943,7 @@ impl SupplyTruckWantsToPickUpOrDeliverBoxesState {
     }
 
     fn update(&mut self) -> Result<StateReturnType, String> {
-        let (owner, ai) = owner_ai_and_truck(&self.base)?;
-        let owner_id = owner
-            .read()
-            .map_err(|_| "SupplyTruck owner lock poisoned".to_string())?
-            .get_id();
+        let (owner_id, ai) = owner_ai_and_truck(&self.base)?;
 
         let mut ai_guard = ai
             .lock()
@@ -1018,8 +1025,8 @@ impl RegroupingState {
     }
 
     fn on_enter(&mut self) -> Result<StateReturnType, String> {
-        let (owner, ai) = owner_ai_and_truck(&self.base)?;
-        let owner_arc = owner.clone();
+        let (owner_id, ai) = owner_ai_and_truck(&self.base)?;
+        let owner_arc = resolve_supply_object(owner_id)?;
 
         {
             let mut ai_guard = ai
@@ -1098,7 +1105,7 @@ impl RegroupingState {
     }
 
     fn update(&mut self) -> Result<StateReturnType, String> {
-        let (_owner, ai) = owner_ai_and_truck(&self.base)?;
+        let (_owner_id, ai) = owner_ai_and_truck(&self.base)?;
         let ai_guard = ai
             .lock()
             .map_err(|_| "SupplyTruck AI lock poisoned".to_string())?;
@@ -1355,9 +1362,9 @@ impl SupplyTruckStateMachine {
     }
 
     fn owner_docking(state: &dyn StateImplementation, _data: &StateTransitionUserData) -> bool {
-        let owner = match state.get_machine_owner() {
-            Ok(owner) => owner,
-            Err(_) => return false,
+        let owner = match owner_from_state(state) {
+            Some(owner) => owner,
+            None => return false,
         };
         let ai = match owner
             .read()
@@ -1375,9 +1382,9 @@ impl SupplyTruckStateMachine {
     }
 
     fn owner_idle(state: &dyn StateImplementation, _data: &StateTransitionUserData) -> bool {
-        let owner = match state.get_machine_owner() {
-            Ok(owner) => owner,
-            Err(_) => return false,
+        let owner = match owner_from_state(state) {
+            Some(owner) => owner,
+            None => return false,
         };
         let ai = match owner
             .read()
@@ -1394,9 +1401,9 @@ impl SupplyTruckStateMachine {
         state: &dyn StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
-        let owner = match state.get_machine_owner() {
-            Ok(owner) => owner,
-            Err(_) => return false,
+        let owner = match owner_from_state(state) {
+            Some(owner) => owner,
+            None => return false,
         };
         let ai = match owner
             .read()
@@ -1423,9 +1430,9 @@ impl SupplyTruckStateMachine {
         state: &dyn StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
-        let owner = match state.get_machine_owner() {
-            Ok(owner) => owner,
-            Err(_) => return false,
+        let owner = match owner_from_state(state) {
+            Some(owner) => owner,
+            None => return false,
         };
         let ai = match owner
             .read()
@@ -1452,9 +1459,9 @@ impl SupplyTruckStateMachine {
         state: &dyn StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
-        let owner = match state.get_machine_owner() {
-            Ok(owner) => owner,
-            Err(_) => return false,
+        let owner = match owner_from_state(state) {
+            Some(owner) => owner,
+            None => return false,
         };
         let ai = match owner
             .read()
@@ -1478,9 +1485,9 @@ impl SupplyTruckStateMachine {
         state: &dyn StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
-        let owner = match state.get_machine_owner() {
-            Ok(owner) => owner,
-            Err(_) => return false,
+        let owner = match owner_from_state(state) {
+            Some(owner) => owner,
+            None => return false,
         };
         let ai = match owner
             .read()
@@ -1504,9 +1511,9 @@ impl SupplyTruckStateMachine {
         state: &dyn StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
-        let owner = match state.get_machine_owner() {
-            Ok(owner) => owner,
-            Err(_) => return false,
+        let owner = match owner_from_state(state) {
+            Some(owner) => owner,
+            None => return false,
         };
         let ai = match owner
             .read()
