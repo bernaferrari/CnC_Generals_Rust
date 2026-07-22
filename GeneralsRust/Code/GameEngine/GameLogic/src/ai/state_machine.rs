@@ -1198,15 +1198,13 @@ impl AiStateMachine {
 
                     impl PartitionFilter for PolygonFilter {
                         fn allow(&self, obj: ObjectID) -> bool {
-                            let Some(target_arc) = OBJECT_REGISTRY.get_object(obj) else {
-                                return false;
-                            };
-                            let Ok(target) = target_arc.read() else {
-                                return false;
-                            };
-                            let pos = target.get_position();
-                            let point = Coord2D::new(pos.x, pos.y);
-                            self.polygon.point_in_trigger(&point)
+                            OBJECT_REGISTRY
+                                .with_object(obj, |target| {
+                                    let pos = target.get_position();
+                                    let point = Coord2D::new(pos.x, pos.y);
+                                    self.polygon.point_in_trigger(&point)
+                                })
+                                .unwrap_or(false)
                         }
 
                         fn debug_get_name(&self) -> &str {
@@ -1278,18 +1276,19 @@ impl AiStateMachine {
         let mut best_dist = f32::INFINITY;
 
         for id in squad_guard.get_live_object_ids() {
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(id) else {
+            let Some(pos) = OBJECT_REGISTRY
+                .with_object(id, |target| {
+                    if target.is_effectively_dead() {
+                        return None;
+                    }
+                    Some(*target.get_position())
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(target) = target_arc.read() else {
-                continue;
-            };
-            if target.is_effectively_dead() {
-                continue;
-            }
 
             if let Some(owner_pos) = owner_pos {
-                let pos = target.get_position();
                 let dx = pos.x - owner_pos.x;
                 let dy = pos.y - owner_pos.y;
                 let dist = dx * dx + dy * dy;
@@ -1395,13 +1394,12 @@ impl AiStateMachine {
         let Some(goal_id) = state.goal_object else {
             return Ok(StateReturnType::StateFailed);
         };
-        let Some(target_arc) = OBJECT_REGISTRY.get_object(goal_id) else {
+        let Some(target_pos) =
+            OBJECT_REGISTRY.with_object(goal_id, |target_guard| *target_guard.get_position())
+        else {
             return Ok(StateReturnType::StateFailed);
         };
-        let Ok(target_guard) = target_arc.read() else {
-            return Err(AiError::LockFailed);
-        };
-        self.update_face_towards(state, *target_guard.get_position())
+        self.update_face_towards(state, target_pos)
     }
 
     fn update_face_position_state(
@@ -1419,22 +1417,25 @@ impl AiStateMachine {
         state: &mut AiStateData,
         target_pos: Coord3D,
     ) -> Result<StateReturnType, AiError> {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(self.owner_id) else {
+        let Some((owner_pos, owner_orientation, ai)) =
+            OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                (
+                    *owner_guard.get_position(),
+                    owner_guard.get_orientation(),
+                    owner_guard.get_ai_update_interface(),
+                )
+            })
+        else {
             return Ok(StateReturnType::StateFailed);
         };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return Err(AiError::LockFailed);
-        };
-        let Some(ai) = owner_guard.get_ai_update_interface() else {
+        let Some(ai) = ai else {
             return Ok(StateReturnType::StateFailed);
         };
         let Ok(mut ai_guard) = ai.lock() else {
             return Err(AiError::LockFailed);
         };
 
-        let owner_pos = owner_guard.get_position();
-        let owner_orientation = owner_guard.get_orientation();
-        let rel_angle = relative_angle_2d(owner_pos, owner_orientation, &target_pos);
+        let rel_angle = relative_angle_2d(&owner_pos, owner_orientation, &target_pos);
 
         const REL_THRESH: Real = 0.035;
         if rel_angle.abs() < REL_THRESH {
@@ -1469,20 +1470,19 @@ impl AiStateMachine {
         &self,
         _state: &mut AiStateData,
     ) -> Result<StateReturnType, AiError> {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(self.owner_id) else {
-            return Ok(StateReturnType::StateFailed);
-        };
-        let Ok(mut owner_guard) = owner_arc.write() else {
-            return Err(AiError::LockFailed);
-        };
+        let result = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            if owner_guard.is_effectively_dead() {
+                return Ok(StateReturnType::StateFailed);
+            }
 
-        if owner_guard.is_effectively_dead() {
-            return Ok(StateReturnType::StateFailed);
+            self.release_from_container(owner_guard);
+            self.evacuate_contents(owner_guard);
+            Ok(StateReturnType::StateComplete)
+        });
+        match result {
+            Some(r) => r,
+            None => Ok(StateReturnType::StateFailed),
         }
-
-        self.release_from_container(&owner_guard);
-        self.evacuate_contents(&mut owner_guard);
-        Ok(StateReturnType::StateComplete)
     }
 
     /// Update guard state - scan for enemies and defend position
@@ -1492,13 +1492,11 @@ impl AiStateMachine {
 
         impl PartitionFilter for GuardFlyingOnlyFilter {
             fn allow(&self, obj: ObjectID) -> bool {
-                let Some(target_arc) = OBJECT_REGISTRY.get_object(obj) else {
-                    return false;
-                };
-                let Ok(target) = target_arc.read() else {
-                    return false;
-                };
-                target.is_airborne_target() || target.is_kind_of(KindOf::Aircraft)
+                OBJECT_REGISTRY
+                    .with_object(obj, |target| {
+                        target.is_airborne_target() || target.is_kind_of(KindOf::Aircraft)
+                    })
+                    .unwrap_or(false)
             }
 
             fn debug_get_name(&self) -> &str {
@@ -1718,40 +1716,43 @@ impl AiStateMachine {
     }
 
     fn start_move_sound(&self, state: &mut AiStateData) {
-        let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_id) else {
+        let Some((mut start_sound, loop_sound, owner_id)) = OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| {
+                let mut use_damaged = false;
+                if let Some(body) = owner_guard.get_body_module() {
+                    if let Ok(body_guard) = body.lock() {
+                        use_damaged = body_guard.get_damage_state() > BodyDamageType::Damaged;
+                    }
+                }
+
+                let template = owner_guard.get_template();
+                let mut start_sound = if use_damaged {
+                    template.get_sound_move_start_damaged()
+                } else {
+                    template.get_sound_move_start()
+                };
+                let loop_sound = if use_damaged {
+                    template.get_sound_move_loop_damaged()
+                } else {
+                    template.get_sound_move_loop()
+                };
+
+                if start_sound.get_event_name().is_empty() {
+                    start_sound = loop_sound.clone();
+                }
+
+                if start_sound.get_event_name().is_empty() {
+                    return None;
+                }
+
+                Some((start_sound, loop_sound, owner_guard.get_id()))
+            })
+            .flatten()
+        else {
             return;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-        let mut use_damaged = false;
-        if let Some(body) = owner_guard.get_body_module() {
-            if let Ok(body_guard) = body.lock() {
-                use_damaged = body_guard.get_damage_state() > BodyDamageType::Damaged;
-            }
-        }
 
-        let template = owner_guard.get_template();
-        let mut start_sound = if use_damaged {
-            template.get_sound_move_start_damaged()
-        } else {
-            template.get_sound_move_start()
-        };
-        let loop_sound = if use_damaged {
-            template.get_sound_move_loop_damaged()
-        } else {
-            template.get_sound_move_loop()
-        };
-
-        if start_sound.get_event_name().is_empty() {
-            start_sound = loop_sound.clone();
-        }
-
-        if start_sound.get_event_name().is_empty() {
-            return;
-        }
-
-        start_sound.set_object_id(owner_guard.get_id());
+        start_sound.set_object_id(owner_id);
         if let Some(audio) = TheAudio::get() {
             if start_sound.get_event_name() == loop_sound.get_event_name()
                 && !loop_sound.get_event_name().is_empty()
@@ -1870,33 +1871,35 @@ impl AiStateMachine {
                 | AiStateType::MoveAndEvacuateAndExit
                 | AiStateType::MoveAndDelete
         ) {
-            let Some(owner_arc) = OBJECT_REGISTRY.get_object(self.owner_id) else {
-                return Ok(StateReturnType::StateFailed);
-            };
-            let Ok(mut owner_guard) = owner_arc.write() else {
-                return Err(AiError::LockFailed);
-            };
-
-            if owner_guard.is_effectively_dead() {
-                return Ok(StateReturnType::StateFailed);
-            }
-
-            if matches!(
-                state.state_type,
-                AiStateType::MoveAndEvacuate | AiStateType::MoveAndEvacuateAndExit
-            ) {
-                self.evacuate_contents(&mut owner_guard);
-                if let Some(origin) = state.scratch.move_origin {
-                    state.goal_position = Some(origin);
+            let destroy_id = match OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                if owner_guard.is_effectively_dead() {
+                    return Err(StateReturnType::StateFailed);
                 }
-            }
 
-            if matches!(
-                state.state_type,
-                AiStateType::MoveAndEvacuateAndExit | AiStateType::MoveAndDelete
-            ) {
-                let owner_id = owner_guard.get_id();
-                drop(owner_guard);
+                if matches!(
+                    state.state_type,
+                    AiStateType::MoveAndEvacuate | AiStateType::MoveAndEvacuateAndExit
+                ) {
+                    self.evacuate_contents(owner_guard);
+                    if let Some(origin) = state.scratch.move_origin {
+                        state.goal_position = Some(origin);
+                    }
+                }
+
+                if matches!(
+                    state.state_type,
+                    AiStateType::MoveAndEvacuateAndExit | AiStateType::MoveAndDelete
+                ) {
+                    Ok(Some(owner_guard.get_id()))
+                } else {
+                    Ok(None)
+                }
+            }) {
+                None => return Ok(StateReturnType::StateFailed),
+                Some(Err(ret)) => return Ok(ret),
+                Some(Ok(id)) => id,
+            };
+            if let Some(owner_id) = destroy_id {
                 let _ = TheGameLogic::destroy_object_by_id(owner_id);
             }
         }
