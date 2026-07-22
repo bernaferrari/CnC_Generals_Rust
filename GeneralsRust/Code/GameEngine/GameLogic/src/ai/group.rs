@@ -137,8 +137,17 @@ impl AIGroup {
 
     /// Add object to group
     /// Only allow AI agents into the group
-    pub fn add(&mut self, obj: Arc<RwLock<Object>>) -> Result<(), String> {
-        let object_id = {
+
+    /// Borrow-first group membership: resolve `OBJECT_REGISTRY` once at the group boundary.
+    /// Prefer this over cloning Arc handles at each command_processor call site.
+    /// Add object to group by stable ID (primary membership API).
+    pub fn add_by_id(&mut self, object_id: ObjectID) -> Result<(), String> {
+        let obj = OBJECT_REGISTRY
+            .get_object(object_id)
+            .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(object_id))
+            .ok_or_else(|| format!("Object {object_id} not in registry"))?;
+
+        {
             let obj_ref = obj.try_read().map_err(|_| "Could not lock object")?;
 
             // Check if object has AIUpdateInterface or is a valid structure
@@ -149,8 +158,10 @@ impl AIGroup {
             if !has_ai && !is_structure && !is_always_selectable {
                 return Err("Object is not AI-capable or valid for group".to_string());
             }
-            obj_ref.get_id()
-        };
+            if obj_ref.get_id() != object_id && object_id == crate::object::INVALID_ID {
+                return Err("Object has invalid id".to_string());
+            }
+        }
 
         if object_id == crate::object::INVALID_ID {
             return Err("Object has invalid id".to_string());
@@ -173,13 +184,13 @@ impl AIGroup {
         Ok(())
     }
 
-    /// Borrow-first group membership: resolve `OBJECT_REGISTRY` once at the group boundary.
-    /// Prefer this over cloning Arc handles at each command_processor call site.
-    pub fn add_by_id(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = OBJECT_REGISTRY
-            .get_object(object_id)
-            .ok_or_else(|| format!("Object {object_id} not in registry"))?;
-        self.add(obj)
+    /// Arc convenience: extract ID and add.
+    pub fn add(&mut self, obj: Arc<RwLock<Object>>) -> Result<(), String> {
+        let object_id = obj
+            .try_read()
+            .map_err(|_| "Could not lock object")?
+            .get_id();
+        self.add_by_id(object_id)
     }
 
     /// Remove object from group
@@ -369,11 +380,14 @@ impl AIGroup {
     /// Matches C++ AIGroup::computeIndividualDestination
     pub fn compute_individual_destination(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        object_id: ObjectID,
         group_dest: &Coord3D,
         center: &Coord3D,
         is_formation: bool,
     ) -> Option<Coord3D> {
+        let obj = OBJECT_REGISTRY
+            .get_object(object_id)
+            .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(object_id))?;
         let obj_guard = obj.try_read().ok()?;
 
         // Compute vector from "group center" to self

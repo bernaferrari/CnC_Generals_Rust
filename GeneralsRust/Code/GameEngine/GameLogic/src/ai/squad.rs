@@ -250,83 +250,83 @@ impl Squad {
     }
 
     /// Get objects of a specific type from the squad
-    pub fn get_objects_of_type(&mut self, object_type: &str) -> Vec<Arc<RwLock<Object>>> {
-        let mut matching_objects = Vec::new();
-
-        for obj in self.get_all_objects() {
-            if let Ok(obj_ref) = obj.try_read() {
-                if obj_ref.get_template_name() == object_type {
-                    matching_objects.push(obj.clone());
+    pub fn get_object_ids_of_type(&mut self, object_type: &str) -> Vec<ObjectID> {
+        let mut matching = Vec::new();
+        let ids = self.get_live_object_ids();
+        for object_id in ids {
+            if let Some(obj) = self.find_object_by_id(object_id) {
+                if let Ok(obj_ref) = obj.read() {
+                    if obj_ref.get_template_name() == object_type {
+                        matching.push(object_id);
+                    }
                 }
             }
         }
+        matching
+    }
 
-        matching_objects
+    pub fn get_objects_of_type(&mut self, object_type: &str) -> Vec<Arc<RwLock<Object>>> {
+        self.get_object_ids_of_type(object_type)
+            .into_iter()
+            .filter_map(|id| self.find_object_by_id(id))
+            .collect()
     }
 
     /// Check if squad contains any objects of a specific type
     pub fn contains_type(&mut self, object_type: &str) -> bool {
-        for obj in self.get_all_objects() {
-            if let Ok(obj_ref) = obj.try_read() {
-                if obj_ref.get_template_name() == object_type {
-                    return true;
-                }
-            }
-        }
-        false
+        !self.get_object_ids_of_type(object_type).is_empty()
     }
 
-    /// Get the strongest object in the squad (by health and damage potential)
-    pub fn get_strongest_object(&mut self) -> Option<Arc<RwLock<Object>>> {
-        let objects = self.get_live_objects();
-        if objects.is_empty() {
-            return None;
-        }
-
-        let mut strongest: Option<Arc<RwLock<Object>>> = None;
+    /// ID-first strongest member selection.
+    pub fn get_strongest_object_id(&mut self) -> Option<ObjectID> {
+        let mut best_id = None;
         let mut best_score = 0.0f32;
-
-        for obj in objects {
-            if let Ok(obj_ref) = obj.try_read() {
-                let health = obj_ref.get_health_percentage();
-                let damage = obj_ref.get_max_damage_potential();
-                let score = health * 0.5 + damage * 0.5;
-
-                if strongest.is_none() || score > best_score {
-                    best_score = score;
-                    strongest = Some(obj.clone());
+        let ids = self.get_live_object_ids();
+        for object_id in ids {
+            if let Some(obj) = self.find_object_by_id(object_id) {
+                if let Ok(obj_ref) = obj.read() {
+                    let health = obj_ref.get_health_percentage();
+                    let damage = obj_ref.get_max_damage_potential();
+                    let score = health * 0.5 + damage * 0.5;
+                    if best_id.is_none() || score > best_score {
+                        best_score = score;
+                        best_id = Some(object_id);
+                    }
                 }
             }
         }
-
-        strongest
+        best_id
     }
 
-    /// Get the weakest object in the squad (by health)
-    pub fn get_weakest_object(&mut self) -> Option<Arc<RwLock<Object>>> {
-        let objects = self.get_live_objects();
-        if objects.is_empty() {
-            return None;
-        }
+    pub fn get_strongest_object(&mut self) -> Option<Arc<RwLock<Object>>> {
+        self.get_strongest_object_id()
+            .and_then(|id| self.find_object_by_id(id))
+    }
 
-        let mut weakest: Option<Arc<RwLock<Object>>> = None;
+    /// ID-first weakest member selection.
+    pub fn get_weakest_object_id(&mut self) -> Option<ObjectID> {
+        let mut best_id = None;
         let mut lowest_health = f32::MAX;
-
-        for obj in objects {
-            if let Ok(obj_ref) = obj.try_read() {
-                let health = obj_ref.get_health_percentage();
-
-                if weakest.is_none() || health < lowest_health {
-                    lowest_health = health;
-                    weakest = Some(obj.clone());
+        let ids = self.get_live_object_ids();
+        for object_id in ids {
+            if let Some(obj) = self.find_object_by_id(object_id) {
+                if let Ok(obj_ref) = obj.read() {
+                    let health = obj_ref.get_health_percentage();
+                    if best_id.is_none() || health < lowest_health {
+                        lowest_health = health;
+                        best_id = Some(object_id);
+                    }
                 }
             }
         }
-
-        weakest
+        best_id
     }
 
-    /// Find object by ID
+    pub fn get_weakest_object(&mut self) -> Option<Arc<RwLock<Object>>> {
+        self.get_weakest_object_id()
+            .and_then(|id| self.find_object_by_id(id))
+    }
+
     fn find_object_by_id(&self, obj_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         get_legacy_object(obj_id)
     }
