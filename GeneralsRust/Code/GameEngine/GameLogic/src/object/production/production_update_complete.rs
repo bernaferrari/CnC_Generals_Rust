@@ -879,16 +879,12 @@ impl ProductionUpdateComplete {
     fn build_player_modifiers(&self, template_name: Option<&str>) -> PlayerBuildModifiers {
         let mut mods = PlayerBuildModifiers::default();
 
-        let Some(owner) = crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id) else {
-            return mods;
-        };
-
-        let owner_guard = match owner.read() {
-            Ok(guard) => guard,
-            Err(_) => return mods,
-        };
-
-        let Some(player) = owner_guard.get_controlling_player() else {
+        let Some(player) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| {
+                owner_guard.get_controlling_player()
+            })
+            .flatten()
+        else {
             return mods;
         };
 

@@ -155,20 +155,14 @@ fn unregister_passengers_fire_upgrade(
 }
 
 fn apply_passengers_fire(object_id: ObjectID) -> bool {
-    let Some(object) = OBJECT_REGISTRY.get_object(object_id) else {
+    let Some(contain) =
+        OBJECT_REGISTRY.with_object(object_id, |object_guard| object_guard.get_contain())
+    else {
         log::warn!("PassengersFireUpgrade: Object {} not found", object_id);
         return true;
     };
 
-    let object_guard = match object.write() {
-        Ok(guard) => guard,
-        Err(_) => {
-            log::error!("PassengersFireUpgrade: Failed to lock object {}", object_id);
-            return true;
-        }
-    };
-
-    let Some(contain) = object_guard.get_contain() else {
+    let Some(contain) = contain else {
         return true;
     };
 

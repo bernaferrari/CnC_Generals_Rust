@@ -154,20 +154,24 @@ impl DockUpdate {
     }
 
     fn load_dock_positions(&mut self) {
-        let Some(owner) = crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id) else {
+        let Some((ignore_bones, drawable)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                (
+                    owner_guard.is_kind_of(KindOf::IgnoreDockingBones),
+                    owner_guard.get_drawable(),
+                )
+            })
+        else {
             return;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-        let Some(drawable) = owner_guard.get_drawable() else {
+        let Some(drawable) = drawable else {
             return;
         };
         let Ok(drawable_guard) = drawable.read() else {
             return;
         };
 
-        if !owner_guard.is_kind_of(KindOf::IgnoreDockingBones) {
+        if !ignore_bones {
             if let Some(pos) = drawable_guard
                 .get_pristine_bone_positions("DockStart", SINGLE_DOCK_BONE_START_INDEX, 1)
                 .first()
@@ -215,31 +219,36 @@ impl DockUpdate {
             self.load_dock_positions();
         }
 
-        let Some(owner) = crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id) else {
-            return Coord3D::ZERO;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return Coord3D::ZERO;
-        };
-
-        let mut working_position = if position_index < self.approach_positions.len() {
-            owner_guard
-                .convert_bone_pos_to_world_pos(Some(&self.approach_positions[position_index]), None)
-                .transform_point3(Coord3D::ZERO)
+        let approach = if position_index < self.approach_positions.len() {
+            Some(self.approach_positions[position_index])
         } else {
-            *owner_guard.get_position()
+            None
         };
+        let their_position = *docker.get_position();
+        let Some(mut working_position) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                let mut working_position = if let Some(approach_pos) = approach {
+                    owner_guard
+                        .convert_bone_pos_to_world_pos(Some(&approach_pos), None)
+                        .transform_point3(Coord3D::ZERO)
+                } else {
+                    *owner_guard.get_position()
+                };
 
-        if self.number_approach_position_bones == 0 {
-            let our_position = owner_guard.get_position();
-            let their_position = docker.get_position();
-            let mut offset = *their_position - *our_position;
-            if offset.length_squared() > 0.0001 {
-                offset = offset.normalize();
-                offset *= owner_guard.get_geometry_info().get_major_radius() * 0.5;
-            }
-            working_position += offset;
-        }
+                if self.number_approach_position_bones == 0 {
+                    let our_position = owner_guard.get_position();
+                    let mut offset = their_position - *our_position;
+                    if offset.length_squared() > 0.0001 {
+                        offset = offset.normalize();
+                        offset *= owner_guard.get_geometry_info().get_major_radius() * 0.5;
+                    }
+                    working_position += offset;
+                }
+                working_position
+            })
+        else {
+            return Coord3D::ZERO;
+        };
 
         if let Some(partition) = ThePartitionManager::get() {
             let mut best_position = working_position;
@@ -248,7 +257,7 @@ impl DockUpdate {
             options.max_radius = 100.0;
             options.source_to_path_to_dest_id = Some(docker.get_id());
             if docker.is_using_airborne_locomotor() {
-                options.ignore_object_id = Some(owner_guard.get_id());
+                options.ignore_object_id = Some(self.owner_id);
             }
 
             if partition.find_position_around_with_options(

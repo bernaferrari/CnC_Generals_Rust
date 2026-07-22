@@ -221,21 +221,18 @@ impl PathfindLayer {
     fn is_point_on_wall(&self, wall_pieces: &[ObjectID], pt: &Coord3D) -> bool {
         let cell_pad = PATHFIND_CELL_SIZE_F * 0.5;
         for &wall_id in wall_pieces {
-            let Some(wall_arc) = OBJECT_REGISTRY.get_object(wall_id) else {
-                continue;
-            };
-            let Ok(wall_guard) = wall_arc.read() else {
-                continue;
-            };
-
-            let wall_pos = wall_guard.get_position();
-            let radius = wall_guard.get_geometry_info().get_major_radius();
-
-            let dx = wall_pos.x - pt.x;
-            let dy = wall_pos.y - pt.y;
-            let dist_sq = dx * dx + dy * dy;
-            let allowed = radius + cell_pad;
-            if dist_sq <= allowed * allowed {
+            if OBJECT_REGISTRY
+                .with_object(wall_id, |wall_guard| {
+                    let wall_pos = wall_guard.get_position();
+                    let radius = wall_guard.get_geometry_info().get_major_radius();
+                    let dx = wall_pos.x - pt.x;
+                    let dy = wall_pos.y - pt.y;
+                    let dist_sq = dx * dx + dy * dy;
+                    let allowed = radius + cell_pad;
+                    dist_sq <= allowed * allowed
+                })
+                .unwrap_or(false)
+            {
                 return true;
             }
         }

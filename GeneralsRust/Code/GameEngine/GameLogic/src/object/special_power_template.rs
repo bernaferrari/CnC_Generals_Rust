@@ -333,14 +333,11 @@ impl SpecialPowerStore {
     pub fn can_use_special_power(&self, object_id: u32, template: &SpecialPowerTemplate) -> bool {
         use crate::object::registry::OBJECT_REGISTRY;
 
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return false;
-        };
-
-        self.can_use_special_power_for_object(&obj_guard, template)
+        OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                self.can_use_special_power_for_object(obj_guard, template)
+            })
+            .unwrap_or(false)
     }
 
     /// Object-reference variant used when the caller already owns the object.
