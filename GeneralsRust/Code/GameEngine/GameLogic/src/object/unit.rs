@@ -3714,16 +3714,12 @@ impl UnitAIUpdate {
                         kill_enemies_in_container(obj_guard.get_id(), target_id, max_to_kill);
                     if num_killed > 0 {
                         if let Some(fx) = TheFXListStore::lookup_fx_list("CombatDropKillFX") {
-                            if let Some(target) =
-                                crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
-                            {
-                                if let Err(err) = fx.do_fx_obj(&target, None) {
-                                    log::debug!(
-                                        "Unit::update_rappel_state CombatDropKillFX failed for target {}: {}",
-                                        target_id,
-                                        err
-                                    );
-                                }
+                            if let Err(err) = fx.do_fx_obj_ids(target_id, None, None) {
+                                log::debug!(
+                                    "Unit::update_rappel_state CombatDropKillFX failed for target {}: {}",
+                                    target_id,
+                                    err
+                                );
                             }
                         } else {
                             log::warn!(
@@ -3735,88 +3731,91 @@ impl UnitAIUpdate {
                     if num_killed == max_to_kill {
                         obj_guard.kill(None, None);
                     } else {
-                        let target = crate::object::registry::OBJECT_REGISTRY.get_object(target_id);
-                        if let Some(target) = target {
-                            if let Ok(target_guard) = target.read() {
-                                if let Some(contain) = target_guard.get_contain() {
-                                    if contain.is_valid_container_for(&obj_guard, true) {
-                                        contain.add_to_contain(&obj_guard);
-                                    } else {
-                                        let exit_angle = target_guard.get_orientation();
-                                        let offset = obj_guard
-                                            .get_geometry_info()
-                                            .get_bounding_circle_radius()
-                                            .min(
-                                                target_guard
-                                                    .get_geometry_info()
-                                                    .get_bounding_circle_radius(),
-                                            );
-                                        let angle = get_game_logic_random_value_real(PI, 2.0 * PI);
-                                        let mut start_position = *target_guard.get_position();
-                                        start_position.x += offset * angle.cos();
-                                        start_position.y += offset * angle.sin();
-                                        start_position.z = terrain.get_ground_height(
-                                            start_position.x,
-                                            start_position.y,
-                                            None,
-                                        );
+                        let extracted = crate::object::registry::OBJECT_REGISTRY.with_object(
+                            target_id,
+                            |target_guard| {
+                                (
+                                    target_guard.get_contain(),
+                                    target_guard.get_orientation(),
+                                    target_guard
+                                        .get_geometry_info()
+                                        .get_bounding_circle_radius(),
+                                    *target_guard.get_position(),
+                                )
+                            },
+                        );
+                        if let Some((contain, exit_angle, target_radius, target_pos)) = extracted {
+                            if let Some(contain) = contain {
+                                if contain.is_valid_container_for(&obj_guard, true) {
+                                    contain.add_to_contain(&obj_guard);
+                                } else {
+                                    let offset = obj_guard
+                                        .get_geometry_info()
+                                        .get_bounding_circle_radius()
+                                        .min(target_radius);
+                                    let angle = get_game_logic_random_value_real(PI, 2.0 * PI);
+                                    let mut start_position = target_pos;
+                                    start_position.x += offset * angle.cos();
+                                    start_position.y += offset * angle.sin();
+                                    start_position.z = terrain.get_ground_height(
+                                        start_position.x,
+                                        start_position.y,
+                                        None,
+                                    );
 
-                                        if let Err(err) = obj_guard.set_position(&start_position) {
-                                            log::debug!(
+                                    if let Err(err) = obj_guard.set_position(&start_position) {
+                                        log::debug!(
                                                 "Unit::update_rappel_state failed to set start position for {}: {}",
                                                 obj_guard.get_id(),
                                                 err
                                             );
-                                        }
-                                        if let Err(err) = obj_guard.set_orientation(exit_angle) {
-                                            log::debug!(
+                                    }
+                                    if let Err(err) = obj_guard.set_orientation(exit_angle) {
+                                        log::debug!(
                                                 "Unit::update_rappel_state failed to set exit orientation for {}: {}",
                                                 obj_guard.get_id(),
                                                 err
                                             );
-                                        }
+                                    }
 
-                                        let mut options = FindPositionOptions::default();
-                                        options.start_angle = Some(1.5 * PI);
-                                        options.max_radius = 200.0;
-                                        let mut end_position = Coord3D::new(0.0, 0.0, 0.0);
-                                        let found_position = ThePartitionManager::get()
-                                            .map(|partition| {
-                                                partition.find_position_around_with_options(
-                                                    &start_position,
-                                                    &options,
-                                                    &mut end_position,
-                                                )
-                                            })
-                                            .unwrap_or(false);
+                                    let mut options = FindPositionOptions::default();
+                                    options.start_angle = Some(1.5 * PI);
+                                    options.max_radius = 200.0;
+                                    let mut end_position = Coord3D::new(0.0, 0.0, 0.0);
+                                    let found_position = ThePartitionManager::get()
+                                        .map(|partition| {
+                                            partition.find_position_around_with_options(
+                                                &start_position,
+                                                &options,
+                                                &mut end_position,
+                                            )
+                                        })
+                                        .unwrap_or(false);
 
-                                        if found_position {
-                                            let mut used_ai_path = false;
-                                            if let Ok(unit_guard) = unit.read() {
-                                                if let Some(ai) =
-                                                    unit_guard.get_ai_update_interface()
-                                                {
-                                                    ai.ai_follow_path(
-                                                        &[end_position],
-                                                        current_state.target_id,
-                                                        CommandSourceType::FromAi,
-                                                    );
-                                                    used_ai_path = true;
-                                                }
+                                    if found_position {
+                                        let mut used_ai_path = false;
+                                        if let Ok(unit_guard) = unit.read() {
+                                            if let Some(ai) = unit_guard.get_ai_update_interface() {
+                                                ai.ai_follow_path(
+                                                    &[end_position],
+                                                    current_state.target_id,
+                                                    CommandSourceType::FromAi,
+                                                );
+                                                used_ai_path = true;
                                             }
-                                            if !used_ai_path {
-                                                if let Ok(mut unit_guard) = unit.write() {
-                                                    if let Err(err) = unit_guard.give_move_order(
-                                                        end_position,
-                                                        Vec::new(),
-                                                        false,
-                                                        false,
-                                                    ) {
-                                                        log::debug!(
+                                        }
+                                        if !used_ai_path {
+                                            if let Ok(mut unit_guard) = unit.write() {
+                                                if let Err(err) = unit_guard.give_move_order(
+                                                    end_position,
+                                                    Vec::new(),
+                                                    false,
+                                                    false,
+                                                ) {
+                                                    log::debug!(
                                                             "Unit::update_rappel_state give_move_order failed: {}",
                                                             err
                                                         );
-                                                    }
                                                 }
                                             }
                                         }

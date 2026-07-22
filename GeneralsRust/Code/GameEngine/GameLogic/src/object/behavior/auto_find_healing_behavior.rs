@@ -73,9 +73,9 @@ impl AutoFindHealingUpdate {
     }
 
     /// Scan for closest heal pad target. Matches C++ lines 127-161
-    fn scan_closest_target(&self, me: &GameObject) -> Option<Arc<RwLock<GameObject>>> {
+    fn scan_closest_target(&self, me: &GameObject) -> Option<crate::common::ObjectID> {
         let data = &self.module_data;
-        let mut best_target: Option<Arc<RwLock<GameObject>>> = None;
+        let mut best_target: Option<crate::common::ObjectID> = None;
         let mut closest_dist_sqr = 0.0;
 
         let Some(partition) = ThePartitionManager::get() else {
@@ -84,20 +84,25 @@ impl AutoFindHealingUpdate {
 
         let candidates = partition.get_objects_in_range(me.get_position(), data.scan_range);
         for other_id in candidates {
-            let Some(other_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
-                continue;
-            };
-            let Ok(other_guard) = other_arc.read() else {
+            let Some(dist) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                other_id,
+                |other_guard| {
+                    if !other_guard.is_kind_of(KindOf::HealPad) {
+                        return None;
+                    }
+                    Some(ThePartitionManager::get_distance_squared(
+                        me,
+                        other_guard,
+                        FROM_CENTER_2D,
+                    ))
+                },
+            )
+            .flatten() else {
                 continue;
             };
 
-            if !other_guard.is_kind_of(KindOf::HealPad) {
-                continue;
-            }
-
-            let dist = ThePartitionManager::get_distance_squared(me, &*other_guard, FROM_CENTER_2D);
             if best_target.is_none() || dist < closest_dist_sqr {
-                best_target = Some(other_arc.clone());
+                best_target = Some(other_id);
                 closest_dist_sqr = dist;
             }
         }
@@ -169,11 +174,11 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
         drop(obj_read); // Release read lock before calling scan
 
         if let Ok(obj_ref) = object.read() {
-            if let Some(heal_unit) = self.scan_closest_target(&obj_ref) {
+            if let Some(heal_id) = self.scan_closest_target(&obj_ref) {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
                         let mut params = AiCommandParams::new(AiCommandType::GetHealed, CommandSourceType::FromAi);
-                        params.obj = Some(heal_unit.read().map(|guard| guard.get_id()).unwrap_or_default());
+                        params.obj = Some(heal_id);
                         let _ = ai_guard.execute_command(&params);
                     }
                 }
