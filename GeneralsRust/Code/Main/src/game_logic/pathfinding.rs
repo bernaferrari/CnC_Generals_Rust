@@ -634,6 +634,10 @@ fn structure_block_radius_cells(selection_radius: f32, grid_size: f32) -> i32 {
 pub struct PathfindingSystem {
     pub grid: PathfindingGrid,
     flow_fields: HashMap<ObjectId, FlowField>, // Flow fields for different goals
+    /// Active host logic frame (set via note_logic_frame).
+    logic_frame: u64,
+    /// Frame stamp of last dynamic obstacle rebuild.
+    dynamic_obstacle_frame: u64,
 }
 
 impl PathfindingSystem {
@@ -647,11 +651,20 @@ impl PathfindingSystem {
         Self {
             grid: PathfindingGrid::new_with_origin(origin, world_width, world_height, GRID_SIZE),
             flow_fields: HashMap::new(),
+            logic_frame: 0,
+            dynamic_obstacle_frame: u64::MAX,
         }
     }
 
     pub fn clear_static_blocks(&mut self) {
         self.grid.clear_static_blocks();
+    }
+
+    /// Mark the active host logic frame so dynamic obstacle rebuilds run once
+    /// per frame across many find_path_ex calls.
+    #[inline]
+    pub fn note_logic_frame(&mut self, frame: u64) {
+        self.logic_frame = frame;
     }
 
     /// Find path between two world positions.
@@ -1054,8 +1067,11 @@ impl PathfindingSystem {
         objects: &HashMap<ObjectId, Object>,
         aircraft: bool,
     ) -> Option<Vec<Vec3>> {
-        // Update dynamic obstacles
-        self.grid.update_dynamic_obstacles(objects);
+        // Dynamic vehicle/structure blocks: rebuild at most once per logic frame.
+        if self.dynamic_obstacle_frame != self.logic_frame {
+            self.grid.update_dynamic_obstacles(objects);
+            self.dynamic_obstacle_frame = self.logic_frame;
+        }
 
         let start_grid = self.grid.world_to_grid(start);
         let goal_grid = self.grid.world_to_grid(goal);
