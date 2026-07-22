@@ -8831,18 +8831,18 @@ fn kill_enemies_in_container(killer_id: ObjectID, building: &Object, max_to_kill
         drop(killer_guard);
 
         // Remove from container (C++ lines 423-430)
-        if let Some(enemy_arc) = OBJECT_REGISTRY.get_object(enemy_id) {
-            if let Ok(enemy_guard) = enemy_arc.read() {
-                if let Some(container_id) = enemy_guard.get_contained_by() {
-                    if let Some(container_arc) = OBJECT_REGISTRY.get_object(container_id) {
-                        if let Ok(container_guard) = container_arc.write() {
-                            if let Some(contain) = container_guard.get_contain() {
-                                if let Ok(mut contain_guard) = contain.lock() {
-                                    let _ = contain_guard.release_object(enemy_id);
-                                }
-                            }
-                        }
-                    }
+        if let Some(container_id) = OBJECT_REGISTRY
+            .with_object(enemy_id, |enemy_guard| enemy_guard.get_contained_by())
+            .flatten()
+        {
+            if let Some(contain) = OBJECT_REGISTRY
+                .with_object(container_id, |container_guard| {
+                    container_guard.get_contain()
+                })
+                .flatten()
+            {
+                if let Ok(mut contain_guard) = contain.lock() {
+                    let _ = contain_guard.release_object(enemy_id);
                 }
             }
         }

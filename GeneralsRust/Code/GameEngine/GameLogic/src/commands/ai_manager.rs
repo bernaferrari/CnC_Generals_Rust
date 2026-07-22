@@ -329,30 +329,22 @@ impl AIManager for AIManagerImpl {
     }
 
     fn queue_waypoint_for_object(&mut self, object_id: ObjectID, pos: Coord3D) {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+        let Some(ai) = OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| obj_guard.get_ai_update_interface())
+            .flatten()
+        else {
             return;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-        let Some(ai) = obj_guard.get_ai_update_interface() else {
-            return;
-        };
-        drop(obj_guard);
         ai.queue_waypoint(&pos);
     }
 
     fn execute_waypoint_queue_for_object(&mut self, object_id: ObjectID) {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+        let Some(ai) = OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| obj_guard.get_ai_update_interface())
+            .flatten()
+        else {
             return;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-        let Some(ai) = obj_guard.get_ai_update_interface() else {
-            return;
-        };
-        drop(obj_guard);
         ai.execute_waypoint_queue();
     }
 }
@@ -385,17 +377,12 @@ fn execute_ai_command_on_unit(
     ai_cmd: AiCommandType,
     cmd_source: CommandSourceType,
 ) {
-    let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+    let Some(ai) = OBJECT_REGISTRY
+        .with_object(object_id, |obj_guard| obj_guard.get_ai_update_interface())
+        .flatten()
+    else {
         return;
     };
-    let Ok(obj_guard) = obj_arc.read() else {
-        return;
-    };
-
-    let Some(ai) = obj_guard.get_ai_update_interface() else {
-        return;
-    };
-    drop(obj_guard);
 
     let mut params = AiCommandParams::new(ai_cmd, cmd_source);
 
@@ -430,17 +417,12 @@ pub fn update_unit_command_queues(current_frame: u32) {
 }
 
 fn should_advance_unit_queue(object_id: ObjectID) -> bool {
-    let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+    let Some(ai) = OBJECT_REGISTRY
+        .with_object(object_id, |obj_guard| obj_guard.get_ai_update_interface())
+        .flatten()
+    else {
         return false;
     };
-    let Ok(obj_guard) = obj_arc.read() else {
-        return false;
-    };
-
-    let Some(ai) = obj_guard.get_ai_update_interface() else {
-        return false;
-    };
-    drop(obj_guard);
 
     ai.is_idle()
 }

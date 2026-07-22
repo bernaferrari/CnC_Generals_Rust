@@ -222,12 +222,13 @@ impl FireWeaponWhenDeadBehavior {
     /// (Matches C++ FireWeaponWhenDeadBehavior.cpp lines 72-75)
     fn is_object_under_construction(&self) -> bool {
         // C++ line 74: obj->getStatusBits().test(OBJECT_STATUS_UNDER_CONSTRUCTION)
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return obj_guard.get_status_bits().contains(OBJECT_STATUS_UNDER_CONSTRUCTION);
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj_guard| {
+                obj_guard
+                    .get_status_bits()
+                    .contains(OBJECT_STATUS_UNDER_CONSTRUCTION)
+            })
+            .unwrap_or(false)
     }
 
     /// Check object upgrade masks for conflicts
@@ -239,21 +240,26 @@ impl FireWeaponWhenDeadBehavior {
             return Ok(true); // No conflicting upgrades defined
         }
 
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(obj_guard) = obj.read() {
+        if let Some(conflicted) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj_guard| {
                 // C++ line 81-84: Check object's completed upgrade mask
                 let obj_upgrades = obj_guard.get_object_completed_upgrade_mask();
                 if (obj_upgrades & conflicting) != 0 {
-                    return Ok(false);
+                    return true;
                 }
 
                 // C++ lines 85-88: Check controlling player's completed upgrade mask
                 if let Some(player) = obj_guard.get_controlling_player() {
                     let player_upgrades = player.get_completed_upgrade_mask();
                     if (player_upgrades & conflicting) != 0 {
-                        return Ok(false);
+                        return true;
                     }
                 }
+                false
+            })
+        {
+            if conflicted {
+                return Ok(false);
             }
         }
         Ok(true)
@@ -297,13 +303,12 @@ impl FireWeaponWhenDeadBehavior {
     /// Get current object position
     fn get_object_position(&self) -> Coord3D {
         // C++ uses: obj->getPosition()
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(obj_guard) = obj.read() {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj_guard| {
                 let pos = obj_guard.get_position();
-                return Coord3D::new(pos.x, pos.y, pos.z);
-            }
-        }
-        Coord3D::new(0.0, 0.0, 0.0)
+                Coord3D::new(pos.x, pos.y, pos.z)
+            })
+            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0))
     }
 }
 
