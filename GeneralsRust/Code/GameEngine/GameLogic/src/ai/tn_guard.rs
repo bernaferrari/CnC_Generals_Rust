@@ -366,8 +366,7 @@ impl AITNGuardMachine {
         self.nemesis_to_attack = id;
         self.shared.set_nemesis_to_attack(id);
         if let Ok(mut guard) = self.base.lock() {
-            let goal = get_legacy_object(id);
-            guard.set_goal_object(goal.as_ref().map(Arc::downgrade));
+            guard.set_goal_object_by_id(Some(id));
         }
     }
 
@@ -631,9 +630,10 @@ impl StateImplementation for AITNGuardInnerState {
             if target_id != crate::common::INVALID_ID {
                 nemesis = get_legacy_object(target_id);
                 if let Some(target) = nemesis.as_ref() {
-                    let _ = self.base.with_machine(|machine| {
-                        machine.set_goal_object(Some(Arc::downgrade(target)))
-                    });
+                    let target_id = target.read().ok().map(|g| g.get_id());
+                    let _ = self
+                        .base
+                        .with_machine(|machine| machine.set_goal_object_by_id(target_id));
                 }
             }
         }
@@ -697,7 +697,9 @@ impl StateImplementation for AITNGuardInnerState {
                     );
                 }
                 self.base
-                    .with_machine(|machine| machine.set_goal_object(Some(Arc::downgrade(target))))
+                    .with_machine(|machine| {
+                        machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
+                    })
                     .ok();
                 self.base.set_nemesis_to_attack(
                     target
@@ -732,7 +734,9 @@ impl StateImplementation for AITNGuardInnerState {
                     );
                 }
                 self.base
-                    .with_machine(|machine| machine.set_goal_object(Some(Arc::downgrade(&target))))
+                    .with_machine(|machine| {
+                        machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
+                    })
                     .ok();
                 self.base.set_nemesis_to_attack(
                     target
@@ -753,7 +757,9 @@ impl StateImplementation for AITNGuardInnerState {
                     );
                 }
                 self.base
-                    .with_machine(|machine| machine.set_goal_object(Some(Arc::downgrade(&target))))
+                    .with_machine(|machine| {
+                        machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
+                    })
                     .ok();
                 self.base.set_nemesis_to_attack(
                     target
@@ -791,7 +797,7 @@ impl StateImplementation for AITNGuardInnerState {
                 }
                 self.base
                     .with_machine(|machine| {
-                        machine.set_goal_object(Some(Arc::downgrade(team_target)))
+                        machine.set_goal_object_by_id(team_target.read().ok().map(|g| g.get_id()))
                     })
                     .ok();
                 self.base.set_nemesis_to_attack(
@@ -871,7 +877,7 @@ impl StateImplementation for AITNGuardIdleState {
         self.next_enemy_scan_time = now.saturating_add(game_logic_random_value(0, scan_rate));
         let _ = self
             .base
-            .with_machine(|machine| machine.set_goal_object(None));
+            .with_machine(|machine| machine.set_goal_object_by_id(None));
         StateReturnType::Continue
     }
 
@@ -884,7 +890,7 @@ impl StateImplementation for AITNGuardIdleState {
         self.next_enemy_scan_time = now.saturating_add(get_guard_enemy_scan_rate());
         let _ = self
             .base
-            .with_machine(|machine| machine.set_goal_object(None));
+            .with_machine(|machine| machine.set_goal_object_by_id(None));
 
         let Some(owner) = self.base.state().get_machine_owner() else {
             return StateReturnType::Sleep(self.next_enemy_scan_time.saturating_sub(now));
@@ -909,9 +915,9 @@ impl StateImplementation for AITNGuardIdleState {
             self.base.set_nemesis_to_attack(target_id);
 
             if let Some(target) = get_legacy_object(target_id) {
-                let _ = self
-                    .base
-                    .with_machine(|machine| machine.set_goal_object(Some(Arc::downgrade(&target))));
+                let _ = self.base.with_machine(|machine| {
+                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
+                });
 
                 if let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) {
                     if owner_guard.get_contained_by().is_some() {
@@ -1087,7 +1093,8 @@ impl StateImplementation for AITNGuardOuterState {
                     if let Some(target) = team_target {
                         self.base
                             .with_machine(|machine| {
-                                machine.set_goal_object(Some(Arc::downgrade(&target)))
+                                machine
+                                    .set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
                             })
                             .ok();
                         self.base.set_nemesis_to_attack(
@@ -1101,7 +1108,8 @@ impl StateImplementation for AITNGuardOuterState {
                     } else if let Some(target) = goal_obj.as_ref() {
                         self.base
                             .with_machine(|machine| {
-                                machine.set_goal_object(Some(Arc::downgrade(target)))
+                                machine
+                                    .set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
                             })
                             .ok();
                     }
@@ -1195,7 +1203,8 @@ impl StateImplementation for AITNGuardReturnState {
                         self.base.set_nemesis_to_attack(target_id);
                         if let Some(target) = get_legacy_object(target_id) {
                             let _ = self.base.with_machine(|machine| {
-                                machine.set_goal_object(Some(Arc::downgrade(&target)))
+                                machine
+                                    .set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
                             });
                         }
                         return StateReturnType::Failure;
@@ -1210,7 +1219,9 @@ impl StateImplementation for AITNGuardReturnState {
                         if let Ok(tunnel_guard) = best_tunnel.read() {
                             if let Some(tunnel) = get_legacy_object(tunnel_guard.get_id()) {
                                 let _ = self.base.with_machine(|machine| {
-                                    machine.set_goal_object(Some(Arc::downgrade(&tunnel)))
+                                    machine.set_goal_object_by_id(
+                                        tunnel.read().ok().map(|g| g.get_id()),
+                                    )
                                 });
                                 self.base.set_nemesis_to_attack(crate::common::INVALID_ID);
                             }
@@ -1237,7 +1248,8 @@ impl StateImplementation for AITNGuardReturnState {
                         self.base.set_nemesis_to_attack(target_id);
                         if let Some(target) = get_legacy_object(target_id) {
                             let _ = self.base.with_machine(|machine| {
-                                machine.set_goal_object(Some(Arc::downgrade(&target)))
+                                machine
+                                    .set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
                             });
                         }
                         return StateReturnType::Failure;
@@ -1253,7 +1265,9 @@ impl StateImplementation for AITNGuardReturnState {
                                 self.base.set_nemesis_to_attack(nemesis_guard.get_id());
                                 if let Some(target) = get_legacy_object(nemesis_guard.get_id()) {
                                     let _ = self.base.with_machine(|machine| {
-                                        machine.set_goal_object(Some(Arc::downgrade(&target)))
+                                        machine.set_goal_object_by_id(
+                                            target.read().ok().map(|g| g.get_id()),
+                                        )
                                     });
                                 }
                             }
@@ -1317,9 +1331,9 @@ impl StateImplementation for AITNGuardPickUpCrateState {
             return StateReturnType::Success;
         };
 
-        let _ = self
-            .base
-            .with_machine(|machine| machine.set_goal_object(Some(Arc::downgrade(&crate_obj))));
+        let _ = self.base.with_machine(|machine| {
+            machine.set_goal_object_by_id(crate_obj.read().ok().map(|g| g.get_id()))
+        });
         self.pick_up_state.on_enter()
     }
 
@@ -1388,7 +1402,7 @@ impl StateImplementation for AITNGuardAttackAggressorState {
                 if let Some(target) = nemesis.as_ref() {
                     self.base
                         .with_machine(|machine| {
-                            machine.set_goal_object(Some(Arc::downgrade(target)))
+                            machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
                         })
                         .ok();
                 }
@@ -1405,7 +1419,9 @@ impl StateImplementation for AITNGuardAttackAggressorState {
                                 self.base.set_nemesis_to_attack(info.source_id);
                                 self.base
                                     .with_machine(|machine| {
-                                        machine.set_goal_object(Some(Arc::downgrade(target)))
+                                        machine.set_goal_object_by_id(
+                                            target.read().ok().map(|g| g.get_id()),
+                                        )
                                     })
                                     .ok();
                             }
