@@ -11,6 +11,7 @@ use crate::object::die::{
     parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,
     parse_die_mux_veterancy_levels,
 };
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use crate::system::game_logic::get_game_logic;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -143,18 +144,12 @@ impl DamDie {
             return;
         };
 
-        let mut current = game_logic.get_first_object();
-        while let Some(obj) = current {
-            let next = if let Ok(mut obj_guard) = obj.write() {
+        for &object_id in game_logic.get_all_object_ids() {
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                 if obj_guard.is_kind_of(KindOf::WaveGuide) {
                     obj_guard.clear_disabled(DisabledType::DisabledDefault);
                 }
-                obj_guard.get_next_object()
-            } else {
-                None
-            };
-
-            current = next;
+            });
         }
     }
 }

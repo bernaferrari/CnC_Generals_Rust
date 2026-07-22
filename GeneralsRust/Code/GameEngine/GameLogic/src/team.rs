@@ -989,62 +989,64 @@ impl Team {
         let mut recruit_id: Option<ObjectID> = None;
 
         for object_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let Some(decision) = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
-                let obj_template = object_guard.get_template().clone();
-                let candidate_name = object_guard.get_template().get_name().to_string();
-                let template_matches = obj_template.is_equivalent_to(template.as_ref())
-                    || TheThingFactory::has_build_variation_name(template, &candidate_name);
-                if !template_matches {
-                    return None;
-                }
-                if object_guard.get_controlling_player_id() != Some(controller_id) {
-                    return None;
-                }
-                if object_guard.is_effectively_dead()
-                    || object_guard.is_disabled_by_type(DisabledType::Held)
-                {
-                    return None;
-                }
-                let source_team_arc = object_guard.get_team()?;
-                let Ok(source_team_guard) = source_team_arc.read() else {
-                    return None;
-                };
-                if !source_team_guard.is_active() {
-                    return None;
-                }
+            let Some(decision) = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    let obj_template = object_guard.get_template().clone();
+                    let candidate_name = object_guard.get_template().get_name().to_string();
+                    let template_matches = obj_template.is_equivalent_to(template.as_ref())
+                        || TheThingFactory::has_build_variation_name(template, &candidate_name);
+                    if !template_matches {
+                        return None;
+                    }
+                    if object_guard.get_controlling_player_id() != Some(controller_id) {
+                        return None;
+                    }
+                    if object_guard.is_effectively_dead()
+                        || object_guard.is_disabled_by_type(DisabledType::Held)
+                    {
+                        return None;
+                    }
+                    let source_team_arc = object_guard.get_team()?;
+                    let Ok(source_team_guard) = source_team_arc.read() else {
+                        return None;
+                    };
+                    if !source_team_guard.is_active() {
+                        return None;
+                    }
 
-                let source_priority = get_team_factory()
-                    .lock()
-                    .ok()
-                    .and_then(|factory| {
-                        factory
-                            .find_team_prototype(source_team_guard.get_name().as_str())
-                            .map(|prototype| prototype.get_production_priority())
-                    })
-                    .unwrap_or(Int::MAX);
-                if source_priority >= my_priority {
-                    return None;
-                }
+                    let source_priority = get_team_factory()
+                        .lock()
+                        .ok()
+                        .and_then(|factory| {
+                            factory
+                                .find_team_prototype(source_team_guard.get_name().as_str())
+                                .map(|prototype| prototype.get_production_priority())
+                        })
+                        .unwrap_or(Int::MAX);
+                    if source_priority >= my_priority {
+                        return None;
+                    }
 
-                let is_default_team = default_team_id == Some(source_team_guard.get_id());
-                let mut team_is_recruitable = is_default_team;
-                if source_team_guard.is_recruitable() {
-                    team_is_recruitable = true;
-                }
-                if source_team_guard.is_recruitability_set() {
-                    team_is_recruitable = source_team_guard.is_recruitable();
-                }
-                if !team_is_recruitable {
-                    return None;
-                }
+                    let is_default_team = default_team_id == Some(source_team_guard.get_id());
+                    let mut team_is_recruitable = is_default_team;
+                    if source_team_guard.is_recruitable() {
+                        team_is_recruitable = true;
+                    }
+                    if source_team_guard.is_recruitability_set() {
+                        team_is_recruitable = source_team_guard.is_recruitable();
+                    }
+                    if !team_is_recruitable {
+                        return None;
+                    }
 
-                let pos = *object_guard.get_position();
-                let dx = team_home.x - pos.x;
-                let dy = team_home.y - pos.y;
-                let this_dist_sqr = dx * dx + dy * dy;
-                Some((is_default_team, this_dist_sqr))
-            })
-            .flatten() else {
+                    let pos = *object_guard.get_position();
+                    let dx = team_home.x - pos.x;
+                    let dy = team_home.y - pos.y;
+                    let this_dist_sqr = dx * dx + dy * dy;
+                    Some((is_default_team, this_dist_sqr))
+                })
+                .flatten()
+            else {
                 continue;
             };
 
