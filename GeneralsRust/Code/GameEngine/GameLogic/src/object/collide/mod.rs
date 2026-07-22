@@ -199,21 +199,18 @@ pub trait CollideModule: Send + Sync {
     }
 }
 
-/// Helper trait for legacy modules that still operate on concrete `Object` handles.
+/// Helper trait for legacy modules that still operate on concrete object IDs.
 pub trait LegacyCollideAdapter: Send + Sync {
-    /// Legacy collision handler using the raw object handle.
+    /// Legacy collision handler using the target object ID.
     fn legacy_on_collide(
         &mut self,
-        other: Arc<RwLock<Object>>,
+        other_id: ObjectId,
         loc: &Coord3D,
         normal: &Coord3D,
     ) -> Result<(), GameError>;
 
-    /// Legacy collision predicate using the raw object handle.
-    fn legacy_would_like_to_collide_with(
-        &self,
-        other: Arc<RwLock<Object>>,
-    ) -> Result<bool, GameError>;
+    /// Legacy collision predicate using the target object ID.
+    fn legacy_would_like_to_collide_with(&self, other_id: ObjectId) -> Result<bool, GameError>;
 
     fn legacy_is_hijacked_vehicle_crate_collide(&self) -> bool {
         false
@@ -236,6 +233,16 @@ pub trait LegacyCollideAdapter: Send + Sync {
     }
 }
 
+fn resolve_object_id(other: &dyn GameObject) -> Result<ObjectId, CollisionError> {
+    let id = other.get_id();
+    if id == INVALID_ID {
+        return Err(CollisionError::InvalidObject(
+            "GameObject did not expose a valid ObjectId".into(),
+        ));
+    }
+    Ok(id)
+}
+
 fn resolve_object_handle(other: &dyn GameObject) -> Result<Arc<RwLock<Object>>, CollisionError> {
     other.as_object_handle().ok_or_else(|| {
         CollisionError::InvalidObject("GameObject did not expose an Object handle".into())
@@ -253,15 +260,15 @@ impl<T: LegacyCollideAdapter> CollideModule for T {
             return Ok(());
         };
 
-        let handle = resolve_object_handle(other_obj)?;
-        self.legacy_on_collide(handle, loc, normal)
+        let other_id = resolve_object_id(other_obj)?;
+        self.legacy_on_collide(other_id, loc, normal)
             .map_err(|err| CollisionError::InvalidObject(err.to_string()))
     }
 
     fn would_like_to_collide_with(&self, other: &dyn GameObject) -> bool {
-        match resolve_object_handle(other) {
-            Ok(handle) => self
-                .legacy_would_like_to_collide_with(handle)
+        match resolve_object_id(other) {
+            Ok(other_id) => self
+                .legacy_would_like_to_collide_with(other_id)
                 .unwrap_or(false),
             Err(_) => false,
         }
