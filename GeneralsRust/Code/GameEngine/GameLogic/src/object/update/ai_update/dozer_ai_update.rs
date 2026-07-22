@@ -928,7 +928,17 @@ impl DozerAIUpdate {
 
         if let Some(player) = controlling_player {
             if let Ok(mut player_guard) = player.write() {
-                player_guard.on_structure_construction_complete(Some(owner), target, is_rebuild);
+                let builder_id = owner.read().ok().map(|g| g.get_id());
+                let structure_id = target
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                player_guard.on_structure_construction_complete_id(
+                    builder_id,
+                    structure_id,
+                    is_rebuild,
+                );
             }
         }
 
