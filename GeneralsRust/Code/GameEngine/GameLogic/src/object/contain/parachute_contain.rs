@@ -351,23 +351,12 @@ impl ContainerInterface for ParachuteContain {
         self.base.is_valid_container_for(obj, true)
     }
 
-    fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.add_to_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
+    fn add_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.base.add_to_contain(obj_id)
     }
 
-    fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.remove_from_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            false,
-        )
+    fn remove_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.base.remove_from_contain(obj_id, false)
     }
 
     fn get_usage(&self) -> (u32, u32) {

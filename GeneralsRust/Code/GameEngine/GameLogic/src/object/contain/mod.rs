@@ -106,11 +106,11 @@ pub trait ContainerInterface {
     /// Check if this container can contain the given object
     fn can_contain(&self, obj: &Object) -> bool;
 
-    /// Add object to container
-    fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()>;
+    /// Add object to container by ID.
+    fn add_object(&mut self, obj_id: ObjectID) -> GameResult<()>;
 
-    /// Remove object from container
-    fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()>;
+    /// Remove object from container by ID.
+    fn remove_object(&mut self, obj_id: ObjectID) -> GameResult<()>;
 
     /// Get current capacity usage
     fn get_usage(&self) -> (u32, u32); // (current, max)

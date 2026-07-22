@@ -825,17 +825,11 @@ impl ContainModuleInterface for OverlordContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.add_object(obj).map_err(|e| e.to_string())
+        self.add_object(object_id).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = match TheGameLogic::find_object_by_id(object_id) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
-        self.remove_object(obj).map_err(|e| e.to_string())
+        self.remove_object(object_id).map_err(|e| e.to_string())
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
@@ -1047,23 +1041,12 @@ impl ContainerInterface for OverlordContain {
         self.is_valid_container_for(obj, true)
     }
 
-    fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
+    fn add_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.add_to_contain(obj_id)
     }
 
-    fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.remove_from_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            false,
-        )
+    fn remove_object(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.remove_from_contain(obj_id, false)
     }
 
     fn get_usage(&self) -> (u32, u32) {
