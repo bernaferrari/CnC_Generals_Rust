@@ -5124,6 +5124,26 @@ impl Object {
         self.behaviors.iter().cloned().collect()
     }
 
+    /// Borrow-first flammable module lookup (no outer Object Arc required).
+    pub fn find_flammable_update_module(&self) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+        for module in self.get_behavior_modules() {
+            let would_ignite = {
+                let Ok(module_guard) = module.try_lock() else {
+                    continue;
+                };
+                module_guard
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::flammable_update::FlammableUpdate>()
+                    .map(|flammable| flammable.would_ignite())
+                    .unwrap_or(false)
+            };
+            if would_ignite {
+                return Some(module);
+            }
+        }
+        None
+    }
+
     pub fn with_spawn_behavior_full_interface<R, F>(&self, f: F) -> Option<R>
     where
         F: FnMut(&mut dyn crate::object::behavior::spawn_behavior::SpawnBehaviorInterface) -> R,
@@ -11392,9 +11412,7 @@ impl Object {
                 .map(team_controller_is_playable)
                 .unwrap_or(false)
         {
-            if let Some(self_arc) = OBJECT_REGISTRY.get_object(self.id) {
-                let _ = crate::helpers::TheRadar::try_infiltration_event(self_arc);
-            }
+            let _ = crate::helpers::TheRadar::try_infiltration_event_for_object(self);
         }
 
         self.friend_set_undetected_defector(defection_type > 0);

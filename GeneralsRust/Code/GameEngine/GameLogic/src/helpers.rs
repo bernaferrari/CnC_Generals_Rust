@@ -4303,6 +4303,61 @@ impl crate::common::types::PartitionManagerInterface for ThePartitionManagerBrid
     }
 }
 
+impl ThePartitionManagerBridge {
+    /// Closest object ID matching filters without retaining an Arc at the call site.
+    pub fn get_closest_object_id(
+        &self,
+        from: &crate::object::Object,
+        max_range: f32,
+        distance_type: crate::common::types::PartitionDistanceType,
+        filters: &[crate::common::types::PartitionFilter],
+    ) -> Option<ObjectID> {
+        let partition = ThePartitionManager::get()?;
+        let from_pos = from.get_position();
+        let candidates = match distance_type {
+            crate::common::types::PartitionDistanceType::Center3D => {
+                partition.get_objects_in_range_boundary_3d(from_pos, max_range)
+            }
+            crate::common::types::PartitionDistanceType::FromBoundingSphere2D => {
+                partition.get_objects_in_range_boundary_2d(from_pos, max_range)
+            }
+            crate::common::types::PartitionDistanceType::Center2D => {
+                partition.get_objects_in_range(from_pos, max_range)
+            }
+        };
+        let mut best: Option<(f32, ObjectID)> = None;
+
+        for id in candidates {
+            let Some(dist) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(id, |obj| {
+                    if !partition_filter_allows(from, obj, filters) {
+                        return None;
+                    }
+                    Some(
+                        crate::common::types::PartitionManagerInterface::get_distance_squared(
+                            self,
+                            from,
+                            obj,
+                            distance_type,
+                        ),
+                    )
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            if dist <= max_range * max_range {
+                match best {
+                    Some((best_dist, _)) if dist >= best_dist => {}
+                    _ => best = Some((dist, id)),
+                }
+            }
+        }
+
+        best.map(|(_, id)| id)
+    }
+}
+
 fn partition_filter_allows(
     from: &crate::object::Object,
     candidate: &crate::object::Object,
@@ -5543,15 +5598,19 @@ impl TheRadar {
         let Ok(target_guard) = target.read() else {
             return Err(GameError::LockError);
         };
-        if target_guard.is_destroyed() {
+        Self::try_infiltration_event_for_object(&target_guard)
+    }
+
+    /// Borrow-first infiltration radar event (no Arc at the call site).
+    pub fn try_infiltration_event_for_object(target: &Object) -> Result<(), GameError> {
+        if target.is_destroyed() {
             return Ok(());
         }
-        if !target_guard.is_locally_controlled() {
+        if !target.is_locally_controlled() {
             return Ok(());
         }
 
-        let position = *target_guard.get_position();
-        drop(target_guard);
+        let position = *target.get_position();
 
         let radar = get_radar_system();
         if let Ok(mut guard) = radar.write() {
@@ -5563,6 +5622,15 @@ impl TheRadar {
             guard.try_infiltration_event(&world_loc);
         }
         Ok(())
+    }
+
+    /// Borrow-first ID variant.
+    pub fn try_infiltration_event_id(target_id: ObjectID) -> Result<(), GameError> {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |target| {
+                Self::try_infiltration_event_for_object(target)
+            })
+            .unwrap_or(Ok(()))
     }
 
     pub fn refresh_terrain(&self) {
