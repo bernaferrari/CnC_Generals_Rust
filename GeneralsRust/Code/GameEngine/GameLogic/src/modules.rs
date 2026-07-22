@@ -3497,7 +3497,7 @@ pub trait DockUpdateInterface: Send + Sync {
     /// Matches C++ DockUpdateInterface::isClearToApproach, defaulting to open state.
     fn is_clear_to_approach(
         &self,
-        _obj: &Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.is_dock_open()
     }
@@ -3505,13 +3505,13 @@ pub trait DockUpdateInterface: Send + Sync {
     /// Cancel dock operation for an object
     fn cancel_dock(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Reserve an approach position in the queue
     fn reserve_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
@@ -3519,7 +3519,7 @@ pub trait DockUpdateInterface: Send + Sync {
     /// Advance to the next approach position
     fn advance_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
@@ -3527,67 +3527,67 @@ pub trait DockUpdateInterface: Send + Sync {
     /// Check if clear to advance in queue
     fn is_clear_to_advance(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         approach_position: i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Called when approach position reached
     fn on_approach_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Check if clear to enter the dock
     fn is_clear_to_enter(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Get entry position coordinates
     fn get_enter_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Called when entry position reached
     fn on_enter_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Get actual dock position coordinates
     fn get_dock_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Called when dock position reached
     fn on_dock_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Perform dock action (repair, supply, etc.)
     /// Returns true when action is complete
     fn action(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
-        drone: Option<&Arc<RwLock<Object>>>,
+        obj_id: ObjectID,
+        drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Get exit position coordinates
     fn get_exit_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Called when exit position reached
     fn on_exit_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Check if this is a passthrough type dock

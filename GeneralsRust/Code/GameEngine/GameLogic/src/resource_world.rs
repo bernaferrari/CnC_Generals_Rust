@@ -109,7 +109,8 @@ impl ResourceWorld for LiveResourceWorld {
         };
 
         if let Some(is_clear) = dest_guard.with_dock_update_interface(|dock| {
-            dock.is_clear_to_approach(&query_arc).unwrap_or(false)
+            dock.is_clear_to_approach(query_id as crate::common::ObjectID)
+                .unwrap_or(false)
         }) {
             return is_clear;
         }

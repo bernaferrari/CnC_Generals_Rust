@@ -303,109 +303,117 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
 
     fn cancel_dock(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.cancel_dock(obj)
+        self.base.cancel_dock(obj_id)
     }
 
     fn reserve_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .reserve_approach_position(obj, goal_pos, approach_pos)
+            .reserve_approach_position(obj_id, goal_pos, approach_pos)
     }
 
     fn advance_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .advance_approach_position(obj, goal_pos, approach_pos)
+            .advance_approach_position(obj_id, goal_pos, approach_pos)
     }
 
     fn is_clear_to_advance(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         approach_position: i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.base.is_clear_to_advance(obj, approach_position)
+        self.base.is_clear_to_advance(obj_id, approach_position)
     }
 
     fn on_approach_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_approach_reached(obj)
+        self.base.on_approach_reached(obj_id)
     }
 
     fn is_clear_to_enter(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Can only enter if not crippled and has boxes
         if self.is_crippled || self.boxes_stored <= 0 {
             return Ok(false);
         }
-        self.base.is_clear_to_enter(obj)
+        self.base.is_clear_to_enter(obj_id)
     }
 
     fn get_enter_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_enter_position(obj, goal_pos)
+        self.base.get_enter_position(obj_id, goal_pos)
     }
 
     fn on_enter_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_enter_reached(obj)
+        self.base.on_enter_reached(obj_id)
     }
 
     fn get_dock_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_dock_position(obj, goal_pos)
+        self.base.get_dock_position(obj_id, goal_pos)
     }
 
     fn on_dock_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_dock_reached(obj)
+        self.base.on_dock_reached(obj_id)
     }
 
     fn action(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
-        _drone: Option<&Arc<RwLock<Object>>>,
+        obj_id: ObjectID,
+        _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Perform supply transfer to truck
-        self.perform_supply_transfer(obj).map_err(|e| e.into())
+        {
+            let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            else {
+                return Ok(false);
+            };
+            self.perform_supply_transfer(&obj)
+        }
+        .map_err(|e| e.into())
     }
 
     fn get_exit_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_exit_position(obj, goal_pos)
+        self.base.get_exit_position(obj_id, goal_pos)
     }
 
     fn on_exit_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_exit_reached(obj)
+        self.base.on_exit_reached(obj_id)
     }
 
     fn is_allow_passthrough_type(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {

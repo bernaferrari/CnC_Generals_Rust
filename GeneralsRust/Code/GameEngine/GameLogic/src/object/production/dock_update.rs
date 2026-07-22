@@ -357,6 +357,14 @@ impl BehaviorModule for DockUpdate {
     }
 }
 
+fn resolve_dock_object(id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+    if id == INVALID_ID {
+        return None;
+    }
+    crate::helpers::TheGameLogic::find_object_by_id(id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+}
+
 impl DockUpdateInterface for DockUpdate {
     fn is_dock_open(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(self.dock_open)
@@ -368,14 +376,11 @@ impl DockUpdateInterface for DockUpdate {
 
     fn is_clear_to_approach(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         if self.number_approach_positions == DYNAMIC_APPROACH_VECTOR_FLAG {
             return Ok(true);
         }
-
-        let obj_guard = obj.read().unwrap();
-        let obj_id = obj_guard.get_id();
 
         for owner in self.approach_position_owners.iter() {
             if *owner == INVALID_ID || *owner == obj_id {
@@ -388,10 +393,12 @@ impl DockUpdateInterface for DockUpdate {
 
     fn cancel_dock(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return Ok(());
+        };
         let mut obj_guard = obj.write().unwrap();
-        let obj_id = obj_guard.get_id();
 
         for (owner, reached) in self
             .approach_position_owners
@@ -424,7 +431,7 @@ impl DockUpdateInterface for DockUpdate {
 
     fn reserve_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -432,8 +439,10 @@ impl DockUpdateInterface for DockUpdate {
             self.load_dock_positions();
         }
 
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return Ok(false);
+        };
         let obj_guard = obj.write().unwrap();
-        let obj_id = obj_guard.get_id();
 
         for (position_index, owner) in self.approach_position_owners.iter().enumerate() {
             if *owner == obj_id {
@@ -468,7 +477,7 @@ impl DockUpdateInterface for DockUpdate {
 
     fn advance_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -476,8 +485,10 @@ impl DockUpdateInterface for DockUpdate {
             self.load_dock_positions();
         }
 
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return Ok(false);
+        };
         let obj_guard = obj.write().unwrap();
-        let obj_id = obj_guard.get_id();
 
         if *approach_pos <= 0 {
             return Ok(false);
@@ -502,15 +513,12 @@ impl DockUpdateInterface for DockUpdate {
 
     fn is_clear_to_advance(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         approach_position: i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         if approach_position < 0 {
             return Ok(false);
         }
-        let obj_guard = obj.write().unwrap();
-        let obj_id = obj_guard.get_id();
-
         let position_index = approach_position as usize;
         let correct_request = self
             .approach_position_owners
@@ -536,10 +544,8 @@ impl DockUpdateInterface for DockUpdate {
 
     fn on_approach_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let obj_guard = obj.write().unwrap();
-        let obj_id = obj_guard.get_id();
         for (index, owner) in self.approach_position_owners.iter().enumerate() {
             if *owner == obj_id {
                 if let Some(reached) = self.approach_position_reached.get_mut(index) {
@@ -553,32 +559,32 @@ impl DockUpdateInterface for DockUpdate {
 
     fn is_clear_to_enter(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let obj_guard = obj.write().unwrap();
-        let obj_id = obj_guard.get_id();
         Ok(obj_id == self.active_docker)
     }
 
     fn get_enter_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let zero = Coord3D::ZERO;
         if self.enter_position == zero {
-            if let Ok(docker_guard) = obj.read() {
-                if docker_guard.is_using_airborne_locomotor() {
-                    if let Some(owner) =
-                        crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
-                    {
-                        if let Ok(owner_guard) = owner.read() {
-                            *goal_pos = *owner_guard.get_position();
-                            return Ok(());
+            if let Some(obj) = resolve_dock_object(obj_id) {
+                if let Ok(docker_guard) = obj.read() {
+                    if docker_guard.is_using_airborne_locomotor() {
+                        if let Some(owner) =
+                            crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
+                        {
+                            if let Ok(owner_guard) = owner.read() {
+                                *goal_pos = *owner_guard.get_position();
+                                return Ok(());
+                            }
                         }
                     }
+                    *goal_pos = *docker_guard.get_position();
                 }
-                *goal_pos = *docker_guard.get_position();
             }
             return Ok(());
         }
@@ -595,10 +601,12 @@ impl DockUpdateInterface for DockUpdate {
 
     fn on_enter_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return Ok(());
+        };
         let mut obj_guard = obj.write().unwrap();
-        let obj_id = obj_guard.get_id();
 
         let clear = MODELCONDITION_DOCKING_ENDING;
         let set = MODELCONDITION_DOCKING_BEGINNING | MODELCONDITION_DOCKING;
@@ -623,13 +631,15 @@ impl DockUpdateInterface for DockUpdate {
 
     fn get_dock_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let zero = Coord3D::ZERO;
         if self.enter_position == zero {
-            if let Ok(docker_guard) = obj.read() {
-                *goal_pos = *docker_guard.get_position();
+            if let Some(obj) = resolve_dock_object(obj_id) {
+                if let Ok(docker_guard) = obj.read() {
+                    *goal_pos = *docker_guard.get_position();
+                }
             }
             return Ok(());
         }
@@ -646,8 +656,11 @@ impl DockUpdateInterface for DockUpdate {
 
     fn on_dock_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return Ok(());
+        };
         let mut obj_guard = obj.write().unwrap();
 
         let clear = MODELCONDITION_DOCKING_BEGINNING;
@@ -664,21 +677,23 @@ impl DockUpdateInterface for DockUpdate {
 
     fn action(
         &mut self,
-        _obj: &Arc<RwLock<Object>>,
-        _drone: Option<&Arc<RwLock<Object>>>,
+        _obj_id: ObjectID,
+        _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(false)
     }
 
     fn get_exit_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let zero = Coord3D::ZERO;
         if self.enter_position == zero {
-            if let Ok(docker_guard) = obj.read() {
-                *goal_pos = *docker_guard.get_position();
+            if let Some(obj) = resolve_dock_object(obj_id) {
+                if let Ok(docker_guard) = obj.read() {
+                    *goal_pos = *docker_guard.get_position();
+                }
             }
             return Ok(());
         }
@@ -695,10 +710,12 @@ impl DockUpdateInterface for DockUpdate {
 
     fn on_exit_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return Ok(());
+        };
         let mut obj_guard = obj.write().unwrap();
-        let obj_id = obj_guard.get_id();
 
         let clear = MODELCONDITION_DOCKING_ACTIVE | MODELCONDITION_DOCKING;
         let set = MODELCONDITION_DOCKING_ENDING;
@@ -897,7 +914,12 @@ impl RepairDockUpdate {
         }
     }
 
-    fn repair_unit(&mut self, unit: &Arc<RwLock<Object>>) -> Result<bool, String> {
+    fn repair_unit(&mut self, unit_id: ObjectID) -> Result<bool, String> {
+        let Some(unit) = resolve_dock_object(unit_id) else {
+            return Ok(false);
+        };
+        let unit = &unit;
+
         let mut unit_guard = unit.write().unwrap();
         let current_health = unit_guard.get_health();
         let max_health = unit_guard.get_max_health();
@@ -959,100 +981,102 @@ impl DockUpdateInterface for RepairDockUpdate {
 
     fn is_clear_to_approach(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.base.is_clear_to_approach(obj)
+        self.base.is_clear_to_approach(obj_id)
     }
 
     fn cancel_dock(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.cancel_dock(obj)
+        self.base.cancel_dock(obj_id)
     }
 
     fn reserve_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .reserve_approach_position(obj, goal_pos, approach_pos)
+            .reserve_approach_position(obj_id, goal_pos, approach_pos)
     }
 
     fn advance_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .advance_approach_position(obj, goal_pos, approach_pos)
+            .advance_approach_position(obj_id, goal_pos, approach_pos)
     }
 
     fn is_clear_to_advance(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         approach_position: i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.base.is_clear_to_advance(obj, approach_position)
+        self.base.is_clear_to_advance(obj_id, approach_position)
     }
 
     fn on_approach_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_approach_reached(obj)
+        self.base.on_approach_reached(obj_id)
     }
 
     fn is_clear_to_enter(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.base.is_clear_to_enter(obj)
+        self.base.is_clear_to_enter(obj_id)
     }
 
     fn get_enter_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_enter_position(obj, goal_pos)
+        self.base.get_enter_position(obj_id, goal_pos)
     }
 
     fn on_enter_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_enter_reached(obj)
+        self.base.on_enter_reached(obj_id)
     }
 
     fn get_dock_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_dock_position(obj, goal_pos)
+        self.base.get_dock_position(obj_id, goal_pos)
     }
 
     fn on_dock_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_dock_reached(obj)
+        self.base.on_dock_reached(obj_id)
     }
 
     fn action(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
-        drone: Option<&Arc<RwLock<Object>>>,
+        obj_id: ObjectID,
+        drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let keep_docked = self.repair_unit(obj)?;
+        let keep_docked = self.repair_unit(obj_id)?;
         if keep_docked {
-            if let Some(drone) = drone {
-                if let Ok(mut drone_guard) = drone.write() {
-                    let _ = drone_guard.heal_completely();
+            if let Some(drone_id) = drone_id {
+                if let Some(drone) = resolve_dock_object(drone_id) {
+                    if let Ok(mut drone_guard) = drone.write() {
+                        let _ = drone_guard.heal_completely();
+                    }
                 }
             }
         }
@@ -1061,17 +1085,17 @@ impl DockUpdateInterface for RepairDockUpdate {
 
     fn get_exit_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_exit_position(obj, goal_pos)
+        self.base.get_exit_position(obj_id, goal_pos)
     }
 
     fn on_exit_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_exit_reached(obj)
+        self.base.on_exit_reached(obj_id)
     }
 
     fn is_allow_passthrough_type(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -1214,95 +1238,98 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
 
     fn is_clear_to_approach(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.base.is_clear_to_approach(obj)
+        self.base.is_clear_to_approach(obj_id)
     }
 
     fn cancel_dock(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.cancel_dock(obj)
+        self.base.cancel_dock(obj_id)
     }
 
     fn reserve_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .reserve_approach_position(obj, goal_pos, approach_pos)
+            .reserve_approach_position(obj_id, goal_pos, approach_pos)
     }
 
     fn advance_approach_position(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .advance_approach_position(obj, goal_pos, approach_pos)
+            .advance_approach_position(obj_id, goal_pos, approach_pos)
     }
 
     fn is_clear_to_advance(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         approach_position: i32,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.base.is_clear_to_advance(obj, approach_position)
+        self.base.is_clear_to_advance(obj_id, approach_position)
     }
 
     fn on_approach_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_approach_reached(obj)
+        self.base.on_approach_reached(obj_id)
     }
 
     fn is_clear_to_enter(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.base.is_clear_to_enter(obj)
+        self.base.is_clear_to_enter(obj_id)
     }
 
     fn get_enter_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_enter_position(obj, goal_pos)
+        self.base.get_enter_position(obj_id, goal_pos)
     }
 
     fn on_enter_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_enter_reached(obj)
+        self.base.on_enter_reached(obj_id)
     }
 
     fn get_dock_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_dock_position(obj, goal_pos)
+        self.base.get_dock_position(obj_id, goal_pos)
     }
 
     fn on_dock_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_dock_reached(obj)
+        self.base.on_dock_reached(obj_id)
     }
 
     fn action(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
-        _drone: Option<&Arc<RwLock<Object>>>,
+        obj_id: ObjectID,
+        _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return Ok(false);
+        };
         let docker_guard = obj.write().unwrap();
         let Some(ai) = docker_guard.get_ai_update_interface() else {
             return Ok(false);
@@ -1403,17 +1430,17 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
 
     fn get_exit_position(
         &self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_exit_position(obj, goal_pos)
+        self.base.get_exit_position(obj_id, goal_pos)
     }
 
     fn on_exit_reached(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_exit_reached(obj)
+        self.base.on_exit_reached(obj_id)
     }
 
     fn is_allow_passthrough_type(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
