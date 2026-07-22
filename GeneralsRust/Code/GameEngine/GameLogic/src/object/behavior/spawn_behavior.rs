@@ -853,12 +853,17 @@ impl SpawnBehavior {
             checked_templates.insert(template_name.clone());
 
             if let Some(template) = TheObjectFactory::find_template(template_name) {
-                let player_objects = {
+                let player_object_ids = {
                     let player_guard = player.read().map_err(|_| "Failed to read player")?;
-                    player_guard.get_objects()
+                    player_guard.get_object_ids()
                 };
 
-                for player_obj in player_objects {
+                for obj_id in player_object_ids {
+                    let Some(player_obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let obj_guard = player_obj
                         .read()
                         .map_err(|_| "Failed to read player object")?;
