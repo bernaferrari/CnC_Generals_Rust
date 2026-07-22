@@ -4,7 +4,9 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::DisabledType;
-use crate::common::{AsciiString, Bool, ModuleData, Real, Relationship, UnsignedInt, XferVersion};
+use crate::common::{
+    AsciiString, Bool, ModuleData, ObjectID, Real, Relationship, UnsignedInt, XferVersion,
+};
 use crate::helpers::{TheGameLogic, TheParticleSystemManager, ThePartitionManager};
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
@@ -110,7 +112,7 @@ const LEAFLET_DROP_BEHAVIOR_FIELDS: &[FieldParse<LeafletDropBehaviorModuleData>]
 
 #[derive(Debug)]
 pub struct LeafletDropBehavior {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<LeafletDropBehaviorModuleData>,
     start_frame: UnsignedInt,
     fx_fired: Bool,
@@ -128,7 +130,11 @@ impl LeafletDropBehavior {
 
         let now = TheGameLogic::get_frame();
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data.clone()),
             start_frame: now.saturating_add(data.delay_frames),
             fx_fired: false,
@@ -166,7 +172,12 @@ impl LeafletDropBehavior {
 
 impl UpdateModuleInterface for LeafletDropBehavior {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::None;
         };
         let Ok(obj) = obj_arc.read() else {
@@ -199,7 +210,12 @@ impl DieModuleInterface for LeafletDropBehavior {
         &mut self,
         _damage: &crate::damage::DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = obj_arc.read() {
                 self.do_disable_attack(&obj);
             }

@@ -181,7 +181,7 @@ pub struct ParachuteContain {
     pub base: OpenContain,
     /// Reference to the owning object
     #[allow(dead_code)]
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
 }
 
 impl ParachuteContain {
@@ -192,7 +192,13 @@ impl ParachuteContain {
     ) -> GameResult<Self> {
         let base = OpenContain::new(object.clone(), &module_data.base)?;
 
-        Ok(Self { base, object })
+        Ok(Self {
+            base,
+            object_id: object
+                .upgrade()
+                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::common::INVALID_ID),
+        })
     }
 
     /// Deploy parachutes for contained units

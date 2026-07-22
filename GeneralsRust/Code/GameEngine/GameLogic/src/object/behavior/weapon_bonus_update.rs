@@ -6,7 +6,8 @@
 use crate::common::xfer::XferExt;
 use crate::common::WeaponBonusConditionType;
 use crate::common::{
-    AsciiString, KindOfMaskType, ModuleData, Real, UnsignedInt, XferVersion, KIND_OF_MASK_NONE,
+    AsciiString, KindOfMaskType, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
+    KIND_OF_MASK_NONE,
 };
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
@@ -69,7 +70,7 @@ crate::impl_legacy_module_data_via_base!(WeaponBonusUpdateModuleData, base);
 
 #[derive(Debug)]
 pub struct WeaponBonusUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<WeaponBonusUpdateModuleData>,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
@@ -90,7 +91,11 @@ impl WeaponBonusUpdate {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
         })
@@ -99,7 +104,12 @@ impl WeaponBonusUpdate {
 
 impl UpdateModuleInterface for WeaponBonusUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(UpdateSleepTime::Forever);
         };
         let Ok(obj) = obj_arc.read() else {

@@ -294,7 +294,7 @@ const PARKING_PLACE_BEHAVIOR_FIELDS: &[FieldParse<ParkingPlaceBehaviorModuleData
 /// Matches C++ ParkingPlaceBehavior implementation
 pub struct ParkingPlaceBehavior {
     /// Weak reference to owning object
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     /// Module data
     module_data: Arc<ParkingPlaceBehaviorModuleData>,
     /// Whether parking info has been built
@@ -332,7 +332,11 @@ impl ParkingPlaceBehavior {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             got_info: false,
             next_call_frame_and_phase: 0,
@@ -351,7 +355,12 @@ impl ParkingPlaceBehavior {
     }
 
     fn set_hold_door_open(&self, door: u32, open: Bool) {
-        let Some(owner) = self.object.upgrade() else {
+        let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(owner_guard) = owner.read() else {
@@ -375,7 +384,12 @@ impl ParkingPlaceBehavior {
             return;
         }
 
-        let owner = match self.object.upgrade() {
+        let owner = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(owner) => owner,
             None => return,
         };
@@ -906,7 +920,12 @@ impl UpdateModuleInterface for ParkingPlaceBehavior {
         if now >= self.next_heal_frame {
             self.next_heal_frame = now + HEAL_RATE_FRAMES;
             let heal_amount = self.get_module_data().heal_amount;
-            let owner_arc = self.object.upgrade();
+            let owner_arc = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            });
             let mut healing = std::mem::take(&mut self.healing);
 
             healing.retain(|info| {
@@ -1340,7 +1359,12 @@ impl ModuleExitInterface for ParkingPlaceBehavior {
             .unwrap_or(0.0);
 
         if produced_at_helipad {
-            if let Some(owner) = self.object.upgrade() {
+            if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(owner_guard) = owner.read() {
                     let (found, pos, transform) =
                         owner_guard.get_single_logical_bone_position("HeliPark01");
@@ -1360,7 +1384,12 @@ impl ModuleExitInterface for ParkingPlaceBehavior {
                 }
             }
         } else if !self.reserve_space(object_id, parking_offset, Some(&mut ppinfo)) {
-            if let Some(owner) = self.object.upgrade() {
+            if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(owner_guard) = owner.read() {
                     ppinfo.parking_space = *owner_guard.get_position();
                     ppinfo.parking_orientation = owner_guard.get_orientation();
@@ -1385,11 +1414,15 @@ impl ModuleExitInterface for ParkingPlaceBehavior {
 
         if let Ok(guard) = obj.read() {
             if let Some(ai) = guard.get_ai() {
-                let owner_id = self
-                    .object
-                    .upgrade()
-                    .and_then(|o| o.read().ok().map(|g| g.get_id()))
-                    .unwrap_or(OBJECT_INVALID_ID);
+                let owner_id = (if self.object_id == crate::common::INVALID_ID {
+                    None
+                } else {
+                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                    })
+                })
+                .and_then(|o| o.read().ok().map(|g| g.get_id()))
+                .unwrap_or(OBJECT_INVALID_ID);
                 if produced_at_helipad {
                     if let Some(rally_point) = self.get_rally_point() {
                         ai.ai_move_to_position(
@@ -1616,10 +1649,13 @@ impl ParkingPlaceBehaviorInterfaceTrait for ParkingPlaceBehavior {
             .collect();
 
         for object_id in parked_ids {
-            let owner_id = self
-                .object
-                .upgrade()
-                .and_then(|owner| owner.read().ok().map(|g| g.get_id()));
+            let owner_id = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            })
+            .and_then(|owner| owner.read().ok().map(|g| g.get_id()));
             let new_team_player_id = new_team
                 .read()
                 .ok()

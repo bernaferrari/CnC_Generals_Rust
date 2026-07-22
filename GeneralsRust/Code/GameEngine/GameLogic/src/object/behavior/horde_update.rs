@@ -5,7 +5,7 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, Int, KindOf, KindOfMaskType, ModuleData, Real, UnsignedInt,
+    AsciiString, Bool, Int, KindOf, KindOfMaskType, ModuleData, ObjectID, Real, UnsignedInt,
     WeaponBonusConditionFlags, KIND_OF_MASK_NONE,
 };
 use crate::common::{GameLogicRandomValue, FROM_CENTER_2D, LOGICFRAMES_PER_SECOND};
@@ -273,7 +273,7 @@ const HORDE_UPDATE_FIELDS: &[FieldParse<HordeUpdateModuleData>] = &[
 ];
 
 pub struct HordeUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<HordeUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     last_horde_refresh_frame: UnsignedInt,
@@ -293,7 +293,11 @@ impl HordeUpdate {
             .ok_or("Invalid module data")?;
 
         let instance = Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             last_horde_refresh_frame: TheGameLogic::get_frame(),
@@ -318,7 +322,11 @@ impl HordeUpdate {
         module_data: Arc<HordeUpdateModuleData>,
     ) -> Self {
         let instance = Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             last_horde_refresh_frame: TheGameLogic::get_frame(),
@@ -360,7 +368,12 @@ impl HordeUpdate {
         if self.module_data.flag_sub_obj_names.is_empty() {
             return;
         }
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(obj) = object_arc.read() else {
@@ -377,7 +390,12 @@ impl HordeUpdate {
     }
 
     fn check_horde_status(&mut self) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(obj) = object_arc.read() else {
@@ -473,7 +491,12 @@ impl HordeUpdate {
 
 impl UpdateModuleInterface for HordeUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::Forever;
         };
         let Ok(obj) = object_arc.read() else {

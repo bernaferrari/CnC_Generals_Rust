@@ -384,7 +384,7 @@ const STEALTH_DETECTOR_UPDATE_FIELDS: &[FieldParse<StealthDetectorUpdateModuleDa
 
 /// StealthDetectorUpdate behavior module
 pub struct StealthDetectorUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<StealthDetectorUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     enabled: Bool,
@@ -405,7 +405,11 @@ impl StealthDetectorUpdate {
             .ok_or("Invalid module data type for StealthDetectorUpdate")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             enabled: !specific_data.initially_disabled,
@@ -485,7 +489,12 @@ impl StealthDetectorUpdate {
             return false;
         }
 
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 let self_id = obj.get_id();
                 // Get object position (C++ line 179)
@@ -675,7 +684,12 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
             return UpdateSleepTime::Forever;
         }
 
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Check if effectively dead (C++ lines 128-129)
                 if obj.is_effectively_dead() {
@@ -934,7 +948,7 @@ mod tests {
     #[test]
     fn stealth_detector_processes_held_disabled_like_cpp() {
         let detector = StealthDetectorUpdate {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data: Arc::new(StealthDetectorUpdateModuleData::default()),
             next_call_frame_and_phase: 0,
             enabled: true,

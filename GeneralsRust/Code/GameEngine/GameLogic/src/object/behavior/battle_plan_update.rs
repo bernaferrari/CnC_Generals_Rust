@@ -323,7 +323,7 @@ const BATTLE_PLAN_UPDATE_FIELDS: &[FieldParse<BattlePlanUpdateModuleData>] = &[
 ];
 
 pub struct BattlePlanUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<BattlePlanUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     status: TransitionStatus,
@@ -359,7 +359,11 @@ impl BattlePlanUpdate {
         };
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             status: TransitionStatus::Idle,
@@ -376,7 +380,12 @@ impl BattlePlanUpdate {
     }
 
     fn object_arc(&self) -> Option<Arc<RwLock<GameObject>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     fn with_object<R>(&self, func: impl FnOnce(&GameObject) -> R) -> Option<R> {

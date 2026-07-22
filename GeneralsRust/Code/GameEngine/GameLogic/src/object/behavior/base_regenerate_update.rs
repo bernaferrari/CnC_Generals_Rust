@@ -4,8 +4,8 @@
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, DamageInfo, DisabledMaskType, ModuleData, Real, UnsignedInt, XferVersion,
-    LOGICFRAMES_PER_SECOND,
+    AsciiString, DamageInfo, DisabledMaskType, ModuleData, ObjectID, Real, UnsignedInt,
+    XferVersion, LOGICFRAMES_PER_SECOND,
 };
 use crate::damage::{DamageInfoInput, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheGlobalData};
@@ -43,7 +43,7 @@ impl BaseRegenerateUpdateModuleData {
 
 #[allow(dead_code)]
 pub struct BaseRegenerateUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<BaseRegenerateUpdateModuleData>,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
@@ -60,7 +60,11 @@ impl BaseRegenerateUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
         })
@@ -77,7 +81,12 @@ impl UpdateModuleInterface for BaseRegenerateUpdate {
             return UpdateSleepTime::Forever;
         }
 
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::Forever;
         };
         let obj = match object_arc.write() {
@@ -150,7 +159,12 @@ impl BehaviorModuleInterface for BaseRegenerateUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(());
         };
         let Ok(obj) = obj_arc.read() else {
@@ -189,7 +203,12 @@ impl DamageModuleInterface for BaseRegenerateUpdate {
         if global_data.get_base_regen_health_percent_per_second() <= 0.0
             || damage_info.input.damage_type == crate::damage::DamageType::Healing
         {
-            if let Some(obj_arc) = self.object.upgrade() {
+            if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(obj) = obj_arc.read() {
                     TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::Forever);
                 }
@@ -197,7 +216,12 @@ impl DamageModuleInterface for BaseRegenerateUpdate {
             return Ok(());
         }
 
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = obj_arc.read() {
                 let delay = global_data.get_base_regen_delay();
                 TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::from_u32(delay));

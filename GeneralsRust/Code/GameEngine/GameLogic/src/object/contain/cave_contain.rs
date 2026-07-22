@@ -87,7 +87,7 @@ pub struct CaveContain {
     /// Cached tracker object IDs for trait APIs that return borrowed slices.
     contained_object_ids: Vec<ObjectID>,
     /// Reference to the owning object
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     /// Reference to cave system
     cave_system: Option<Arc<Mutex<CaveSystem>>>,
 }
@@ -107,14 +107,22 @@ impl CaveContain {
             cave_index: 0,
             original_team: None,
             contained_object_ids: Vec::new(),
-            object,
+            object_id: object
+                .upgrade()
+                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::common::INVALID_ID),
             cave_system,
         })
     }
 
     /// Get the object this module belongs to
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     /// Check if this is a garrisonable unit

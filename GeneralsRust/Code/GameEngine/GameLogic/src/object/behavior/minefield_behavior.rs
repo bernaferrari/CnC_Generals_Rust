@@ -285,7 +285,6 @@ struct DetonatorInfo {
 }
 
 pub struct MinefieldBehavior {
-    object: Weak<RwLock<GameObject>>,
     object_id: ObjectID,
     module_data: Arc<MinefieldBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -312,8 +311,11 @@ impl MinefieldBehavior {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
-            object_id,
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             next_call_frame_and_phase: 0,
             next_death_check_frame: 0,
             scoot_frames_left: 0,
@@ -330,9 +332,8 @@ impl MinefieldBehavior {
     }
 
     fn owner(&self) -> Option<Arc<RwLock<GameObject>>> {
-        self.object
-            .upgrade()
-            .or_else(|| TheGameLogic::find_object_by_id(self.object_id))
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 
     fn current_frame() -> UnsignedInt {

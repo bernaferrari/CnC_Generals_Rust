@@ -484,7 +484,7 @@ const SPECTRE_GUNSHIP_UPDATE_FIELDS: &[FieldParse<SpectreGunshipUpdateModuleData
 ];
 
 pub struct SpectreGunshipUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<SpectreGunshipUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     gattling_id: ObjectID,
@@ -514,7 +514,11 @@ impl SpectreGunshipUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data.clone()),
             next_call_frame_and_phase: 0,
             gattling_id: crate::common::INVALID_ID,
@@ -547,7 +551,12 @@ impl SpectreGunshipUpdate {
         F: FnOnce(&mut dyn SpecialPowerModuleInterface) -> R,
     {
         let mut func = Some(func);
-        let obj_arc = self.object.upgrade()?;
+        let obj_arc = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })?;
         let obj = obj_arc.read().ok()?;
         let template = self.module_data.special_power_template.as_ref()?;
         obj.with_special_power_module_mut_by_name(template.get_name(), |module| {
@@ -569,7 +578,12 @@ impl SpectreGunshipUpdate {
     }
 
     fn is_fair_distance_from_ship(&self, target_pos: Coord3D) -> bool {
-        let Some(gunship_arc) = self.object.upgrade() else {
+        let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(gunship) = gunship_arc.read() else {
@@ -821,7 +835,12 @@ impl SpectreGunshipUpdate {
 impl UpdateModuleInterface for SpectreGunshipUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         let current_frame = TheGameLogic::get_frame();
-        let Some(gunship_arc) = self.object.upgrade() else {
+        let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             if self.status != GunshipStatus::Idle {
                 self.set_status(GunshipStatus::Idle);
                 self.clean_up();
@@ -1098,7 +1117,12 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
 
 impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
     fn does_special_power_update_pass_science_test(&self) -> bool {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(obj) = obj_arc.read() else {
@@ -1144,7 +1168,12 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
             self.set_status(GunshipStatus::Inserting);
         }
 
-        if let Some(gunship_arc) = self.object.upgrade() {
+        if let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut gunship) = gunship_arc.write() {
                 if let Some(ai) = gunship.get_ai_update_interface() {
                     ai.choose_locomotor_set(LocomotorSetType::Panic);
@@ -1247,7 +1276,12 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
     }
 
     fn set_special_power_overridable_destination(&mut self, location: &Coord3D) {
-        if let Some(gunship_arc) = self.object.upgrade() {
+        if let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(gunship) = gunship_arc.read() {
                 if !gunship.is_disabled() {
                     self.override_target_destination = *location;
@@ -1306,7 +1340,12 @@ impl BehaviorModuleInterface for SpectreGunshipUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(());
         };
         let obj = obj_arc.read().ok();

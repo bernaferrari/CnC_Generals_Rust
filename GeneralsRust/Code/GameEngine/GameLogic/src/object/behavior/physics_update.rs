@@ -184,19 +184,31 @@ impl PhysicsBehaviorState {
 #[derive(Debug)]
 struct PhysicsBehaviorHandle {
     state: PhysicsBehaviorState,
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<PhysicsBehaviorModuleData>,
     bounce_sound: Option<AudioEventRts>,
 }
 
 impl PhysicsBehaviorHandle {
     fn new(object: Weak<RwLock<GameObject>>, module_data: Arc<PhysicsBehaviorModuleData>) -> Self {
+        let object_id = object
+            .upgrade()
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+            .unwrap_or(crate::common::INVALID_ID);
         Self {
             state: PhysicsBehaviorState::new(module_data.mass),
-            object,
+            object_id,
             module_data,
             bounce_sound: None,
         }
+    }
+
+    fn object_arc(&self) -> Option<Arc<RwLock<GameObject>>> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 
     fn is_motive(&self) -> bool {
@@ -241,7 +253,12 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
 
         let mut mod_force = *force;
         if self.is_motive() {
-            if let Some(obj) = self.object.upgrade() {
+            if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(obj) = obj.read() {
                     let (dir_x, dir_y) = obj.get_unit_direction_vector_2d();
                     let lateral_dot = force.x * -dir_y + force.y * dir_x;
@@ -262,7 +279,12 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.state.accel.z += mod_force.z * mass_inv;
 
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
-            if let Some(obj) = self.object.upgrade() {
+            if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(obj) = obj.read() {
                     TheGameLogic::set_wake_frame(obj.get_id(), UPDATE_SLEEP_NONE);
                 }
@@ -341,7 +363,12 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.state.yaw_angle += angular_velocity.z * factor;
         self.update_pitch_roll_yaw_flag();
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
-            if let Some(obj) = self.object.upgrade() {
+            if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(obj) = obj.read() {
                     TheGameLogic::set_wake_frame(obj.get_id(), UPDATE_SLEEP_NONE);
                 }
@@ -406,7 +433,12 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.update_pitch_roll_yaw_flag();
 
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
-            if let Some(obj) = self.object.upgrade() {
+            if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(obj) = obj.read() {
                     TheGameLogic::set_wake_frame(obj.get_id(), UPDATE_SLEEP_NONE);
                 }
@@ -416,7 +448,12 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
 
     fn set_stunned(&mut self, stunned: bool) {
         self.state.set_flag(FLAG_IS_STUNNED, stunned);
-        if let Some(obj) = self.object.upgrade() {
+        if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut obj) = obj.write() {
                 if stunned {
                     obj.set_model_condition_state(MODELCONDITION_STUNNED_FLAILING);
@@ -445,7 +482,7 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
 const MOTIVE_FRAMES: UnsignedInt = (LOGICFRAMES_PER_SECOND / 3) as UnsignedInt;
 
 pub struct PhysicsBehaviorUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<PhysicsBehaviorModuleData>,
     physics_handle: Arc<Mutex<PhysicsBehaviorHandle>>,
 }
@@ -461,8 +498,13 @@ impl PhysicsBehaviorUpdate {
             .ok_or("Invalid module data for PhysicsBehavior")?;
 
         let module_data = Arc::new(data.clone());
+        let object_id = object
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id,
             module_data: module_data.clone(),
             physics_handle: Arc::new(Mutex::new(PhysicsBehaviorHandle::new(
                 Arc::downgrade(&object),
@@ -617,7 +659,12 @@ impl PhysicsBehaviorUpdate {
 
 impl UpdateModuleInterface for PhysicsBehaviorUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::None;
         };
         let Ok(mut obj) = obj_arc.write() else {
@@ -854,7 +901,12 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(());
         };
         let Ok(mut obj) = obj_arc.write() else {

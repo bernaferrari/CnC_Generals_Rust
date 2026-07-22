@@ -7,7 +7,7 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, ModuleData, Real, TheGameLogic, UnsignedInt, INVALID_ID,
+    AsciiString, Coord3D, ModuleData, ObjectID, Real, TheGameLogic, UnsignedInt, INVALID_ID,
 };
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
@@ -68,7 +68,7 @@ const SMART_BOMB_TARGET_HOMING_UPDATE_FIELDS: &[FieldParse<
 
 /// SmartBombTargetHomingUpdate - nudges falling objects toward targets
 pub struct SmartBombTargetHomingUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<SmartBombTargetHomingUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
 
@@ -89,7 +89,11 @@ impl SmartBombTargetHomingUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data.clone()),
             next_call_frame_and_phase: 0,
             target_received: false,
@@ -117,7 +121,12 @@ impl UpdateModuleInterface for SmartBombTargetHomingUpdate {
         }
 
         // Get object reference
-        let obj_arc = match self.object.upgrade() {
+        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(arc) => arc,
             None => return UPDATE_SLEEP_NONE,
         };

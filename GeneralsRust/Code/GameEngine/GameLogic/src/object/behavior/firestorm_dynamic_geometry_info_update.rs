@@ -6,7 +6,7 @@
 //! Rust conversion: 2025
 
 use crate::common::EmissionVolumeType;
-use crate::common::{Coord3D, ModuleData, Real, XferVersion};
+use crate::common::{Coord3D, ModuleData, ObjectID, Real, XferVersion};
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::helpers::{
     TheFXList, TheGameClient, TheGameLogic, TheParticleSystemManager, ThePartitionManager,
@@ -196,7 +196,7 @@ fn parse_particle_system(
 
 /// FirestormDynamicGeometryInfoUpdate - firestorm effects during geometry transition
 pub struct FirestormDynamicGeometryInfoUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<FirestormDynamicGeometryInfoUpdateModuleData>,
     pub logic: DynamicGeometryInfoUpdateLogic,
 
@@ -217,7 +217,11 @@ impl FirestormDynamicGeometryInfoUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             logic: DynamicGeometryInfoUpdateLogic::new(&data.base),
             module_data: Arc::new(data.clone()),
             particle_system_ids: [INVALID_PARTICLE_SYSTEM_ID; MAX_FIRESTORM_SYSTEMS],
@@ -269,7 +273,12 @@ impl FirestormDynamicGeometryInfoUpdate {
 
 impl UpdateModuleInterface for FirestormDynamicGeometryInfoUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let obj_arc = match self.object.upgrade() {
+        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(arc) => arc,
             None => return UPDATE_SLEEP_NONE,
         };

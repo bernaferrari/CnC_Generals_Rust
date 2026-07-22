@@ -45,7 +45,7 @@ pub struct RailedTransportContain {
     pub base: TransportContain,
     /// Reference to the owning object
     #[allow(dead_code)]
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
 }
 
 impl RailedTransportContain {
@@ -56,7 +56,13 @@ impl RailedTransportContain {
     ) -> GameResult<Self> {
         let base = TransportContain::new(object.clone(), &module_data.base)?;
 
-        Ok(Self { base, object })
+        Ok(Self {
+            base,
+            object_id: object
+                .upgrade()
+                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::common::INVALID_ID),
+        })
     }
 
     /// Serialize state for save/load

@@ -228,7 +228,7 @@ const DEMO_TRAP_UPDATE_FIELDS: &[FieldParse<DemoTrapUpdateModuleData>] = &[
 ];
 
 pub struct DemoTrapUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<DemoTrapUpdateModuleData>,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
@@ -247,7 +247,11 @@ impl DemoTrapUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             next_scan_frames: 0,
@@ -260,7 +264,12 @@ impl DemoTrapUpdate {
             return Ok(());
         }
 
-        let Some(me_arc) = self.object.upgrade() else {
+        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(());
         };
         let mut me = me_arc.write().unwrap();
@@ -293,7 +302,12 @@ impl UpdateModuleInterface for DemoTrapUpdate {
             return UPDATE_SLEEP_NONE;
         }
 
-        let Some(me_arc) = self.object.upgrade() else {
+        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UPDATE_SLEEP_NONE;
         };
         let me = me_arc.read().unwrap();
@@ -538,7 +552,12 @@ impl BehaviorModuleInterface for DemoTrapUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(me_arc) = self.object.upgrade() else {
+        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(());
         };
         let mut me = me_arc.write().unwrap();

@@ -6,7 +6,7 @@ use crate::common::audio::AudioEventRts;
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Coord2D, Coord3D, GameLogicRandomValue, Matrix3D, ModelConditionFlags, ModuleData,
-    Real, UnsignedInt, XferVersion, LOGICFRAMES_PER_SECOND,
+    ObjectID, Real, UnsignedInt, XferVersion, LOGICFRAMES_PER_SECOND,
 };
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::helpers::{
@@ -326,7 +326,7 @@ const WAVE_GUIDE_UPDATE_FIELDS: &[FieldParse<WaveGuideUpdateModuleData>] = &[
 ];
 
 pub struct WaveGuideUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<WaveGuideUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     active_frame: UnsignedInt,
@@ -351,7 +351,11 @@ impl WaveGuideUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data.clone()),
             next_call_frame_and_phase: 0,
             active_frame: 0,
@@ -368,7 +372,12 @@ impl WaveGuideUpdate {
     }
 
     fn start_moving(&mut self) -> bool {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(mut waveguide) = object_arc.write() else {
@@ -443,7 +452,12 @@ impl WaveGuideUpdate {
 
         self.compute_wave_shape_points();
 
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(waveguide) = object_arc.read() else {
@@ -498,7 +512,12 @@ impl WaveGuideUpdate {
     }
 
     fn transform_wave_shape(&mut self) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(waveguide) = object_arc.read() else {
@@ -557,7 +576,12 @@ impl WaveGuideUpdate {
             return;
         }
 
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(waveguide) = object_arc.read() else {
@@ -605,7 +629,12 @@ impl WaveGuideUpdate {
     }
 
     fn do_damage(&self) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(waveguide) = object_arc.read() else {
@@ -769,7 +798,12 @@ impl WaveGuideUpdate {
 
 impl UpdateModuleInterface for WaveGuideUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::None;
         };
         let Ok(mut waveguide) = object_arc.write() else {

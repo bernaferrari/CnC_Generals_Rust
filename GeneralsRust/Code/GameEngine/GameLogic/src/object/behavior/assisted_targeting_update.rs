@@ -53,7 +53,7 @@ impl AssistedTargetingUpdateModuleData {
 }
 
 pub struct AssistedTargetingUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<AssistedTargetingUpdateModuleData>,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
@@ -73,7 +73,11 @@ impl AssistedTargetingUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             laser_from_assisted: None,
@@ -108,7 +112,12 @@ impl AssistedTargetingUpdate {
             return;
         };
 
-        let team = if let Some(me_arc) = self.object.upgrade() {
+        let team = if let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             me_arc
                 .read()
                 .ok()
@@ -191,7 +200,12 @@ impl BehaviorModuleInterface for AssistedTargetingUpdate {
 
 impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
     fn is_free_to_assist(&self) -> bool {
-        let Some(me_arc) = self.object.upgrade() else {
+        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let me = me_arc.read().unwrap();
@@ -208,7 +222,12 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
     }
 
     fn assist_attack(&mut self, requesting_object_id: ObjectID, victim_object_id: ObjectID) {
-        let Some(me_arc) = self.object.upgrade() else {
+        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let mut me = me_arc.write().unwrap();

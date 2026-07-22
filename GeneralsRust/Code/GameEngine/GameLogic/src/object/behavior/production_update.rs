@@ -57,7 +57,7 @@ pub struct ProductionQueueEntry {
 }
 
 pub struct ProductionUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<ProductionUpdateModuleData>,
     production_queue: VecDeque<ProductionQueueEntry>,
     current_entry: Option<ProductionQueueEntry>,
@@ -77,7 +77,12 @@ impl ProductionUpdate {
     fn sync_actively_constructing_flag(&self) {
         let should_set =
             self.is_producing || self.current_entry.is_some() || !self.production_queue.is_empty();
-        let Some(object) = self.object.upgrade() else {
+        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(mut guard) = object.write() else {
@@ -100,7 +105,11 @@ impl ProductionUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             production_queue: VecDeque::new(),
             current_entry: None,
@@ -139,7 +148,13 @@ impl UpdateModuleInterface for ProductionUpdate {
         if self.is_producing && !self.is_paused {
             if current_frame >= self.current_production_end_frame {
                 if let Some(entry) = self.current_entry.take() {
-                    if let Some(factory_object) = self.object.upgrade() {
+                    if let Some(factory_object) = (if self.object_id == crate::common::INVALID_ID {
+                        None
+                    } else {
+                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
+                            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
+                        )
+                    }) {
                         if let Ok(factory_guard) = factory_object.read() {
                             let factory_pos = *factory_guard.get_position();
                             if let Some(team_arc) = factory_guard.get_team() {
@@ -214,7 +229,12 @@ impl ProductionUpdateInterface for ProductionUpdate {
             return false;
         };
 
-        let parking_full = if let Some(object) = self.object.upgrade() {
+        let parking_full = if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(guard) = object.read() {
                 guard
                     .with_parking_place_behavior(|parking_place| {
@@ -340,7 +360,12 @@ impl ProductionUpdateInterface for ProductionUpdate {
 
     fn set_hold_door_open(&mut self, _exit_door: usize, hold_it: bool) {
         if hold_it {
-            if let Some(object) = self.object.upgrade() {
+            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(mut guard) = object.write() {
                     guard.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
                 }

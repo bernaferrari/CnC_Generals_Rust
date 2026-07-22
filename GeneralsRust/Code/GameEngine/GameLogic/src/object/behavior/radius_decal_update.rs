@@ -6,7 +6,7 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, CoordOrigin, ModuleData, ObjectStatusTypes, RadiusDecal,
+    AsciiString, Coord3D, CoordOrigin, ModuleData, ObjectID, ObjectStatusTypes, RadiusDecal,
     RadiusDecalTemplate, Real, UnsignedInt, XferVersion, INVALID_ID,
 };
 use crate::helpers::TheGameLogic;
@@ -50,7 +50,7 @@ crate::impl_behavior_module_data_via_base!(RadiusDecalUpdateModuleData, base);
 
 /// RadiusDecalUpdate - manages terrain radius decals for visual feedback
 pub struct RadiusDecalUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     #[allow(dead_code)]
     module_data: Arc<RadiusDecalUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -81,7 +81,11 @@ impl RadiusDecalUpdate {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data.clone()),
             next_call_frame_and_phase: 0,
             delivery_decal: decal,
@@ -99,11 +103,14 @@ impl RadiusDecalUpdate {
     ) {
         self.delivery_decal.clear();
 
-        let owner_index = self
-            .object
-            .upgrade()
-            .and_then(|obj| obj.read().ok().and_then(|o| o.get_controlling_player()))
-            .and_then(|player| player.read().ok().map(|p| p.get_player_index()));
+        let owner_index = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .and_then(|obj| obj.read().ok().and_then(|o| o.get_controlling_player()))
+        .and_then(|player| player.read().ok().map(|p| p.get_player_index()));
         let local_index = ThePlayerList()
             .read()
             .ok()
@@ -127,7 +134,12 @@ impl RadiusDecalUpdate {
             }
         }
         self.sleeping = decal_is_empty(&self.delivery_decal);
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = obj_arc.read() {
                 let sleep = if self.sleeping {
                     UpdateSleepTime::Forever
@@ -148,7 +160,12 @@ impl RadiusDecalUpdate {
     pub fn kill_radius_decal(&mut self) {
         self.delivery_decal.clear();
         self.sleeping = true;
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = obj_arc.read() {
                 TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::Forever);
             }
@@ -165,16 +182,28 @@ impl UpdateModuleInterface for RadiusDecalUpdate {
 
         // Check if we should kill decal when object stops attacking
         if self.kill_when_no_longer_attacking {
-            if let Some(obj_arc) = self.object.upgrade() {
+            if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(obj) = obj_arc.read() {
                     // Check if object is no longer attacking
                     if !obj.get_status_bits().test(ObjectStatusTypes::IsAttacking) {
                         self.delivery_decal.clear();
                         self.sleeping = true;
-                        if let Some(obj_id) = self
-                            .object
-                            .upgrade()
-                            .and_then(|o| o.read().ok().map(|g| g.get_id()))
+                        if let Some(obj_id) = (if self.object_id == crate::common::INVALID_ID {
+                            None
+                        } else {
+                            crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
+                                || {
+                                    crate::object::registry::OBJECT_REGISTRY
+                                        .get_object(self.object_id)
+                                },
+                            )
+                        })
+                        .and_then(|o| o.read().ok().map(|g| g.get_id()))
                         {
                             TheGameLogic::set_wake_frame(obj_id, UpdateSleepTime::Forever);
                         }

@@ -8,7 +8,7 @@
 use crate::common::xfer::XferExt;
 
 use crate::common::{
-    Bool, Coord3D, KindOf, ModuleData, PathfindLayerEnum, Real, UnsignedInt, XferVersion,
+    Bool, Coord3D, KindOf, ModuleData, ObjectID, PathfindLayerEnum, Real, UnsignedInt, XferVersion,
 };
 use crate::helpers::TheGameLogic;
 use crate::helpers::TheParticleSystemManager;
@@ -156,7 +156,7 @@ const HEIGHT_DIE_UPDATE_FIELDS: &[FieldParse<HeightDieUpdateModuleData>] = &[
 /// HeightDieUpdate - kills the object when it falls below a threshold height above terrain.
 /// Matches C++ HeightDieUpdate::update() at HeightDieUpdate.cpp:92-246
 pub struct HeightDieUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<HeightDieUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     /// TRUE once we have triggered death. C++ m_hasDied.
@@ -180,7 +180,11 @@ impl HeightDieUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             // Matches C++ HeightDieUpdate.cpp:73-78
@@ -199,7 +203,12 @@ impl HeightDieUpdate {
 
 impl UpdateModuleInterface for HeightDieUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let obj_arc = match self.object.upgrade() {
+        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(arc) => arc,
             None => return UpdateSleepTime::Forever,
         };

@@ -4,7 +4,7 @@
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Coord2D, Coord3D, GameLogicRandomValue, GameLogicRandomValueReal, Matrix3D,
-    ModelConditionFlags, ModuleData, Real, UnsignedInt, PLAYERMASK_ALL,
+    ModelConditionFlags, ModuleData, ObjectID, Real, UnsignedInt, PLAYERMASK_ALL,
 };
 use crate::damage::{get_damage_type_flag, DamageInfo, DamageType};
 use crate::effects::{FXList, ObjectCreationList};
@@ -474,7 +474,7 @@ const STRUCTURE_TOPPLE_UPDATE_FIELDS: &[FieldParse<StructureToppleUpdateModuleDa
 ];
 
 pub struct StructureToppleUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<StructureToppleUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     topple_frame: UnsignedInt,
@@ -504,7 +504,11 @@ impl StructureToppleUpdate {
             .unwrap_or(0.0);
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             topple_frame: 0,
@@ -555,7 +559,12 @@ impl StructureToppleUpdate {
             "StructureToppleUpdate OCL count exceeds list size or MAX_IDX"
         );
         let ctx = crate::object_creation_list::live_creation_context();
-        let Some(owner_arc) = self.object.upgrade() else {
+        let Some(owner_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(owner_guard) = owner_arc.read() else {
@@ -594,7 +603,12 @@ impl StructureToppleUpdate {
         ) as UnsignedInt;
         self.topple_frame = now.wrapping_add(delay);
 
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(building) = object_arc.read() else {
@@ -677,7 +691,12 @@ impl StructureToppleUpdate {
     }
 
     fn do_topple_delay_burst_fx(&mut self) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(building) = object_arc.read() else {
@@ -743,7 +762,12 @@ impl StructureToppleUpdate {
     }
 
     fn do_topple_done_stuff(&self) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(building) = object_arc.read() else {
@@ -781,7 +805,12 @@ impl StructureToppleUpdate {
     }
 
     fn do_angle_fx(&self, cur_angle: Real, new_angle: Real) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(building) = object_arc.read() else {
@@ -809,7 +838,12 @@ impl StructureToppleUpdate {
             return;
         }
 
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(building) = object_arc.read() else {
@@ -927,7 +961,12 @@ impl StructureToppleUpdate {
 
 impl UpdateModuleInterface for StructureToppleUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::Forever;
         };
 
@@ -1054,7 +1093,12 @@ impl DieModuleInterface for StructureToppleUpdate {
         &mut self,
         damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(());
         };
         let Ok(obj_read) = object_arc.read() else {

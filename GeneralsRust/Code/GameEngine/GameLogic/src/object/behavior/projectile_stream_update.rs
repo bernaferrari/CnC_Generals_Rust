@@ -42,7 +42,7 @@ impl ProjectileStreamUpdateModuleData {
 }
 
 pub struct ProjectileStreamUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     #[allow(dead_code)]
     module_data: Arc<ProjectileStreamUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -65,7 +65,11 @@ impl ProjectileStreamUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             projectile_ids: [OBJECT_INVALID_ID; MAX_PROJECTILE_STREAM],
@@ -168,7 +172,12 @@ impl ProjectileStreamUpdate {
     }
 
     pub fn set_position(&mut self, new_position: &crate::common::Coord3D) {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut guard) = object.write() {
                 if let Err(err) = guard.set_position(new_position) {
                     log::debug!("ProjectileStreamUpdate::set_position failed: {err}");
@@ -201,7 +210,12 @@ impl UpdateModuleInterface for ProjectileStreamUpdate {
         self.cull_front_of_list();
 
         if self.consider_dying() {
-            if let Some(obj) = self.object.upgrade() {
+            if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(obj_guard) = obj.read() {
                     if let Err(err) = TheGameLogic::destroy_object(&obj_guard) {
                         log::debug!("ProjectileStreamUpdate::destroy_object failed: {err}");

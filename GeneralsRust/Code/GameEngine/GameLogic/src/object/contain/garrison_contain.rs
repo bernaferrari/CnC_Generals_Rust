@@ -287,7 +287,7 @@ pub struct GarrisonContain {
     /// Evacuation disposition
     evac_disposition: EvacDisposition,
     /// Reference to the owning object
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
 }
 
 impl GarrisonContain {
@@ -321,13 +321,21 @@ impl GarrisonContain {
             hide_garrisoned_state_from_non_allies: false,
             rally_valid: false,
             evac_disposition: EvacDisposition::BurstFromCenter,
-            object,
+            object_id: object
+                .upgrade()
+                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::common::INVALID_ID),
         })
     }
 
     /// Get the object this module belongs to
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     /// Update method called once per frame

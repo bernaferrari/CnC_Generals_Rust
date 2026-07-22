@@ -119,7 +119,7 @@ crate::impl_legacy_module_data_with_key_field!(
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug)]
 pub struct PropagandaCenterBehavior {
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     module_data: Arc<PropagandaCenterBehaviorModuleData>,
     prison_behavior: PrisonBehavior,
     brainwashing_subject_id: ObjectID,
@@ -136,7 +136,11 @@ impl PropagandaCenterBehavior {
         let prison_behavior =
             PrisonBehavior::new(Arc::clone(&object), Arc::new(module_data.base.clone()))?;
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             prison_behavior,
             brainwashing_subject_id: INVALID_ID,
@@ -146,7 +150,12 @@ impl PropagandaCenterBehavior {
     }
 
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     fn clear_brainwashing_subject_if_match(&mut self, object_id: ObjectID) {

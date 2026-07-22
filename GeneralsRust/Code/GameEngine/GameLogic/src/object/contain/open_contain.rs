@@ -436,8 +436,8 @@ const OPEN_CONTAIN_FIELDS: &[FieldParse<OpenContainModuleData>] = &[
 /// Open contain module - base functionality for all containers
 #[derive(Debug)]
 pub struct OpenContain {
-    /// Reference to the owning object
-    object: Weak<RwLock<Object>>,
+    /// Owning object id (resolve for the duration of an op)
+    object_id: ObjectID,
     /// UpdateModule base scheduler state.
     next_call_frame_and_phase: UnsignedInt,
     /// Contained object IDs (stable; resolve for the duration of an op).
@@ -480,8 +480,12 @@ impl OpenContain {
         object: Weak<RwLock<Object>>,
         module_data: &OpenContainModuleData,
     ) -> GameResult<Self> {
+        let object_id = object
+            .upgrade()
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+            .unwrap_or(crate::common::INVALID_ID);
         Ok(Self {
-            object,
+            object_id,
             next_call_frame_and_phase: 0,
             contained_object_ids: Vec::new(),
             object_enter_exit_info: HashMap::new(),
@@ -587,7 +591,15 @@ impl OpenContain {
 
     /// Get the object this module belongs to
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object.upgrade()
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+    }
+
+    pub fn get_object_id(&self) -> ObjectID {
+        self.object_id
     }
 
     /// Update method called once per frame

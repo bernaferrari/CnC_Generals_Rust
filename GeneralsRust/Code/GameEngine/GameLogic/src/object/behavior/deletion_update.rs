@@ -1,7 +1,7 @@
 //! DeletionUpdate - Auto-deletion of objects after conditions
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
-use crate::common::{Bool, ModuleData, TheGameLogic, UnsignedInt};
+use crate::common::{Bool, ModuleData, ObjectID, TheGameLogic, UnsignedInt};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
@@ -77,7 +77,7 @@ const DELETION_UPDATE_FIELDS: &[FieldParse<DeletionUpdateModuleData>] = &[
 #[allow(dead_code)]
 pub struct DeletionUpdate {
     #[allow(dead_code)]
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<DeletionUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     delete_frame: UnsignedInt,
@@ -99,7 +99,11 @@ impl DeletionUpdate {
             Self::calc_sleep_delay_static(specific_data.min_lifetime, specific_data.max_lifetime);
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: current_frame + lifetime,
             delete_frame: current_frame + lifetime,
@@ -111,7 +115,12 @@ impl DeletionUpdate {
         let delay = Self::calc_sleep_delay_static(min_lifetime, max_lifetime);
         self.delete_frame = current_frame + delay;
         self.next_call_frame_and_phase = self.delete_frame;
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(object) = object.read() {
                 crate::helpers::TheGameLogic::set_wake_frame(
                     object.get_id(),
@@ -142,7 +151,12 @@ impl DeletionUpdate {
 impl UpdateModuleInterface for DeletionUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         // C++ destroys whenever the scheduled update is invoked; timing is owned by the scheduler.
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(guard) = object.read() {
                 let _ = TheGameLogic::destroy_object(&guard);
             }
@@ -211,7 +225,7 @@ mod tests {
 
     fn test_update() -> DeletionUpdate {
         DeletionUpdate {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data: Arc::new(DeletionUpdateModuleData::default()),
             next_call_frame_and_phase: 0,
             delete_frame: 0,

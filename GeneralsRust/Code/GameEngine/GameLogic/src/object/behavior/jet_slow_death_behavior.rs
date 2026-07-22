@@ -320,7 +320,7 @@ const JET_SLOW_DEATH_FIELDS: &[FieldParse<JetSlowDeathBehaviorModuleData>] = &[
 ];
 
 pub struct JetSlowDeathBehavior {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<JetSlowDeathBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     timer_death_frame: UnsignedInt,
@@ -336,7 +336,11 @@ impl JetSlowDeathBehavior {
         module_data: Arc<JetSlowDeathBehaviorModuleData>,
     ) -> Self {
         Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             timer_death_frame: 0,
@@ -348,7 +352,12 @@ impl JetSlowDeathBehavior {
     }
 
     fn owner(&self) -> Option<Arc<RwLock<GameObject>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     fn do_fx(&self, fx: &Option<Arc<FXList>>, object: &Arc<RwLock<GameObject>>) {
