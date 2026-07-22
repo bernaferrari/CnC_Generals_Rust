@@ -154,15 +154,13 @@ impl PathFollowingController {
                 Some(PathResult::Failed(_)) => {
                     state.waiting_for_path = false;
                     if state.frames_blocked > BLOCKED_RECOMPUTE_THRESHOLD {
-                        if let Some(obj) = OBJECT_REGISTRY.get_object(unit_id) {
-                            if let Ok(obj_guard) = obj.read() {
-                                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                                    if let Ok(mut ai_guard) = ai.lock() {
-                                        let _ = ai_guard
-                                            .set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
-                                        let _ = ai_guard.set_blocked_and_stuck(false);
-                                    }
-                                }
+                        if let Some(ai) = OBJECT_REGISTRY
+                            .with_object(unit_id, |obj_guard| obj_guard.get_ai_update_interface())
+                            .flatten()
+                        {
+                            if let Ok(mut ai_guard) = ai.lock() {
+                                let _ = ai_guard.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
+                                let _ = ai_guard.set_blocked_and_stuck(false);
                             }
                         }
                         locomotor.clear_path();
@@ -264,20 +262,15 @@ impl PathFollowingController {
         current_frame: u32,
     ) -> Result<bool, String> {
         let mut capabilities = locomotor.to_movement_capabilities();
-        if let Some(obj) = OBJECT_REGISTRY.get_object(unit_id) {
-            if let Ok(obj_guard) = obj.read() {
-                if obj_guard.get_crusher_level() > 0 {
-                    capabilities.crusher = true;
-                    capabilities.surface_mask |= SURFACE_RUBBLE;
-                }
-            }
-        }
-
         let mut move_allies = false;
         let mut ignore_obstacle_id = None;
         let mut can_quick_path = false;
-        let unit_size = if let Some(obj) = OBJECT_REGISTRY.get_object(unit_id) {
-            if let Ok(guard) = obj.read() {
+        let unit_size = if let Some((crusher, radius, allies, ignore, quick)) = OBJECT_REGISTRY
+            .with_object(unit_id, |guard| {
+                let crusher = guard.get_crusher_level() > 0;
+                let mut move_allies = false;
+                let mut ignore_obstacle_id = None;
+                let mut can_quick_path = false;
                 if let Some(ai) = guard.get_ai_update_interface() {
                     if let Ok(ai_guard) = ai.lock() {
                         move_allies = ai_guard.get_can_path_through_units();
@@ -288,10 +281,22 @@ impl PathFollowingController {
                         can_quick_path = ai_guard.can_compute_quick_path();
                     }
                 }
-                guard.get_geometry_info().get_major_radius()
-            } else {
-                locomotor.template.close_enough_dist
+                (
+                    crusher,
+                    guard.get_geometry_info().get_major_radius(),
+                    move_allies,
+                    ignore_obstacle_id,
+                    can_quick_path,
+                )
+            }) {
+            if crusher {
+                capabilities.crusher = true;
+                capabilities.surface_mask |= SURFACE_RUBBLE;
             }
+            move_allies = allies;
+            ignore_obstacle_id = ignore;
+            can_quick_path = quick;
+            radius
         } else {
             locomotor.template.close_enough_dist
         };
@@ -517,27 +522,25 @@ pub fn update_movement_with_pathfinding(
         let check_pos = movement_result
             .map(|(pos, _, _)| pos)
             .unwrap_or(*current_pos);
-        if let Some(obj) = OBJECT_REGISTRY.get_object(unit_id) {
-            if let Ok(mut guard) = obj.write() {
-                let mut water_z = 0.0;
-                let mut terrain_z = 0.0;
-                let is_over_water = TheTerrainLogic::get()
-                    .map(|terrain| {
-                        terrain.is_underwater(
-                            check_pos.x,
-                            check_pos.y,
-                            Some(&mut water_z),
-                            Some(&mut terrain_z),
-                        )
-                    })
-                    .unwrap_or(false);
-                if is_over_water {
-                    guard.set_model_condition_state(MODELCONDITION_OVER_WATER);
-                } else {
-                    guard.clear_model_condition_state(MODELCONDITION_OVER_WATER);
-                }
+        let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |guard| {
+            let mut water_z = 0.0;
+            let mut terrain_z = 0.0;
+            let is_over_water = TheTerrainLogic::get()
+                .map(|terrain| {
+                    terrain.is_underwater(
+                        check_pos.x,
+                        check_pos.y,
+                        Some(&mut water_z),
+                        Some(&mut terrain_z),
+                    )
+                })
+                .unwrap_or(false);
+            if is_over_water {
+                guard.set_model_condition_state(MODELCONDITION_OVER_WATER);
+            } else {
+                guard.clear_model_condition_state(MODELCONDITION_OVER_WATER);
             }
-        }
+        });
     }
 
     if let Some(layer) = locomotor
@@ -545,26 +548,24 @@ pub fn update_movement_with_pathfinding(
         .as_ref()
         .and_then(|path| path.current_layer())
     {
-        if let Some(obj) = OBJECT_REGISTRY.get_object(unit_id) {
-            if let Ok(mut guard) = obj.write() {
-                if let Some(terrain) = TheTerrainLogic::get() {
-                    let mut next_layer = match layer {
-                        PathfindLayerEnum::Ground => crate::common::PathfindLayerEnum::Ground,
-                        PathfindLayerEnum::Air => crate::common::PathfindLayerEnum::Top,
-                        PathfindLayerEnum::Water => crate::common::PathfindLayerEnum::Water,
-                        PathfindLayerEnum::Tunnel => crate::common::PathfindLayerEnum::Ground,
-                        PathfindLayerEnum::Invalid => crate::common::PathfindLayerEnum::Ground,
-                    };
-                    if next_layer != crate::common::PathfindLayerEnum::Ground
-                        && !terrain.object_interacts_with_bridge_layer(&guard, next_layer, true)
-                    {
-                        next_layer = crate::common::PathfindLayerEnum::Ground;
-                    }
-                    guard.set_layer(next_layer);
-                    guard.set_destination_layer(next_layer);
+        OBJECT_REGISTRY.with_object_mut(unit_id, |guard| {
+            if let Some(terrain) = TheTerrainLogic::get() {
+                let mut next_layer = match layer {
+                    PathfindLayerEnum::Ground => crate::common::PathfindLayerEnum::Ground,
+                    PathfindLayerEnum::Air => crate::common::PathfindLayerEnum::Top,
+                    PathfindLayerEnum::Water => crate::common::PathfindLayerEnum::Water,
+                    PathfindLayerEnum::Tunnel => crate::common::PathfindLayerEnum::Ground,
+                    PathfindLayerEnum::Invalid => crate::common::PathfindLayerEnum::Ground,
+                };
+                if next_layer != crate::common::PathfindLayerEnum::Ground
+                    && !terrain.object_interacts_with_bridge_layer(guard, next_layer, true)
+                {
+                    next_layer = crate::common::PathfindLayerEnum::Ground;
                 }
+                guard.set_layer(next_layer);
+                guard.set_destination_layer(next_layer);
             }
-        }
+        });
     }
 
     // Update blocked detection

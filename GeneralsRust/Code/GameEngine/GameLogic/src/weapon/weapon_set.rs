@@ -688,12 +688,11 @@ impl WeaponSet {
             }
 
             // C++ line 838-840: Check anti-mask against victim KINDOF flags
-            if let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_obj) {
-                if let Ok(target_guard) = target.read() {
-                    let victim_anti_mask = target_guard.get_anti_mask();
-                    if (weapon.get_template().anti_mask.0 & victim_anti_mask) == 0 {
-                        continue;
-                    }
+            if let Some(victim_anti_mask) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(target_obj, |target_guard| target_guard.get_anti_mask())
+            {
+                if (weapon.get_template().anti_mask.0 & victim_anti_mask) == 0 {
+                    continue;
                 }
             }
 
@@ -709,18 +708,21 @@ impl WeaponSet {
             let mut weapon_is_ready = weapon.get_status() == WeaponStatus::ReadyToFire;
 
             // C++ line 849-851: Check if weapon is on turret and aiming at target
-            if let Some(source) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj) {
-                if let Ok(source_guard) = source.read() {
-                    if let Some(ai) = source_guard.get_ai() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            if ai_guard
-                                .is_weapon_slot_on_turret_and_aiming_at_target(slot, target_obj)
-                            {
-                                weapon_is_ready = false;
-                            }
-                        }
-                    }
-                }
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(source_obj, |source_guard| {
+                    let Some(ai) = source_guard.get_ai() else {
+                        return false;
+                    };
+                    ai.lock()
+                        .ok()
+                        .map(|ai_guard| {
+                            ai_guard.is_weapon_slot_on_turret_and_aiming_at_target(slot, target_obj)
+                        })
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false)
+            {
+                weapon_is_ready = false;
             }
 
             // C++ line 853-856: Weapon would do no damage (unless DAMAGE_UNRESISTABLE)
@@ -736,20 +738,19 @@ impl WeaponSet {
                 let preferred_mask = template_set.get_preferred_against_mask(slot);
                 if !preferred_mask.is_empty() {
                     // C++ line 870: victim->isKindOfMulti(preferredAgainst, KINDOFMASK_NONE)
-                    if let Some(target) =
-                        crate::object::registry::OBJECT_REGISTRY.get_object(target_obj)
+                    if crate::object::registry::OBJECT_REGISTRY
+                        .with_object(target_obj, |target_guard| {
+                            target_guard.is_kind_of_mask(preferred_mask.bits() as u32)
+                        })
+                        .unwrap_or(false)
                     {
-                        if let Ok(target_guard) = target.read() {
-                            if target_guard.is_kind_of_mask(preferred_mask.bits() as u32) {
-                                // C++ lines 872-878: Boost damage/range massively for preferred targets
-                                const HUGE_DAMAGE: f32 = 1e10;
-                                const HUGE_RANGE: f32 = 1e10;
-                                damage = HUGE_DAMAGE;
-                                attack_range = HUGE_RANGE;
-                                // Preferred weapons are kept if merely reloading (not out of ammo)
-                                weapon_is_ready = weapon.get_status() != WeaponStatus::OutOfAmmo;
-                            }
-                        }
+                        // C++ lines 872-878: Boost damage/range massively for preferred targets
+                        const HUGE_DAMAGE: f32 = 1e10;
+                        const HUGE_RANGE: f32 = 1e10;
+                        damage = HUGE_DAMAGE;
+                        attack_range = HUGE_RANGE;
+                        // Preferred weapons are kept if merely reloading (not out of ammo)
+                        weapon_is_ready = weapon.get_status() != WeaponStatus::OutOfAmmo;
                     }
                 }
             }
@@ -1188,15 +1189,9 @@ impl WeaponSet {
     ) -> CanAttackResult {
         // C++ WeaponSet.cpp line 589-603: Determine anti-mask from target
         let target_anti_mask = if let Some(target_id) = target_obj {
-            if let Some(obj_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    obj_guard.get_anti_mask()
-                } else {
-                    0xffffffff
-                }
-            } else {
-                0xffffffff
-            }
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(target_id, |obj_guard| obj_guard.get_anti_mask())
+                .unwrap_or(0xffffffff)
         } else {
             0xffffffff // Ground or no target
         };
@@ -1283,17 +1278,9 @@ impl WeaponSet {
     ) -> CanAttackResult {
         // Check anti-mask
         let weapon_anti = weapon.template.get_anti_mask();
-        let target_anti = if let Some(obj_arc) =
-            crate::object::registry::OBJECT_REGISTRY.get_object(target_obj)
-        {
-            if let Ok(guard) = obj_arc.read() {
-                guard.get_anti_mask()
-            } else {
-                0xffffffff
-            }
-        } else {
-            0xffffffff
-        };
+        let target_anti = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_obj, |guard| guard.get_anti_mask())
+            .unwrap_or(0xffffffff);
         if (weapon_anti & target_anti) == 0 {
             return CanAttackResult::InvalidShot;
         }
