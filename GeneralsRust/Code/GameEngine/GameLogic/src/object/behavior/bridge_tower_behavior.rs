@@ -7,7 +7,7 @@
 //! Rust conversion: 2025
 
 use std::any::Any;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::common::xfer::XferExt;
 use crate::common::{AsciiString, BehaviorModuleData, Int, ObjectID, Real, XferVersion};
@@ -62,7 +62,6 @@ crate::impl_behavior_module_data_via_base!(BridgeTowerBehaviorModuleData, base);
 pub struct BridgeTowerBehavior {
     pub module_data: Arc<BridgeTowerBehaviorModuleData>,
     object_id: ObjectID,
-    object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
     bridge_id: ObjectID,
     tower_type: BridgeTowerType,
 }
@@ -71,25 +70,11 @@ impl BridgeTowerBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
         module_data: Arc<BridgeTowerBehaviorModuleData>,
-        initial_object: Option<Arc<RwLock<GameObject>>>,
+        _initial_object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
-        let initial_handle = initial_object
-            .as_ref()
-            .map(|object| Arc::downgrade(object))
-            .or_else(|| {
-                if object_id == OBJECT_INVALID_ID {
-                    None
-                } else {
-                    OBJECT_REGISTRY
-                        .get_object(object_id)
-                        .map(|obj| Arc::downgrade(&obj))
-                }
-            });
-
         Self {
             module_data,
             object_id,
-            object_handle: Mutex::new(initial_handle),
             bridge_id: OBJECT_INVALID_ID,
             tower_type: BridgeTowerType::North,
         }
@@ -129,25 +114,13 @@ impl BridgeTowerBehavior {
         if self.object_id == OBJECT_INVALID_ID {
             return Err("BridgeTowerBehavior missing owning object id".into());
         }
-
-        if let Ok(mut handle) = self.object_handle.lock() {
-            if let Some(weak) = handle.as_ref() {
-                if let Some(object) = weak.upgrade() {
-                    return Ok(object);
-                }
-            }
-
-            if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
-                *handle = Some(Arc::downgrade(&object));
-                return Ok(object);
-            }
-        }
-
-        Err(format!(
-            "BridgeTowerBehavior unable to upgrade handle for object {}",
-            self.object_id
-        )
-        .into())
+        OBJECT_REGISTRY.get_object(self.object_id).ok_or_else(|| {
+            format!(
+                "BridgeTowerBehavior object {} not registered",
+                self.object_id
+            )
+            .into()
+        })
     }
 
     fn get_bridge_object(&self) -> Option<Arc<RwLock<GameObject>>> {
