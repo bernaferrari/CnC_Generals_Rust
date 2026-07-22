@@ -9,6 +9,7 @@
 //! Rust conversion: 2025
 
 use super::{DestroyModule, DestroyModuleData, DestroyResult};
+use crate::common::ObjectID;
 use crate::common::{ModuleData as LegacyModuleData, NameKeyType};
 use crate::modules::DestroyModuleInterface;
 use crate::object::Object;
@@ -79,7 +80,7 @@ impl Snapshotable for KeepObjectDieModuleData {
 #[derive(Debug)]
 pub struct KeepObjectDie {
     /// Weak reference to the owning object
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     /// Module data
     #[allow(dead_code)]
     module_data: Arc<KeepObjectDieModuleData>,
@@ -90,7 +91,11 @@ impl KeepObjectDie {
     /// (matches C++ KeepObjectDie constructor)
     pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<KeepObjectDieModuleData>) -> Self {
         Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
         }
     }
@@ -102,7 +107,12 @@ impl KeepObjectDie {
 
     /// Get the owning object if still alive
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 }
 

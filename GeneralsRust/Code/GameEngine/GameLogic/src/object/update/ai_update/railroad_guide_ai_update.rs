@@ -630,7 +630,7 @@ mod tests {
 
 #[derive(Debug)]
 pub struct RailroadBehavior {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<RailroadBehaviorModuleData>,
     next_station_task: StationTask,
     trailer_id: ObjectID,
@@ -685,7 +685,11 @@ impl RailroadBehavior {
         )));
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_station_task: StationTask::DoNothing,
             trailer_id: INVALID_ID,
@@ -719,7 +723,12 @@ impl RailroadBehavior {
     }
 
     fn get_object(&self) -> Option<Arc<RwLock<GameObject>>> {
-        self.object.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     fn is_railroad(&self) -> Bool {

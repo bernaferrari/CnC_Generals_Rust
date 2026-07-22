@@ -479,14 +479,14 @@ pub struct SpecialAbilityUpdate {
     do_disable_fx_particles: bool,
     capture_flash_phase: Real,
     prep_sound_loop: Option<AudioEventRts>,
-    object_ptr: Weak<RwLock<Object>>,
+    object_id: ObjectID,
 }
 
 impl SpecialAbilityUpdate {
     pub fn new(object_ptr: Weak<RwLock<Object>>, module_data: Arc<dyn ModuleData>) -> Self {
         let object_id = object_ptr
             .upgrade()
-            .and_then(|obj| obj.read().ok().map(|guard| guard.id))
+            .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
             .unwrap_or(INVALID_ID);
 
         let sa_data = module_data
@@ -515,7 +515,7 @@ impl SpecialAbilityUpdate {
             do_disable_fx_particles: true,
             capture_flash_phase: 0.0,
             prep_sound_loop: None,
-            object_ptr,
+            object_id,
         };
 
         if object_id != INVALID_ID {
@@ -526,7 +526,12 @@ impl SpecialAbilityUpdate {
     }
 
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object_ptr.upgrade()
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
     }
 
     fn calc_sleep_time(&self) -> UpdateSleepTime {
@@ -2332,7 +2337,7 @@ impl SpecialPowerUpdateInterface for SpecialAbilityUpdate {
 
         self.active = true;
         if let Some(obj) = self.get_object() {
-            let obj_id = obj.read().map(|guard| guard.id).unwrap_or(INVALID_ID);
+            let obj_id = obj.read().map(|guard| guard.get_id()).unwrap_or(INVALID_ID);
             if obj_id != INVALID_ID {
                 TheGameLogic::set_wake_frame(obj_id, UPDATE_SLEEP_NONE);
             }

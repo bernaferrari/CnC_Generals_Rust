@@ -50,7 +50,6 @@ bitflags! {
 #[derive(Debug, Clone)]
 pub struct SpecialPowerUpdateModule {
     owner_object_id: u32,
-    object: std::sync::Weak<std::sync::RwLock<GameObject>>,
     module_data: SpecialPowerUpdateModuleData,
     next_call_frame_and_phase: UnsignedInt,
 }
@@ -59,11 +58,10 @@ impl SpecialPowerUpdateModule {
     /// Create a new special power update module
     pub fn new(
         owner_object_id: u32,
-        object: std::sync::Weak<std::sync::RwLock<GameObject>>,
+        _object: std::sync::Weak<std::sync::RwLock<GameObject>>,
     ) -> Self {
         Self {
             owner_object_id,
-            object,
             module_data: SpecialPowerUpdateModuleData::default(),
             next_call_frame_and_phase: 0,
         }
@@ -81,7 +79,13 @@ impl SpecialPowerUpdateModule {
             return true;
         }
 
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.owner_object_id == 0 {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id as _).or_else(
+                || crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_object_id as _),
+            )
+        }) {
             let Ok(obj_guard) = obj_arc.read() else {
                 return false;
             };
@@ -229,7 +233,7 @@ impl SpecialPowerUpdateModuleFactory {
     ) -> Box<dyn crate::modules::BehaviorModuleInterface> {
         let object_id = object
             .upgrade()
-            .and_then(|obj| obj.read().ok().map(|guard| guard.id))
+            .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
             .unwrap_or(crate::common::types::INVALID_ID);
 
         let mut module = SpecialPowerUpdateModule::new(object_id, object.clone());
