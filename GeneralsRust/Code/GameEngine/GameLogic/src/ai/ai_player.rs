@@ -153,19 +153,16 @@ impl WorkOrder {
         let factory_id = self.factory_id.unwrap();
 
         // C++ parity: TheGameLogic->findObjectByID(m_factoryID)
-        let Some(factory_arc) = OBJECT_REGISTRY.get_object(factory_id) else {
-            // C++ parity: factory == NULL -> m_factoryID = INVALID_ID
-            self.factory_id = None;
-            return Ok(());
-        };
-
-        let Ok(factory_guard) = factory_arc.read() else {
+        // C++ parity: factory == NULL -> m_factoryID = INVALID_ID
+        let Some(owner) = OBJECT_REGISTRY.with_object(factory_id, |factory_guard| {
+            factory_guard.get_controlling_player_id()
+        }) else {
             self.factory_id = None;
             return Ok(());
         };
 
         // C++ parity: factory->getControllingPlayer() != thisPlayer
-        if factory_guard.get_controlling_player_id() != Some(player_id as UnsignedInt) {
+        if owner != Some(player_id as UnsignedInt) {
             self.factory_id = None;
         }
 
@@ -1001,16 +998,33 @@ impl AIPlayer {
 
         if let Some(partition) = ThePartitionManager::get() {
             for obj_id in partition.get_objects_in_range(&base_center, scan_radius) {
-                let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                    continue;
-                };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                if obj_guard.is_destroyed() {
-                    continue;
-                }
-                let Some(owner_id) = obj_guard.get_controlling_player_id() else {
+                let Some((owner_id, target_team_arc, severity, location)) = OBJECT_REGISTRY
+                    .with_object(obj_id, |obj_guard| {
+                        if obj_guard.is_destroyed() {
+                            return None;
+                        }
+                        let owner_id = obj_guard.get_controlling_player_id()?;
+                        let target_team_arc = obj_guard.get_team()?;
+                        let severity = if obj_guard.is_kind_of(KindOf::Structure) {
+                            0.3
+                        } else if obj_guard.is_kind_of(KindOf::Vehicle) {
+                            0.7
+                        } else if obj_guard.is_kind_of(KindOf::Infantry) {
+                            0.5
+                        } else if obj_guard.is_kind_of(KindOf::Aircraft) {
+                            0.8
+                        } else {
+                            0.2
+                        };
+                        Some((
+                            owner_id,
+                            target_team_arc,
+                            severity,
+                            *obj_guard.get_position(),
+                        ))
+                    })
+                    .flatten()
+                else {
                     continue;
                 };
                 if owner_id as u32 == self.player_id {
@@ -1027,9 +1041,6 @@ impl AIPlayer {
                         }
                     }
                 }
-                let Some(target_team_arc) = obj_guard.get_team() else {
-                    continue;
-                };
                 let Ok(target_team) = target_team_arc.read() else {
                     continue;
                 };
@@ -1037,24 +1048,12 @@ impl AIPlayer {
                     continue;
                 }
 
-                let severity = if obj_guard.is_kind_of(KindOf::Structure) {
-                    0.3
-                } else if obj_guard.is_kind_of(KindOf::Vehicle) {
-                    0.7
-                } else if obj_guard.is_kind_of(KindOf::Infantry) {
-                    0.5
-                } else if obj_guard.is_kind_of(KindOf::Aircraft) {
-                    0.8
-                } else {
-                    0.2
-                };
-
                 threat_level += severity;
 
                 immediate_threats.push(ThreatInfo {
                     threat_id: obj_id,
                     threat_type: ThreatType::Military,
-                    location: *obj_guard.get_position(),
+                    location,
                     severity,
                     time_detected: TheGameLogic::get_frame(),
                     estimated_time_to_impact: 0,
@@ -1294,40 +1293,42 @@ impl AIPlayer {
                     .unwrap_or_default();
                 drop(list);
                 for obj_id in owned {
-                    let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                    let Some((template_name, pos, angle)) = OBJECT_REGISTRY
+                        .with_object(obj_id, |obj_g| {
+                            // Factory if any production interface.
+                            let mut is_factory = false;
+                            for behavior in obj_g.get_behavior_modules() {
+                                if let Ok(mut bg) = behavior.lock() {
+                                    if bg.get_production_update_interface().is_some() {
+                                        is_factory = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if !is_factory {
+                                for mh in obj_g.behavior_modules() {
+                                    let matched = mh.with_module(|module| {
+                                        module.get_production_control_interface().is_some()
+                                    });
+                                    if matched {
+                                        is_factory = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if !is_factory {
+                                return None;
+                            }
+                            Some((
+                                obj_g.get_template_name().to_string(),
+                                *obj_g.get_position(),
+                                obj_g.get_orientation(),
+                            ))
+                        })
+                        .flatten()
+                    else {
                         continue;
                     };
-                    let Ok(obj_g) = obj_arc.read() else {
-                        continue;
-                    };
-                    // Factory if any production interface.
-                    let mut is_factory = false;
-                    for behavior in obj_g.get_behavior_modules() {
-                        if let Ok(mut bg) = behavior.lock() {
-                            if bg.get_production_update_interface().is_some() {
-                                is_factory = true;
-                                break;
-                            }
-                        }
-                    }
-                    if !is_factory {
-                        for mh in obj_g.behavior_modules() {
-                            let matched = mh.with_module(|module| {
-                                module.get_production_control_interface().is_some()
-                            });
-                            if matched {
-                                is_factory = true;
-                                break;
-                            }
-                        }
-                    }
-                    if !is_factory {
-                        continue;
-                    }
-                    let template_name = obj_g.get_template_name().to_string();
-                    let pos = *obj_g.get_position();
-                    let angle = obj_g.get_orientation();
-                    drop(obj_g);
                     if let Ok(list) = player_list().read() {
                         if let Some(player_arc) = list.get_player(self.player_id as i32) {
                             if let Ok(mut pg) = player_arc.write() {
@@ -1694,19 +1695,18 @@ impl AIPlayer {
         self.supply_source_attack_check_frame = cur_frame.saturating_add(SCAN_RATE);
 
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(KindOf::CashGenerator)
-                && !obj_guard.is_kind_of(KindOf::Dozer)
-                && !obj_guard.is_kind_of(KindOf::Harvester)
-            {
-                continue;
-            }
-            let Some(body) = obj_guard.get_body_module() else {
+            let Some(body) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if !obj_guard.is_kind_of(KindOf::CashGenerator)
+                        && !obj_guard.is_kind_of(KindOf::Dozer)
+                        && !obj_guard.is_kind_of(KindOf::Harvester)
+                    {
+                        return None;
+                    }
+                    obj_guard.get_body_module()
+                })
+                .flatten()
+            else {
                 continue;
             };
             let Ok(body_g) = body.lock() else {
@@ -2119,21 +2119,20 @@ impl AIPlayer {
         drop(player_guard);
 
         for object_id in factory_ids {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(command_set_name) = OBJECT_REGISTRY
+                .with_object(object_id, |obj_guard| {
+                    if obj_guard.test_status(ObjectStatusTypes::UnderConstruction)
+                        || obj_guard.test_status(ObjectStatusTypes::Sold)
+                    {
+                        return None;
+                    }
+                    Some(obj_guard.get_command_set_string().to_string())
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-
-            if obj_guard.test_status(ObjectStatusTypes::UnderConstruction)
-                || obj_guard.test_status(ObjectStatusTypes::Sold)
-            {
-                continue;
-            }
-
-            let command_set_name = obj_guard.get_command_set_string();
-            let Some(command_set) = control_bar.find_command_set_by_name(command_set_name) else {
+            let Some(command_set) = control_bar.find_command_set_by_name(&command_set_name) else {
                 continue;
             };
 
@@ -2155,12 +2154,17 @@ impl AIPlayer {
             }
 
             // Need production update interface residual — queue_upgrade covers it.
-            if obj_guard.queue_upgrade(&upgrade) {
-                log::debug!(
-                    "queues {} at {}",
-                    upgrade.get_name(),
-                    obj_guard.get_template_name()
-                );
+            let queued_name = OBJECT_REGISTRY
+                .with_object_mut(object_id, |obj_guard| {
+                    if obj_guard.queue_upgrade(&upgrade) {
+                        Some(obj_guard.get_template_name().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .flatten();
+            if let Some(name) = queued_name {
+                log::debug!("queues {} at {}", upgrade.get_name(), name);
                 return Ok(());
             }
         }
@@ -2197,24 +2201,27 @@ impl AIPlayer {
         let is_cash_generator = template.is_kind_of(KindOf::CashGenerator);
 
         // C++: always findSupplyCenter first.
-        let mut best_supply = self.find_supply_center(minimum_cash);
+        let mut best_supply_id: Option<ObjectID> = self
+            .find_supply_center(minimum_cash)
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()));
 
         // Non-cash: live m_curWarehouseID overrides find result when present.
         if !is_cash_generator {
             if let Some(warehouse_id) = self.current_warehouse_id {
-                if let Some(warehouse_arc) = OBJECT_REGISTRY.get_object(warehouse_id) {
-                    best_supply = Some(warehouse_arc);
+                if OBJECT_REGISTRY.with_object(warehouse_id, |_| ()).is_some() {
+                    best_supply_id = Some(warehouse_id);
                 }
             }
         }
 
-        let Some(warehouse_arc) = best_supply else {
+        let Some(warehouse_id) = best_supply_id else {
             return Ok(());
         };
-        let Ok(warehouse_guard) = warehouse_arc.read() else {
+        let Some(mut location) = OBJECT_REGISTRY.with_object(warehouse_id, |warehouse_guard| {
+            *warehouse_guard.get_position()
+        }) else {
             return Ok(());
         };
-        let mut location = *warehouse_guard.get_position();
 
         let mut offset_x = location.x - base_center.x;
         let mut offset_y = location.y - base_center.y;
@@ -2226,9 +2233,13 @@ impl AIPlayer {
                 offset_x = location.x - (lo.x + hi.x) * 0.5;
                 offset_y = location.y - (lo.y + hi.y) * 0.5;
             }
-            radius = warehouse_guard
-                .get_geometry_info()
-                .get_bounding_circle_radius();
+            radius = OBJECT_REGISTRY
+                .with_object(warehouse_id, |warehouse_guard| {
+                    warehouse_guard
+                        .get_geometry_info()
+                        .get_bounding_circle_radius()
+                })
+                .unwrap_or(radius);
         }
         let len = (offset_x * offset_x + offset_y * offset_y).sqrt();
         if len > 0.0001 {
@@ -2246,9 +2257,6 @@ impl AIPlayer {
             .unwrap_or(location);
         let mut final_loc = placement;
         final_loc.z = 0.0; // build list locations are ground relative
-
-        let warehouse_id = warehouse_guard.get_id();
-        drop(warehouse_guard);
 
         if let Some(player_arc) = self.get_player_arc() {
             if let Ok(mut pg) = player_arc.write() {
@@ -2747,20 +2755,14 @@ impl AIPlayer {
             return Ok(());
         }
 
-        let Some(unit_arc) = OBJECT_REGISTRY.get_object(unit_id) else {
-            self.team_delay = 0;
-            return Ok(());
-        };
-
-        let (unit_template_name, is_dozer) = {
-            let Ok(unit_g) = unit_arc.read() else {
-                self.team_delay = 0;
-                return Ok(());
-            };
+        let Some((unit_template_name, is_dozer)) = OBJECT_REGISTRY.with_object(unit_id, |unit_g| {
             (
                 unit_g.get_template_name().to_string(),
                 unit_g.is_kind_of(KindOf::Dozer),
             )
+        }) else {
+            self.team_delay = 0;
+            return Ok(());
         };
 
         let mut found = false;
@@ -2824,9 +2826,9 @@ impl AIPlayer {
                 })
             });
             if let Some(ref team_arc) = team_arc {
-                if let Ok(mut ug) = unit_arc.write() {
+                let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |ug| {
                     let _ = ug.set_team(Some(team_arc.clone()));
-                }
+                });
             }
 
             // C++: if team has homeLocation → aiFollowExitProductionPath(goal, home).
@@ -2835,32 +2837,39 @@ impl AIPlayer {
                 self.queue_units_home_for_team(team_arc.as_ref(), team_name.as_str());
             // has_home is true only for prototype homeLocation (not base-center fallback).
             if has_home {
-                if let Ok(unit_g) = unit_arc.read() {
-                    if let Some(ai) = unit_g.get_ai_update_interface() {
-                        let start = ai
-                            .get_goal_position()
-                            .unwrap_or_else(|| *unit_g.get_position());
-                        let path = [start, home];
-                        ai.ai_follow_exit_production_path(&path, None, CommandSourceType::FromAi);
-                    }
+                if let Some(ai) = OBJECT_REGISTRY
+                    .with_object(unit_id, |unit_g| {
+                        unit_g.get_ai_update_interface().map(|ai| {
+                            let start = ai
+                                .get_goal_position()
+                                .unwrap_or_else(|| *unit_g.get_position());
+                            (ai, start)
+                        })
+                    })
+                    .flatten()
+                {
+                    let (ai, start) = ai;
+                    let path = [start, home];
+                    ai.ai_follow_exit_production_path(&path, None, CommandSourceType::FromAi);
                 }
             }
 
             // Supply truck force-wanting + dock (C++ SupplyTruckAIInterface).
-            if let Ok(unit_g) = unit_arc.read() {
-                if let Some(ai) = unit_g.get_ai_update_interface() {
-                    if let Ok(mut ai_g) = ai.lock() {
-                        if let Some(truck) = ai_g.get_supply_truck_ai_interface_mut() {
-                            supply_truck = is_resource_gatherer_order;
-                            truck.set_force_wanting_state(supply_truck);
-                        }
+            if let Some(ai) = OBJECT_REGISTRY
+                .with_object(unit_id, |unit_g| unit_g.get_ai_update_interface())
+                .flatten()
+            {
+                if let Ok(mut ai_g) = ai.lock() {
+                    if let Some(truck) = ai_g.get_supply_truck_ai_interface_mut() {
+                        supply_truck = is_resource_gatherer_order;
+                        truck.set_force_wanting_state(supply_truck);
                     }
-                    if supply_truck {
-                        // C++: assign to first supply build-list entry needing gatherers,
-                        // then aiDock(obj, CMD_FROM_PLAYER).
-                        if let Some(dock_id) = self.take_supply_gatherer_slot() {
-                            ai.ai_dock(dock_id, CommandSourceType::FromPlayer);
-                        }
+                }
+                if supply_truck {
+                    // C++: assign to first supply build-list entry needing gatherers,
+                    // then aiDock(obj, CMD_FROM_PLAYER).
+                    if let Some(dock_id) = self.take_supply_gatherer_slot() {
+                        ai.ai_dock(dock_id, CommandSourceType::FromPlayer);
                     }
                 }
             }
@@ -2902,9 +2911,9 @@ impl AIPlayer {
         self.team_delay = 0;
         self.build_delay = 0;
 
-        let Some(structure_arc) = OBJECT_REGISTRY.get_object(structure_id) else {
+        if OBJECT_REGISTRY.with_object(structure_id, |_| ()).is_none() {
             return Ok(());
-        };
+        }
 
         let Some(player_arc) = player_list()
             .read()
@@ -2949,7 +2958,7 @@ impl AIPlayer {
                         script_name = node.get_script().to_string();
                         node.set_under_construction(false);
 
-                        if let Ok(mut sg) = structure_arc.write() {
+                        let _ = OBJECT_REGISTRY.with_object_mut(structure_id, |sg| {
                             sg.update_obj_values_from_map_properties(&props);
                             let mask = ObjectStatusMaskType::from_status(
                                 ObjectStatusTypes::UnderConstruction,
@@ -2959,7 +2968,7 @@ impl AIPlayer {
                             sg.clear_status(mask);
                             // UnderConstruction just cleared → refresh upgrades.
                             sg.update_upgrade_modules_from_player();
-                        }
+                        });
 
                         matched = true;
                         break;
@@ -2984,10 +2993,8 @@ impl AIPlayer {
         }
 
         // Pass 2: rebuild-hole spawn retarget (C++ getReconstructedBuildingID).
-        let structure_template_name = structure_arc
-            .read()
-            .ok()
-            .map(|g| g.get_template_name().to_string())
+        let structure_template_name = OBJECT_REGISTRY
+            .with_object(structure_id, |g| g.get_template_name().to_string())
             .unwrap_or_default();
         {
             let Ok(mut player_guard) = player_arc.write() else {
@@ -3008,32 +3015,33 @@ impl AIPlayer {
                     }
                     let list_id = node.get_object_id();
                     if list_id != INVALID_ID {
-                        if let Some(hole_arc) = OBJECT_REGISTRY.get_object(list_id) {
-                            if let Ok(hole_g) = hole_arc.read() {
-                                if hole_g.is_kind_of(KindOf::RebuildHole) {
-                                    // C++: only if bldg->getID() == rhbi->getReconstructedBuildingID().
-                                    let mut is_this_spawn = false;
-                                    let mut saw_rhbi = false;
-                                    for behavior in hole_g.get_behavior_modules() {
-                                        if let Ok(mut bg) = behavior.lock() {
-                                            if let Some(rhbi) =
-                                                bg.get_rebuild_hole_behavior_interface()
-                                            {
-                                                saw_rhbi = true;
-                                                let rebuilt = rhbi.get_reconstructed_building_id();
-                                                is_this_spawn = rebuilt == structure_id;
-                                                break;
-                                            }
+                        if OBJECT_REGISTRY
+                            .with_object(list_id, |hole_g| {
+                                if !hole_g.is_kind_of(KindOf::RebuildHole) {
+                                    return false;
+                                }
+                                // C++: only if bldg->getID() == rhbi->getReconstructedBuildingID().
+                                let mut is_this_spawn = false;
+                                let mut saw_rhbi = false;
+                                for behavior in hole_g.get_behavior_modules() {
+                                    if let Ok(mut bg) = behavior.lock() {
+                                        if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface()
+                                        {
+                                            saw_rhbi = true;
+                                            let rebuilt = rhbi.get_reconstructed_building_id();
+                                            is_this_spawn = rebuilt == structure_id;
+                                            break;
                                         }
                                     }
-                                    if saw_rhbi && is_this_spawn {
-                                        log::debug!("AI got rebuilt {}", name);
-                                        node.set_object_id(structure_id);
-                                        matched = true;
-                                        break;
-                                    }
                                 }
-                            }
+                                saw_rhbi && is_this_spawn
+                            })
+                            .unwrap_or(false)
+                        {
+                            log::debug!("AI got rebuilt {}", name);
+                            node.set_object_id(structure_id);
+                            matched = true;
+                            break;
                         }
                     }
                     current = node.get_next_mut();
@@ -3320,21 +3328,22 @@ impl AIPlayer {
                 continue;
             }
             for obj_id in player_guard.get_all_objects() {
-                let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                    continue;
-                };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                if obj_guard.is_destroyed() {
-                    continue;
-                }
-                let score = self.score_attack_target(&obj_guard);
-                if best
-                    .map(|(best_score, _)| score > best_score)
-                    .unwrap_or(true)
+                if let Some((score, pos)) = OBJECT_REGISTRY
+                    .with_object(obj_id, |obj_guard| {
+                        if obj_guard.is_destroyed() {
+                            return None;
+                        }
+                        let score = self.score_attack_target(obj_guard);
+                        Some((score, *obj_guard.get_position()))
+                    })
+                    .flatten()
                 {
-                    best = Some((score, *obj_guard.get_position()));
+                    if best
+                        .map(|(best_score, _)| score > best_score)
+                        .unwrap_or(true)
+                    {
+                        best = Some((score, pos));
+                    }
                 }
             }
         }
@@ -4554,22 +4563,15 @@ impl AIPlayer {
         let Some(bridge_id) = bridge_id else {
             return Ok(());
         };
-        let Some(bridge_arc) = OBJECT_REGISTRY.get_object(bridge_id) else {
+        let Some((bridge_state, bridge_pos)) = OBJECT_REGISTRY.with_object(bridge_id, |bg| {
+            let bridge_state = bg
+                .get_body_module()
+                .and_then(|b| b.lock().ok().map(|g| g.get_damage_state()))
+                .unwrap_or(BodyDamageType::Pristine);
+            (bridge_state, *bg.get_position())
+        }) else {
             return Ok(());
         };
-        let bridge_state = {
-            let Ok(bg) = bridge_arc.read() else {
-                return Ok(());
-            };
-            bg.get_body_module()
-                .and_then(|b| b.lock().ok().map(|g| g.get_damage_state()))
-                .unwrap_or(BodyDamageType::Pristine)
-        };
-        let bridge_pos = bridge_arc
-            .read()
-            .ok()
-            .map(|g| *g.get_position())
-            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
         if self.repair_dozer.is_none() {
             self.dozer_is_repairing = false;
@@ -4603,19 +4605,17 @@ impl AIPlayer {
         let Some(dozer_id) = self.repair_dozer else {
             return Ok(());
         };
-        let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) else {
+        let Some(ai) = OBJECT_REGISTRY.with_object(dozer_id, |dg| dg.get_ai_update_interface())
+        else {
             self.repair_dozer = None; // killed
             self.bridge_timer = 0;
             return Ok(());
         };
+        let Some(ai) = ai else {
+            return Ok(());
+        };
 
         let any_task_pending = {
-            let Ok(dg) = dozer_arc.read() else {
-                return Ok(());
-            };
-            let Some(ai) = dg.get_ai_update_interface() else {
-                return Ok(());
-            };
             let Ok(mut ai_g) = ai.lock() else {
                 return Ok(());
             };
@@ -4646,24 +4646,27 @@ impl AIPlayer {
                         } else {
                             self.repair_dozer_origin
                         };
-                        if let Ok(dg) = dozer_arc.read() {
-                            let start = *dg.get_position();
-                            if let Some(ai) = dg.get_ai_update_interface() {
-                                // Adjust destination onto a reachable cell with dozer loco set.
-                                if let Some(loco_set) = ai.get_locomotor_set_clone() {
-                                    if let Ok(ai_sys) = THE_AI.read() {
-                                        if let Some(pf_arc) = ai_sys.pathfinder() {
-                                            if let Ok(pf) = pf_arc.read() {
-                                                let surfaces = loco_set.get_valid_surfaces();
-                                                let _ = pf.adjust_to_possible_destination(
-                                                    &start, &mut pos, surfaces, false, 0.0,
-                                                );
-                                            }
+                        if let Some((start, ai)) = OBJECT_REGISTRY
+                            .with_object(dozer_id, |dg| {
+                                dg.get_ai_update_interface()
+                                    .map(|ai| (*dg.get_position(), ai))
+                            })
+                            .flatten()
+                        {
+                            // Adjust destination onto a reachable cell with dozer loco set.
+                            if let Some(loco_set) = ai.get_locomotor_set_clone() {
+                                if let Ok(ai_sys) = THE_AI.read() {
+                                    if let Some(pf_arc) = ai_sys.pathfinder() {
+                                        if let Ok(pf) = pf_arc.read() {
+                                            let surfaces = loco_set.get_valid_surfaces();
+                                            let _ = pf.adjust_to_possible_destination(
+                                                &start, &mut pos, surfaces, false, 0.0,
+                                            );
                                         }
                                     }
                                 }
-                                ai.ai_move_to_position(&pos, false, CommandSourceType::FromAi);
                             }
+                            ai.ai_move_to_position(&pos, false, CommandSourceType::FromAi);
                         }
                         return Ok(());
                     }
@@ -4674,14 +4677,15 @@ impl AIPlayer {
         }
 
         // (Re)issue repair.
-        if let Ok(dg) = dozer_arc.read() {
-            if let Some(ai) = dg.get_ai_update_interface() {
-                if let Ok(mut ai_lock) = ai.lock() {
-                    let mut params =
-                        AiCommandParams::new(AiCommandType::Repair, CommandSourceType::FromAi);
-                    params.obj = Some(bridge_id);
-                    let _ = ai_lock.execute_command(&params);
-                }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(dozer_id, |dg| dg.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_lock) = ai.lock() {
+                let mut params =
+                    AiCommandParams::new(AiCommandType::Repair, CommandSourceType::FromAi);
+                params.obj = Some(bridge_id);
+                let _ = ai_lock.execute_command(&params);
             }
         }
         self.dozer_is_repairing = true;
@@ -4853,40 +4857,42 @@ impl AIPlayer {
         // C++: if (!pathfinder->clientSafeQuickDoesPathExist(
         //           dozer->getAI()->getLocomotorSet(), dozerPos, &pos))
         //        { log; dozer->setPosition(&pos); }
-        if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
-            let Ok(dozer_g) = dozer_arc.read() else {
-                return Ok(None);
-            };
-            let Some(dozer_ai) = dozer_g.get_ai_update_interface() else {
-                return Ok(None);
-            };
-            let dpos = *dozer_g.get_position();
-            // Ensure Normal set is selected (C++ getLocomotorSet is current).
-            dozer_ai.choose_locomotor_set(LocomotorSetType::Normal);
-            let loco_set = dozer_ai.get_locomotor_set_clone();
-            drop(dozer_g);
+        let Some((dpos, loco_set)) = OBJECT_REGISTRY
+            .with_object(dozer_id, |dozer_g| {
+                let Some(dozer_ai) = dozer_g.get_ai_update_interface() else {
+                    return None;
+                };
+                let dpos = *dozer_g.get_position();
+                // Ensure Normal set is selected (C++ getLocomotorSet is current).
+                dozer_ai.choose_locomotor_set(LocomotorSetType::Normal);
+                let loco_set = dozer_ai.get_locomotor_set_clone();
+                Some((dpos, loco_set))
+            })
+            .flatten()
+        else {
+            return Ok(None);
+        };
 
-            let mut path_ok = false;
-            if let Some(ref loco_set) = loco_set {
-                if let Ok(ai_guard) = THE_AI.read() {
-                    if let Some(pf_arc) = ai_guard.pathfinder() {
-                        if let Ok(pf) = pf_arc.read() {
-                            path_ok = pf.client_safe_quick_does_path_exist(loco_set, &dpos, &pos);
-                        }
+        let mut path_ok = false;
+        if let Some(ref loco_set) = loco_set {
+            if let Ok(ai_guard) = THE_AI.read() {
+                if let Some(pf_arc) = ai_guard.pathfinder() {
+                    if let Ok(pf) = pf_arc.read() {
+                        path_ok = pf.client_safe_quick_does_path_exist(loco_set, &dpos, &pos);
                     }
                 }
             }
-            // Empty/missing loco set → path_ok stays false → teleport (same as C++
-            // when path fails; avoids always-teleport when loco data is present).
-            if !path_ok {
-                log::debug!(
-                    "{} - Dozer unable to reach building.  Teleporting.",
-                    template_name
-                );
-                if let Ok(mut dozer_w) = dozer_arc.write() {
-                    let _ = dozer_w.set_position(&pos);
-                }
-            }
+        }
+        // Empty/missing loco set → path_ok stays false → teleport (same as C++
+        // when path fails; avoids always-teleport when loco data is present).
+        if !path_ok {
+            log::debug!(
+                "{} - Dozer unable to reach building.  Teleporting.",
+                template_name
+            );
+            let _ = OBJECT_REGISTRY.with_object_mut(dozer_id, |dozer_w| {
+                let _ = dozer_w.set_position(&pos);
+            });
         }
 
         let team = player_guard.get_default_team();
@@ -4950,26 +4956,15 @@ impl AIPlayer {
             })
             .unwrap_or(300);
 
-        if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
-            if let Ok(dozer_g) = dozer_arc.read() {
-                if let Some(ai) = dozer_g.get_ai_update_interface() {
-                    if let Ok(mut ai_g) = ai.try_lock() {
-                        if let Some(dozer_ai) = ai_g.get_dozer_ai_update_interface_mut() {
-                            dozer_ai.set_build_task(
-                                bldg_id,
-                                total_build_frames,
-                                build_max_health,
-                                false,
-                            );
-                        } else if let Some(worker_ai) = ai_g.get_worker_ai_update_interface_mut() {
-                            worker_ai.set_build_task(
-                                bldg_id,
-                                total_build_frames,
-                                build_max_health,
-                                false,
-                            );
-                        }
-                    }
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(dozer_id, |dozer_g| dozer_g.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(mut ai_g) = ai.try_lock() {
+                if let Some(dozer_ai) = ai_g.get_dozer_ai_update_interface_mut() {
+                    dozer_ai.set_build_task(bldg_id, total_build_frames, build_max_health, false);
+                } else if let Some(worker_ai) = ai_g.get_worker_ai_update_interface_mut() {
+                    worker_ai.set_build_task(bldg_id, total_build_frames, build_max_health, false);
                 }
             }
         }
@@ -5315,47 +5310,45 @@ impl AIPlayer {
             return Ok(false);
         };
 
-        let Some(factory_arc) = OBJECT_REGISTRY.get_object(factory_id) else {
-            return Ok(false);
-        };
         let Some(template) = TheThingFactory::find_template(&order.thing_template) else {
             return Ok(false);
         };
 
         // Prefer Object production queue path (queueCreateUnit + unique id).
-        let queued = {
-            let Ok(mut factory_g) = factory_arc.write() else {
-                return Ok(false);
-            };
+        let Some(queued) = OBJECT_REGISTRY.with_object_mut(factory_id, |factory_g| {
             let production_id = factory_g.request_unique_unit_production_id().unwrap_or(0);
             if production_id != 0 {
                 factory_g.queue_unit_with_production_id(&template, production_id)
             } else {
                 factory_g.queue_unit(&template)
             }
+        }) else {
+            return Ok(false);
         };
 
         if !queued {
             // Fallback: ProductionUpdateInterface::start_production on behaviors.
-            let Ok(factory_g) = factory_arc.read() else {
+            let Some(started) = OBJECT_REGISTRY.with_object(factory_id, |factory_g| {
+                let mut started = false;
+                for behavior in factory_g.get_behavior_modules() {
+                    let Ok(mut bg) = behavior.lock() else {
+                        continue;
+                    };
+                    let Some(prod) = bg.get_production_update_interface() else {
+                        continue;
+                    };
+                    if prod
+                        .start_production(order.thing_template.clone(), self.player_id)
+                        .is_ok()
+                    {
+                        started = true;
+                        break;
+                    }
+                }
+                started
+            }) else {
                 return Ok(false);
             };
-            let mut started = false;
-            for behavior in factory_g.get_behavior_modules() {
-                let Ok(mut bg) = behavior.lock() else {
-                    continue;
-                };
-                let Some(prod) = bg.get_production_update_interface() else {
-                    continue;
-                };
-                if prod
-                    .start_production(order.thing_template.clone(), self.player_id)
-                    .is_ok()
-                {
-                    started = true;
-                    break;
-                }
-            }
             if !started {
                 return Ok(false);
             }
@@ -5871,19 +5864,23 @@ impl AIPlayer {
                 if center_id == INVALID_ID {
                     continue;
                 }
-                let Some(center_arc) = OBJECT_REGISTRY.get_object(center_id) else {
+                let Some(is_hole) = OBJECT_REGISTRY.with_object(center_id, |center_g| {
+                    center_g.is_kind_of(KindOf::RebuildHole)
+                }) else {
                     continue;
                 };
-                let Ok(center_g) = center_arc.read() else {
-                    continue;
-                };
-                if center_g.is_kind_of(KindOf::RebuildHole) {
+                if is_hole {
                     continue;
                 }
-                if !self.supply_center_has_nearby_supplies(&center_g) {
+                // supply_center_has_nearby_supplies needs &Object - use with_object path via id helper if available
+                let has_nearby = OBJECT_REGISTRY
+                    .with_object(center_id, |center_g| {
+                        self.supply_center_has_nearby_supplies(center_g)
+                    })
+                    .unwrap_or(false);
+                if !has_nearby {
                     continue;
                 }
-                drop(center_g);
                 // C++ checkForSupplyCenter then recount docked harvesters.
                 let _ = self.check_for_supply_center(center_id);
                 let recounted = self.recount_and_redock_harvesters(center_id);
@@ -5976,20 +5973,33 @@ impl AIPlayer {
         };
 
         for obj_id in partition.get_objects_in_range(&center_pos, radius) {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some((their_team, team_arc, boxes)) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj| {
+                    if !obj.is_kind_of(KindOf::SupplySource) {
+                        return None;
+                    }
+                    let their_team = obj.get_controlling_player_id();
+                    let team_arc = obj.get_team();
+                    let boxes = obj
+                        .find_update_module("SupplyWarehouseDockUpdate")
+                        .and_then(|module| {
+                            module.with_module(|m| {
+                                m.get_supply_warehouse_dock_interface()
+                                    .map(|w| w.boxes_stored())
+                            })
+                        })
+                        .unwrap_or(0);
+                    Some((their_team, team_arc, boxes))
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if !obj.is_kind_of(KindOf::SupplySource) {
-                continue;
-            }
             // Skip enemies.
             if let (Some(my_team), Some(their_team)) = (
                 // approximate: controlling player
                 Some(self.player_id),
-                obj.get_controlling_player_id(),
+                their_team,
             ) {
                 if my_team != their_team {
                     // relationship residual: skip if not same player
@@ -5997,7 +6007,7 @@ impl AIPlayer {
                     if let Ok(list) = player_list().read() {
                         if let Some(me) = list.get_player(self.player_id as i32) {
                             if let Ok(me_g) = me.read() {
-                                if let Some(tarc) = obj.get_team() {
+                                if let Some(tarc) = team_arc {
                                     if let Ok(tg) = tarc.read() {
                                         if me_g.get_relationship_with_team(&tg)
                                             == Relationship::Enemies
@@ -6011,14 +6021,8 @@ impl AIPlayer {
                     }
                 }
             }
-            if let Some(module) = obj.find_update_module("SupplyWarehouseDockUpdate") {
-                let boxes = module.with_module(|m| {
-                    m.get_supply_warehouse_dock_interface()
-                        .map(|w| w.boxes_stored())
-                });
-                if boxes.unwrap_or(0) > 0 {
-                    return true;
-                }
+            if boxes > 0 {
+                return true;
             }
         }
         false
@@ -6322,62 +6326,39 @@ impl AIPlayer {
 
             let obj_id = info.get_object_id();
             if obj_id != INVALID_ID {
-                match OBJECT_REGISTRY.get_object(obj_id) {
-                    Some(obj_arc) => {
-                        if let Ok(obj_guard) = obj_arc.read() {
-                            if obj_guard.get_controlling_player_id() == Some(player_index) {
-                                // Owned: if under construction, ensure dozer resumes (C++).
-                                let under = obj_guard
-                                    .test_status(ObjectStatusTypes::UnderConstruction)
-                                    || obj_guard.is_under_construction();
-                                if under {
-                                    resume_jobs.push((
-                                        obj_id,
-                                        obj_guard.get_builder_id(),
-                                        *obj_guard.get_position(),
-                                    ));
-                                }
-                                info_opt = info.get_next_mut();
-                                continue;
-                            }
+                // Some((owned, job)): object exists. None: missing.
+                match OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    if obj_guard.get_controlling_player_id() == Some(player_index) {
+                        let under = obj_guard.test_status(ObjectStatusTypes::UnderConstruction)
+                            || obj_guard.is_under_construction();
+                        let job = if under {
+                            Some((
+                                obj_id,
+                                obj_guard.get_builder_id(),
+                                *obj_guard.get_position(),
+                            ))
+                        } else {
+                            None
+                        };
+                        (true, job)
+                    } else {
+                        (false, None)
+                    }
+                }) {
+                    Some((true, job)) => {
+                        if let Some(job) = job {
+                            resume_jobs.push(job);
                         }
+                        info_opt = info.get_next_mut();
+                        continue;
+                    }
+                    Some((false, _)) | None => {
                         // Captured or gone: clear and stamp for rebuild delay.
                         let prior_id = obj_id;
                         info.set_object_id(INVALID_ID);
                         info.set_object_timestamp(current_frame.saturating_add(1));
                         // C++ GLA hole scan by spawnerID.
                         // Host path: empty dual-world registry → no rebuild-hole residual.
-                        if !OBJECT_REGISTRY.is_empty() {
-                            for hole_arc in OBJECT_REGISTRY.get_all_objects() {
-                                let Ok(hg) = hole_arc.read() else {
-                                    continue;
-                                };
-                                if !hg.is_kind_of(KindOf::RebuildHole) {
-                                    continue;
-                                }
-                                let mut matched = false;
-                                for behavior in hg.get_behavior_modules() {
-                                    if let Ok(mut bg) = behavior.lock() {
-                                        if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface()
-                                        {
-                                            if rhbi.get_spawner_id() == prior_id {
-                                                matched = true;
-                                            }
-                                            break;
-                                        }
-                                    }
-                                }
-                                if matched {
-                                    info.set_object_id(hg.get_id());
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    None => {
-                        let prior_id = obj_id;
-                        info.set_object_id(INVALID_ID);
-                        info.set_object_timestamp(current_frame.saturating_add(1));
                         if !OBJECT_REGISTRY.is_empty() {
                             for hole_arc in OBJECT_REGISTRY.get_all_objects() {
                                 let Ok(hg) = hole_arc.read() else {
@@ -7048,13 +7029,10 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::repairStructure` (AIPlayer.cpp).
     pub(crate) fn repair_structure(&mut self, structure_id: ObjectID) -> Result<(), AiError> {
-        let Some(structure_arc) = OBJECT_REGISTRY.get_object(structure_id) else {
-            return Ok(());
-        };
-        let Ok(structure_g) = structure_arc.read() else {
-            return Ok(());
-        };
-        let Some(body) = structure_g.get_body_module() else {
+        let Some(body) = OBJECT_REGISTRY
+            .with_object(structure_id, |structure_g| structure_g.get_body_module())
+            .flatten()
+        else {
             return Ok(());
         };
         let Ok(body_g) = body.lock() else {
@@ -7064,7 +7042,6 @@ impl AIPlayer {
             return Ok(());
         }
         drop(body_g);
-        drop(structure_g);
 
         // Already queued?
         for i in 0..self.structures_in_queue as usize {
@@ -7524,35 +7501,42 @@ impl AIPlayer {
         let mut cash = 0.0_f32;
         let rad_sqr = radius * radius;
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
+            let Some((apply_neg_value, pos, template, is_cc, is_sw)) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    let mut apply_neg_value = false;
+                    if !include_military_units {
+                        // Sneak attack: defenses + combat units are hostile (negative).
+                        if obj_guard.is_kind_of(KindOf::FSBaseDefense)
+                            || obj_guard.is_kind_of(KindOf::TechBaseDefense)
+                        {
+                            apply_neg_value = true;
+                        } else if (obj_guard.is_kind_of(KindOf::Vehicle)
+                            || obj_guard.is_kind_of(KindOf::Infantry))
+                            && !obj_guard.is_kind_of(KindOf::Dozer)
+                            && !obj_guard.is_kind_of(KindOf::Harvester)
+                        {
+                            apply_neg_value = true;
+                        }
+                    } else if obj_guard.is_kind_of(KindOf::Aircraft)
+                        && obj_guard.is_significantly_above_terrain()
+                    {
+                        // Only when valuing military: skip flying aircraft.
+                        return None;
+                    }
+
+                    Some((
+                        apply_neg_value,
+                        *obj_guard.get_position(),
+                        obj_guard.get_template().clone(),
+                        obj_guard.is_kind_of(KindOf::CommandCenter),
+                        obj_guard.is_kind_of(KindOf::FSSuperweapon),
+                    ))
+                })
+                .flatten()
+            else {
                 continue;
             };
 
-            let mut apply_neg_value = false;
-            if !include_military_units {
-                // Sneak attack: defenses + combat units are hostile (negative).
-                if obj_guard.is_kind_of(KindOf::FSBaseDefense)
-                    || obj_guard.is_kind_of(KindOf::TechBaseDefense)
-                {
-                    apply_neg_value = true;
-                } else if (obj_guard.is_kind_of(KindOf::Vehicle)
-                    || obj_guard.is_kind_of(KindOf::Infantry))
-                    && !obj_guard.is_kind_of(KindOf::Dozer)
-                    && !obj_guard.is_kind_of(KindOf::Harvester)
-                {
-                    apply_neg_value = true;
-                }
-            } else if obj_guard.is_kind_of(KindOf::Aircraft)
-                && obj_guard.is_significantly_above_terrain()
-            {
-                // Only when valuing military: skip flying aircraft.
-                continue;
-            }
-
-            let pos = obj_guard.get_position();
             let dx = center.x - pos.x;
             let dy = center.y - pos.y;
             if dx * dx + dy * dy >= rad_sqr {
@@ -7561,18 +7545,17 @@ impl AIPlayer {
             let dist = (dx * dx + dy * dy).sqrt();
             let factor = 1.0 - (dist / (2.0 * radius)); // 1.0 center, 0.5 edge
                                                         // C++ calcCostToBuild(pPlayer) — pass player when possible.
-            let mut value = obj_guard
-                .get_template()
+            let mut value = template
                 .calc_cost_to_build(Some(&*player_guard as &dyn std::any::Any))
                 .max(0) as f32;
-            if obj_guard.is_kind_of(KindOf::CommandCenter) {
+            if is_cc {
                 value = if include_military_units {
                     value / 10.0
                 } else {
                     value * 5.0
                 };
             }
-            if obj_guard.is_kind_of(KindOf::FSSuperweapon) {
+            if is_sw {
                 value = if include_military_units {
                     value / 10.0
                 } else {
