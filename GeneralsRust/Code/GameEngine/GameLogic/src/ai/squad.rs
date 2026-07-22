@@ -8,12 +8,12 @@ use crate::object::*;
 use crate::team::Team;
 use game_engine::common::system::{Snapshotable, Xfer};
 
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 /// Vector of object IDs
 pub type VecObjectID = Vec<ObjectID>;
 
-/// Vector of object pointers
+/// Vector of object pointers (ephemeral resolve results; not stored on Squad)
 pub type VecObjectPtr = Vec<Arc<RwLock<Object>>>;
 
 /// Squad represents a collection of objects for AI targeting and management
@@ -22,18 +22,17 @@ pub type VecObjectPtr = Vec<Arc<RwLock<Object>>>;
 /// - Teams are for high-level organization and scripting
 /// - AIGroups are for movement and pathfinding coordination
 /// - Squads are for targeting and tactical operations
+///
+/// Membership is ID-first. Object handles are resolved for the duration of an op.
 pub struct Squad {
     /// Object IDs in this squad
     object_ids: Vec<ObjectID>,
-    /// Cached objects (updated when requested)
-    objects_cached: Vec<Arc<RwLock<Object>>>,
 }
 
 impl std::fmt::Debug for Squad {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Squad")
             .field("object_ids_len", &self.object_ids.len())
-            .field("objects_cached_len", &self.objects_cached.len())
             .finish()
     }
 }
@@ -43,7 +42,6 @@ impl Squad {
     pub fn new() -> Self {
         Self {
             object_ids: Vec::new(),
-            objects_cached: Vec::new(),
         }
     }
 
@@ -61,8 +59,6 @@ impl Squad {
             return;
         }
         self.object_ids.push(object_id);
-        // Drop stale Arc cache; rebuild on demand from IDs.
-        self.objects_cached.clear();
     }
 
     /// Remove an object from the squad
@@ -76,48 +72,40 @@ impl Squad {
     pub fn remove_object_id(&mut self, object_id: ObjectID) {
         self.object_ids.retain(|&id| id != object_id);
         unregister_legacy_object(object_id);
-        self.objects_cached.clear();
     }
 
     /// Clear all objects from the squad
     pub fn clear_squad(&mut self) {
         self.object_ids.clear();
-        self.objects_cached.clear();
     }
 
     /// Get all objects in the squad that haven't been deleted.
     /// Always rebuilds from stored ObjectIDs (ID-first membership).
-    pub fn get_all_objects(&mut self) -> &Vec<Arc<RwLock<Object>>> {
-        self.objects_cached.clear();
+    pub fn get_all_objects(&mut self) -> Vec<Arc<RwLock<Object>>> {
+        let mut objects = Vec::new();
         let mut valid_ids = Vec::new();
 
         for &obj_id in &self.object_ids {
             if let Some(obj) = self.find_object_by_id(obj_id) {
-                self.objects_cached.push(obj);
+                objects.push(obj);
                 valid_ids.push(obj_id);
             }
         }
 
         self.object_ids = valid_ids;
-        &self.objects_cached
+        objects
     }
 
     /// Get all live objects (selectable and not effectively dead)
     pub fn get_live_objects(&mut self) -> Vec<Arc<RwLock<Object>>> {
-        // First get all objects
-        self.get_all_objects();
-
-        // Filter to only live, selectable objects
-        let mut live_objects = Vec::new();
-        for obj in &self.objects_cached {
-            if let Ok(obj_ref) = obj.try_read() {
-                if obj_ref.is_selectable() && !obj_ref.is_effectively_dead() {
-                    live_objects.push(obj.clone());
-                }
-            }
-        }
-
-        live_objects
+        self.get_all_objects()
+            .into_iter()
+            .filter(|obj| {
+                obj.try_read()
+                    .map(|obj_ref| obj_ref.is_selectable() && !obj_ref.is_effectively_dead())
+                    .unwrap_or(false)
+            })
+            .collect()
     }
 
     /// Get all live object IDs (best effort when object handles are missing)
@@ -159,7 +147,6 @@ impl Squad {
         }
 
         self.object_ids = team.get_members().iter().copied().collect();
-        self.objects_cached.clear();
     }
 
     /// Fill this squad with members of an AIGroup
@@ -169,16 +156,11 @@ impl Squad {
         }
 
         self.object_ids = ai_group.get_all_ids_snapshot();
-        self.objects_cached.clear();
     }
 
     /// Create an AIGroup from this squad
     /// When creating the AIGroup from the Squad, the old AIGroup affiliations are broken
     pub fn ai_group_from_squad(&mut self, ai_group: &mut AIGroup) -> Result<(), String> {
-        // Remove all existing members from the AI group
-        // Implementation would clear the AI group first
-
-        // Add all live squad members to the AI group
         for object_id in self.get_live_object_ids() {
             ai_group.add_by_id(object_id)?;
         }
@@ -191,9 +173,9 @@ impl Squad {
         &self.object_ids
     }
 
-    /// Get cached objects (may be stale - use get_all_objects for fresh data)
-    pub fn get_cached_objects(&self) -> &Vec<Arc<RwLock<Object>>> {
-        &self.objects_cached
+    /// Resolve current live handles (same as get_all_objects; name kept for callers).
+    pub fn get_cached_objects(&mut self) -> Vec<Arc<RwLock<Object>>> {
+        self.get_all_objects()
     }
 
     /// Check if squad is empty
@@ -306,7 +288,6 @@ impl Squad {
 
         for obj in objects {
             if let Ok(obj_ref) = obj.try_read() {
-                // Simple scoring: health + damage potential
                 let health = obj_ref.get_health_percentage();
                 let damage = obj_ref.get_max_damage_potential();
                 let score = health * 0.5 + damage * 0.5;
@@ -345,8 +326,6 @@ impl Squad {
         weakest
     }
 
-    // Private helper methods
-
     /// Find object by ID
     fn find_object_by_id(&self, obj_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         get_legacy_object(obj_id)
@@ -363,7 +342,6 @@ impl Clone for Squad {
     fn clone(&self) -> Self {
         Self {
             object_ids: self.object_ids.clone(),
-            objects_cached: Vec::new(), // Don't clone cached objects, they'll be rebuilt
         }
     }
 }
@@ -394,10 +372,6 @@ impl Snapshotable for Squad {
             .map_err(|e| format!("Failed to xfer Squad object count: {:?}", e))?;
 
         if xfer.is_loading() {
-            if !self.objects_cached.is_empty() {
-                return Err("Squad::xfer - objects_cached should be empty on load".to_string());
-            }
-
             self.object_ids.clear();
             for _ in 0..object_count {
                 let mut object_id = crate::common::INVALID_ID;
