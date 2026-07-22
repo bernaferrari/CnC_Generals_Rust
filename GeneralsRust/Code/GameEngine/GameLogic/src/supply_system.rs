@@ -1202,10 +1202,9 @@ struct SupplyTruckStateMachine {
 }
 
 impl SupplyTruckStateMachine {
-    fn new(owner: Arc<RwLock<Object>>) -> Self {
-        let owner_weak = Arc::downgrade(&owner);
-        let machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(owner_weak),
+    fn new(owner_id: ObjectID) -> Self {
+        let machine = Arc::new(Mutex::new(StateMachine::new_with_owner_id(
+            owner_id,
             "SupplyTruckStateMachine",
         )));
         let mut guard = machine
@@ -1724,8 +1723,8 @@ impl SupplyTruckAIUpdate {
     /// Update the supply truck AI state machine.
     pub fn update(&mut self) -> StateReturnType {
         if self.state_machine.is_none() {
-            if let Some(owner) = self.owner_object() {
-                self.state_machine = Some(SupplyTruckStateMachine::new(owner));
+            if self.object_id != INVALID_ID {
+                self.state_machine = Some(SupplyTruckStateMachine::new(self.object_id));
             } else {
                 return StateReturnType::Failure;
             }
@@ -2727,8 +2726,8 @@ impl WorkerAIUpdate {
     /// Update the worker supply state machine.
     pub fn update(&mut self) -> StateReturnType {
         if self.state_machine.is_none() {
-            if let Some(owner) = self.owner_object() {
-                self.state_machine = Some(SupplyTruckStateMachine::new(owner));
+            if self.object_id != INVALID_ID {
+                self.state_machine = Some(SupplyTruckStateMachine::new(self.object_id));
             } else {
                 return StateReturnType::Failure;
             }
