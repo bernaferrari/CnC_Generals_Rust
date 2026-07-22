@@ -438,7 +438,12 @@ impl AITNGuardMachine {
         let Some(owner_arc) = owner else {
             return false;
         };
-        let Some(target_id) = find_tunnel_network_inner_target(&owner_arc) else {
+        let owner_id = owner_arc
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        let Some(target_id) = find_tunnel_network_inner_target(owner_id) else {
             return false;
         };
         self.set_nemesis_id(target_id);
@@ -446,17 +451,11 @@ impl AITNGuardMachine {
     }
 
     /// Get standard guard range
-    pub fn get_std_guard_range(_obj: &Arc<RwLock<Object>>) -> f32 {
-        let Ok(obj_guard) = _obj.read() else {
-            return 100.0;
-        };
-        let id = obj_guard.get_id();
-        drop(obj_guard);
-
+    pub fn get_std_guard_range(obj_id: ObjectID) -> f32 {
         let ai = THE_AI.read().ok();
         ai.and_then(|ai| {
             ai.get_adjusted_vision_range_for_object(
-                id,
+                obj_id,
                 vision_factors::OWNER_TYPE | vision_factors::MOOD | vision_factors::GUARD_INNER,
             )
             .ok()
@@ -750,37 +749,39 @@ impl StateImplementation for AITNGuardInnerState {
 
         if goal_obj.is_none() && self.scan_for_enemy {
             self.scan_for_enemy = false;
-            if let Some(target) = tunnel_network_scan(&owner) {
+            let owner_id = owner
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID);
+            if let Some(target_id) = tunnel_network_scan(owner_id) {
                 if let Ok(mut exit_guard) = self.exit_conditions.lock() {
                     exit_guard.set_attack_give_up_frame(
                         TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
                     );
                 }
                 self.base
-                    .with_machine(|machine| {
-                        machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
-                    })
+                    .with_machine(|machine| machine.set_goal_object_by_id(Some(target_id)))
                     .ok();
-                self.base.set_nemesis_to_attack(
-                    target
-                        .read()
-                        .map(|guard| guard.get_id())
-                        .unwrap_or(crate::common::INVALID_ID),
-                );
+                self.base.set_nemesis_to_attack(target_id);
 
                 if let Ok(owner_guard) = owner.read() {
                     if let Some(player_arc) = owner_guard.get_controlling_player() {
                         if let Ok(mut player_guard) = player_arc.write() {
                             if let Some(tunnels) = player_guard.get_tunnel_system_mut() {
-                                if let Ok(target_guard) = target.read() {
-                                    let _ = tunnels.update_nemesis(Some(&target_guard));
+                                if let Some(target) = get_legacy_object(target_id) {
+                                    if let Ok(target_guard) = target.read() {
+                                        let _ = tunnels.update_nemesis(Some(&target_guard));
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                goal_obj = Some(target);
+                if let Some(target) = get_legacy_object(target_id) {
+                    goal_obj = Some(target);
+                }
             }
         } else if let (Some(goal), Some(team_target)) = (&goal_obj, &team_target_obj) {
             if goal.read().ok().map(|g| g.get_id()) != team_target.read().ok().map(|t| t.get_id()) {
@@ -911,21 +912,30 @@ impl StateImplementation for AITNGuardIdleState {
             }
         }
 
-        if let Some(target_id) = find_tunnel_network_inner_target(&owner) {
+        let owner_id = owner
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        if let Some(target_id) = find_tunnel_network_inner_target(owner_id) {
             self.base.set_nemesis_to_attack(target_id);
 
             if let Some(target) = get_legacy_object(target_id) {
-                let _ = self.base.with_machine(|machine| {
-                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
-                });
+                let _ = self
+                    .base
+                    .with_machine(|machine| machine.set_goal_object_by_id(Some(target_id)));
 
                 if let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) {
                     if owner_guard.get_contained_by().is_some() {
                         if let Some(player_arc) = owner_guard.get_controlling_player() {
                             if let Ok(player_guard) = player_arc.read() {
-                                if let Some(best_tunnel) =
+                                if let Some(best_tunnel_id) =
                                     find_best_tunnel(&player_guard, target_guard.get_position())
                                 {
+                                    let Some(best_tunnel) = get_legacy_object(best_tunnel_id)
+                                    else {
+                                        return StateReturnType::Sleep(0);
+                                    };
                                     let Ok(tunnel_guard) = best_tunnel.read() else {
                                         return StateReturnType::Sleep(0);
                                     };
@@ -1218,17 +1228,11 @@ impl StateImplementation for AITNGuardReturnState {
             if let Some(player_arc) = owner_guard.get_controlling_player() {
                 if let Ok(player_guard) = player_arc.read() {
                     let pos = *owner_guard.get_position();
-                    if let Some(best_tunnel) = find_best_tunnel(&player_guard, &pos) {
-                        if let Ok(tunnel_guard) = best_tunnel.read() {
-                            if let Some(tunnel) = get_legacy_object(tunnel_guard.get_id()) {
-                                let _ = self.base.with_machine(|machine| {
-                                    machine.set_goal_object_by_id(
-                                        tunnel.read().ok().map(|g| g.get_id()),
-                                    )
-                                });
-                                self.base.set_nemesis_to_attack(crate::common::INVALID_ID);
-                            }
-                        }
+                    if let Some(best_tunnel_id) = find_best_tunnel(&player_guard, &pos) {
+                        let _ = self.base.with_machine(|machine| {
+                            machine.set_goal_object_by_id(Some(best_tunnel_id))
+                        });
+                        self.base.set_nemesis_to_attack(crate::common::INVALID_ID);
                         return self.enter_state.on_enter();
                     }
                 }
@@ -1532,7 +1536,9 @@ impl StateImplementation for AITNGuardAttackAggressorState {
     }
 }
 
-fn find_tunnel_network_inner_target(owner: &Arc<RwLock<Object>>) -> Option<ObjectID> {
+fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
+    let owner = TheGameLogic::find_object_by_id(owner_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))?;
     let owner_guard = owner.read().ok()?;
 
     if let Some(team_arc) = owner_guard.get_team() {
@@ -1628,14 +1634,16 @@ fn find_tunnel_network_inner_target(owner: &Arc<RwLock<Object>>) -> Option<Objec
     None
 }
 
-fn tunnel_network_scan(owner: &Arc<RwLock<Object>>) -> Option<Arc<RwLock<Object>>> {
+fn tunnel_network_scan(owner_id: ObjectID) -> Option<ObjectID> {
     let partition = ThePartitionManager::get()?;
+    let owner = TheGameLogic::find_object_by_id(owner_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))?;
     let owner_guard = owner.read().ok()?;
-    let vision_range = AITNGuardMachine::get_std_guard_range(owner);
+    let vision_range = AITNGuardMachine::get_std_guard_range(owner_id);
     let owner_pos = *owner_guard.get_position();
 
-    let target_id = partition.get_closest_object_2d(&owner_pos, vision_range, |candidate| {
-        if candidate.get_id() == owner_guard.get_id() {
+    partition.get_closest_object_2d(&owner_pos, vision_range, |candidate| {
+        if candidate.get_id() == owner_id {
             return false;
         }
         if candidate.is_effectively_dead() {
@@ -1658,17 +1666,15 @@ fn tunnel_network_scan(owner: &Arc<RwLock<Object>>) -> Option<Arc<RwLock<Object>
             ),
             CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
         )
-    })?;
-
-    get_legacy_object(target_id)
+    })
 }
 
 /// Helper function to find best tunnel for a position
-pub fn find_best_tunnel(owner_player: &Player, pos: &Coord3D) -> Option<Arc<RwLock<Object>>> {
+pub fn find_best_tunnel(owner_player: &Player, pos: &Coord3D) -> Option<ObjectID> {
     let tunnels = owner_player.get_tunnel_system()?;
     let list = tunnels.get_container_list().ok()?;
 
-    let mut best: Option<(Arc<RwLock<Object>>, Real)> = None;
+    let mut best: Option<(ObjectID, Real)> = None;
     for tunnel_id in list {
         let Some(tunnel_arc) = TheGameLogic::find_object_by_id(tunnel_id) else {
             continue;
@@ -1684,11 +1690,11 @@ pub fn find_best_tunnel(owner_player: &Player, pos: &Coord3D) -> Option<Arc<RwLo
             .map(|(_, best_dist)| dist_sqr < *best_dist)
             .unwrap_or(true);
         if better {
-            best = Some((tunnel_arc.clone(), dist_sqr));
+            best = Some((tunnel_id, dist_sqr));
         }
     }
 
-    best.map(|(obj, _)| obj)
+    best.map(|(id, _)| id)
 }
 
 /// Helper function to check if an object has attacked and can be retaliated against
