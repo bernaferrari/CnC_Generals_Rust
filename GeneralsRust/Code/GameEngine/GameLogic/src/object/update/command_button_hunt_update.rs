@@ -534,25 +534,23 @@ impl CommandButtonHuntUpdate {
                         for mine_id in
                             partition.get_objects_in_range_boundary_2d(other.get_position(), range)
                         {
-                            let Some(mine_arc) = OBJECT_REGISTRY.get_object(mine_id) else {
-                                continue;
-                            };
-                            let Ok(mine) = mine_arc.read() else {
-                                continue;
-                            };
-                            if !mine.is_kind_of(KindOf::Mine) {
-                                continue;
-                            }
-                            let mine_player_index =
-                                mine.get_controlling_player().and_then(|player| {
-                                    player.read().ok().map(|guard| guard.get_player_index())
-                                });
-                            let object_player_index =
-                                object.get_controlling_player().and_then(|player| {
-                                    player.read().ok().map(|guard| guard.get_player_index())
-                                });
-                            let same_player = mine.get_controlling_player().is_some()
-                                && mine_player_index == object_player_index;
+                            let same_player = OBJECT_REGISTRY
+                                .with_object(mine_id, |mine| {
+                                    if !mine.is_kind_of(KindOf::Mine) {
+                                        return false;
+                                    }
+                                    let mine_player_index =
+                                        mine.get_controlling_player().and_then(|player| {
+                                            player.read().ok().map(|guard| guard.get_player_index())
+                                        });
+                                    let object_player_index =
+                                        object.get_controlling_player().and_then(|player| {
+                                            player.read().ok().map(|guard| guard.get_player_index())
+                                        });
+                                    mine.get_controlling_player().is_some()
+                                        && mine_player_index == object_player_index
+                                })
+                                .unwrap_or(false);
                             if same_player {
                                 found_mine = true;
                                 break;

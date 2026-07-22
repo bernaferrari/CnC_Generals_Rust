@@ -235,19 +235,15 @@ impl PlayerUpgradeManager {
         let objects = player.get_all_objects();
 
         for object_id in objects {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(mut object_guard) = object_arc.write() else {
-                continue;
-            };
-            if object_guard.is_destroyed() {
-                continue;
-            }
-            if object_guard.get_controlling_player_id() != Some(self.player_id) {
-                continue;
-            }
-            object_guard.give_upgrade(template);
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+                if object_guard.is_destroyed() {
+                    return;
+                }
+                if object_guard.get_controlling_player_id() != Some(self.player_id) {
+                    return;
+                }
+                object_guard.give_upgrade(template);
+            });
         }
     }
 
@@ -286,19 +282,15 @@ impl PlayerUpgradeManager {
         let mask_bits = UpgradeMaskType::from_bits_retain(upgrade_mask.to_bits());
 
         for object_id in objects {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(mut object_guard) = object_arc.write() else {
-                continue;
-            };
-            if object_guard.is_destroyed() {
-                continue;
-            }
-            if object_guard.get_controlling_player_id() != Some(self.player_id) {
-                continue;
-            }
-            object_guard.remove_upgrade_mask(mask_bits);
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+                if object_guard.is_destroyed() {
+                    return;
+                }
+                if object_guard.get_controlling_player_id() != Some(self.player_id) {
+                    return;
+                }
+                object_guard.remove_upgrade_mask(mask_bits);
+            });
         }
     }
 

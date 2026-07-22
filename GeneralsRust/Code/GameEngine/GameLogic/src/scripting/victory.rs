@@ -922,17 +922,15 @@ impl VictoryManager {
         let active_player = context.active_player;
         let mut rescued = 0usize;
         for unit_id in units {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*unit_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if obj.is_destroyed() {
-                continue;
-            }
-            let player_id = obj.get_controlling_player_id().map(|id| id as u32);
-            if player_id == active_player {
+            if OBJECT_REGISTRY
+                .with_object(*unit_id, |obj| {
+                    if obj.is_destroyed() {
+                        return false;
+                    }
+                    obj.get_controlling_player_id().map(|id| id as u32) == active_player
+                })
+                .unwrap_or(false)
+            {
                 rescued += 1;
             }
         }
@@ -1039,14 +1037,10 @@ impl VictoryManager {
 
         let mut killed = 0usize;
         for target_id in targets {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*target_id) else {
-                killed += 1;
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if obj.is_destroyed() {
+            if OBJECT_REGISTRY
+                .with_object(*target_id, |obj| obj.is_destroyed())
+                .unwrap_or(true)
+            {
                 killed += 1;
             }
         }
