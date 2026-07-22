@@ -9519,10 +9519,7 @@ impl Object {
     }
 
     /// Compatibility wrapper: resolves enemy IDs to handles at the call boundary.
-    pub fn find_enemies_in_radius(
-        &self,
-        radius: f32,
-    ) -> Result<Vec<Arc<RwLock<Object>>>, String> {
+    pub fn find_enemies_in_radius(&self, radius: f32) -> Result<Vec<Arc<RwLock<Object>>>, String> {
         let mut enemies = Vec::new();
         for object_id in self.find_enemy_ids_in_radius(radius)? {
             if let Some(object) = registry::OBJECT_REGISTRY.get_object(object_id) {
