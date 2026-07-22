@@ -115,20 +115,17 @@ pub fn complete_upgrade(player_id: u32, upgrade_name: &str) -> UpgradeResult<()>
 
         if affects_existing {
             for object_id in objects {
-                let Some(object_arc) =
-                    crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-                else {
-                    continue;
-                };
-                let Ok(mut object_guard) = object_arc.write() else {
-                    continue;
-                };
-                if object_guard.is_destroyed()
-                    || object_guard.get_controlling_player_id() != Some(player_id)
-                {
-                    continue;
-                }
-                object_guard.give_upgrade(template.as_ref());
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    object_id,
+                    |object_guard| {
+                        if object_guard.is_destroyed()
+                            || object_guard.get_controlling_player_id() != Some(player_id)
+                        {
+                            return;
+                        }
+                        object_guard.give_upgrade(template.as_ref());
+                    },
+                );
             }
         }
     }

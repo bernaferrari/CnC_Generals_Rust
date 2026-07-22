@@ -151,34 +151,29 @@ impl RadarUpgrade {
     }
 
     fn apply_radar_upgrade(&mut self) -> Result<(), String> {
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return Err(format!(
-                "RadarUpgrade could not find object {} in registry",
-                self.object_id
-            ));
-        };
-
-        let object_guard = object
-            .write()
-            .map_err(|_| "RadarUpgrade failed to lock object for writing".to_string())?;
-
         let disable_proof = self.data.is_disable_proof();
-
-        if let Some(player) = object_guard.get_controlling_player() {
-            if let Ok(mut player_guard) = player.write() {
-                player_guard.add_radar(disable_proof);
-            }
-        }
-
-        if let Some(radar_module) = object_guard.find_update_module("RadarUpdate") {
-            radar_module.with_module(|module| {
-                if let Some(radar_update) = module.get_radar_update_interface() {
-                    radar_update.extend_radar();
+        let object_id = self.object_id;
+        match OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
+            if let Some(player) = object_guard.get_controlling_player() {
+                if let Ok(mut player_guard) = player.write() {
+                    player_guard.add_radar(disable_proof);
                 }
-            });
-        }
+            }
 
-        Ok(())
+            if let Some(radar_module) = object_guard.find_update_module("RadarUpdate") {
+                radar_module.with_module(|module| {
+                    if let Some(radar_update) = module.get_radar_update_interface() {
+                        radar_update.extend_radar();
+                    }
+                });
+            }
+        }) {
+            Some(()) => Ok(()),
+            None => Err(format!(
+                "RadarUpgrade could not find object {} in registry",
+                object_id
+            )),
+        }
     }
 
     // Removing the upgrade does nothing; cleanup happens on delete/capture.

@@ -427,17 +427,15 @@ impl AIUpdate {
                 force_update,
             } => {
                 // Update individual unit AI
-                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(unit_id) {
-                    if let Ok(obj_guard) = obj_arc.read() {
-                        if let Some(ai) = obj_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                if force_update || !ai_guard.is_moving() {
-                                    let _ = ai_guard.update();
-                                }
+                let _ = OBJECT_REGISTRY.with_object(unit_id, |obj_guard| {
+                    if let Some(ai) = obj_guard.get_ai_update_interface() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            if force_update || !ai_guard.is_moving() {
+                                let _ = ai_guard.update();
                             }
                         }
                     }
-                }
+                });
                 Ok(())
             }
             AiTaskData::GroupUpdate { group_id, command } => {

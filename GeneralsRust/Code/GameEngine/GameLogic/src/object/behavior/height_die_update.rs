@@ -300,18 +300,22 @@ impl UpdateModuleInterface for HeightDieUpdate {
                         if obj_id == my_id {
                             continue;
                         }
-                        if let Some(structure_arc) =
-                            crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-                        {
-                            if let Ok(structure) = structure_arc.read() {
+                        if let Some(this_height) = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(obj_id, |structure| {
                                 if structure.is_kind_of(KindOf::Structure) {
-                                    let this_height = structure
-                                        .get_geometry_info()
-                                        .get_max_height_above_position();
-                                    if this_height > tallest_height {
-                                        tallest_height = this_height;
-                                    }
+                                    Some(
+                                        structure
+                                            .get_geometry_info()
+                                            .get_max_height_above_position(),
+                                    )
+                                } else {
+                                    None
                                 }
+                            })
+                            .flatten()
+                        {
+                            if this_height > tallest_height {
+                                tallest_height = this_height;
                             }
                         }
                     }

@@ -144,60 +144,51 @@ impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
             return true;
         };
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let template_name = template.get_name().to_string();
+        let object_id = self.object_id;
+        let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
+            let mut paused = false;
+            for module_handle in
+                object_guard.modules_with_interface(ModuleInterfaceType::SPECIAL_POWER)
+            {
+                module_handle.with_module(|module| {
+                    let Some(sp_module) = module_special_power_interface(module) else {
+                        return;
+                    };
+                    if sp_module.get_power_name() == template_name {
+                        sp_module.pause_countdown(false);
+                        paused = true;
+                    }
+                });
+            }
+
+            if !paused {
+                for behavior in object_guard.get_behavior_modules() {
+                    let mut behavior_guard = match behavior.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => {
+                            log::warn!(
+                                "UnpauseSpecialPowerUpgrade: Failed to lock behavior on object {}",
+                                object_id
+                            );
+                            continue;
+                        }
+                    };
+
+                    if let Some(sp_module) = behavior_guard.get_special_power_module_interface() {
+                        if sp_module.get_power_name() == template_name {
+                            sp_module.pause_countdown(false);
+                        }
+                    }
+                }
+            }
+        }) else {
             log::warn!(
                 "UnpauseSpecialPowerUpgrade: Object {} not found",
                 self.object_id
             );
             return false;
         };
-
-        let object_guard = match object.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "UnpauseSpecialPowerUpgrade: Failed to lock object {}",
-                    self.object_id
-                );
-                return false;
-            }
-        };
-
-        let mut paused = false;
-        let template_name = template.get_name().to_string();
-        for module_handle in object_guard.modules_with_interface(ModuleInterfaceType::SPECIAL_POWER)
-        {
-            module_handle.with_module(|module| {
-                let Some(sp_module) = module_special_power_interface(module) else {
-                    return;
-                };
-                if sp_module.get_power_name() == template_name {
-                    sp_module.pause_countdown(false);
-                    paused = true;
-                }
-            });
-        }
-
-        if !paused {
-            for behavior in object_guard.get_behavior_modules() {
-                let mut behavior_guard = match behavior.lock() {
-                    Ok(guard) => guard,
-                    Err(_) => {
-                        log::warn!(
-                            "UnpauseSpecialPowerUpgrade: Failed to lock behavior on object {}",
-                            self.object_id
-                        );
-                        continue;
-                    }
-                };
-
-                if let Some(sp_module) = behavior_guard.get_special_power_module_interface() {
-                    if sp_module.get_power_name() == template_name {
-                        sp_module.pause_countdown(false);
-                    }
-                }
-            }
-        }
 
         self.applied = true;
         true

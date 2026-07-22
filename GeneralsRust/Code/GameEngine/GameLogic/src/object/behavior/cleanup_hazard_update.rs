@@ -215,7 +215,7 @@ impl CleanupHazardUpdate {
         }
 
         if target_id != INVALID_ID {
-            if let Some(_target_arc) = OBJECT_REGISTRY.get_object(target_id) {
+            if OBJECT_REGISTRY.with_object(target_id, |_| ()).is_some() {
                 if let Some(ai_arc) = me.get_ai() {
                     if let Ok(mut ai) = ai_arc.lock() {
                         if !(ai.is_idle() || ai.is_busy()) {
