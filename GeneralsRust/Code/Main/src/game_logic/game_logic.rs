@@ -21785,6 +21785,17 @@ impl GameLogic {
         &self.objects
     }
 
+    /// Partition-backed candidate ids near a world position (empty if partition cold).
+    /// Callers must still apply team/alive/stealth filters — this is broadphase only.
+    #[inline]
+    pub fn object_ids_near(&self, position: glam::Vec3, radius: f32) -> Vec<ObjectId> {
+        self.partition_manager
+            .ids_in_radius(position.x, position.z, radius)
+            .into_iter()
+            .map(ObjectId)
+            .collect()
+    }
+
     /// Get mutable objects
     pub fn get_objects_mut(&mut self) -> &mut HashMap<ObjectId, Object> {
         &mut self.objects
