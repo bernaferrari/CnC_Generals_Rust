@@ -1858,48 +1858,49 @@ impl PathfindingSystem {
 
         // If attacker doesn't need LOS, not blocked.
         if attacker_id != INVALID_ID {
-            if let Some(arc) = OBJECT_REGISTRY.get_object(attacker_id) {
-                if let Ok(g) = arc.read() {
-                    if !g.is_kind_of(KindOf::AttackNeedsLineOfSight) {
-                        return false;
+            let early = OBJECT_REGISTRY.with_object(attacker_id, |g| {
+                if !g.is_kind_of(KindOf::AttackNeedsLineOfSight) {
+                    return Some(false);
+                }
+                // Flying victim: C++ isViewBlocked early-out for significantly above terrain.
+                if let Some(vid) = victim_id {
+                    let flying = OBJECT_REGISTRY
+                        .with_object(vid, |vg| vg.is_significantly_above_terrain())
+                        .unwrap_or(false);
+                    if flying {
+                        return Some(false);
                     }
-                    // Flying victim: C++ isViewBlocked early-out for significantly above terrain.
-                    if let Some(vid) = victim_id {
-                        if let Some(varc) = OBJECT_REGISTRY.get_object(vid) {
-                            if let Ok(vg) = varc.read() {
-                                if vg.is_significantly_above_terrain() {
-                                    return false;
-                                }
-                            }
+                }
+                // LOS_TERRAIN: C++ Weapon::isClearGoalFiringLineOfSightTerrain
+                // (skip for immobile — cannot path around terrain blockage).
+                if !g.is_kind_of(KindOf::Immobile) {
+                    if let Some((weapon, _)) = g.get_current_weapon() {
+                        let clear = if let Some(vid) = victim_id {
+                            weapon.is_clear_goal_firing_line_of_sight_terrain(
+                                attacker_id,
+                                attacker_pos,
+                                vid,
+                            )
+                        } else {
+                            weapon.is_clear_goal_firing_line_of_sight_terrain_pos(
+                                attacker_id,
+                                attacker_pos,
+                                victim_pos,
+                            )
+                        };
+                        if !clear {
+                            return Some(true);
                         }
-                    }
-                    // LOS_TERRAIN: C++ Weapon::isClearGoalFiringLineOfSightTerrain
-                    // (skip for immobile — cannot path around terrain blockage).
-                    if !g.is_kind_of(KindOf::Immobile) {
-                        if let Some((weapon, _)) = g.get_current_weapon() {
-                            let clear = if let Some(vid) = victim_id {
-                                weapon.is_clear_goal_firing_line_of_sight_terrain(
-                                    attacker_id,
-                                    attacker_pos,
-                                    vid,
-                                )
-                            } else {
-                                weapon.is_clear_goal_firing_line_of_sight_terrain_pos(
-                                    attacker_id,
-                                    attacker_pos,
-                                    victim_pos,
-                                )
-                            };
-                            if !clear {
-                                return true;
-                            }
-                        } else if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
-                            if !terrain.is_clear_line_of_sight(attacker_pos, victim_pos) {
-                                return true;
-                            }
+                    } else if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
+                        if !terrain.is_clear_line_of_sight(attacker_pos, victim_pos) {
+                            return Some(true);
                         }
                     }
                 }
+                None
+            });
+            if let Some(blocked) = early.flatten() {
+                return blocked;
             }
         }
 
@@ -3832,19 +3833,14 @@ impl PathfindingSystem {
         if pos_unit == INVALID_ID || pos_unit == object_id {
             return false;
         }
-        let Some(self_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return false;
-        };
-        let Some(other_arc) = OBJECT_REGISTRY.get_object(pos_unit) else {
-            return false;
-        };
-        let Ok(self_g) = self_arc.read() else {
-            return false;
-        };
-        let Ok(other_g) = other_arc.read() else {
-            return false;
-        };
-        self_g.relationship_to(&other_g) == crate::common::Relationship::Allies
+        OBJECT_REGISTRY
+            .with_object(object_id, |self_g| {
+                OBJECT_REGISTRY.with_object(pos_unit, |other_g| {
+                    self_g.relationship_to(other_g) == crate::common::Relationship::Allies
+                })
+            })
+            .flatten()
+            .unwrap_or(false)
     }
 
     /// Build path from A* grid cells — C++ `buildActualPath` + `prependCells`.
@@ -5003,15 +4999,24 @@ impl PathfindingSystem {
         if obj_id == INVALID_ID || path_waypoints.len() < 2 {
             return false;
         }
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some((is_dozer, is_harvester, is_infantry, ignore_id)) =
+            OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                let mut ignore_id = INVALID_ID;
+                if let Some(ai) = obj_guard.get_ai_update_interface() {
+                    if let Ok(ai_g) = ai.lock() {
+                        ignore_id = ai_g.get_ignored_obstacle_id();
+                    }
+                }
+                (
+                    obj_guard.is_kind_of(KindOf::Dozer),
+                    obj_guard.is_kind_of(KindOf::Harvester),
+                    obj_guard.is_kind_of(KindOf::Infantry),
+                    ignore_id,
+                )
+            })
+        else {
             return false;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return false;
-        };
-        let is_dozer = obj_guard.is_kind_of(KindOf::Dozer);
-        let is_harvester = obj_guard.is_kind_of(KindOf::Harvester);
-        let is_infantry = obj_guard.is_kind_of(KindOf::Infantry);
         if !is_dozer && !is_harvester && !blocked_by_ally {
             return false;
         }
@@ -5024,15 +5029,6 @@ impl PathfindingSystem {
             let mut num_above = radius;
             if center_in_cell {
                 num_above += 1;
-            }
-            let ignore_id = {
-                let mut id = INVALID_ID;
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(ai_g) = ai.lock() {
-                        id = ai_g.get_ignored_obstacle_id();
-                    }
-                }
-                id
             };
             let mut moved_any = false;
             // C++: for node = last; node && node != first; node = previous
@@ -5072,7 +5068,12 @@ impl PathfindingSystem {
                         let Ok(other_guard) = other_arc.read() else {
                             continue;
                         };
-                        if obj_guard.relationship_to(&other_guard) != Relationship::Allies {
+                        let is_ally = OBJECT_REGISTRY
+                            .with_object(obj_id, |obj_guard| {
+                                obj_guard.relationship_to(&other_guard) == Relationship::Allies
+                            })
+                            .unwrap_or(false);
+                        if !is_ally {
                             continue;
                         }
                         let other_infantry = other_guard.is_kind_of(KindOf::Infantry);
