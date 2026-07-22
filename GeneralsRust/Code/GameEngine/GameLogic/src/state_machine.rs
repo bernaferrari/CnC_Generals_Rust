@@ -272,6 +272,24 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
             .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
+    fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
+        if let Some(base_state) = self.as_any().downcast_ref::<State>() {
+            return base_state
+                .get_machine_owner_id()
+                .ok_or_else(|| "state machine owner not attached".to_string());
+        }
+        let machine = self.get_machine()?;
+        let guard = machine
+            .lock()
+            .map_err(|_| "failed to lock state machine".to_string())?;
+        let id = guard.get_owner_id();
+        if id == crate::common::INVALID_ID {
+            Err("state machine owner not attached".to_string())
+        } else {
+            Ok(id)
+        }
+    }
+
     /// Get the state machine (default implementation returns error)
     fn get_machine(&self) -> Result<Arc<Mutex<StateMachine>>, String> {
         if let Some(base_state) = self.as_any().downcast_ref::<State>() {
