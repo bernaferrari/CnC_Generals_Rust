@@ -7,7 +7,7 @@
 //! Rust conversion: 2025
 
 use std::any::Any;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::common::{
     AsciiString, BehaviorModuleData, Coord3D, ObjectID, Real, UnsignedInt, Xfer, XferExt,
@@ -66,7 +66,6 @@ crate::impl_behavior_module_data_via_base!(BridgeScaffoldBehaviorModuleData, bas
 pub struct BridgeScaffoldBehavior {
     pub module_data: Arc<BridgeScaffoldBehaviorModuleData>,
     object_id: ObjectID,
-    object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
     next_call_frame_and_phase: UnsignedInt,
 
     // Motion state
@@ -89,20 +88,13 @@ impl BridgeScaffoldBehavior {
         module_data: Arc<BridgeScaffoldBehaviorModuleData>,
         initial_object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
-        let (initial_handle, initial_pos) = match initial_object {
-            Some(object) => {
-                let weak = Arc::downgrade(&object);
-                let pos = object.read().ok().map(|guard| *guard.get_position());
-                (Some(weak), pos)
-            }
+        let initial_pos = match initial_object {
+            Some(object) => object.read().ok().map(|guard| *guard.get_position()),
             None => {
                 if object_id == OBJECT_INVALID_ID {
-                    (None, None)
-                } else if let Some(object) = OBJECT_REGISTRY.get_object(object_id) {
-                    let pos = object.read().ok().map(|guard| *guard.get_position());
-                    (Some(Arc::downgrade(&object)), pos)
+                    None
                 } else {
-                    (None, None)
+                    OBJECT_REGISTRY.with_object(object_id, |guard| *guard.get_position())
                 }
             }
         };
@@ -110,7 +102,6 @@ impl BridgeScaffoldBehavior {
         let mut behavior = Self {
             module_data,
             object_id,
-            object_handle: Mutex::new(initial_handle),
             next_call_frame_and_phase: 0,
             target_motion: ScaffoldTargetMotion::Still,
             create_pos: Coord3D::new(0.0, 0.0, 0.0),
@@ -202,25 +193,13 @@ impl BridgeScaffoldBehavior {
         if self.object_id == OBJECT_INVALID_ID {
             return Err("BridgeScaffoldBehavior missing owning object id".into());
         }
-
-        if let Ok(mut handle) = self.object_handle.lock() {
-            if let Some(weak) = handle.as_ref() {
-                if let Some(object) = weak.upgrade() {
-                    return Ok(object);
-                }
-            }
-
-            if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
-                *handle = Some(Arc::downgrade(&object));
-                return Ok(object);
-            }
-        }
-
-        Err(format!(
-            "BridgeScaffoldBehavior unable to upgrade handle for object {}",
-            self.object_id
-        )
-        .into())
+        OBJECT_REGISTRY.get_object(self.object_id).ok_or_else(|| {
+            format!(
+                "BridgeScaffoldBehavior object {} not registered",
+                self.object_id
+            )
+            .into()
+        })
     }
 }
 
