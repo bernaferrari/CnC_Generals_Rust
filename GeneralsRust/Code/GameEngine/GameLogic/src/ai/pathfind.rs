@@ -5,6 +5,7 @@ use crate::common::coord::*;
 use crate::common::vector_ext::Vector3Ext;
 use crate::common::xfer::XferExt;
 use crate::common::*;
+use crate::helpers::TheGameLogic;
 use crate::helpers::ThePartitionManager;
 use crate::locomotor::LocomotorSurfaceTypeMask;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -409,7 +410,7 @@ impl Path {
     /// Optimize the path to discard redundant nodes
     pub fn optimize(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         acceptable_surfaces: LocomotorSurfaceTypeMask,
         blocked: bool,
     ) {
@@ -462,10 +463,13 @@ impl Path {
             optimizer.optimize(&raw_points, &opt_layers, passable);
 
         if (acceptable_surfaces & SURFACE_GROUND) != 0 {
-            let diameter = obj
-                .lock()
-                .ok()
-                .map(|guard| guard.get_geometry_info().get_major_radius())
+            let diameter = TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                .and_then(|obj| {
+                    obj.read()
+                        .ok()
+                        .map(|guard| guard.get_geometry_info().get_major_radius())
+                })
                 .unwrap_or(PATHFIND_CELL_SIZE_F)
                 .max(PATHFIND_CELL_SIZE_F)
                 * 2.0;
@@ -558,11 +562,7 @@ impl Path {
             && (a.z - b.z).abs() <= close_enough
     }
 
-    pub fn compute_point_on_path(
-        &mut self,
-        _obj: &Arc<RwLock<Object>>,
-        pos: &Coord3D,
-    ) -> ClosestPointOnPathInfo {
+    pub fn compute_point_on_path(&mut self, pos: &Coord3D) -> ClosestPointOnPathInfo {
         if self.cpop_valid && self.cpop_countdown > 0 && Self::is_really_close(pos, &self.cpop_in) {
             self.cpop_countdown -= 1;
             return ClosestPointOnPathInfo {
@@ -978,25 +978,37 @@ impl PathfindCell {
     /// Set as obstacle
     pub fn set_type_as_obstacle(
         &mut self,
+        obstacle_id: ObjectID,
+        is_fence: bool,
+        is_transparent: bool,
+        pos: &ICoord2D,
+    ) -> bool {
+        self.cell_type = CellType::Obstacle;
+        self.allocate_info(pos);
+        if let Some(ref mut info) = self.info {
+            info.obstacle_id = obstacle_id;
+            info.obstacle_is_fence = is_fence;
+            info.obstacle_is_transparent = is_transparent;
+        }
+        true
+    }
+
+    /// Prefer [`Self::set_type_as_obstacle`] with explicit flags.
+    pub fn set_type_as_obstacle_from_object(
+        &mut self,
         obstacle: &Arc<RwLock<Object>>,
         is_fence: bool,
         pos: &ICoord2D,
     ) -> bool {
-        self.cell_type = CellType::Obstacle;
-
-        // Allocate info if needed
-        self.allocate_info(pos);
-
-        if let Some(ref mut info) = self.info {
-            if let Ok(obj_ref) = obstacle.try_read() {
-                info.obstacle_id = obj_ref.get_id();
-                info.obstacle_is_fence = is_fence;
-                // Check if obstacle is transparent
-                info.obstacle_is_transparent = obj_ref.is_any_kind_of(&[KindOf::CanSeeThrough]);
-            }
-        }
-
-        true
+        let Ok(obj_ref) = obstacle.try_read() else {
+            return false;
+        };
+        self.set_type_as_obstacle(
+            obj_ref.get_id(),
+            is_fence,
+            obj_ref.is_any_kind_of(&[KindOf::CanSeeThrough]),
+            pos,
+        )
     }
 
     /// Set as obstacle using a direct object reference (no Arc<Mutex> available).
@@ -1017,16 +1029,12 @@ impl PathfindCell {
     }
 
     /// Remove obstacle
+    /// Prefer [`Self::remove_obstacle_by_id`].
     pub fn remove_obstacle(&mut self, obstacle: &Arc<RwLock<Object>>) -> bool {
-        if let Some(ref info) = self.info {
-            if let Ok(obj_ref) = obstacle.try_read() {
-                if info.obstacle_id == obj_ref.get_id() {
-                    self.cell_type = CellType::Clear;
-                    return true;
-                }
-            }
-        }
-        false
+        let Ok(obj_ref) = obstacle.try_read() else {
+            return false;
+        };
+        self.remove_obstacle_by_id(obj_ref.get_id())
     }
 
     /// Remove obstacle by object id.
@@ -1601,10 +1609,13 @@ impl Pathfinder {
 /// Helper function to adjust destination for an object's movement capabilities.
 /// Matches C++ Pathfinder::adjustDestination.
 pub fn adjust_destination_for_object(
-    obj: &Arc<RwLock<Object>>,
+    obj_id: ObjectID,
     goal: &mut Coord3D,
     group_dest: Option<&Coord3D>,
 ) -> Result<(), String> {
+    let obj = TheGameLogic::find_object_by_id(obj_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        .ok_or_else(|| format!("Could not resolve object {obj_id} for destination adjustment"))?;
     let obj_guard = obj
         .try_read()
         .map_err(|_| "Could not lock object for destination adjustment")?;
@@ -1647,10 +1658,13 @@ pub fn adjust_destination_for_object(
 /// Helper function to update an object's pathfinding goal.
 /// Matches C++ Pathfinder::updateGoal.
 pub fn update_goal_for_object(
-    obj: &Arc<RwLock<Object>>,
+    obj_id: ObjectID,
     goal: &Coord3D,
     layer: PathfindLayerEnum,
 ) -> Result<(), String> {
+    let obj = TheGameLogic::find_object_by_id(obj_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        .ok_or_else(|| format!("Could not resolve object {obj_id} for goal update"))?;
     let obj_guard = obj
         .try_read()
         .map_err(|_| "Could not lock object for goal update")?;
