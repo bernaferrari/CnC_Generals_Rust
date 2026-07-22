@@ -72737,17 +72737,22 @@ mod tests {
     fn residual_auto_fire_ai_decision_writeback_sets_host_target() {
         use crate::game_logic::host_ai_decision_log;
         use crate::gameworld_shadow::{
+            authority_env_lock, begin_shadow_coupled_tick, end_shadow_coupled_tick,
             gameworld_ai_attack_authority_enabled, gameworld_ai_decision_authority_enabled,
             GameWorldShadow,
         };
 
+        let _env_guard = authority_env_lock();
         let prev_d = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
         let prev_a = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+        let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
         std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         assert!(gameworld_ai_decision_authority_enabled());
         assert!(gameworld_ai_attack_authority_enabled());
         host_ai_decision_log::clear();
+        begin_shadow_coupled_tick();
 
         let mut logic = GameLogic::new();
         ensure_test_tank_template(&mut logic);
@@ -72795,6 +72800,7 @@ mod tests {
         assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
         assert_eq!(logic.get_object(attacker).unwrap().target, Some(victim));
 
+        end_shadow_coupled_tick();
         match prev_d {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
@@ -72802,6 +72808,10 @@ mod tests {
         match prev_a {
             Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
             None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        }
+        match prev_s {
+            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
     }
 
