@@ -422,7 +422,7 @@ pub trait SpawnBehaviorInterface: Send + Sync {
 #[allow(dead_code)]
 pub struct SpawnBehavior {
     // Base module data
-    object: Option<Arc<RwLock<Object>>>,
+    object_id: ObjectID,
     module_data: Arc<SpawnBehaviorModuleData>,
 
     // Spawn management
@@ -481,8 +481,9 @@ impl SpawnBehavior {
             -1
         };
 
+        let object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
         Ok(Self {
-            object: Some(object),
+            object_id,
             module_data: data.clone(),
             spawn_template: Some(spawn_template),
             template_name_iterator: 0,
@@ -501,11 +502,20 @@ impl SpawnBehavior {
     }
 
     pub fn set_object(&mut self, object: Arc<RwLock<Object>>) {
-        self.object = Some(object);
+        self.object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+    }
+
+    pub fn set_object_id(&mut self, object_id: ObjectID) {
+        self.object_id = object_id;
     }
 
     fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.object.clone().ok_or("Object not set".into())
+        if self.object_id == INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            .ok_or_else(|| format!("Object {} not registered", self.object_id).into())
     }
 
     fn notify_slaved_update(

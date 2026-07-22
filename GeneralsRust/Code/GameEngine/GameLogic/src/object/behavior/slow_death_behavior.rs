@@ -542,7 +542,7 @@ pub trait SlowDeathBehaviorInterface: Send + Sync {
 #[derive(Debug)]
 pub struct SlowDeathBehavior {
     // Base module data
-    object: Option<Arc<RwLock<Object>>>,
+    object_id: ObjectID,
     module_data: Arc<SlowDeathBehaviorModuleData>,
 
     // State tracking
@@ -577,8 +577,9 @@ impl SlowDeathBehavior {
             return Err("ProbabilityModifier must be >= 1".into());
         }
 
+        let object_id = _thing.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
         Ok(Self {
-            object: Some(_thing),
+            object_id,
             module_data: Arc::new(data),
             next_call_frame_and_phase: 0,
             flags: 0,
@@ -590,11 +591,20 @@ impl SlowDeathBehavior {
     }
 
     pub fn set_object(&mut self, object: Arc<RwLock<Object>>) {
-        self.object = Some(object);
+        self.object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+    }
+
+    pub fn set_object_id(&mut self, object_id: ObjectID) {
+        self.object_id = object_id;
     }
 
     fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.object.clone().ok_or("Object not set".into())
+        if self.object_id == INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            .ok_or_else(|| format!("Object {} not registered", self.object_id).into())
     }
 
     fn is_slow_death_activated(&self) -> bool {
