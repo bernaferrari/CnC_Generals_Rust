@@ -1593,31 +1593,26 @@ impl Player {
         }
 
         for &object_id in &self.owned_objects {
-            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-            else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                    if ignore_dead && object_guard.is_effectively_dead() {
+                        return;
+                    }
+                    if ignore_under_construction
+                        && object_guard.test_status(ObjectStatusTypes::UnderConstruction)
+                    {
+                        return;
+                    }
 
-            if ignore_dead && object_guard.is_effectively_dead() {
-                continue;
-            }
-            if ignore_under_construction
-                && object_guard.test_status(ObjectStatusTypes::UnderConstruction)
-            {
-                continue;
-            }
-
-            let obj_template = object_guard.get_template();
-            for i in 0..max_templates {
-                if !obj_template.is_equivalent_to(templates[i].as_ref()) {
-                    continue;
-                }
-                counts[i] += 1;
-                break;
-            }
+                    let obj_template = object_guard.get_template();
+                    for i in 0..max_templates {
+                        if !obj_template.is_equivalent_to(templates[i].as_ref()) {
+                            continue;
+                        }
+                        counts[i] += 1;
+                        break;
+                    }
+                });
         }
     }
 
@@ -1628,16 +1623,12 @@ impl Player {
         }
         let mut count = 0;
         for &object_id in &self.owned_objects {
-            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-            else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.get_template().is_kind_of(KindOf::Structure) {
-                count += 1;
-            }
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                    if object_guard.get_template().is_kind_of(KindOf::Structure) {
+                        count += 1;
+                    }
+                });
         }
         count
     }
@@ -1653,16 +1644,12 @@ impl Player {
         }
         let mut count = 0;
         for &object_id in &self.owned_objects {
-            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-            else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_kind_of_multi(required, forbidden) {
-                count += 1;
-            }
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                    if object_guard.is_kind_of_multi(required, forbidden) {
+                        count += 1;
+                    }
+                });
         }
         count
     }
@@ -2072,23 +2059,23 @@ impl Player {
             return false;
         }
         for &object_id in &self.owned_objects {
-            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-            else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
-                continue;
-            }
-            if object_guard.is_kind_of(KindOf::Projectile)
-                || object_guard.is_kind_of(KindOf::Inert)
-                || object_guard.is_kind_of(KindOf::Mine)
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
+                        return false;
+                    }
+                    if object_guard.is_kind_of(KindOf::Projectile)
+                        || object_guard.is_kind_of(KindOf::Inert)
+                        || object_guard.is_kind_of(KindOf::Mine)
+                    {
+                        return false;
+                    }
+                    true
+                })
+                .unwrap_or(false)
             {
-                continue;
+                return true;
             }
-            return true;
         }
         false
     }
@@ -2100,23 +2087,23 @@ impl Player {
             return false;
         }
         for &object_id in &self.owned_objects {
-            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-            else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
-                continue;
-            }
-            if object_guard.is_kind_of(KindOf::Structure)
-                || object_guard.is_kind_of(KindOf::Projectile)
-                || object_guard.is_kind_of(KindOf::Mine)
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
+                        return false;
+                    }
+                    if object_guard.is_kind_of(KindOf::Structure)
+                        || object_guard.is_kind_of(KindOf::Projectile)
+                        || object_guard.is_kind_of(KindOf::Mine)
+                    {
+                        return false;
+                    }
+                    true
+                })
+                .unwrap_or(false)
             {
-                continue;
+                return true;
             }
-            return true;
         }
         false
     }
@@ -2151,14 +2138,12 @@ impl Player {
             return false;
         }
         for &object_id in &self.owned_objects {
-            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-            else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.get_template().is_build_facility() {
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    object_guard.get_template().is_build_facility()
+                })
+                .unwrap_or(false)
+            {
                 return true;
             }
         }
