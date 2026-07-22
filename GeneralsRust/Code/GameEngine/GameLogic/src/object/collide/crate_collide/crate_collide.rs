@@ -455,8 +455,9 @@ impl CrateCollide {
     }
 
     fn get_controlling_player_for_object(&self, _object_id: ObjectId) -> Option<PlayerId> {
-        let handle = OBJECT_REGISTRY.get_object(_object_id)?;
-        handle.read().ok().and_then(|obj| obj.get_player_id())
+        OBJECT_REGISTRY
+            .with_object(_object_id, |obj| obj.get_player_id())
+            .flatten()
     }
 
     fn is_human_player(&self, _player_id: PlayerId) -> bool {

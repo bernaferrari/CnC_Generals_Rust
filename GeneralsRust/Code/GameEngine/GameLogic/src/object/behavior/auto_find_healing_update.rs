@@ -153,24 +153,23 @@ impl AutoFindHealingUpdate {
         let mut closest_dist = 0.0;
 
         for other_id in candidates {
-            let Some(other_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
+            let Some(dist) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(other_id, |other_guard| {
+                    if !other_guard.is_kind_of(KindOf::HealPad) {
+                        return None;
+                    }
+                    Some(ThePartitionManager::get_distance_squared(
+                        me,
+                        other_guard,
+                        FROM_CENTER_2D,
+                    ))
+                })
+                .flatten()
             else {
                 continue;
             };
-            let Ok(other_guard) = other_arc.read() else {
-                continue;
-            };
-            if !other_guard.is_kind_of(KindOf::HealPad) {
-                continue;
-            }
-            let dist = ThePartitionManager::get_distance_squared(me, &*other_guard, FROM_CENTER_2D);
-            if best_target.is_none() {
-                best_target = Some(other_guard.get_id());
-                closest_dist = dist;
-                continue;
-            }
-            if dist < closest_dist {
-                best_target = Some(other_guard.get_id());
+            if best_target.is_none() || dist < closest_dist {
+                best_target = Some(other_id);
                 closest_dist = dist;
             }
         }

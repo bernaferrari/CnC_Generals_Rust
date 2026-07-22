@@ -148,27 +148,18 @@ impl LeafletDropBehavior {
                 continue;
             }
 
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(id) else {
-                continue;
-            };
-            let Ok(mut target) = target_arc.write() else {
-                continue;
-            };
-
-            if !(target.is_kind_of(crate::common::KindOf::Infantry)
-                || target.is_kind_of(crate::common::KindOf::Vehicle))
-            {
-                continue;
-            }
-
-            if target.relationship_to(obj) != Relationship::Enemies {
-                continue;
-            }
-
-            target.set_disabled_until(
-                DisabledType::DisabledEmp,
-                now + self.module_data.disabled_duration,
-            );
+            let duration = self.module_data.disabled_duration;
+            let _ = OBJECT_REGISTRY.with_object_mut(id, |target| {
+                if !(target.is_kind_of(crate::common::KindOf::Infantry)
+                    || target.is_kind_of(crate::common::KindOf::Vehicle))
+                {
+                    return;
+                }
+                if target.relationship_to(obj) != Relationship::Enemies {
+                    return;
+                }
+                target.set_disabled_until(DisabledType::DisabledEmp, now + duration);
+            });
         }
     }
 }

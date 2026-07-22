@@ -1616,44 +1616,51 @@ impl ParkingPlaceBehaviorInterfaceTrait for ParkingPlaceBehavior {
             .collect();
 
         for object_id in parked_ids {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(mut guard) = obj.write() else {
-                continue;
-            };
-            if guard.is_effectively_dead() {
-                continue;
-            }
-
-            let takeoff_or_landing = guard
-                .get_ai()
-                .and_then(|ai| {
-                    ai.lock()
-                        .ok()
-                        .map(|ai| ai.is_takeoff_or_landing_in_progress())
-                })
-                .unwrap_or(false);
-
-            if guard.is_above_terrain() && !takeoff_or_landing {
-                let new_team_player_id = new_team
-                    .read()
-                    .ok()
-                    .and_then(|team| team.get_controlling_player_id());
-                let obj_player_id = guard.get_controlling_player_id();
-                if new_team_player_id != obj_player_id {
-                    if let Some(owner) = self.object.upgrade() {
-                        if let Ok(owner_guard) = owner.read() {
-                            if guard.get_producer_id() == owner_guard.get_id() {
-                                guard.set_producer(None);
-                            }
-                        }
+            let owner_id = self
+                .object
+                .upgrade()
+                .and_then(|owner| owner.read().ok().map(|g| g.get_id()));
+            let new_team_player_id = new_team
+                .read()
+                .ok()
+                .and_then(|team| team.get_controlling_player_id());
+            let Some(should_release) = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(object_id, |guard| {
+                    if guard.is_effectively_dead() {
+                        return None;
                     }
-                    drop(guard);
-                    self.release_space(object_id);
-                }
-            } else {
-                guard.defect(Some(new_team.clone()), detection_time);
+
+                    let takeoff_or_landing = guard
+                        .get_ai()
+                        .and_then(|ai| {
+                            ai.lock()
+                                .ok()
+                                .map(|ai| ai.is_takeoff_or_landing_in_progress())
+                        })
+                        .unwrap_or(false);
+
+                    if guard.is_above_terrain() && !takeoff_or_landing {
+                        let obj_player_id = guard.get_controlling_player_id();
+                        if new_team_player_id != obj_player_id {
+                            if let Some(oid) = owner_id {
+                                if guard.get_producer_id() == oid {
+                                    guard.set_producer(None);
+                                }
+                            }
+                            return Some(true);
+                        }
+                        Some(false)
+                    } else {
+                        guard.defect(Some(new_team.clone()), detection_time);
+                        Some(false)
+                    }
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            if should_release {
+                self.release_space(object_id);
             }
         }
 
