@@ -327,13 +327,9 @@ impl Team {
         // C++ parity (Team::setControllingPlayer): refresh partition/shroud state of all members
         // when team control changes.
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(mut object_guard) = object_arc.write() else {
-                continue;
-            };
-            object_guard.handle_partition_cell_maintenance();
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+                object_guard.handle_partition_cell_maintenance();
+            });
         }
     }
 
@@ -367,21 +363,22 @@ impl Team {
         // C++ parity (Team::getTargetableCount):
         // count alive members that either have AI or are structures.
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(countable) = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                if object_guard.is_effectively_dead() {
+                    return false;
+                }
+                if object_guard.get_ai_update_interface().is_none()
+                    && !object_guard.is_kind_of(KindOf::Structure)
+                {
+                    return false;
+                }
+                true
+            }) else {
                 continue;
             };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() {
-                continue;
+            if countable {
+                count += 1;
             }
-            if object_guard.get_ai_update_interface().is_none()
-                && !object_guard.is_kind_of(KindOf::Structure)
-            {
-                continue;
-            }
-            count += 1;
         }
 
         count
@@ -924,13 +921,9 @@ impl Team {
             return;
         }
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(mut object_guard) = object_arc.write() else {
-                continue;
-            };
-            let _ = object_guard.heal_completely();
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+                let _ = object_guard.heal_completely();
+            });
         }
     }
 
@@ -1305,27 +1298,23 @@ impl Team {
             return false;
         }
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(mut object_guard) = object_arc.write() else {
-                continue;
-            };
-            if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
-                continue;
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+                if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
+                    return;
+                }
 
-            if amount < 0.0 {
-                object_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
-            } else {
-                let mut damage_info = DamageInfo::with_simple(
-                    amount,
-                    INVALID_ID,
-                    DamageType::Unresistable,
-                    DeathType::Normal,
-                );
-                let _ = object_guard.attempt_damage(&mut damage_info);
-            }
+                if amount < 0.0 {
+                    object_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+                } else {
+                    let mut damage_info = DamageInfo::with_simple(
+                        amount,
+                        INVALID_ID,
+                        DamageType::Unresistable,
+                        DeathType::Normal,
+                    );
+                    let _ = object_guard.attempt_damage(&mut damage_info);
+                }
+            });
         }
 
         // C++ Team::damageTeamMembers returns FALSE.

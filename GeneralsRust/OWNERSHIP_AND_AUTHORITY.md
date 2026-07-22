@@ -205,6 +205,19 @@ mid-frame host combat still runs for C++ armor/side-effect parity.
  Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
+### Team with_object residual (2026-07-21)
+
+`Team::set_controlling_player_id` member refresh, `get_targetable_count`,
+`heal_all_objects`, and `damage_team_members` use `OBJECT_REGISTRY.with_object(_mut)`.
+`for_each_live_member` still yields `Arc` for C++-shaped iterate callbacks.
+
+### AI attack recheck parity residual (2026-07-21)
+
+Host `AIPlayer::ATTACK_RECHECK_SECONDS` is **60.0** (not a 2s gate hack). Tests
+`host_attack_recheck_uses_sixty_second_spacing_not_gate_hack` lock this. C++ team
+building uses `m_teamSeconds` (default 10) + scripted teams; host residual still
+uses strength-threshold launch rather than full `doTeamBuilding` script path.
+
 ### ObjectRegistry with_object residual (2026-07-21)
 
 `OBJECT_REGISTRY` gained `with_object` / `with_object_mut`. Weapon range/pitch/LOS/
