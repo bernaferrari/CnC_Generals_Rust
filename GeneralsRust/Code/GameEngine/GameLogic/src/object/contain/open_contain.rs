@@ -1123,6 +1123,10 @@ impl OpenContain {
     }
 
     /// Get list of contained items
+    pub fn get_contained_object_ids(&self) -> &[ObjectID] {
+        &self.contained_object_ids
+    }
+
     pub fn get_contained_items_list(&self) -> GameResult<Vec<Arc<RwLock<Object>>>> {
         Ok(self.resolve_contained_objects())
     }
@@ -1461,24 +1465,29 @@ impl OpenContain {
 
     /// Redeploy occupants (can be overridden)
     pub fn redeploy_occupants(&mut self) -> GameResult<()> {
-        let contained = self.resolve_contained_objects();
-        self.redeploy_objects(&contained)
+        let contained_ids = self.contained_object_ids.clone();
+        self.redeploy_objects(&contained_ids)
     }
 
-    pub(crate) fn redeploy_objects(&mut self, contained: &[Arc<RwLock<Object>>]) -> GameResult<()> {
+    pub(crate) fn redeploy_objects(&mut self, contained_ids: &[ObjectID]) -> GameResult<()> {
         self.no_fire_points_in_art = false;
         self.fire_point_start = -1;
         self.fire_point_next = 0;
         self.fire_point_size = 0;
 
-        for obj in contained.iter().rev() {
-            self.put_obj_at_next_fire_point(obj)?;
+        for &obj_id in contained_ids.iter().rev() {
+            self.put_obj_at_next_fire_point(obj_id)?;
         }
         Ok(())
     }
 
-    fn put_obj_at_next_fire_point(&mut self, obj: &Arc<RwLock<Object>>) -> GameResult<()> {
+    fn put_obj_at_next_fire_point(&mut self, obj_id: ObjectID) -> GameResult<()> {
         let Some(owner) = self.get_object() else {
+            return Ok(());
+        };
+        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
             return Ok(());
         };
 

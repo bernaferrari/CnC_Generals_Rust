@@ -306,7 +306,10 @@ impl CaveContain {
         }
 
         let contained = self.get_contained_items_list()?;
-        self.base.redeploy_objects(&contained)?;
+        {
+            let contained_ids = self.base.get_contained_object_ids().to_vec();
+            self.base.redeploy_objects(&contained_ids)?;
+        }
         self.on_containing(obj_id, was_selected)?;
         Ok(())
     }
