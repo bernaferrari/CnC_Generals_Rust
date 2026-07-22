@@ -172,23 +172,18 @@ impl CleanupHazardUpdate {
 
         // Track target and check range if not cleaning an area
         if target_id != INVALID_ID && self.move_range == 0.0 {
-            if let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) {
-                let Ok(target) = target_arc.read() else {
-                    self.best_target_id = INVALID_ID;
-                    return;
-                };
-                let fire_range = if let Some(ref template) = self.weapon_template {
-                    template.get_attack_range(&Default::default())
-                } else {
-                    0.0
-                };
-
-                let dist_sqr =
-                    ThePartitionManager::get_distance_squared(&me, &target, FROM_CENTER_2D);
-                if dist_sqr < fire_range * fire_range {
-                    self.in_range = true;
-                } else {
-                    if self.in_range {
+            let fire_range = if let Some(ref template) = self.weapon_template {
+                template.get_attack_range(&Default::default())
+            } else {
+                0.0
+            };
+            match OBJECT_REGISTRY.with_object(target_id, |target| {
+                ThePartitionManager::get_distance_squared(&me, target, FROM_CENTER_2D)
+            }) {
+                Some(dist_sqr) => {
+                    if dist_sqr < fire_range * fire_range {
+                        self.in_range = true;
+                    } else if self.in_range {
                         // Out of range, force new scan
                         self.next_scan_frames = game_logic_random_value(0, 3) as i32;
                         self.best_target_id = INVALID_ID;
@@ -203,9 +198,10 @@ impl CleanupHazardUpdate {
                         self.in_range = false;
                     }
                 }
-            } else {
-                self.best_target_id = INVALID_ID;
-                target_id = INVALID_ID;
+                None => {
+                    self.best_target_id = INVALID_ID;
+                    target_id = INVALID_ID;
+                }
             }
         }
 

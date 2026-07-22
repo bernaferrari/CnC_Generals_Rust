@@ -371,117 +371,120 @@ impl EMPUpdate {
                 continue;
             }
 
-            let Some(victim_arc) = OBJECT_REGISTRY.get_object(id) else {
-                continue;
-            };
-            let Ok(mut victim) = victim_arc.write() else {
-                continue;
-            };
-
-            if only_effect_airborne && !victim.is_airborne_target() {
-                continue;
-            }
-
-            if data.does_not_affect_my_own_buildings && victim.is_kind_of(KindOf::Structure) {
-                if let (Some(source_player), Some(victim_player)) =
-                    (source_player_id, victim.get_controlling_player_id())
-                {
-                    if source_player == victim_player {
-                        continue;
-                    }
+            let _processed = OBJECT_REGISTRY.with_object_mut(id, |victim| -> bool {
+                if only_effect_airborne && !victim.is_airborne_target() {
+                    return false;
                 }
-            }
 
-            if !victim.is_kind_of(KindOf::Vehicle)
-                && !victim.is_kind_of(KindOf::Structure)
-                && !victim.is_kind_of(KindOf::SpawnsAreTheWeapons)
-            {
-                continue;
-            }
-
-            if victim.is_kind_of(KindOf::Aircraft) && victim.is_airborne_target() {
-                if victim.is_kind_of(KindOf::EmpHardened) {
-                    continue;
-                }
-                victim.kill(None, None);
-                continue;
-            }
-
-            if data.reject_mask & WeaponAffectsMask::ALLIES as Int != 0 {
-                let relationship = source_guard.relationship_to(&victim);
-                if matches!(relationship, Relationship::Allies) {
-                    continue;
-                }
-            }
-
-            let disable_frame = TheGameLogic::get_frame().saturating_add(data.disabled_duration);
-            victim.set_disabled_until(crate::common::DisabledType::DisabledEmp, disable_frame);
-
-            if intended_victim_id == Some(victim.get_id()) {
-                intended_victim_processed = true;
-            }
-
-            if let Some(particle_name) = data.disable_fx_particle_system.as_deref() {
-                if let Some(manager) = TheParticleSystemManager::get() {
-                    let geometry = victim.get_geometry_info();
-                    let victim_height = geometry.get_max_height_above_position();
-                    let footprint_area = (geometry.bounds.max.x - geometry.bounds.min.x).abs()
-                        * (geometry.bounds.max.y - geometry.bounds.min.y).abs();
-                    let victim_volume = footprint_area * victim_height.min(10.0);
-                    let emitter_count =
-                        ((data.sparks_per_cubic_foot * victim_volume).ceil() as i32).max(15);
-
-                    for _ in 0..emitter_count {
-                        let Some(system_id) =
-                            manager.create_particle_system(Some(particle_name.as_ref()))
-                        else {
-                            continue;
-                        };
-
-                        let mut offset = Coord3D::new(
-                            GameLogicRandomValueReal(geometry.bounds.min.x, geometry.bounds.max.x),
-                            GameLogicRandomValueReal(geometry.bounds.min.y, geometry.bounds.max.y),
-                            0.0,
-                        );
-                        offset.z = GameLogicRandomValueReal(3.0, victim_height);
-
-                        let length = offset.length();
-                        if length > victim_height && length > 0.0 {
-                            let restore_x = offset.x;
-                            let restore_y = offset.y;
-                            let normalized = offset / length;
-                            offset.z = normalized.z * victim_height;
-                            offset.x = restore_x;
-                            offset.y = restore_y;
+                if data.does_not_affect_my_own_buildings && victim.is_kind_of(KindOf::Structure) {
+                    if let (Some(source_player), Some(victim_player)) =
+                        (source_player_id, victim.get_controlling_player_id())
+                    {
+                        if source_player == victim_player {
+                            return false;
                         }
-
-                        manager.attach_particle_system_to_object(system_id, victim.get_id());
-                        manager.set_particle_system_position(system_id, &offset);
                     }
                 }
+
+                if !victim.is_kind_of(KindOf::Vehicle)
+                    && !victim.is_kind_of(KindOf::Structure)
+                    && !victim.is_kind_of(KindOf::SpawnsAreTheWeapons)
+                {
+                    return false;
+                }
+
+                if victim.is_kind_of(KindOf::Aircraft) && victim.is_airborne_target() {
+                    if victim.is_kind_of(KindOf::EmpHardened) {
+                        return false;
+                    }
+                    victim.kill(None, None);
+                    return false;
+                }
+
+                if data.reject_mask & WeaponAffectsMask::ALLIES as Int != 0 {
+                    let relationship = source_guard.relationship_to(victim);
+                    if matches!(relationship, Relationship::Allies) {
+                        return false;
+                    }
+                }
+
+                let disable_frame =
+                    TheGameLogic::get_frame().saturating_add(data.disabled_duration);
+                victim.set_disabled_until(crate::common::DisabledType::DisabledEmp, disable_frame);
+
+                let processed = intended_victim_id == Some(victim.get_id());
+
+                if let Some(particle_name) = data.disable_fx_particle_system.as_deref() {
+                    if let Some(manager) = TheParticleSystemManager::get() {
+                        let geometry = victim.get_geometry_info();
+                        let victim_height = geometry.get_max_height_above_position();
+                        let footprint_area = (geometry.bounds.max.x - geometry.bounds.min.x).abs()
+                            * (geometry.bounds.max.y - geometry.bounds.min.y).abs();
+                        let victim_volume = footprint_area * victim_height.min(10.0);
+                        let emitter_count =
+                            ((data.sparks_per_cubic_foot * victim_volume).ceil() as i32).max(15);
+
+                        for _ in 0..emitter_count {
+                            let Some(system_id) =
+                                manager.create_particle_system(Some(particle_name.as_ref()))
+                            else {
+                                continue;
+                            };
+
+                            let mut offset = Coord3D::new(
+                                GameLogicRandomValueReal(
+                                    geometry.bounds.min.x,
+                                    geometry.bounds.max.x,
+                                ),
+                                GameLogicRandomValueReal(
+                                    geometry.bounds.min.y,
+                                    geometry.bounds.max.y,
+                                ),
+                                0.0,
+                            );
+                            offset.z = GameLogicRandomValueReal(3.0, victim_height);
+
+                            let length = offset.length();
+                            if length > victim_height && length > 0.0 {
+                                let restore_x = offset.x;
+                                let restore_y = offset.y;
+                                let normalized = offset / length;
+                                offset.z = normalized.z * victim_height;
+                                offset.x = restore_x;
+                                offset.y = restore_y;
+                            }
+
+                            manager.attach_particle_system_to_object(system_id, victim.get_id());
+                            manager.set_particle_system_position(system_id, &offset);
+                        }
+                    }
+                }
+                processed
+            });
+            if _processed == Some(true) {
+                intended_victim_processed = true;
             }
         }
 
         if let Some(victim_id) = intended_victim_id {
             if !intended_victim_processed {
-                if let Some(victim_arc) = OBJECT_REGISTRY.get_object(victim_id) {
-                    if let Ok(mut victim) = victim_arc.write() {
-                        if victim.is_kind_of(KindOf::Aircraft)
-                            && !victim.is_kind_of(KindOf::EmpHardened)
-                        {
-                            let offset = *victim.get_position() - source_pos;
-                            let dist_sqr = offset.length_squared();
-                            if dist_sqr <= radius * 2.0 || dist_sqr <= 40.0 * 40.0 {
-                                let disable_frame = TheGameLogic::get_frame()
-                                    .saturating_add(data.disabled_duration);
-                                victim.set_disabled_until(
-                                    crate::common::DisabledType::DisabledEmp,
-                                    disable_frame,
-                                );
-                            }
+                let disable_duration = data.disabled_duration;
+                let _ = OBJECT_REGISTRY.with_object_mut(victim_id, |victim| {
+                    if victim.is_kind_of(KindOf::Aircraft)
+                        && !victim.is_kind_of(KindOf::EmpHardened)
+                    {
+                        let offset = *victim.get_position() - source_pos;
+                        let dist_sqr = offset.length_squared();
+                        if dist_sqr <= radius * 2.0 || dist_sqr <= 40.0 * 40.0 {
+                            let disable_frame =
+                                TheGameLogic::get_frame().saturating_add(disable_duration);
+                            victim.set_disabled_until(
+                                crate::common::DisabledType::DisabledEmp,
+                                disable_frame,
+                            );
                         }
                     }
-                }
+                });
             }
         }
     }
