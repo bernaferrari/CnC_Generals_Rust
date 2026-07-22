@@ -57609,19 +57609,6 @@ mod tests {
             enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
         }
         game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
-        {
-            let events = crate::game_logic::host_damage_log::drain();
-            for e in events {
-                if let Some(obj) = game_logic.get_object_mut(e.target) {
-                    if e.destroyed || e.amount + 1e-3 >= obj.health.current {
-                        obj.health.current = 0.0;
-                        obj.status.destroyed = true;
-                    } else if e.amount > 0.0 {
-                        obj.health.current = (obj.health.current - e.amount).max(0.0);
-                    }
-                }
-            }
-        }
         let enemy_hp_after = game_logic
             .find_object(enemy_id)
             .expect("enemy")
@@ -77079,21 +77066,6 @@ mod tests {
             game_logic.honesty_pathfinder_sniper_ok(),
             "pathfinder sniper residual honesty must fire"
         );
-        // Damage authority logs HP without host mutate when shadow is not coupled;
-        // materialize host_damage_log so residual combat is observable.
-        {
-            let events = crate::game_logic::host_damage_log::drain();
-            for e in events {
-                if let Some(obj) = game_logic.get_object_mut(e.target) {
-                    if e.destroyed || e.amount + 1e-3 >= obj.health.current {
-                        obj.health.current = 0.0;
-                        obj.status.destroyed = true;
-                    } else if e.amount > 0.0 {
-                        obj.health.current = (obj.health.current - e.amount).max(0.0);
-                    }
-                }
-            }
-        }
         let enemy_hp_after = game_logic
             .find_object(stealth_id)
             .map(|e| e.health.current)
@@ -79073,20 +79045,6 @@ mod tests {
             game_logic.honesty_stealth_fighter_ok(),
             "stealth fighter residual host path honesty"
         );
-        // Damage authority may log HP without host mutate when shadow is not coupled.
-        {
-            let events = crate::game_logic::host_damage_log::drain();
-            for e in events {
-                if let Some(obj) = game_logic.get_object_mut(e.target) {
-                    if e.destroyed || e.amount + 1e-3 >= obj.health.current {
-                        obj.health.current = 0.0;
-                        obj.status.destroyed = true;
-                    } else if e.amount > 0.0 {
-                        obj.health.current = (obj.health.current - e.amount).max(0.0);
-                    }
-                }
-            }
-        }
         let enemy_hp_after = game_logic
             .find_object(enemy)
             .map(|e| e.health.current)
