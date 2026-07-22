@@ -418,6 +418,15 @@ impl State {
         }
     }
 
+    /// ID-first goal object through attached state machine.
+    pub fn set_goal_object_by_id(&self, object_id: Option<crate::common::ObjectID>) {
+        if let Some(machine) = self.machine.as_ref().and_then(|weak| weak.upgrade()) {
+            if let Ok(mut guard) = machine.lock() {
+                guard.set_goal_object_by_id(object_id);
+            }
+        }
+    }
+
     /// Set machine goal position through the attached state machine.
     pub fn set_goal_position(&self, pos: Coord3D) {
         if let Some(machine) = self.machine.as_ref().and_then(|weak| weak.upgrade()) {
@@ -951,6 +960,31 @@ impl StateMachine {
         }
 
         self.internal_set_goal_object(obj);
+    }
+
+    /// ID-first goal object setter (no Arc/Weak required at call site).
+    pub fn set_goal_object_by_id(&mut self, object_id: Option<crate::common::ObjectID>) {
+        if self.locked {
+            return;
+        }
+        match object_id {
+            Some(id) if id != crate::common::INVALID_ID => {
+                self.goal_object_id = id;
+                // Lazy Weak cache; resolve on get_goal_object.
+                self.goal_object = None;
+                if let Some(arc) = crate::helpers::TheGameLogic::find_object_by_id(id) {
+                    if let Ok(guard) = arc.read() {
+                        self.internal_set_goal_position(guard.get_position().clone());
+                    }
+                    // Optional cache for hot get_goal_object paths.
+                    self.goal_object = Some(std::sync::Arc::downgrade(&arc));
+                }
+            }
+            _ => {
+                self.goal_object_id = crate::common::INVALID_ID;
+                self.goal_object = None;
+            }
+        }
     }
 
     /// Get goal object
