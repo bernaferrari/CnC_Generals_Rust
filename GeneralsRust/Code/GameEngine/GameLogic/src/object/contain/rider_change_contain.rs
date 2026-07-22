@@ -1021,12 +1021,8 @@ impl RiderChangeContain {
         true
     }
 
-    pub fn friend_get_rider(&self) -> Option<Arc<RwLock<Object>>> {
-        self.base
-            .base
-            .get_contained_items_list()
-            .ok()
-            .and_then(|items| items.into_iter().next())
+    pub fn friend_get_rider(&self) -> Option<ObjectID> {
+        self.base.base.get_contained_object_ids().first().copied()
     }
 
     pub fn is_exit_busy(&self) -> bool {
@@ -1316,7 +1312,12 @@ impl RiderChangeContain {
         TheInGameUI::set_displayed_max_warning(false);
     }
 
-    fn transfer_selection_to_rider_on_exit(&self, rider: &Arc<RwLock<Object>>) {
+    fn transfer_selection_to_rider_on_exit(&self, rider_id: ObjectID) {
+        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+        else {
+            return;
+        };
         let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1381,7 +1382,12 @@ impl RiderChangeContain {
         TheInGameUI::deselect_drawable(&owner_drawable);
     }
 
-    fn has_exit_scuttle_drawables(&self, rider: &Arc<RwLock<Object>>) -> bool {
+    fn has_exit_scuttle_drawables(&self, rider_id: ObjectID) -> bool {
+        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+        else {
+            return false;
+        };
         let owner_has_drawable = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1471,8 +1477,8 @@ impl RiderChangeContain {
             }
         }
 
-        if !self.containing && self.has_exit_scuttle_drawables(&rider) {
-            self.transfer_selection_to_rider_on_exit(&rider);
+        if !self.containing && self.has_exit_scuttle_drawables(obj_id) {
+            self.transfer_selection_to_rider_on_exit(obj_id);
             if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
@@ -1716,8 +1722,7 @@ impl ContainModuleInterface for RiderChangeContain {
     }
 
     fn friend_get_rider(&self) -> Option<ObjectID> {
-        self.friend_get_rider()
-            .and_then(|rider| rider.read().ok().map(|guard| guard.get_id()))
+        RiderChangeContain::friend_get_rider(self)
     }
 }
 
