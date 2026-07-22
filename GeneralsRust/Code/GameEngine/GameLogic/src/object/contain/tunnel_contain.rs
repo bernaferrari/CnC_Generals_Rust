@@ -87,8 +87,7 @@ pub struct TunnelContain {
     pub base: OpenContain,
     /// Configuration retained for per-frame tunnel healing.
     module_data: TunnelContainModuleData,
-    /// Reference to the owning object (the tunnel entrance)
-    object: Weak<RwLock<Object>>,
+    // Owner is base.object_id (OpenContain).
     /// Whether we need to run onBuildComplete logic
     need_to_run_on_build_complete: bool,
     /// Whether this tunnel is currently registered with the TunnelTracker
@@ -109,7 +108,6 @@ impl TunnelContain {
         Ok(Self {
             base,
             module_data: module_data.clone(),
-            object,
             need_to_run_on_build_complete: true,
             is_currently_registered: false,
             contained_object_ids: Vec::new(),
@@ -623,8 +621,8 @@ impl TunnelContain {
 
     /// Get the owning object
     fn get_object(&self) -> GameResult<Arc<RwLock<Object>>> {
-        self.object
-            .upgrade()
+        self.base
+            .get_object()
             .ok_or_else(|| "TunnelContain owner object no longer exists".into())
     }
 }

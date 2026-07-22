@@ -132,7 +132,7 @@ impl Snapshotable for FireWeaponUpdateModuleData {
 /// FireWeaponUpdate - fires weapon at object's own position continuously
 pub struct FireWeaponUpdate {
     /// Weak reference to the object this module is attached to
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
 
     /// Module data
     module_data: Arc<FireWeaponUpdateModuleData>,
@@ -207,7 +207,11 @@ impl FireWeaponUpdate {
         let initial_delay_frame = current_frame + data.initial_delay_frames;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: data,
             weapon,
             next_call_frame_and_phase: 0,
@@ -263,7 +267,12 @@ impl FireWeaponUpdate {
         }
 
         // Get object reference
-        let obj_arc = match self.object.upgrade() {
+        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(arc) => arc,
             None => return false,
         };
@@ -320,7 +329,13 @@ impl UpdateModuleInterface for FireWeaponUpdate {
         if self.is_okay_to_fire() {
             if let Some(ref mut weapon) = self.weapon {
                 // Get object reference
-                if let Some(obj_arc) = self.object.upgrade() {
+                if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+                    None
+                } else {
+                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                    })
+                }) {
                     if let Ok(obj) = obj_arc.read() {
                         let obj_id = obj.get_id();
                         let obj_pos = obj.get_position();

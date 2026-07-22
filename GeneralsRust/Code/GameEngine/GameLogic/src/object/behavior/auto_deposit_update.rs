@@ -7,7 +7,8 @@
 //! FILE: AutoDepositUpdate.cpp lines 1-268
 
 use crate::common::{
-    AsciiString, Bool, Coord3D, Int, KindOf, ModuleData, UnsignedInt, CONSTRUCTION_COMPLETE,
+    AsciiString, Bool, Coord3D, Int, KindOf, ModuleData, ObjectID, UnsignedInt,
+    CONSTRUCTION_COMPLETE,
 };
 use crate::helpers::{game_client_random_value_real, TheGameText, TheInGameUI};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
@@ -69,7 +70,7 @@ impl AutoDepositUpdateModuleData {
 ///
 /// Matches C++ AutoDepositUpdate.cpp lines 81-268
 pub struct AutoDepositUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<AutoDepositUpdateModuleData>,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
@@ -97,7 +98,11 @@ impl AutoDepositUpdate {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             // Matches C++ line 83
@@ -137,11 +142,15 @@ impl AutoDepositUpdate {
 
                 // Display floating text. Matches C++ lines 105-115
                 let text = format_add_cash(self.module_data.initial_capture_bonus);
-                let mut pos = self
-                    .object
-                    .upgrade()
-                    .and_then(|obj| obj.read().ok().map(|g| *g.get_position()))
-                    .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
+                let mut pos = (if self.object_id == crate::common::INVALID_ID {
+                    None
+                } else {
+                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                    })
+                })
+                .and_then(|obj| obj.read().ok().map(|g| *g.get_position()))
+                .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
                 pos.z += 10.0;
 
                 let mut color = player_guard.get_player_color();
@@ -157,7 +166,12 @@ impl AutoDepositUpdate {
     /// Get the upgraded supply boost amount. Matches C++ lines 195-218
     fn get_upgraded_supply_boost(&self) -> Int {
         // Get controlling player
-        let object = match self.object.upgrade() {
+        let object = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(obj) => obj,
             None => return 0,
         };
@@ -211,7 +225,12 @@ impl UpdateModuleInterface for AutoDepositUpdate {
             // Schedule next deposit. Matches C++ line 134
             self.deposit_on_frame = current_frame + self.module_data.deposit_frame;
 
-            let object = match self.object.upgrade() {
+            let object = match (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 Some(obj) => obj,
                 None => return UpdateSleepTime::None,
             };

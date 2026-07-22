@@ -197,7 +197,7 @@ impl Snapshotable for StealthUpdateModuleData {
 /// StealthUpdate behavior module
 #[allow(dead_code)]
 pub struct StealthUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<StealthUpdateModuleData>,
 
     // State
@@ -240,7 +240,11 @@ impl StealthUpdate {
             RevealDistanceConfig::new(specific_data.reveal_distance_from_target);
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             stealth_allowed_frame: 0,
@@ -278,7 +282,12 @@ impl StealthUpdate {
 
     /// Mark unit as detected for a duration
     pub fn mark_as_detected(&mut self, num_frames: UnsignedInt) {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(_obj) = object.read() {
                 // Frame counter is managed externally by game logic
                 // Use module_data.stealth_delay as default if num_frames is 0
@@ -309,7 +318,12 @@ impl StealthUpdate {
 
     /// Check if unit is currently attacking
     fn is_attacking(&self) -> Bool {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Check OBJECT_STATUS_IS_FIRING_WEAPON status bit
                 return obj
@@ -322,7 +336,12 @@ impl StealthUpdate {
 
     /// Get current velocity magnitude of the unit
     fn get_velocity(&self) -> Real {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Get velocity from physics module (C++ StealthUpdate.cpp:390)
                 if let Some(physics) = obj.get_physics() {
@@ -338,7 +357,12 @@ impl StealthUpdate {
 
     /// Check if unit is firing primary weapon
     fn is_firing_primary(&self) -> Bool {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Check last shot frame of primary weapon (C++ StealthUpdate.cpp:336-344)
                 // Weapon slot checking requires weapon module access
@@ -353,7 +377,12 @@ impl StealthUpdate {
 
     /// Check if unit is firing secondary weapon
     fn is_firing_secondary(&self) -> Bool {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Check last shot frame of secondary weapon (C++ StealthUpdate.cpp:345-353)
                 // Weapon slot checking requires weapon module access
@@ -368,7 +397,12 @@ impl StealthUpdate {
 
     /// Check if unit is firing tertiary weapon
     fn is_firing_tertiary(&self) -> Bool {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Check last shot frame of tertiary weapon (C++ StealthUpdate.cpp:354-362)
                 // Weapon slot checking requires weapon module access
@@ -383,7 +417,12 @@ impl StealthUpdate {
 
     /// Check if unit is currently taking damage
     fn is_taking_damage(&self) -> Bool {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Get last damage timestamp from body module (C++ StealthUpdate.cpp:299-311)
                 // Check if damage occurred within the last frame or two
@@ -412,7 +451,12 @@ impl StealthUpdate {
 
     /// Check if unit has riders attacking
     fn has_riders_attacking(&self) -> Bool {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Check if contained module exists and riders are attacking (C++ StealthUpdate.cpp:376-385)
                 if let Some(contain) = obj.get_contain() {
@@ -441,7 +485,12 @@ impl StealthUpdate {
 
     /// Check if unit is using special ability
     fn is_using_ability(&self) -> Bool {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Check OBJECT_STATUS_IS_USING_ABILITY status bit
                 return obj
@@ -454,7 +503,12 @@ impl StealthUpdate {
 
     /// Check if black market is available for the controlling player
     fn check_black_market_available(&self, _player_id: Int) -> Bool {
-        let Some(owner_arc) = self.object.upgrade() else {
+        let Some(owner_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(owner_guard) = owner_arc.read() else {
@@ -528,7 +582,12 @@ impl StealthUpdate {
             return false; // Feature disabled
         }
 
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Check distance to current attack target
                 if let Some(victim_pos) = obj.get_current_victim_pos() {
@@ -547,7 +606,12 @@ impl StealthUpdate {
             return false;
         }
 
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object.read() {
                 // Use last_distance_check_frame as current frame tracker
                 let current_frame = self.last_distance_check_frame;
@@ -705,7 +769,12 @@ impl StealthUpdate {
 
 impl UpdateModuleInterface for StealthUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut obj) = object.write() {
                 // Increment frame counter
                 self.last_distance_check_frame = self.last_distance_check_frame.saturating_add(1);

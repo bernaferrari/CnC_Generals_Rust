@@ -6,7 +6,9 @@
 //! Rust conversion: 2025
 
 use crate::ai::THE_AI;
-use crate::common::{GeometryInfo, ModelConditionFlag, ModuleData, Real, UnsignedInt, XferVersion};
+use crate::common::{
+    GeometryInfo, ModelConditionFlag, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
+};
 use crate::helpers::get_game_logic_random_value;
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
@@ -66,7 +68,7 @@ const CHECKPOINT_UPDATE_FIELDS: &[FieldParse<CheckpointUpdateModuleData>] = &[Fi
 
 /// CheckpointUpdate module - Opens gates when allies nearby, closes when enemies near
 pub struct CheckpointUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<CheckpointUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
 
@@ -101,7 +103,11 @@ impl CheckpointUpdate {
             get_game_logic_random_value(0, specific_data.enemy_scan_delay_time as i32) as u32;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             enemy_near: false,
@@ -132,7 +138,12 @@ impl CheckpointUpdate {
         // Always scan (C++ has `|| TRUE` which makes the delay check always pass)
         self.enemy_scan_delay = self.module_data.enemy_scan_delay_time;
 
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             self.enemy_near = false;
             self.ally_near = false;
             return;
@@ -200,7 +211,12 @@ impl UpdateModuleInterface for CheckpointUpdate {
         let change = (was_an_ally != self.ally_near) || (was_an_enemy != self.enemy_near);
         let open = !self.enemy_near && self.ally_near;
 
-        let me_arc = match self.object.upgrade() {
+        let me_arc = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(arc) => arc,
             None => return UPDATE_SLEEP_NONE,
         };

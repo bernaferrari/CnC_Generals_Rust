@@ -3,8 +3,8 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, KindOf, KindOfMaskType, ModuleData, ObjectStatusTypes, Real, UnsignedInt,
-    XferVersion, ALL_KIND_OF,
+    AsciiString, Bool, KindOf, KindOfMaskType, ModuleData, ObjectID, ObjectStatusTypes, Real,
+    UnsignedInt, XferVersion, ALL_KIND_OF,
 };
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
@@ -56,7 +56,7 @@ impl PointDefenseLaserUpdateModuleData {
 }
 
 pub struct PointDefenseLaserUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<PointDefenseLaserUpdateModuleData>,
     enabled: Bool,
     next_call_frame_and_phase: UnsignedInt,
@@ -168,7 +168,11 @@ impl PointDefenseLaserUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             enabled: true,
             next_call_frame_and_phase: 0,
@@ -394,7 +398,12 @@ impl UpdateModuleInterface for PointDefenseLaserUpdate {
             return UpdateSleepTime::Forever;
         }
 
-        let Some(owner_arc) = self.object.upgrade() else {
+        let Some(owner_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::Forever;
         };
         let Ok(owner_guard) = owner_arc.read() else {

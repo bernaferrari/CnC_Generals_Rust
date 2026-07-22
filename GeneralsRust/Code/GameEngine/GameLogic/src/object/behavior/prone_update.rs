@@ -7,8 +7,8 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, ModelConditionFlags, ModuleData, ObjectStatusMaskType, Real, UnsignedInt,
-    XferVersion,
+    AsciiString, ModelConditionFlags, ModuleData, ObjectID, ObjectStatusMaskType, Real,
+    UnsignedInt, XferVersion,
 };
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
@@ -64,7 +64,7 @@ const PRONE_UPDATE_FIELDS: &[FieldParse<ProneUpdateModuleData>] = &[FieldParse {
 
 /// ProneUpdate module - Makes units go prone when damaged
 pub struct ProneUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<ProneUpdateModuleData>,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
@@ -83,7 +83,11 @@ impl ProneUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             prone_frames: 0,
@@ -103,7 +107,12 @@ impl ProneUpdate {
 
     /// Start prone visual and gameplay effects
     fn start_prone_effects(&self) {
-        if let Some(me_arc) = self.object.upgrade() {
+        if let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut me) = me_arc.write() {
                 // Set NO_ATTACK status so unit can't fire while prone
                 me.set_status(ObjectStatusMaskType::NO_ATTACK, true);
@@ -114,7 +123,12 @@ impl ProneUpdate {
 
     /// Stop prone visual and gameplay effects
     fn stop_prone_effects(&self) {
-        if let Some(me_arc) = self.object.upgrade() {
+        if let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut me) = me_arc.write() {
                 // Clear NO_ATTACK status
                 me.set_status(ObjectStatusMaskType::NO_ATTACK, false);
@@ -273,7 +287,7 @@ mod tests {
             ..ProneUpdateModuleData::default()
         });
         let behavior = ProneUpdate {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data: data.clone(),
             next_call_frame_and_phase: 0,
             prone_frames: 0,

@@ -3,8 +3,8 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, GameLogicRandomValue, ModelConditionFlags, ModuleData, Real, UnsignedInt,
-    PLAYERMASK_ALL,
+    AsciiString, Coord3D, GameLogicRandomValue, ModelConditionFlags, ModuleData, ObjectID, Real,
+    UnsignedInt, PLAYERMASK_ALL,
 };
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
@@ -322,7 +322,7 @@ const STRUCTURE_COLLAPSE_UPDATE_FIELDS: &[FieldParse<StructureCollapseUpdateModu
 ];
 
 pub struct StructureCollapseUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<StructureCollapseUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     collapse_frame: UnsignedInt,
@@ -342,7 +342,11 @@ impl StructureCollapseUpdate {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             collapse_frame: 0,
@@ -400,7 +404,12 @@ impl StructureCollapseUpdate {
                 "StructureCollapseUpdate OCL count exceeds list size or MAX_IDX"
             );
             let ctx = crate::object_creation_list::live_creation_context();
-            let Some(owner_arc) = self.object.upgrade() else {
+            let Some(owner_arc) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) else {
                 return;
             };
             let orientation = {
@@ -430,7 +439,12 @@ impl StructureCollapseUpdate {
     }
 
     fn do_collapse_done_stuff(&self) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(obj) = object_arc.read() else {
@@ -464,7 +478,12 @@ impl StructureCollapseUpdate {
         ) as UnsignedInt;
         self.collapse_frame = current_frame.wrapping_add(random_delay);
 
-        if let Some(object_arc) = self.object.upgrade() {
+        if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = object_arc.read() {
                 TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::None);
                 let pos = *obj.get_position();
@@ -480,7 +499,12 @@ impl StructureCollapseUpdate {
 impl UpdateModuleInterface for StructureCollapseUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         let now = TheGameLogic::get_frame();
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::Forever;
         };
 
@@ -604,7 +628,12 @@ impl DieModuleInterface for StructureCollapseUpdate {
         &mut self,
         damage_info: &crate::damage::DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(());
         };
         let Ok(obj_read) = object_arc.read() else {

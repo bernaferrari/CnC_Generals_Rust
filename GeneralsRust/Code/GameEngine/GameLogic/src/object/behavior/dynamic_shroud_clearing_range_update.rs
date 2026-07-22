@@ -7,7 +7,7 @@
 
 use crate::common::{
     AsciiString, Coord3D, CoordOrigin, LegacyModuleData as RealLegacyModuleData, ModuleData,
-    RadiusDecal, RadiusDecalTemplate, Real, UnsignedInt, SHADOW_NAMES,
+    ObjectID, RadiusDecal, RadiusDecalTemplate, Real, UnsignedInt, SHADOW_NAMES,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{
@@ -421,7 +421,7 @@ const DYNAMIC_SHROUD_UPDATE_FIELDS: &[FieldParse<DynamicShroudClearingRangeUpdat
 
 /// DynamicShroudClearingRangeUpdate - manages shroud clearing range over time
 pub struct DynamicShroudClearingRangeUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<DynamicShroudClearingRangeUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
 
@@ -507,7 +507,11 @@ impl DynamicShroudClearingRangeUpdate {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             state: DSCRUState::NotStartedYet,
@@ -544,11 +548,14 @@ impl DynamicShroudClearingRangeUpdate {
 
     /// Create grid decals for visual effect
     fn create_grid_decals(&mut self, template: &RadiusDecalTemplate, radius: Real, pos: &Coord3D) {
-        let owner_index = self
-            .object
-            .upgrade()
-            .and_then(|obj| obj.read().ok().and_then(|o| o.get_controlling_player()))
-            .and_then(|player| player.read().ok().map(|p| p.get_player_index()));
+        let owner_index = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .and_then(|obj| obj.read().ok().and_then(|o| o.get_controlling_player()))
+        .and_then(|player| player.read().ok().map(|p| p.get_player_index()));
         let local_index = ThePlayerList()
             .read()
             .ok()
@@ -587,7 +594,12 @@ impl DynamicShroudClearingRangeUpdate {
 
     /// Animate grid decals based on current state
     fn animate_grid_decals(&mut self) {
-        let center = if let Some(obj_arc) = self.object.upgrade() {
+        let center = if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = obj_arc.read() {
                 *obj.get_position()
             } else {
@@ -630,7 +642,12 @@ impl UpdateModuleInterface for DynamicShroudClearingRangeUpdate {
 
         // Create decals on first update
         if !self.decals_created {
-            if let Some(obj_arc) = self.object.upgrade() {
+            if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(obj) = obj_arc.read() {
                     let pos = *obj.get_position();
                     self.create_grid_decals(
@@ -700,7 +717,12 @@ impl UpdateModuleInterface for DynamicShroudClearingRangeUpdate {
             self.change_interval_countdown = interval;
 
             // Apply range to object
-            if let Some(obj_arc) = self.object.upgrade() {
+            if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(mut obj) = obj_arc.write() {
                     obj.set_shroud_clearing_range(self.current_clearing_range);
                 }

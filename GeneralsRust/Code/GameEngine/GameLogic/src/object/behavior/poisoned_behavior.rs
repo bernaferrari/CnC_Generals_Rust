@@ -85,7 +85,7 @@ const POISONED_BEHAVIOR_FIELDS: &[FieldParse<PoisonedBehaviorModuleData>] = &[
 ];
 
 pub struct PoisonedBehavior {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<PoisonedBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     poison_damage_frame: UnsignedInt,
@@ -100,7 +100,11 @@ impl PoisonedBehavior {
         module_data: Arc<PoisonedBehaviorModuleData>,
     ) -> Self {
         let behavior = Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             poison_damage_frame: 0,
@@ -113,7 +117,12 @@ impl PoisonedBehavior {
     }
 
     fn set_wake_frame(&self, sleep_time: UpdateSleepTime) {
-        let Some(object) = self.object.upgrade() else {
+        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(object) = object.read() else {
@@ -123,7 +132,12 @@ impl PoisonedBehavior {
     }
 
     fn set_poison_tint(&self, enabled: bool) {
-        let Some(object) = self.object.upgrade() else {
+        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(object) = object.read() else {
@@ -207,7 +221,12 @@ impl UpdateModuleInterface for PoisonedBehavior {
             );
             damage.input.damage_fx_override = DamageType::Poison;
 
-            if let Some(object) = self.object.upgrade() {
+            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(mut object) = object.write() {
                     object.attempt_damage(&mut damage)?;
                 }
@@ -217,16 +236,19 @@ impl UpdateModuleInterface for PoisonedBehavior {
         }
 
         if self.poison_overall_stop_frame != 0 && now >= self.poison_overall_stop_frame {
-            let should_stop = self
-                .object
-                .upgrade()
-                .and_then(|object| {
-                    object
-                        .read()
-                        .ok()
-                        .map(|object| !object.is_effectively_dead())
-                })
-                .unwrap_or(true);
+            let should_stop = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            })
+            .and_then(|object| {
+                object
+                    .read()
+                    .ok()
+                    .map(|object| !object.is_effectively_dead())
+            })
+            .unwrap_or(true);
             if should_stop {
                 self.stop_poisoned_effects();
             }

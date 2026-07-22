@@ -5,7 +5,8 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, Int, KindOf, ModuleData, TheGameLogic, UnsignedInt, XferVersion, INVALID_ID,
+    AsciiString, Bool, Int, KindOf, ModuleData, ObjectID, TheGameLogic, UnsignedInt, XferVersion,
+    INVALID_ID,
 };
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
@@ -139,7 +140,7 @@ mod tests {
     fn lifetime_update_module_exposes_typed_control_interface() {
         let data = Arc::new(LifetimeUpdateModuleData::default());
         let behavior = LifetimeUpdate {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data: data.clone(),
             next_call_frame_and_phase: 0,
             die_frame: 123,
@@ -249,7 +250,7 @@ mod tests {
 }
 
 pub struct LifetimeUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     #[allow(dead_code)]
     module_data: Arc<LifetimeUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -280,7 +281,11 @@ impl LifetimeUpdate {
         let die_frame = current_frame + delay;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: die_frame,
             die_frame,
@@ -293,7 +298,12 @@ impl LifetimeUpdate {
         let delay = Self::calc_sleep_delay_static(min_frames, max_frames);
         self.die_frame = current_frame + delay;
         self.next_call_frame_and_phase = self.die_frame;
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(guard) = object.read() {
                 let object_id = guard.get_id();
                 drop(guard);
@@ -353,7 +363,12 @@ impl LifetimeUpdate {
 impl UpdateModuleInterface for LifetimeUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         // C++ kills whenever the scheduled update is invoked; timing is owned by the scheduler.
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut guard) = object.write() {
                 guard.kill(None, None);
             }

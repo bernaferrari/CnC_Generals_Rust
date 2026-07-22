@@ -264,7 +264,11 @@ pub struct BehaviorModule {
 
 impl BehaviorModule {
     pub fn new(thing: Arc<RwLock<Object>>, module_data: Arc<dyn ModuleData>) -> Self {
-        let object_id = thing.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID);
+        let object_id = thing
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
         Self {
             object_id,
             module_data,

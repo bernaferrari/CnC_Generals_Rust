@@ -48,7 +48,7 @@ impl AutoFindHealingUpdateModuleData {
 }
 
 pub struct AutoFindHealingUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<AutoFindHealingUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     next_scan_frames: i32,
@@ -60,7 +60,11 @@ impl AutoFindHealingUpdate {
         module_data: Arc<AutoFindHealingUpdateModuleData>,
     ) -> Self {
         Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             next_scan_frames: 0,
@@ -82,7 +86,12 @@ impl AutoFindHealingUpdate {
 
 impl UpdateModuleInterface for AutoFindHealingUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::None;
         };
         let Ok(obj) = object_arc.read() else {

@@ -584,7 +584,7 @@ const HELICOPTER_SLOW_DEATH_FIELDS: &[FieldParse<HelicopterSlowDeathBehaviorModu
 ];
 
 pub struct HelicopterSlowDeathBehavior {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<HelicopterSlowDeathBehaviorModuleData>,
     orbit_direction: Int,
     forward_angle: Real,
@@ -614,7 +614,11 @@ impl HelicopterSlowDeathBehavior {
         );
 
         Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             orbit_direction: 1,             // C++ line 140: ORBIT_DIRECTION_LEFT
             forward_angle: 0.0,             // C++ line 141
@@ -773,7 +777,12 @@ impl UpdateModuleInterface for HelicopterSlowDeathBehavior {
 
         // In C++ lines 417-450: Check if hit ground
         if self.hit_ground_frame == 0 {
-            if let Some(object) = self.object.upgrade() {
+            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(mut guard) = object.write() {
                     let pos = *guard.get_position();
                     let ground = TheTerrainLogic::get()

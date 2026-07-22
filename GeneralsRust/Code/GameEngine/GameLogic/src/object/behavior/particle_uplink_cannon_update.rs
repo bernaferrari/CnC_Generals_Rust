@@ -609,7 +609,7 @@ const PARTICLE_UPLINK_CANNON_UPDATE_FIELDS: &[FieldParse<ParticleUplinkCannonUpd
 crate::impl_behavior_module_data_via_base!(ParticleUplinkCannonUpdateModuleData, base);
 
 pub struct ParticleUplinkCannonUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<ParticleUplinkCannonUpdateModuleData>,
 
     next_call_frame_and_phase: UnsignedInt,
@@ -684,7 +684,11 @@ impl ParticleUplinkCannonUpdate {
         let outer_count = specific_data.outer_effect_num_bones as usize;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: specific_data.clone(),
             next_call_frame_and_phase: 0,
             status: PUCStatus::Idle,
@@ -736,7 +740,12 @@ impl ParticleUplinkCannonUpdate {
         F: FnOnce(&mut dyn SpecialPowerModuleInterface) -> R,
     {
         let mut func = Some(func);
-        let obj_arc = self.object.upgrade()?;
+        let obj_arc = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })?;
         let obj = obj_arc.read().ok()?;
         let template = self.module_data.special_power_template.as_ref()?;
         obj.with_special_power_module_mut_by_name(template.get_name(), |module| {
@@ -784,7 +793,12 @@ impl ParticleUplinkCannonUpdate {
 
     fn set_logical_status(&mut self, status: PUCStatus) {
         if self.status != status {
-            if let Some(object_arc) = self.object.upgrade() {
+            if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(obj_guard) = object_arc.read() {
                     if let Some(drawable) = obj_guard.get_drawable() {
                         let clear = ModelConditionFlags::Packing | ModelConditionFlags::Unpacking;
@@ -840,7 +854,12 @@ impl ParticleUplinkCannonUpdate {
     }
 
     fn get_object_id_and_position(&self) -> Option<(ObjectID, Coord3D)> {
-        let object_arc = self.object.upgrade()?;
+        let object_arc = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })?;
         let obj_guard = object_arc.read().ok()?;
         let pos = obj_guard.get_position();
         Some((obj_guard.get_id(), Coord3D::new(pos.x, pos.y, pos.z)))
@@ -913,10 +932,13 @@ impl ParticleUplinkCannonUpdate {
         let Some(manager) = TheParticleSystemManager::get() else {
             return;
         };
-        let object_id = self
-            .object
-            .upgrade()
-            .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()));
+        let object_id = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()));
         for (idx, system_id) in self.outer_system_ids.iter_mut().enumerate() {
             if let Some(new_id) = manager.create_particle_system(Some(name.as_str())) {
                 *system_id = new_id;
@@ -963,7 +985,12 @@ impl ParticleUplinkCannonUpdate {
     }
 
     fn calculate_up_bone_positions(&mut self) -> Bool {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(obj_guard) = object_arc.read() else {
@@ -1205,7 +1232,13 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
             }
 
             if self.start_decay_frame > now {
-                if let Some(object_arc) = self.object.upgrade() {
+                if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+                    None
+                } else {
+                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                    })
+                }) {
                     if let Ok(obj_guard) = object_arc.read() {
                         if obj_guard.is_disabled_by_type(DisabledType::DisabledUnderpowered)
                             || obj_guard.is_disabled_by_type(DisabledType::DisabledEmp)
@@ -1281,13 +1314,17 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                     let cx_height = height * data.swath_of_death_amplitude;
 
                     // Calculate vector from building to initial target
-                    let building_pos = *self
-                        .object
-                        .upgrade()
-                        .unwrap()
-                        .read()
-                        .unwrap()
-                        .get_position();
+                    let building_pos = *(if self.object_id == crate::common::INVALID_ID {
+                        None
+                    } else {
+                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
+                            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
+                        )
+                    })
+                    .unwrap()
+                    .read()
+                    .unwrap()
+                    .get_position();
                     let building_to_initial_target_vector = (
                         self.initial_target_position.x - building_pos.x,
                         self.initial_target_position.y - building_pos.y,
@@ -1437,7 +1474,13 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         }
                     }
 
-                    if let Some(object_arc) = self.object.upgrade() {
+                    if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+                        None
+                    } else {
+                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
+                            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
+                        )
+                    }) {
                         if let Ok(obj_guard) = object_arc.read() {
                             if let Some(player) = obj_guard.get_controlling_player() {
                                 if let Ok(player_guard) = player.read() {
@@ -1473,7 +1516,13 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         0.0
                     };
 
-                    if let Some(object_arc) = self.object.upgrade() {
+                    if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+                        None
+                    } else {
+                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
+                            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
+                        )
+                    }) {
                         let (source_id, source_mask) = if let Ok(obj_guard) = object_arc.read() {
                             let mask = obj_guard
                                 .get_controlling_player()
@@ -1553,7 +1602,12 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
             }
         }
 
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj_guard) = obj_arc.read() {
                 let local_index = ThePlayerList()
                     .read()
@@ -1683,7 +1737,12 @@ impl SpecialPowerUpdateInterface for ParticleUplinkCannonUpdate {
     }
 
     fn set_special_power_overridable_destination(&mut self, loc: &Coord3D) {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(obj_guard) = object_arc.read() else {
@@ -1719,7 +1778,12 @@ impl BehaviorModuleInterface for ParticleUplinkCannonUpdate {
             return Ok(());
         }
 
-        if let Some(object_arc) = self.object.upgrade() {
+        if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj_guard) = object_arc.read() {
                 let position = *obj_guard.get_position();
                 self.connector_node_position = position;

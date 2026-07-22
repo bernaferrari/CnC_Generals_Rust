@@ -8,7 +8,7 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, ModuleData, ObjectStatusTypes, UpgradeMaskType, XferVersion,
+    AsciiString, Bool, ModuleData, ObjectID, ObjectStatusTypes, UpgradeMaskType, XferVersion,
 };
 use crate::damage::DamageInfo;
 use crate::modules::{BehaviorModuleInterface, DieModuleInterface, UpgradeModuleInterface};
@@ -228,7 +228,7 @@ const FIRE_WEAPON_WHEN_DEAD_FIELDS: &[FieldParse<FireWeaponWhenDeadBehaviorModul
 /// FireWeaponWhenDeadBehavior - Fires weapon on death
 /// Matches C++ FireWeaponWhenDeadBehavior.cpp lines 42-145
 pub struct FireWeaponWhenDeadBehavior {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<FireWeaponWhenDeadBehaviorModuleData>,
     upgrade_mux: UpgradeMux,
 }
@@ -255,7 +255,11 @@ impl FireWeaponWhenDeadBehavior {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: data,
             upgrade_mux,
         })
@@ -275,7 +279,12 @@ impl DieModuleInterface for FireWeaponWhenDeadBehavior {
             return Ok(());
         }
 
-        let object = match self.object.upgrade() {
+        let object = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(obj) => obj,
             None => return Ok(()),
         };
@@ -346,7 +355,12 @@ impl UpgradeModuleInterface for FireWeaponWhenDeadBehavior {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(mut obj_guard) = object_arc.write() else {

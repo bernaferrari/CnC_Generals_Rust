@@ -115,7 +115,7 @@ const SUPPLY_WAREHOUSE_CRIPPLING_FIELDS: &[FieldParse<
 #[derive(Debug)]
 pub struct SupplyWarehouseCripplingBehavior {
     // Base module data
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     module_data: Arc<SupplyWarehouseCripplingBehaviorModuleData>,
 
     // State tracking
@@ -142,7 +142,11 @@ impl SupplyWarehouseCripplingBehavior {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&thing),
+            object_id: thing
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data),
             next_call_frame_and_phase: 0,
             healing_suppressed_until_frame: 0,
@@ -151,7 +155,13 @@ impl SupplyWarehouseCripplingBehavior {
     }
 
     fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.object.upgrade().ok_or_else(|| "Object not set".into())
+        (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .ok_or_else(|| "Object not set".into())
     }
 
     /// Reset our ability to heal timer, as we took damage
@@ -251,7 +261,12 @@ impl DamageModuleInterface for SupplyWarehouseCripplingBehavior {
 
         // We got hit, time to get up for work after a quick snooze
         let sleep_time = self.healing_suppressed_until_frame.saturating_sub(now);
-        if let Some(obj) = self.object.upgrade() {
+        if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj_guard) = obj.read() {
                 TheGameLogic::set_wake_frame(
                     obj_guard.get_id(),

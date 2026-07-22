@@ -1,7 +1,7 @@
 //! NeutronMissileSlowDeathUpdate - Neutron missile superweapon slow death behavior
 //! Port of C++ NeutronMissileSlowDeathBehavior (NeutronMissileSlowDeathUpdate.cpp)
 
-use crate::common::{Bool, Coord3D, KindOf, ModuleData, Real, UnsignedByte, UnsignedInt};
+use crate::common::{Bool, Coord3D, KindOf, ModuleData, ObjectID, Real, UnsignedByte, UnsignedInt};
 use crate::damage::DamageInfo;
 use crate::damage::{DamageType, DeathType};
 use crate::effects::FXList;
@@ -332,7 +332,7 @@ const NEUTRON_MISSILE_SLOW_DEATH_FIELDS: &[FieldParse<NeutronMissileSlowDeathUpd
 ];
 
 pub struct NeutronMissileSlowDeathUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<NeutronMissileSlowDeathUpdateModuleData>,
     activated: Bool,
     next_call_frame_and_phase: UnsignedInt,
@@ -358,7 +358,11 @@ impl NeutronMissileSlowDeathUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             activated: false,
             next_call_frame_and_phase: 0,
@@ -502,7 +506,12 @@ impl UpdateModuleInterface for NeutronMissileSlowDeathUpdate {
             return UpdateSleepTime::None;
         }
 
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::Forever;
         };
         let Ok(obj) = object_arc.read() else {

@@ -3,7 +3,8 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, ModuleData, UnsignedInt, LOGICFRAMES_PER_SECOND, SECONDS_PER_LOGICFRAME_REAL,
+    AsciiString, ModuleData, ObjectID, UnsignedInt, LOGICFRAMES_PER_SECOND,
+    SECONDS_PER_LOGICFRAME_REAL,
 };
 use crate::effects::ObjectCreationList;
 use crate::helpers::{TheGameLogic, TheObjectCreationListStore};
@@ -52,7 +53,7 @@ impl FireOCLAfterWeaponCooldownUpdateModuleData {
 }
 
 pub struct FireOCLAfterWeaponCooldownUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<FireOCLAfterWeaponCooldownUpdateModuleData>,
     valid: bool,
     consecutive_shots: UnsignedInt,
@@ -74,7 +75,11 @@ impl FireOCLAfterWeaponCooldownUpdate {
         let upgrade_mux = UpgradeMux::new(specific_data.upgrade_mux_data.clone());
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             valid: false,
             consecutive_shots: 0,
@@ -122,7 +127,12 @@ impl FireOCLAfterWeaponCooldownUpdate {
 
 impl UpdateModuleInterface for FireOCLAfterWeaponCooldownUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(UpdateSleepTime::Forever);
         };
         let Ok(obj) = obj_arc.read() else {

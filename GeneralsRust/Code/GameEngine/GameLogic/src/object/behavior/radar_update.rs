@@ -5,8 +5,8 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, LegacyModuleData, ModelConditionFlags, ModuleData, NameKeyType, Real,
-    UnsignedInt, XferVersion,
+    AsciiString, Bool, LegacyModuleData, ModelConditionFlags, ModuleData, NameKeyType, ObjectID,
+    Real, UnsignedInt, XferVersion,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
@@ -132,7 +132,7 @@ const RADAR_UPDATE_FIELDS: &[FieldParse<RadarUpdateModuleData>] = &[FieldParse {
 
 #[allow(dead_code)]
 pub struct RadarUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: RadarUpdateConfig,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
@@ -158,7 +158,11 @@ impl RadarUpdate {
         module_data: RadarUpdateConfig,
     ) -> Self {
         Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             extend_done_frame: 0,
@@ -172,7 +176,12 @@ impl RadarUpdate {
         self.extend_done_frame = current_frame + self.module_data.radar_extend_time as UnsignedInt;
         self.radar_active = true;
 
-        if let Some(object) = self.object.upgrade() {
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut object) = object.write() {
                 object.set_model_condition_state(ModelConditionFlags::RADAR_EXTENDING);
             }
@@ -223,7 +232,12 @@ impl UpdateModuleInterface for RadarUpdate {
             self.extend_complete = true;
             self.extend_done_frame = 0;
 
-            if let Some(object) = self.object.upgrade() {
+            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(mut object) = object.write() {
                     let _ = object.clear_and_set_model_condition_flags(
                         ModelConditionFlags::RADAR_EXTENDING,
@@ -373,7 +387,7 @@ mod tests {
         let config = data.to_config();
         let mut module = RadarUpdateModule {
             behavior: RadarUpdate {
-                object: Weak::new(),
+                object_id: crate::common::INVALID_ID,
                 module_data: config,
                 next_call_frame_and_phase: 0,
                 extend_done_frame: 0,

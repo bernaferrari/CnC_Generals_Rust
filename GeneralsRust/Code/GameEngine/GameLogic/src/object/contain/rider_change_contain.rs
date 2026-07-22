@@ -885,7 +885,7 @@ pub struct RiderChangeContain {
     /// Base functionality from TransportContain
     pub base: TransportContain,
     /// Reference to the owning object
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     /// Module configuration
     module_data: RiderChangeContainModuleData,
     /// Frame when scuttling started
@@ -908,7 +908,10 @@ impl RiderChangeContain {
 
         Ok(Self {
             base,
-            object,
+            object_id: object
+                .upgrade()
+                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: module_data.clone(),
             scuttled_on_frame: 0,
             extra_slots_in_use: 0,
@@ -959,7 +962,12 @@ impl RiderChangeContain {
         rider: Arc<RwLock<Object>>,
         was_selected: bool,
     ) -> GameResult<()> {
-        let owner = self.object.upgrade();
+        let owner = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        });
         if super::should_cancel_containment_after_booby_trap(owner.as_ref(), &rider) {
             return Ok(());
         }
@@ -1023,7 +1031,13 @@ impl RiderChangeContain {
                     .base
                     .base
                     .add_or_remove_obj_from_world(rider.clone(), true);
-                if let Some(owner) = self.object.upgrade() {
+                if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+                    None
+                } else {
+                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                    })
+                }) {
                     if let (Ok(owner_guard), Ok(mut rider_guard)) = (owner.read(), rider.write()) {
                         let _ = rider_guard.set_position(owner_guard.get_position());
                         rider_guard.set_layer(owner_guard.get_layer());
@@ -1074,14 +1088,25 @@ impl RiderChangeContain {
             .clone();
 
         let rider_tracker = rider_guard_experience(&rider);
-        let owner_tracker = self.object.upgrade().and_then(|owner| {
+        let owner_tracker = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .and_then(|owner| {
             owner
                 .read()
                 .ok()
                 .and_then(|owner_guard| owner_guard.get_experience_tracker())
         });
 
-        if let Some(owner) = self.object.upgrade() {
+        if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut owner_guard) = owner.write() {
                 for rider_info in &self.module_data.riders {
                     if rider_info_matches_template(rider_info, rider_template.as_ref()) {
@@ -1118,7 +1143,12 @@ impl RiderChangeContain {
     }
 
     fn evacuate_existing_payload_via_owner_ai(&self) {
-        let Some(owner) = self.object.upgrade() else {
+        let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let ai = owner
@@ -1141,7 +1171,12 @@ impl RiderChangeContain {
             return;
         }
 
-        let Some(owner) = self.object.upgrade() else {
+        let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
 
@@ -1173,7 +1208,12 @@ impl RiderChangeContain {
     }
 
     fn transfer_selection_to_rider_on_exit(&self, rider: &Arc<RwLock<Object>>) {
-        let Some(owner) = self.object.upgrade() else {
+        let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
 
@@ -1233,11 +1273,14 @@ impl RiderChangeContain {
     }
 
     fn has_exit_scuttle_drawables(&self, rider: &Arc<RwLock<Object>>) -> bool {
-        let owner_has_drawable = self
-            .object
-            .upgrade()
-            .and_then(|owner| owner.read().ok()?.get_drawable())
-            .is_some();
+        let owner_has_drawable = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .and_then(|owner| owner.read().ok()?.get_drawable())
+        .is_some();
         let rider_has_drawable = rider
             .read()
             .ok()
@@ -1247,7 +1290,12 @@ impl RiderChangeContain {
     }
 
     pub fn on_removing(&mut self, rider: Arc<RwLock<Object>>) -> GameResult<()> {
-        if let Some(owner) = self.object.upgrade() {
+        if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(owner_guard) = owner.read() {
                 if owner_guard.is_effectively_dead() {
                     let rider_guard = rider.read().map_err(|_| "Rider lock poisoned")?;
@@ -1269,7 +1317,13 @@ impl RiderChangeContain {
             .get_template()
             .clone();
         let rider_tracker = rider_guard_experience(&rider);
-        let owner_tracker = self.object.upgrade().and_then(|owner| {
+        let owner_tracker = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .and_then(|owner| {
             owner
                 .read()
                 .ok()
@@ -1277,7 +1331,12 @@ impl RiderChangeContain {
         });
         let mut transfer_to_rider = false;
 
-        if let Some(owner) = self.object.upgrade() {
+        if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(mut owner_guard) = owner.write() {
                 for rider_info in &self.module_data.riders {
                     if rider_info_matches_template(rider_info, rider_template.as_ref()) {
@@ -1296,7 +1355,12 @@ impl RiderChangeContain {
 
         if !self.containing && self.has_exit_scuttle_drawables(&rider) {
             self.transfer_selection_to_rider_on_exit(&rider);
-            if let Some(owner) = self.object.upgrade() {
+            if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            }) {
                 if let Ok(mut owner_guard) = owner.write() {
                     self.scuttled_on_frame = TheGameLogic::get_frame();
                     owner_guard.set_status(
@@ -1335,7 +1399,13 @@ impl RiderChangeContain {
         if self.scuttled_on_frame != 0 {
             let now = TheGameLogic::get_frame();
             if self.scuttled_on_frame + self.module_data.scuttle_frames <= now {
-                if let Some(owner) = self.object.upgrade() {
+                if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
+                    None
+                } else {
+                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                    })
+                }) {
                     if let Ok(mut owner_guard) = owner.write() {
                         owner_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Toppled));
                     }

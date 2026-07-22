@@ -96,7 +96,7 @@ const CLEANUP_HAZARD_UPDATE_FIELDS: &[FieldParse<CleanupHazardUpdateModuleData>]
 ];
 
 pub struct CleanupHazardUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<CleanupHazardUpdateModuleData>,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
@@ -120,7 +120,11 @@ impl CleanupHazardUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             best_target_id: INVALID_ID,
@@ -134,7 +138,12 @@ impl CleanupHazardUpdate {
     }
 
     pub fn scan_closest_target(&mut self) -> Option<ObjectID> {
-        let me_arc = self.object.upgrade()?;
+        let me_arc = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })?;
         let me = me_arc.read().ok()?;
 
         let partition = ThePartitionManager::get()?;
@@ -161,7 +170,12 @@ impl CleanupHazardUpdate {
     }
 
     pub fn fire_when_ready(&mut self) {
-        let Some(me_arc) = self.object.upgrade() else {
+        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(mut me) = me_arc.write() else {
@@ -240,7 +254,12 @@ impl CleanupHazardUpdateInterface for CleanupHazardUpdate {
         self.move_range = range;
         self.pos = *pos;
 
-        let Some(me_arc) = self.object.upgrade() else {
+        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return;
         };
         let Ok(me) = me_arc.read() else {
@@ -255,7 +274,12 @@ impl CleanupHazardUpdateInterface for CleanupHazardUpdate {
 
 impl UpdateModuleInterface for CleanupHazardUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(me_arc) = self.object.upgrade() else {
+        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UPDATE_SLEEP_NONE;
         };
 
@@ -311,7 +335,13 @@ impl BehaviorModuleInterface for CleanupHazardUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let me_arc = self.object.upgrade().ok_or("Object lost")?;
+        let me_arc = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .ok_or("Object lost")?;
         let mut me = me_arc.write().unwrap();
 
         me.set_weapon_set_flag(WeaponSetType::Veteran);
@@ -473,7 +503,7 @@ mod tests {
 
     fn lost_owner_update() -> CleanupHazardUpdate {
         CleanupHazardUpdate {
-            object: Weak::new(),
+            object_id: crate::common::INVALID_ID,
             module_data: Arc::new(CleanupHazardUpdateModuleData {
                 scan_frames: 7,
                 scan_range: 100.0,

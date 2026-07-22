@@ -6,7 +6,7 @@
 //!
 //! FILE: FireWeaponWhenDamagedBehavior.cpp lines 1-342
 
-use crate::common::{AsciiString, Bool, ModuleData, Real, UnsignedInt, XferVersion};
+use crate::common::{AsciiString, Bool, ModuleData, ObjectID, Real, UnsignedInt, XferVersion};
 use crate::damage::{
     get_damage_type_flag, BodyDamageType, DamageInfo, DamageType, DamageTypeFlags,
 };
@@ -358,7 +358,7 @@ const FIRE_WEAPON_WHEN_DAMAGED_FIELDS: &[FieldParse<FireWeaponWhenDamagedBehavio
 /// FireWeaponWhenDamagedBehavior - Fires weapons when damaged
 /// Matches C++ FireWeaponWhenDamagedBehavior.cpp lines 35-342
 pub struct FireWeaponWhenDamagedBehavior {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<FireWeaponWhenDamagedBehaviorModuleData>,
 
     // Reaction weapons (fire once on damage). Matches C++ lines 37-44
@@ -455,7 +455,11 @@ impl FireWeaponWhenDamagedBehavior {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: data,
             reaction_weapon_pristine,
             reaction_weapon_damaged,
@@ -540,7 +544,12 @@ impl FireWeaponWhenDamagedBehavior {
     }
 
     fn set_wake_frame(&self, sleep_time: UpdateSleepTime) {
-        if let Some(obj) = self.object.upgrade() {
+        if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj_guard) = obj.read() {
                 TheGameLogic::set_wake_frame(obj_guard.get_id(), sleep_time);
             }
@@ -606,7 +615,12 @@ impl DamageModuleInterface for FireWeaponWhenDamagedBehavior {
             return Ok(());
         }
 
-        let object = match self.object.upgrade() {
+        let object = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(obj) => obj,
             None => return Ok(()),
         };
@@ -664,7 +678,12 @@ impl UpdateModuleInterface for FireWeaponWhenDamagedBehavior {
             return UPDATE_SLEEP_FOREVER; // Matches C++ lines 202-206
         }
 
-        let object = match self.object.upgrade() {
+        let object = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(obj) => obj,
             None => return UPDATE_SLEEP_FOREVER,
         };
@@ -698,7 +717,12 @@ impl UpgradeModuleInterface for FireWeaponWhenDamagedBehavior {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: crate::common::UpgradeMaskType) -> bool {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return false;
         };
         let Ok(mut obj_guard) = obj_arc.write() else {
@@ -751,11 +775,14 @@ impl Snapshotable for FireWeaponWhenDamagedBehavior {
             .xfer(xfer)
             .map_err(|e| format!("Failed to xfer upgrade mux: {}", e))?;
 
-        let object_id = self
-            .object
-            .upgrade()
-            .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
-            .unwrap_or(crate::common::INVALID_ID);
+        let object_id = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        })
+        .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
+        .unwrap_or(crate::common::INVALID_ID);
 
         Self::xfer_weapon_option(
             xfer,

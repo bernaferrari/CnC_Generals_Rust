@@ -165,7 +165,7 @@ const MISSILE_LAUNCHER_BUILDING_UPDATE_FIELDS: &[FieldParse<
 
 /// MissileLauncherBuildingUpdate - manages building doors for special powers
 pub struct MissileLauncherBuildingUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<MissileLauncherBuildingUpdateModuleData>,
 
     next_call_frame_and_phase: UnsignedInt,
@@ -191,7 +191,11 @@ impl MissileLauncherBuildingUpdate {
         }
 
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data.clone()),
             next_call_frame_and_phase: 0,
             door_state: DoorStateType::Closed,
@@ -324,7 +328,12 @@ impl MissileLauncherBuildingUpdate {
     }
 
     fn get_power_ready_frame(&self) -> u32 {
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = obj_arc.read() {
                 if let Some(frame) = obj.with_special_power_module_interface_by_name(
                     &self.module_data.special_power_template_name,
@@ -338,7 +347,12 @@ impl MissileLauncherBuildingUpdate {
     }
 
     fn is_power_ready(&self) -> bool {
-        if let Some(obj_arc) = self.object.upgrade() {
+        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             if let Ok(obj) = obj_arc.read() {
                 if let Some(is_ready) = obj.with_special_power_module_interface_by_name(
                     &self.module_data.special_power_template_name,
@@ -375,7 +389,12 @@ impl MissileLauncherBuildingUpdate {
 
 impl UpdateModuleInterface for MissileLauncherBuildingUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let obj_arc = match self.object.upgrade() {
+        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(arc) => arc,
             None => return Ok(UPDATE_SLEEP_NONE),
         };
@@ -448,7 +467,12 @@ impl SpecialPowerUpdateInterface for MissileLauncherBuildingUpdate {
         _command_options: crate::modules::SpecialPowerCommandOptions,
     ) -> bool {
         // C++ version asserts template matches, but we'll assume it for now
-        let obj_arc = match self.object.upgrade() {
+        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
             Some(arc) => arc,
             None => return false,
         };

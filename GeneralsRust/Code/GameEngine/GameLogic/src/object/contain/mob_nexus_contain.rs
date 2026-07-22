@@ -208,7 +208,7 @@ pub struct MobNexusContain {
     pub base: OpenContain,
     /// Reference to the owning object
     #[allow(dead_code)]
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     /// Module configuration
     module_data: MobNexusContainModuleData,
 }
@@ -223,7 +223,10 @@ impl MobNexusContain {
 
         Ok(Self {
             base,
-            object,
+            object_id: object
+                .upgrade()
+                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::common::INVALID_ID),
             module_data: module_data.clone(),
         })
     }

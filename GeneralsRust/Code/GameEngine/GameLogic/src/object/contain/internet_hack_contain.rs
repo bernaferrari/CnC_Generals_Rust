@@ -46,7 +46,7 @@ pub struct InternetHackContain {
     pub base: TransportContain,
     /// Reference to the owning object
     #[allow(dead_code)]
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
 }
 
 impl InternetHackContain {
@@ -57,7 +57,13 @@ impl InternetHackContain {
     ) -> GameResult<Self> {
         let base = TransportContain::new(object.clone(), &module_data.base)?;
 
-        Ok(Self { base, object })
+        Ok(Self {
+            base,
+            object_id: object
+                .upgrade()
+                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::common::INVALID_ID),
+        })
     }
 
     pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {

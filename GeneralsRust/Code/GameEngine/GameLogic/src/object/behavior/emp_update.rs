@@ -9,7 +9,7 @@
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Color, Coord3D, GameLogicRandomValueReal, Int, KindOf, KindOfMaskType,
-    Matrix3D, ModuleData, Real, Relationship, UnsignedInt, XferVersion, PI,
+    Matrix3D, ModuleData, ObjectID, Real, Relationship, UnsignedInt, XferVersion, PI,
 };
 use crate::helpers::{TheGameLogic, TheParticleSystemManager, ThePartitionManager};
 use crate::modules::{
@@ -269,7 +269,7 @@ const EMP_UPDATE_FIELDS: &[FieldParse<EMPUpdateModuleData>] = &[
 ];
 
 pub struct EMPUpdate {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<EMPUpdateModuleData>,
     die_frame: UnsignedInt,
     #[allow(dead_code)]
@@ -309,7 +309,11 @@ impl EMPUpdate {
 
         let current_scale = module_data.start_scale;
         Ok(Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             die_frame,
             tint_env_fade_frames,
@@ -492,7 +496,12 @@ impl EMPUpdate {
 
 impl UpdateModuleInterface for EMPUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(obj_arc) = self.object.upgrade() else {
+        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return UpdateSleepTime::None;
         };
 
