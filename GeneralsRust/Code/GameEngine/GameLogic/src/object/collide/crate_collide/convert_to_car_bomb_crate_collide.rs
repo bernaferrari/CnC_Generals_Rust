@@ -259,11 +259,11 @@ pub struct ConvertToCarBombCrateCollide {
 impl ConvertToCarBombCrateCollide {
     /// Create new car bomb conversion crate collide module.
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object: &Arc<RwLock<Object>>,
         module_data: ConvertToCarBombCrateCollideModuleData,
     ) -> Self {
         Self {
-            base: LegacyCrateCollide::from_object_handle(object, module_data.base.clone()),
+            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
             module_data: Arc::new(Mutex::new(module_data)),
         }
     }
@@ -543,7 +543,7 @@ mod tests {
     fn car_bomb_crate_collide_identifies_like_cpp() {
         let object = Arc::new(RwLock::new(Object::new_test(77_100, 100.0)));
         let module = ConvertToCarBombCrateCollide::new(
-            object,
+            &object,
             ConvertToCarBombCrateCollideModuleData::default(),
         );
 
