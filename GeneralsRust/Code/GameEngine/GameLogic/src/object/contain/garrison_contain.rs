@@ -491,7 +491,13 @@ impl GarrisonContain {
     /// Add object to containment using garrison virtual callbacks.
     pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
         let owner = self.get_object();
-        if super::should_cancel_containment_after_booby_trap(owner.as_ref(), &obj) {
+        if super::should_cancel_containment_after_booby_trap(
+            owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        ) {
             return Ok(());
         }
 
@@ -511,7 +517,12 @@ impl GarrisonContain {
         }
         drop(obj_guard);
 
-        self.base.add_to_contain_list(obj.clone())?;
+        self.base.add_to_contain_list(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )?;
 
         if obj
             .read()

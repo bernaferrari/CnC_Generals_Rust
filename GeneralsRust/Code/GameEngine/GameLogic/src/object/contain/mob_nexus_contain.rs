@@ -255,7 +255,14 @@ impl ContainModuleInterface for MobNexusContain {
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
         let obj = TheGameLogic::find_object_by_id(object_id)
             .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.base.add_to_contain(obj).map_err(|e| e.to_string())
+        self.base
+            .add_to_contain(
+                obj.read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+            )
+            .map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -264,7 +271,13 @@ impl ContainModuleInterface for MobNexusContain {
             None => return Ok(()),
         };
         self.base
-            .remove_from_contain(obj, false)
+            .remove_from_contain(
+                obj.read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+                false,
+            )
             .map_err(|e| e.to_string())
     }
 
@@ -363,11 +376,22 @@ impl ContainerInterface for MobNexusContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.add_to_contain(obj)
+        self.base.add_to_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.remove_from_contain(obj, false)
+        self.base.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            false,
+        )
     }
 
     fn get_usage(&self) -> (u32, u32) {

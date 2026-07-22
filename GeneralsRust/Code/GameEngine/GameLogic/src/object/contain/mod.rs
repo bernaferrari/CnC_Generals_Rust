@@ -65,7 +65,7 @@ pub use rider_change_contain::{RiderChangeContain, RiderChangeContainModuleData}
 pub use transport_contain::{InitialPayload, TransportContain, TransportContainModuleData};
 pub use tunnel_contain::{TunnelContain, TunnelContainModuleData};
 
-use crate::common::GameResult;
+use crate::common::{GameResult, ObjectID};
 use crate::object::{Object, ObjectId};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use log::warn;
@@ -73,10 +73,23 @@ use serde_json::Value;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 pub(crate) fn should_cancel_containment_after_booby_trap(
-    owner: Option<&Arc<RwLock<Object>>>,
-    obj: &Arc<RwLock<Object>>,
+    owner_id: Option<ObjectID>,
+    obj_id: ObjectID,
 ) -> bool {
-    let Some(owner) = owner else {
+    let Some(owner_id) = owner_id else {
+        return false;
+    };
+    if owner_id == crate::common::INVALID_ID || obj_id == crate::common::INVALID_ID {
+        return false;
+    }
+    let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(owner_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))
+    else {
+        return false;
+    };
+    let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+    else {
         return false;
     };
 
