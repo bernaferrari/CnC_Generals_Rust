@@ -66,14 +66,9 @@ impl InternetHackContain {
         })
     }
 
-    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.add_to_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )?;
-        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0))?;
+    pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.base.add_to_contain(obj_id)?;
+        self.on_containing(obj_id)?;
         Ok(())
     }
 
@@ -120,9 +115,7 @@ impl ContainModuleInterface for InternetHackContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.add_to_contain(obj).map_err(|e| e.to_string())
+        self.add_to_contain(object_id).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -248,7 +241,12 @@ impl ContainerInterface for InternetHackContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain(obj)
+        let oid = obj
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        self.add_to_contain(oid)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
