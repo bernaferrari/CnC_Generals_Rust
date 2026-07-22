@@ -1324,9 +1324,15 @@ impl ModuleExitInterface for ParkingPlaceBehavior {
 
     fn exit_object_via_door(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
+        obj_id: ObjectID,
         door: ModuleExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         self.build_info();
         self.purge_dead();
 

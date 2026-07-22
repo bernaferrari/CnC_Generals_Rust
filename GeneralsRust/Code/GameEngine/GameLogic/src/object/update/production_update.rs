@@ -702,7 +702,8 @@ impl ProductionUpdate {
 
         // Exit the object via the door (positions it at rally point)
         if let Ok(mut exit_guard) = exit_interface.lock() {
-            let _ = exit_guard.exit_object_via_door(&new_obj, door);
+            let _ = exit_guard
+                .exit_object_via_door(new_obj.read().map(|g| g.get_id()).unwrap_or(0), door);
         }
 
         // Notify player that a unit was created

@@ -522,7 +522,7 @@ impl GarrisonContain {
         }
 
         self.base.redeploy_occupants()?;
-        self.on_containing(obj, was_selected)?;
+        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
         Ok(())
     }
 
@@ -555,7 +555,7 @@ impl GarrisonContain {
         }
 
         self.base.do_unload_sound();
-        self.on_removing(obj.clone())?;
+        self.on_removing(obj.read().map(|g| g.get_id()).unwrap_or(0))?;
 
         if obj
             .read()
@@ -698,12 +698,14 @@ impl GarrisonContain {
     }
 
     /// Called when this object starts containing another object
-    pub fn on_containing(
-        &mut self,
-        obj: Arc<RwLock<Object>>,
-        was_selected: bool,
-    ) -> GameResult<()> {
-        self.base.on_containing(obj.clone(), was_selected)?;
+    pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.base.on_containing(obj_id, was_selected)?;
 
         // Set object as held and disable
         if let Ok(mut contained) = obj.write() {
@@ -757,8 +759,14 @@ impl GarrisonContain {
     }
 
     /// Called when removing an object from containment
-    pub fn on_removing(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.on_removing(obj.clone())?;
+    pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.base.on_removing(obj_id)?;
 
         if let Ok(contained) = obj.read() {
             if self.is_enclosing_container_for_internal(Some(&contained)) {
@@ -1185,10 +1193,21 @@ impl GarrisonContain {
     /// Attempt best fire point position for object with weapon against victim
     fn attempt_best_fire_point_position(
         &mut self,
-        source: Arc<RwLock<Object>>,
+        source_id: ObjectID,
         weapon: &Weapon,
-        victim: Arc<RwLock<Object>>,
+        victim_id: ObjectID,
     ) -> bool {
+        let Some(victim) = crate::helpers::TheGameLogic::find_object_by_id(victim_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(victim_id))
+        else {
+            return false;
+        };
+        let Some(source) = crate::helpers::TheGameLogic::find_object_by_id(source_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(source_id))
+        else {
+            return false;
+        };
+
         if self.load_garrison_points().is_err() {
             return false;
         }
@@ -1241,10 +1260,16 @@ impl GarrisonContain {
     /// Attempt best fire point position for object with weapon against position
     fn attempt_best_fire_point_position_coord(
         &mut self,
-        source: Arc<RwLock<Object>>,
+        source_id: ObjectID,
         weapon: &Weapon,
         target_pos: &Coord3D,
     ) -> bool {
+        let Some(source) = crate::helpers::TheGameLogic::find_object_by_id(source_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(source_id))
+        else {
+            return false;
+        };
+
         if self.load_garrison_points().is_err() {
             return false;
         }
@@ -2606,17 +2631,29 @@ impl ContainModuleInterface for GarrisonContain {
 
     fn on_containing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        GarrisonContain::on_containing(self, obj, was_selected).map_err(|e| e.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        GarrisonContain::on_containing(self, obj_id, was_selected).map_err(|e| e.into())
     }
 
     fn on_removing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        GarrisonContain::on_removing(self, obj).map_err(|e| e.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        GarrisonContain::on_removing(self, obj_id).map_err(|e| e.into())
     }
 
     fn remove_all_contained(
@@ -2671,20 +2708,20 @@ impl ContainModuleInterface for GarrisonContain {
 
     fn attempt_best_fire_point_position(
         &mut self,
-        source: Arc<RwLock<Object>>,
+        source_id: ObjectID,
         weapon: &Weapon,
-        victim: Arc<RwLock<Object>>,
+        victim_id: ObjectID,
     ) -> bool {
-        GarrisonContain::attempt_best_fire_point_position(self, source, weapon, victim)
+        GarrisonContain::attempt_best_fire_point_position(self, source_id, weapon, victim_id)
     }
 
     fn attempt_best_fire_point_position_coord(
         &mut self,
-        source: Arc<RwLock<Object>>,
+        source_id: ObjectID,
         weapon: &Weapon,
         target_pos: &Coord3D,
     ) -> bool {
-        GarrisonContain::attempt_best_fire_point_position_coord(self, source, weapon, target_pos)
+        GarrisonContain::attempt_best_fire_point_position_coord(self, source_id, weapon, target_pos)
     }
 }
 

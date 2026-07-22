@@ -206,12 +206,14 @@ impl HelixContain {
 
     /// Called when this object starts containing another object
     /// Matches C++ HelixContain::onContaining (HelixContain.cpp:368-393)
-    pub fn on_containing(
-        &mut self,
-        obj: Arc<RwLock<Object>>,
-        was_selected: bool,
-    ) -> GameResult<()> {
-        self.base.on_containing(obj.clone(), was_selected)?;
+    pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.base.on_containing(obj_id, was_selected)?;
 
         // Give the object a garrisoned version of its weapon (matches C++ line 374)
         if let Ok(mut contained) = obj.write() {
@@ -240,8 +242,14 @@ impl HelixContain {
 
     /// Called when removing an object from containment
     /// Matches C++ HelixContain::onRemoving (HelixContain.cpp:395-404)
-    pub fn on_removing(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.on_removing(obj.clone())?;
+    pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.base.on_removing(obj_id)?;
 
         // Give the object back a regular weapon (matches C++ line 401)
         if let Ok(mut contained) = obj.write() {
@@ -396,7 +404,7 @@ impl HelixContain {
                 .add_or_remove_obj_from_world(obj.clone(), false);
         }
         self.redeploy_occupants()?;
-        self.on_containing(obj, was_selected)?;
+        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
         Ok(())
     }
 
@@ -872,10 +880,16 @@ impl ContainModuleInterface for HelixContain {
 
     fn on_containing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        HelixContain::on_containing(self, obj, was_selected).map_err(|e| e.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        HelixContain::on_containing(self, obj_id, was_selected).map_err(|e| e.into())
     }
 
     fn is_special_overlord_style_container(&self) -> bool {
@@ -884,9 +898,15 @@ impl ContainModuleInterface for HelixContain {
 
     fn on_removing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        HelixContain::on_removing(self, obj).map_err(|e| e.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        HelixContain::on_removing(self, obj_id).map_err(|e| e.into())
     }
 
     fn harm_and_force_exit_all_contained(

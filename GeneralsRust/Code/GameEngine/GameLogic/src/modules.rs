@@ -532,9 +532,9 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Matches C++ ContainModuleInterface::attemptBestFirePointPosition.
     fn attempt_best_fire_point_position(
         &mut self,
-        _source: Arc<RwLock<Object>>,
+        _source_id: ObjectID,
         _weapon: &crate::weapon::Weapon,
-        _victim: Arc<RwLock<Object>>,
+        _victim_id: ObjectID,
     ) -> bool {
         false
     }
@@ -543,7 +543,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Matches C++ ContainModuleInterface::attemptBestFirePointPosition (position overload).
     fn attempt_best_fire_point_position_coord(
         &mut self,
-        _source: Arc<RwLock<Object>>,
+        _source_id: ObjectID,
         _weapon: &crate::weapon::Weapon,
         _target_pos: &Coord3D,
     ) -> bool {
@@ -589,7 +589,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Exit a contained object via a reserved door/path.
     fn exit_object_via_door(
         &mut self,
-        _obj: &Arc<RwLock<crate::object::Object>>,
+        _obj_id: ObjectID,
         _door: ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
@@ -598,7 +598,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Special tunnel-network style exit that preserves the passenger's current AI state.
     fn exit_object_in_a_hurry(
         &mut self,
-        _obj: &Arc<RwLock<crate::object::Object>>,
+        _obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
@@ -703,7 +703,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Notify container that an object started being contained.
     fn on_containing(
         &mut self,
-        _obj: Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
         _was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
@@ -712,7 +712,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Notify container that an object is being removed.
     fn on_removing(
         &mut self,
-        _obj: Arc<RwLock<Object>>,
+        _obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
@@ -921,7 +921,7 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     fn on_removing(&self, _obj: &Object) {
         if let Some(obj_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(_obj.get_id()) {
             if let Ok(mut guard) = self.try_lock() {
-                let _ = guard.on_removing(obj_arc);
+                let _ = guard.on_removing(obj_arc.read().map(|g| g.get_id()).unwrap_or(0));
             }
         }
     }
@@ -3952,7 +3952,7 @@ pub trait ExitInterface {
 
     fn exit_object_via_door(
         &mut self,
-        _obj: &Arc<RwLock<crate::object::Object>>,
+        _obj_id: ObjectID,
         _door: ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
@@ -3961,15 +3961,15 @@ pub trait ExitInterface {
     /// Special tunnel-network style exit that preserves the passenger's current AI state.
     fn exit_object_in_a_hurry(
         &mut self,
-        _obj: &Arc<RwLock<crate::object::Object>>,
+        _obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
     fn exit_object_by_budding(
         &mut self,
-        _obj: &Arc<RwLock<crate::object::Object>>,
-        _host: Option<&Arc<RwLock<crate::object::Object>>>,
+        _obj_id: ObjectID,
+        _host_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }

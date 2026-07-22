@@ -243,17 +243,29 @@ impl ContainModuleInterface for POWTruckBehavior {
 
     fn on_containing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.contain.on_containing(obj, was_selected)
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.contain.on_containing(obj_id, was_selected)
     }
 
     fn on_removing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.contain.on_removing(obj)
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.contain.on_removing(obj_id)
     }
 
     fn remove_all_contained(

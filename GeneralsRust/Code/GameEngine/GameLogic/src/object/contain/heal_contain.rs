@@ -130,7 +130,10 @@ impl HealContain {
                     {
                         if exit_door != ExitDoorType::NoneAvailable {
                             drop(object); // Release lock before calling exit
-                            self.base.exit_object_via_door(&obj_clone, exit_door)?;
+                            self.base.exit_object_via_door(
+                                obj_clone.read().map(|g| g.get_id()).unwrap_or(0),
+                                exit_door,
+                            )?;
                         }
                     }
                 }

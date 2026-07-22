@@ -706,8 +706,10 @@ impl SpawnBehavior {
                                     let barracks_door =
                                         barracks_exit_guard.reserve_door_for_exit(None, None);
                                     if barracks_door != DOOR_NONE_AVAILABLE {
-                                        barracks_exit_guard
-                                            .exit_object_via_door(&new_spawn, barracks_door)?;
+                                        barracks_exit_guard.exit_object_via_door(
+                                            new_spawn.read().map(|g| g.get_id()).unwrap_or(0),
+                                            barracks_door,
+                                        )?;
                                         drop(barracks_exit_guard);
 
                                         // Set producer back to parent
@@ -758,10 +760,18 @@ impl SpawnBehavior {
                         }
                     }
 
-                    exit_guard.exit_object_by_budding(&new_spawn, bud_host.as_ref())?;
+                    exit_guard.exit_object_by_budding(
+                        new_spawn.read().map(|g| g.get_id()).unwrap_or(0),
+                        bud_host
+                            .as_ref()
+                            .and_then(|h| h.read().ok().map(|g| g.get_id())),
+                    )?;
                 }
             } else {
-                exit_guard.exit_object_via_door(&new_spawn, exit_door)?;
+                exit_guard.exit_object_via_door(
+                    new_spawn.read().map(|g| g.get_id()).unwrap_or(0),
+                    exit_door,
+                )?;
             }
             drop(exit_guard);
         } else {

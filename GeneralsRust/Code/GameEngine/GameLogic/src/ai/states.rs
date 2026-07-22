@@ -8501,7 +8501,7 @@ impl ClassicState for AIExitState {
             return Ok(StateReturnType::Failure);
         }
         exit_guard
-            .exit_object_via_door(&owner, exit_door)
+            .exit_object_via_door(owner.read().map(|g| g.get_id()).unwrap_or(0), exit_door)
             .map_err(|err| format!("exit state exit_object_via_door failed: {}", err))?;
 
         if let Ok(machine) = self.base.get_machine() {
@@ -8619,7 +8619,10 @@ impl ClassicState for AIExitInstantlyState {
         exit_interface
             .lock()
             .map_err(|_| "exit instantly exit interface lock poisoned".to_string())?
-            .exit_object_via_door(&owner, ExitDoorType::Door1)
+            .exit_object_via_door(
+                owner.read().map(|g| g.get_id()).unwrap_or(0),
+                ExitDoorType::Door1,
+            )
             .map_err(|err| format!("exit instantly exit_object_via_door failed: {}", err))?;
 
         Ok(StateReturnType::Continue)
@@ -9433,15 +9436,15 @@ impl ClassicState for AIAttackAimAtTargetState {
                                 if self.attacking_object {
                                     if let Some(target) = self.base.get_machine_goal_object() {
                                         in_range = contain_guard.attempt_best_fire_point_position(
-                                            owner.clone(),
+                                            owner.read().map(|g| g.get_id()).unwrap_or(0),
                                             weapon,
-                                            target.clone(),
+                                            target.read().map(|g| g.get_id()).unwrap_or(0),
                                         );
                                     }
                                 } else if let Some(pos) = target_pos {
                                     in_range = contain_guard
                                         .attempt_best_fire_point_position_coord(
-                                            owner.clone(),
+                                            owner.read().map(|g| g.get_id()).unwrap_or(0),
                                             weapon,
                                             &pos,
                                         );
