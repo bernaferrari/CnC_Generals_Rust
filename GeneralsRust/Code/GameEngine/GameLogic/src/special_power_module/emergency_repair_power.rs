@@ -284,17 +284,11 @@ impl EmergencyRepairPower {
         &self,
         player_id: ObjectID,
     ) -> Option<Arc<RwLock<crate::object::Object>>> {
-        let list = player_list().read().ok()?;
-        let player = list.get_player(player_id as Int).cloned()?;
-        let player_guard = player.read().ok()?;
-        let owned = player_guard.get_all_objects();
-        drop(player_guard);
-        for object_id in owned {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
-                return Some(obj);
-            }
-        }
-        None
+        crate::special_power_module::resolve_special_power_owner(INVALID_ID, Some(player_id))
+    }
+
+    fn resolve_owner_object_id(&self, player_id: ObjectID) -> Option<ObjectID> {
+        crate::special_power_module::resolve_special_power_owner_id(INVALID_ID, Some(player_id))
     }
 
     fn should_repair_object(&self, obj: &Object, relationship: Relationship) -> Bool {

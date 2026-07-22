@@ -16,6 +16,7 @@ pub mod demoralize_power;
 pub mod fire_weapon_power;
 pub mod integration; // Integration layer with game engine systems
 pub mod ocl_power;
+pub mod owner_resolve;
 pub mod player_money; // Player money/resource system
 pub mod player_science; // Player science/rank system
 pub mod registry;
@@ -55,6 +56,7 @@ pub use area_damage::{
 };
 pub use base_power::{SpecialPowerModule, SpecialPowerModuleData, SpecialPowerModuleInterface};
 pub use cooldown::{CooldownManager, CooldownState};
+pub use owner_resolve::{resolve_special_power_owner, resolve_special_power_owner_id};
 pub use player_money::{
     get_player_money_manager, initialize_player_money, PlayerMoney, PlayerMoneyManager,
 };
