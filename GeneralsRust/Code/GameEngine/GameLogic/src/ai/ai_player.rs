@@ -943,25 +943,39 @@ impl AIPlayer {
         let mut counts: HashMap<String, i32> = HashMap::new();
 
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(kind) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if obj_guard.is_destroyed() || obj_guard.is_effectively_dead() {
+                        return None;
+                    }
+                    if obj_guard.is_kind_of(KindOf::Infantry) {
+                        Some("infantry")
+                    } else if obj_guard.is_kind_of(KindOf::Vehicle) {
+                        Some("vehicle")
+                    } else if obj_guard.is_kind_of(KindOf::Aircraft) {
+                        Some("aircraft")
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_destroyed() || obj_guard.is_effectively_dead() {
-                continue;
-            }
-
-            if obj_guard.is_kind_of(KindOf::Infantry) {
-                *counts.entry("infantry".to_string()).or_insert(0) += 1;
-                total_strength += 1.0;
-            } else if obj_guard.is_kind_of(KindOf::Vehicle) {
-                *counts.entry("vehicle".to_string()).or_insert(0) += 1;
-                total_strength += 2.0;
-            } else if obj_guard.is_kind_of(KindOf::Aircraft) {
-                *counts.entry("aircraft".to_string()).or_insert(0) += 1;
-                total_strength += 3.0;
+            match kind {
+                "infantry" => {
+                    *counts.entry("infantry".to_string()).or_insert(0) += 1;
+                    total_strength += 1.0;
+                }
+                "vehicle" => {
+                    *counts.entry("vehicle".to_string()).or_insert(0) += 1;
+                    total_strength += 2.0;
+                }
+                "aircraft" => {
+                    *counts.entry("aircraft".to_string()).or_insert(0) += 1;
+                    total_strength += 3.0;
+                }
+                _ => {}
             }
         }
 
@@ -1176,46 +1190,51 @@ impl AIPlayer {
             .get_bounding_circle_radius();
 
         for obj_id in partition.get_objects_in_range(pos, radius) {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            // PartitionFilterAlive
-            if obj_guard.is_destroyed() || obj_guard.is_effectively_dead() {
-                continue;
+            let is_blocking_enemy = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    // PartitionFilterAlive
+                    if obj_guard.is_destroyed() || obj_guard.is_effectively_dead() {
+                        return false;
+                    }
+                    // PartitionFilterRejectByKindOf harvester/dozer
+                    if obj_guard.is_kind_of(KindOf::Harvester)
+                        || obj_guard.is_kind_of(KindOf::Dozer)
+                    {
+                        return false;
+                    }
+                    // PartitionFilterRejectByObjectStatus stealthed (unless detected/disguised)
+                    if obj_guard.test_status(ObjectStatusTypes::Stealthed)
+                        && !obj_guard.test_status(ObjectStatusTypes::Detected)
+                        && !obj_guard.test_status(ObjectStatusTypes::Disguised)
+                    {
+                        return false;
+                    }
+                    // PartitionFilterPlayerAffiliation: enemies only
+                    // (ALLOW_ALLIES|ALLOW_NEUTRAL rejected via affiliation=false)
+                    let Some(team_arc) = obj_guard.get_team() else {
+                        return false;
+                    };
+                    let Ok(team) = team_arc.read() else {
+                        return false;
+                    };
+                    if player_guard.get_relationship_with_team(&team) != Relationship::Enemies {
+                        return false;
+                    }
+                    // PartitionFilterInsignificantBuildings(true, false): reject bridges /
+                    // bridge towers as insignificant for placement safety (closest match
+                    // without KINDOF_INSIGNIFICANT_BUILDING enum in port).
+                    if obj_guard.is_kind_of(KindOf::Bridge)
+                        || obj_guard.is_kind_of(KindOf::BridgeTower)
+                    {
+                        return false;
+                    }
+                    true
+                })
+                .unwrap_or(false);
+            if is_blocking_enemy {
+                // Any enemy that passes filters fails safety (C++ getClosestObject != NULL).
+                return false;
             }
-            // PartitionFilterRejectByKindOf harvester/dozer
-            if obj_guard.is_kind_of(KindOf::Harvester) || obj_guard.is_kind_of(KindOf::Dozer) {
-                continue;
-            }
-            // PartitionFilterRejectByObjectStatus stealthed (unless detected/disguised)
-            if obj_guard.test_status(ObjectStatusTypes::Stealthed)
-                && !obj_guard.test_status(ObjectStatusTypes::Detected)
-                && !obj_guard.test_status(ObjectStatusTypes::Disguised)
-            {
-                continue;
-            }
-            // PartitionFilterPlayerAffiliation: enemies only
-            // (ALLOW_ALLIES|ALLOW_NEUTRAL rejected via affiliation=false)
-            let Some(team_arc) = obj_guard.get_team() else {
-                continue;
-            };
-            let Ok(team) = team_arc.read() else {
-                continue;
-            };
-            if player_guard.get_relationship_with_team(&team) != Relationship::Enemies {
-                continue;
-            }
-            // PartitionFilterInsignificantBuildings(true, false): reject bridges /
-            // bridge towers as insignificant for placement safety (closest match
-            // without KINDOF_INSIGNIFICANT_BUILDING enum in port).
-            if obj_guard.is_kind_of(KindOf::Bridge) || obj_guard.is_kind_of(KindOf::BridgeTower) {
-                continue;
-            }
-            // Any enemy that passes filters fails safety (C++ getClosestObject != NULL).
-            return false;
         }
         true
     }
@@ -5476,18 +5495,11 @@ impl AIPlayer {
                             let obj_id = info.get_object_id();
                             if obj_id != INVALID_ID {
                                 // C++: if factory->getControllingPlayer() != m_player → clear ID.
-                                let wrong_owner = if let Some(arc) =
-                                    OBJECT_REGISTRY.get_object(obj_id)
-                                {
-                                    arc.read()
-                                        .ok()
-                                        .map(|g| {
-                                            g.get_controlling_player_id() != Some(self.player_id)
-                                        })
-                                        .unwrap_or(false)
-                                } else {
-                                    false
-                                };
+                                let wrong_owner = OBJECT_REGISTRY
+                                    .with_object(obj_id, |g| {
+                                        g.get_controlling_player_id() != Some(self.player_id)
+                                    })
+                                    .unwrap_or(false);
                                 if wrong_owner {
                                     info.set_object_id(INVALID_ID);
                                 } else if let Some(found) = self.factory_candidate(
@@ -6843,44 +6855,56 @@ impl AIPlayer {
         };
 
         for obj_id in object_ids {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_destroyed() || !obj_guard.is_kind_of(KindOf::Dozer) {
-                continue;
-            }
-            let Some(ai) = obj_guard.get_ai_update_interface() else {
-                continue;
-            };
-            let Ok(mut ai_guard) = ai.lock() else {
-                continue;
-            };
-
-            // Must have dozer AI; capture task flags before optional truck check.
-            let (has_dozer, build_pending, any_pending) =
-                match ai_guard.get_dozer_ai_update_interface_mut() {
-                    Some(dozer_ai) => (
-                        true,
-                        dozer_ai.is_task_pending(DozerTask::Build),
-                        dozer_ai.is_any_task_pending(),
-                    ),
-                    None => (false, false, false),
-                };
-            if !has_dozer {
-                continue;
-            }
-            if !any_pending {
-                // Don't steal supply-ferrying workers (GLA).
-                if let Some(truck) = ai_guard.get_supply_truck_ai_interface() {
-                    if truck.is_currently_ferrying_supplies()
-                        || truck.is_forced_into_wanting_state()
-                    {
-                        continue;
+            let Some((build_pending, any_pending, ferrying, pos)) = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if obj_guard.is_destroyed() || !obj_guard.is_kind_of(KindOf::Dozer) {
+                        return None;
                     }
-                }
+                    let Some(ai) = obj_guard.get_ai_update_interface() else {
+                        return None;
+                    };
+                    let Ok(mut ai_guard) = ai.lock() else {
+                        return None;
+                    };
+
+                    // Must have dozer AI; capture task flags before optional truck check.
+                    let (has_dozer, build_pending, any_pending) =
+                        match ai_guard.get_dozer_ai_update_interface_mut() {
+                            Some(dozer_ai) => (
+                                true,
+                                dozer_ai.is_task_pending(DozerTask::Build),
+                                dozer_ai.is_any_task_pending(),
+                            ),
+                            None => (false, false, false),
+                        };
+                    if !has_dozer {
+                        return None;
+                    }
+                    let ferrying = if !any_pending {
+                        // Don't steal supply-ferrying workers (GLA).
+                        ai_guard
+                            .get_supply_truck_ai_interface()
+                            .map(|truck| {
+                                truck.is_currently_ferrying_supplies()
+                                    || truck.is_forced_into_wanting_state()
+                            })
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    };
+                    Some((
+                        build_pending,
+                        any_pending,
+                        ferrying,
+                        *obj_guard.get_position(),
+                    ))
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            if ferrying {
+                continue;
             }
 
             if Some(obj_id) == self.repair_dozer {
@@ -6899,7 +6923,6 @@ impl AIPlayer {
             }
 
             if idle {
-                let pos = obj_guard.get_position();
                 let dx = location.x - pos.x;
                 let dy = location.y - pos.y;
                 let dist_sqr = dx * dx + dy * dy;
@@ -7162,14 +7185,14 @@ impl AIPlayer {
         let Some(warehouse_id) = warehouse_id else {
             return Ok(());
         };
-        let Some(warehouse_arc) = OBJECT_REGISTRY.get_object(warehouse_id) else {
+        let Some((mut location, radius)) = OBJECT_REGISTRY.with_object(warehouse_id, |warehouse| {
+            (
+                *warehouse.get_position(),
+                warehouse.get_geometry_info().get_bounding_circle_radius() * 0.8,
+            )
+        }) else {
             return Ok(());
         };
-        let Ok(warehouse) = warehouse_arc.read() else {
-            return Ok(());
-        };
-        let mut location = *warehouse.get_position();
-        let radius = warehouse.get_geometry_info().get_bounding_circle_radius() * 0.8;
 
         // Offset toward enemy structure bounds center.
         let enemy_ndx = self.get_skirmish_enemy_player_index();
@@ -7184,7 +7207,6 @@ impl AIPlayer {
                 location.y -= oy * radius;
             }
         }
-        drop(warehouse);
 
         // Resolve team members (named team or default).
         let members: Vec<ObjectID> = {
@@ -7211,17 +7233,13 @@ impl AIPlayer {
         // C++: AIGroup::groupGuardPosition(&location, GUARDMODE_NORMAL, CMD_FROM_SCRIPT)
         // Issue per-member guard with script command source (not the no-op trait stub).
         for member_id in members {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) else {
-                continue;
-            };
-            let Ok(obj_g) = obj_arc.read() else {
-                continue;
-            };
-            let Some(ai) = obj_g.get_ai_update_interface() else {
-                continue;
-            };
-            // AIUpdateInterfaceExt::ai_guard_position(pos, mode, cmd_source)
-            ai.ai_guard_position(&location, GuardMode::Normal, CommandSourceType::FromScript);
+            if let Some(ai) = OBJECT_REGISTRY
+                .with_object(member_id, |obj_g| obj_g.get_ai_update_interface())
+                .flatten()
+            {
+                // AIUpdateInterfaceExt::ai_guard_position(pos, mode, cmd_source)
+                ai.ai_guard_position(&location, GuardMode::Normal, CommandSourceType::FromScript);
+            }
         }
         Ok(())
     }
