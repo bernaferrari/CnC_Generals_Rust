@@ -241,85 +241,87 @@ impl MaxHealthUpgradeInner {
     /// Apply max health upgrade to object
     /// Matches C++ MaxHealthUpgrade::upgradeImplementation from MaxHealthUpgrade.cpp lines 56-68
     fn apply_max_health(&mut self) -> Result<(), String> {
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            // C++ doesn't explicitly check for null object in MaxHealthUpgrade,
-            // but getObject() would return null if not found and we'd just skip the upgrade
-            return Ok(());
-        };
+        let add = self.data.add_max_health();
+        let change_type = self.data.change_type();
+        let mut original = self.original_max_health;
+        let result =
+            OBJECT_REGISTRY.with_object_mut(self.object_id, |object| -> Result<(), String> {
+                if let Some(body) = &object.get_body() {
+                    let mut body_guard = body
+                        .lock()
+                        .map_err(|_| "MaxHealthUpgrade failed to lock body".to_string())?;
 
-        let object = object
-            .write()
-            .map_err(|_| "MaxHealthUpgrade failed to lock object for writing".to_string())?;
+                    if original.is_none() {
+                        original = Some(body_guard.get_max_health());
+                    }
 
-        // C++ code (lines 56-68):
-        // const MaxHealthUpgradeModuleData *data = getMaxHealthUpgradeModuleData();
-        // Object *obj = getObject();
-        // BodyModuleInterface *body = obj->getBodyModule();
-        // if( body ) {
-        //     body->setMaxHealth( body->getMaxHealth() + data->m_addMaxHealth, data->m_maxHealthChangeType );
-        // }
-        if let Some(body) = &object.get_body() {
-            let mut body_guard = body
-                .lock()
-                .map_err(|_| "MaxHealthUpgrade failed to lock body".to_string())?;
+                    let current_max = body_guard.get_max_health();
+                    let new_max = current_max + add;
 
-            // Store original max health for later restoration (Rust enhancement for remove_upgrade)
-            // C++ doesn't have upgrade removal, so this is a Rust-specific feature
-            if self.original_max_health.is_none() {
-                self.original_max_health = Some(body_guard.get_max_health());
+                    body_guard
+                        .set_max_health(new_max, change_type)
+                        .map_err(|e| {
+                            format!("MaxHealthUpgrade failed to set max health: {:?}", e)
+                        })?;
+                }
+                Ok(())
+            });
+        match result {
+            None => Ok(()),
+            Some(Ok(())) => {
+                self.original_max_health = original;
+                Ok(())
             }
-
-            // Match C++ exactly: body->setMaxHealth( body->getMaxHealth() + data->m_addMaxHealth, data->m_maxHealthChangeType )
-            let current_max = body_guard.get_max_health();
-            let new_max = current_max + self.data.add_max_health();
-
-            body_guard
-                .set_max_health(new_max, self.data.change_type())
-                .map_err(|e| format!("MaxHealthUpgrade failed to set max health: {:?}", e))?;
+            Some(Err(e)) => Err(e),
         }
-
-        Ok(())
     }
 
     #[allow(dead_code)]
     fn remove_max_health(&mut self) -> Result<(), String> {
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return Err(format!(
-                "MaxHealthUpgrade could not find object {} in registry",
-                self.object_id
-            ));
-        };
+        let add = self.data.add_max_health();
+        let change_type = self.data.change_type();
+        let mut original = self.original_max_health.take();
+        let object_id = self.object_id;
+        let result =
+            OBJECT_REGISTRY.with_object_mut(self.object_id, |object| -> Result<(), String> {
+                if let Some(body) = &object.get_body() {
+                    let mut body_guard = body
+                        .lock()
+                        .map_err(|_| "MaxHealthUpgrade failed to lock body".to_string())?;
 
-        let object = object
-            .write()
-            .map_err(|_| "MaxHealthUpgrade failed to lock object for writing".to_string())?;
-
-        if let Some(body) = &object.get_body() {
-            let mut body_guard = body
-                .lock()
-                .map_err(|_| "MaxHealthUpgrade failed to lock body".to_string())?;
-
-            // Restore original max health if we have it stored
-            if let Some(original) = self.original_max_health {
-                body_guard
-                    .set_max_health(original, self.data.change_type())
-                    .map_err(|e| {
-                        format!("MaxHealthUpgrade failed to restore max health: {:?}", e)
-                    })?;
-                self.original_max_health = None;
-            } else {
-                // Otherwise just subtract what we added
-                let current_max = body_guard.get_max_health();
-                let new_max = current_max - self.data.add_max_health();
-                body_guard
-                    .set_max_health(new_max, self.data.change_type())
-                    .map_err(|e| {
-                        format!("MaxHealthUpgrade failed to reduce max health: {:?}", e)
-                    })?;
+                    if let Some(orig) = original.take() {
+                        body_guard.set_max_health(orig, change_type).map_err(|e| {
+                            format!("MaxHealthUpgrade failed to restore max health: {:?}", e)
+                        })?;
+                    } else {
+                        let current_max = body_guard.get_max_health();
+                        let new_max = current_max - add;
+                        body_guard
+                            .set_max_health(new_max, change_type)
+                            .map_err(|e| {
+                                format!("MaxHealthUpgrade failed to reduce max health: {:?}", e)
+                            })?;
+                    }
+                }
+                Ok(())
+            });
+        match result {
+            None => {
+                self.original_max_health = original;
+                Err(format!(
+                    "MaxHealthUpgrade could not find object {} in registry",
+                    object_id
+                ))
+            }
+            Some(Ok(())) => {
+                self.original_max_health = original;
+                Ok(())
+            }
+            Some(Err(e)) => {
+                self.original_max_health = original;
+                Err(e)
             }
         }
-
-        Ok(())
     }
 }
 

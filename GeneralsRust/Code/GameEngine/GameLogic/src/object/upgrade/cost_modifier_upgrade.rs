@@ -137,30 +137,18 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
         }
         use crate::object::registry::OBJECT_REGISTRY;
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let kind = self.data.kind_of();
+        let percentage = self.data.percentage();
+        let Some(()) = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+            if let Some(player) = object_guard.get_controlling_player() {
+                if let Ok(mut player_guard) = player.write() {
+                    player_guard.add_kind_of_production_cost_change(kind, percentage);
+                }
+            }
+        }) else {
             log::warn!("CostModifierUpgrade: Object {} not found", self.object_id);
             return false;
         };
-
-        let object_guard = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "CostModifierUpgrade: Failed to lock object {}",
-                    self.object_id
-                );
-                return false;
-            }
-        };
-
-        if let Some(player) = object_guard.get_controlling_player() {
-            if let Ok(mut player_guard) = player.write() {
-                player_guard.add_kind_of_production_cost_change(
-                    self.data.kind_of(),
-                    self.data.percentage(),
-                );
-            }
-        }
 
         self.applied = true;
         true

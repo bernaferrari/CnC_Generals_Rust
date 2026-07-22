@@ -148,19 +148,15 @@ impl UpdateModuleInterface for WeaponBonusUpdate {
             if let Some(contain) = target.get_contain() {
                 if let Ok(contain_guard) = contain.lock() {
                     for contained_id in contain_guard.get_contained_objects() {
-                        if let Some(contained_arc) = OBJECT_REGISTRY.get_object(*contained_id) {
-                            if let Ok(mut contained) = contained_arc.write() {
-                                if contained.is_kind_of_multi(
-                                    self.module_data.required_affect_kind_of,
-                                    self.module_data.forbidden_affect_kind_of,
-                                ) {
-                                    contained.do_temp_weapon_bonus(
-                                        self.module_data.bonus_condition_type,
-                                        self.module_data.bonus_duration,
-                                    );
-                                }
+                        let required = self.module_data.required_affect_kind_of;
+                        let forbidden = self.module_data.forbidden_affect_kind_of;
+                        let condition = self.module_data.bonus_condition_type;
+                        let duration = self.module_data.bonus_duration;
+                        let _ = OBJECT_REGISTRY.with_object_mut(*contained_id, |contained| {
+                            if contained.is_kind_of_multi(required, forbidden) {
+                                contained.do_temp_weapon_bonus(condition, duration);
                             }
-                        }
+                        });
                     }
                 }
             }

@@ -413,54 +413,58 @@ impl NeutronMissileSlowDeathUpdate {
 
         let candidates = partition.get_objects_in_range(&missile_pos, blast_info.outer_radius);
         for id in candidates {
-            let Some(other_arc) = OBJECT_REGISTRY.get_object(id) else {
-                continue;
-            };
-            let Ok(mut other) = other_arc.write() else {
-                continue;
-            };
+            let scorch_size = self.module_data.scorch_size;
+            let place_scorch = !self.scorch_placed;
+            let did_scorch = OBJECT_REGISTRY.with_object_mut(id, |other| {
+                let other_pos = *other.get_position();
+                let force_vector = other_pos - missile_pos;
 
-            let other_pos = *other.get_position();
-            let force_vector = other_pos - missile_pos;
-
-            if let Some(module) = other.find_update_module("ToppleUpdate") {
-                module.with_module(|module| {
-                    if let Some(topple) = module.get_topple_control_interface() {
-                        topple.apply_toppling_force(
-                            force_vector.x,
-                            force_vector.y,
-                            force_vector.z,
-                            blast_info.topple_speed,
-                            TOPPLE_OPTIONS_NO_BOUNCE | TOPPLE_OPTIONS_NO_FX,
-                        );
-                    }
-                });
-            }
-
-            let dist = force_vector.length();
-            let amount = if dist <= blast_info.inner_radius {
-                blast_info.max_damage
-            } else {
-                let denom = (blast_info.outer_radius - blast_info.inner_radius + 0.01).max(0.01);
-                let percent = (1.0 - ((dist - blast_info.inner_radius) / denom)).clamp(0.0, 1.0);
-                let mut scaled = blast_info.max_damage * percent;
-                if scaled < blast_info.min_damage {
-                    scaled = blast_info.min_damage;
+                if let Some(module) = other.find_update_module("ToppleUpdate") {
+                    module.with_module(|module| {
+                        if let Some(topple) = module.get_topple_control_interface() {
+                            topple.apply_toppling_force(
+                                force_vector.x,
+                                force_vector.y,
+                                force_vector.z,
+                                blast_info.topple_speed,
+                                TOPPLE_OPTIONS_NO_BOUNCE | TOPPLE_OPTIONS_NO_FX,
+                            );
+                        }
+                    });
                 }
-                scaled
-            };
 
-            if amount > 0.0 {
-                damage_info.input.amount = amount;
-                damage_info.sync_from_input();
-                let _ = other.attempt_damage(&mut damage_info);
+                let dist = force_vector.length();
+                let amount = if dist <= blast_info.inner_radius {
+                    blast_info.max_damage
+                } else {
+                    let denom =
+                        (blast_info.outer_radius - blast_info.inner_radius + 0.01).max(0.01);
+                    let percent =
+                        (1.0 - ((dist - blast_info.inner_radius) / denom)).clamp(0.0, 1.0);
+                    let mut scaled = blast_info.max_damage * percent;
+                    if scaled < blast_info.min_damage {
+                        scaled = blast_info.min_damage;
+                    }
+                    scaled
+                };
 
-                if !self.scorch_placed {
-                    if let Some(client) = TheGameClient::get() {
-                        client.add_scorch(&missile_pos, self.module_data.scorch_size, SCORCH_1);
-                        self.scorch_placed = true;
+                let mut scorched = false;
+                if amount > 0.0 {
+                    damage_info.input.amount = amount;
+                    damage_info.sync_from_input();
+                    let _ = other.attempt_damage(&mut damage_info);
+
+                    if place_scorch {
+                        if let Some(client) = TheGameClient::get() {
+                            client.add_scorch(&missile_pos, scorch_size, SCORCH_1);
+                            scorched = true;
+                        }
                     }
                 }
+                scorched
+            });
+            if did_scorch == Some(true) {
+                self.scorch_placed = true;
             }
         }
     }
@@ -477,22 +481,17 @@ impl NeutronMissileSlowDeathUpdate {
         let missile_pos = *obj.get_position();
         let candidates = partition.get_objects_in_range(&missile_pos, blast_info.outer_radius);
         for id in candidates {
-            let Some(other_arc) = OBJECT_REGISTRY.get_object(id) else {
-                continue;
-            };
-            let Ok(mut other) = other_arc.write() else {
-                continue;
-            };
+            let _ = OBJECT_REGISTRY.with_object_mut(id, |other| {
+                other.set_model_condition_state(crate::common::ModelConditionFlags::BURNED);
 
-            other.set_model_condition_state(crate::common::ModelConditionFlags::BURNED);
-
-            if other.is_kind_of(KindOf::Shrubbery) {
-                if let Some(drawable) = other.get_drawable() {
-                    if let Ok(mut draw_guard) = drawable.write() {
-                        draw_guard.set_shadows_enabled(false);
+                if other.is_kind_of(KindOf::Shrubbery) {
+                    if let Some(drawable) = other.get_drawable() {
+                        if let Ok(mut draw_guard) = drawable.write() {
+                            draw_guard.set_shadows_enabled(false);
+                        }
                     }
                 }
-            }
+            });
         }
     }
 }

@@ -223,38 +223,35 @@ impl ArmorUpgradeInner {
     /// Apply armor upgrade to object
     /// Matches C++ ArmorUpgrade::upgradeImplementation from ArmorUpgrade.cpp lines 63-81
     fn apply_armor(&self, upgrade_mask: UpgradeMaskType) -> Result<(), String> {
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            // C++ just returns early if object is null (line 69-70)
-            return Ok(());
-        };
-
-        let object = object
-            .write()
-            .map_err(|_| "ArmorUpgrade failed to lock object for writing".to_string())?;
-
-        // C++ code: BodyModuleInterface* body = obj->getBodyModule();
-        // if ( body ) body->setArmorSetFlag( ARMORSET_PLAYER_UPGRADE );
-        // (lines 72-74)
-        if let Some(body) = &object.get_body_module() {
-            let mut body_guard = body
-                .lock()
-                .map_err(|_| "ArmorUpgrade failed to lock body".to_string())?;
-
-            body_guard
-                .set_armor_set_flag(ArmorSetType::PlayerUpgrade)
-                .map_err(|e| format!("ArmorUpgrade failed to set armor: {:?}", e))?;
-        }
-
         let chemical_suits_mask = UpgradeMaskType::from_bits_retain(
             upgrade_mask_for_name("Upgrade_AmericaChemicalSuits").bits(),
         );
-        if upgrade_mask.intersects(chemical_suits_mask) {
-            if let Some(drawable) = object.get_drawable() {
-                drawable.set_terrain_decal(TerrainDecalType::ChemSuit);
-            }
-        }
+        let apply_chem = upgrade_mask.intersects(chemical_suits_mask);
+        match OBJECT_REGISTRY.with_object_mut(self.object_id, |object| -> Result<(), String> {
+            // C++ code: BodyModuleInterface* body = obj->getBodyModule();
+            // if ( body ) body->setArmorSetFlag( ARMORSET_PLAYER_UPGRADE );
+            // (lines 72-74)
+            if let Some(body) = &object.get_body_module() {
+                let mut body_guard = body
+                    .lock()
+                    .map_err(|_| "ArmorUpgrade failed to lock body".to_string())?;
 
-        Ok(())
+                body_guard
+                    .set_armor_set_flag(ArmorSetType::PlayerUpgrade)
+                    .map_err(|e| format!("ArmorUpgrade failed to set armor: {:?}", e))?;
+            }
+
+            if apply_chem {
+                if let Some(drawable) = object.get_drawable() {
+                    drawable.set_terrain_decal(TerrainDecalType::ChemSuit);
+                }
+            }
+            Ok(())
+        }) {
+            None => Ok(()),
+            Some(Ok(())) => Ok(()),
+            Some(Err(e)) => Err(e),
+        }
     }
 
     fn remove_armor(&self) -> Result<(), String> {

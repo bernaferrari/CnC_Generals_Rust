@@ -392,12 +392,9 @@ impl CreateCrateDie {
         };
         drop(player_lock);
 
-        let Some(crate_arc) = OBJECT_REGISTRY.get_object(crate_id) else {
-            return Ok(());
-        };
-        if let Ok(mut crate_obj) = crate_arc.write() {
-            let _ = crate_obj.set_team(Some(team_arc));
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(crate_id, |crate_obj| {
+            let _ = crate_obj.set_team(Some(team_arc.clone()));
+        });
         Ok(())
     }
 

@@ -1060,12 +1060,13 @@ impl GenerateMinefieldBehavior {
         if let Some(partition) = crate::helpers::ThePartitionManager::get() {
             let objects_near = partition.get_objects_in_range(position, shrink_radius.max(0.0));
             for obj_id in objects_near {
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
-                    if let Ok(obj_guard) = obj.read() {
-                        if obj_guard.is_kind_of(crate::common::KindOf::Structure) {
-                            return Err(BehaviorError::NoSpaceAvailable);
-                        }
-                    }
+                if crate::object::registry::OBJECT_REGISTRY
+                    .with_object(obj_id, |obj_guard| {
+                        obj_guard.is_kind_of(crate::common::KindOf::Structure)
+                    })
+                    .unwrap_or(false)
+                {
+                    return Err(BehaviorError::NoSpaceAvailable);
                 }
             }
         }
@@ -1132,21 +1133,23 @@ impl GenerateMinefieldBehavior {
     /// Get object geometry information
     /// C++ Reference: Uses getObject()->getGeometryInfo()
     fn get_object_geometry(&self) -> BehaviorResult<GeometryInfo> {
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(obj_guard) = obj.read() {
+        if let Some(info) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
                 let pos = obj_guard.get_position();
                 let geom = obj_guard.get_geometry_info();
                 let bounds = geom.bounds.clone();
                 let major_radius = ((bounds.max.x - bounds.min.x).abs()) * 0.5;
                 let minor_radius = ((bounds.max.y - bounds.min.y).abs()) * 0.5;
-                return Ok(GeometryInfo {
+                GeometryInfo {
                     center: Coord3D::new(pos.x, pos.y, pos.z),
                     major_radius,
                     minor_radius,
                     rotation: obj_guard.get_orientation(),
                     is_circular: false,
-                });
-            }
+                }
+            })
+        {
+            return Ok(info);
         }
         // Fallback defaults
         Ok(GeometryInfo {

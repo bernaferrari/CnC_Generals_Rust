@@ -416,19 +416,17 @@ impl StatusBitsUpgradeInner {
     }
 
     fn apply_status_bits(&self) -> Result<(), String> {
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return Err(format!(
+        let data = self.data.clone();
+        let object_id = self.object_id;
+        match OBJECT_REGISTRY.with_object_mut(self.object_id, |object| {
+            Self::apply_masks_to_object(data.as_ref(), object);
+        }) {
+            Some(()) => Ok(()),
+            None => Err(format!(
                 "StatusBitsUpgrade could not find object {} in registry",
-                self.object_id
-            ));
-        };
-
-        let mut object = object
-            .write()
-            .map_err(|_| "StatusBitsUpgrade failed to lock object for writing".to_string())?;
-
-        Self::apply_masks_to_object(self.data.as_ref(), &mut object);
-        Ok(())
+                object_id
+            )),
+        }
     }
 
     fn apply_masks_to_object(data: &StatusBitsUpgradeModuleData, object: &mut Object) {

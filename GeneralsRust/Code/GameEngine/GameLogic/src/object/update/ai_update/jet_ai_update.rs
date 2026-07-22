@@ -1917,7 +1917,7 @@ impl JetAIUpdate {
             return;
         }
         self.targeted_by
-            .retain(|id| OBJECT_REGISTRY.get_object(*id).is_some());
+            .retain(|id| OBJECT_REGISTRY.with_object(*id, |_| ()).is_some());
         if self.targeted_by.is_empty() {
             self.untargetable_expire_frame = 0;
         }

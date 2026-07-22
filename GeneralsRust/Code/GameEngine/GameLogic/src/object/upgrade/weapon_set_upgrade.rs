@@ -128,20 +128,12 @@ impl UpgradeModuleInterface for WeaponSetUpgrade {
         use crate::object::registry::OBJECT_REGISTRY;
         use crate::weapon::WeaponSetType;
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
+            object_guard.set_weapon_set_flag(WeaponSetType::PlayerUpgrade);
+        }) else {
             log::warn!("WeaponSetUpgrade: Object {} not found", self.object_id);
             return false;
         };
-
-        let mut object_guard = match object.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!("WeaponSetUpgrade: Failed to lock object {}", self.object_id);
-                return false;
-            }
-        };
-
-        object_guard.set_weapon_set_flag(WeaponSetType::PlayerUpgrade);
         log::debug!(
             "Applied player-upgrade weapon set flag to object {}",
             self.object_id

@@ -158,28 +158,20 @@ impl UpgradeModuleInterface for GrantScienceUpgrade {
             return true;
         }
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let science = self.science_type;
+        if OBJECT_REGISTRY
+            .with_object(self.object_id, |object_guard| {
+                if let Some(player) = object_guard.get_controlling_player() {
+                    if let Ok(mut player_guard) = player.write() {
+                        player_guard.grant_science(science);
+                    }
+                }
+            })
+            .is_none()
+        {
             log::warn!("GrantScienceUpgrade: Object {} not found", self.object_id);
             self.applied = true;
             return true;
-        };
-
-        let object_guard = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "GrantScienceUpgrade: Failed to lock object {}",
-                    self.object_id
-                );
-                self.applied = true;
-                return true;
-            }
-        };
-
-        if let Some(player) = object_guard.get_controlling_player() {
-            if let Ok(mut player_guard) = player.write() {
-                player_guard.grant_science(self.science_type);
-            }
         }
 
         // C++ marks upgrade executed even if player is missing; keep parity.

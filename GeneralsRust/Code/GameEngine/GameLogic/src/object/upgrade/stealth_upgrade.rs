@@ -101,22 +101,20 @@ impl StealthUpgrade {
     /// Apply the upgrade
     /// Matches C++ upgradeImplementation lines 27-42
     pub fn upgrade_implementation(&mut self) -> Result<(), String> {
-        let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            // The logic that does the stealthupdate will notice this and start stealthing
+            // C++ line 30: me->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_CAN_STEALTH ) );
+            guard.set_status(ObjectStatusMaskType::CAN_STEALTH, true);
+
+            // Grant stealth to spawns if applicable (C++ lines 33-41)
+            if guard.is_kind_of(KindOf::SpawnsAreTheWeapons) {
+                let _ = guard.with_spawn_behavior_full_interface(|spawn_behavior| {
+                    let _ = spawn_behavior.give_slaves_stealth_upgrade(true);
+                });
+            }
+        }) else {
             return Err("Object not found".to_string());
         };
-
-        let mut guard = obj.write().map_err(|_| "Lock failed")?;
-
-        // The logic that does the stealthupdate will notice this and start stealthing
-        // C++ line 30: me->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_CAN_STEALTH ) );
-        guard.set_status(ObjectStatusMaskType::CAN_STEALTH, true);
-
-        // Grant stealth to spawns if applicable (C++ lines 33-41)
-        if guard.is_kind_of(KindOf::SpawnsAreTheWeapons) {
-            let _ = guard.with_spawn_behavior_full_interface(|spawn_behavior| {
-                let _ = spawn_behavior.give_slaves_stealth_upgrade(true);
-            });
-        }
 
         self.applied = true;
         debug!("Stealth upgrade applied to object {}", self.object_id);

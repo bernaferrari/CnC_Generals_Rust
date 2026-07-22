@@ -621,17 +621,15 @@ impl RtsCommandFactory {
     fn estimate_move_time(&self, objects: &[ObjectID], destination: Coord3D) -> UnsignedInt {
         let mut max_distance = 0.0f32;
         for &object_id in objects {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(dist) = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                let pos = obj_guard.get_position();
+                let dx = pos.x - destination.x;
+                let dy = pos.y - destination.y;
+                let dz = pos.z - destination.z;
+                (dx * dx + dy * dy + dz * dz).sqrt()
+            }) else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let pos = obj_guard.get_position();
-            let dx = pos.x - destination.x;
-            let dy = pos.y - destination.y;
-            let dz = pos.z - destination.z;
-            let dist = (dx * dx + dy * dy + dz * dz).sqrt();
             if dist > max_distance {
                 max_distance = dist;
             }

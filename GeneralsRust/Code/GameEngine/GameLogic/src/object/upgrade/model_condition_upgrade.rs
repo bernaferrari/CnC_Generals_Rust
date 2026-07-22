@@ -134,26 +134,15 @@ impl UpgradeModuleInterface for ModelConditionUpgrade {
         }
         use crate::object::registry::OBJECT_REGISTRY;
 
-        let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let flag = self.data.condition_flag();
+        let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
+            if !flag.is_empty() {
+                let _ = object_guard.set_model_condition_flags(flag);
+            }
+        }) else {
             log::warn!("ModelConditionUpgrade: Object {} not found", self.object_id);
             return false;
         };
-
-        let mut object_guard = match object.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "ModelConditionUpgrade: Failed to lock object {}",
-                    self.object_id
-                );
-                return false;
-            }
-        };
-
-        let flag = self.data.condition_flag();
-        if !flag.is_empty() {
-            let _ = object_guard.set_model_condition_flags(flag);
-        }
 
         self.applied = true;
         true
