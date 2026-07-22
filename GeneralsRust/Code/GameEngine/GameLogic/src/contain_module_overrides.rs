@@ -1475,8 +1475,15 @@ fn spawn_behavior_module_factory(
     let owner =
         TheGameLogic::find_object_by_id(owner_id).expect("SpawnBehavior requires a valid object");
     let data_arc = cloned_module_data::<SpawnBehaviorModuleData>("SpawnBehavior", &module_data);
-    let behavior = SpawnBehavior::new_with_data(owner, data_arc.clone())
-        .expect("SpawnBehavior failed to initialize");
+    let behavior = SpawnBehavior::new_with_data(
+        owner
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID),
+        data_arc.clone(),
+    )
+    .expect("SpawnBehavior failed to initialize");
     Box::new(SpawnBehaviorModule::new(
         behavior,
         &AsciiString::from("SpawnBehavior"),
