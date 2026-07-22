@@ -276,9 +276,9 @@ pub struct Object {
     /// Unique identifier
     pub id: ObjectId,
 
-    /// Link to the GameEngine crate's full Object (ObjectFactory-created).
-    /// When Some, this object has a full module system (AI, weapons, physics, drawables).
-    /// When None, this is a lightweight visual-only object.
+    /// Optional dual-crate factory id (metadata only). Host properties never
+    /// dual-read OBJECT_REGISTRY — Main store is sole authority for pose/HP/alive.
+    /// Bridge create may still stamp this when GENERALS_BRIDGE_ENGINE_OBJECTS is set.
     pub engine_object_id: Option<u32>,
 
     /// Team ownership
@@ -1956,43 +1956,11 @@ impl Object {
     }
 
     pub fn is_alive(&self) -> bool {
-        if Self::engine_bridge_active() {
-            if let Some(engine_id) = self.engine_object_id {
-                if let Some(alive) = Self::read_engine_is_alive(engine_id) {
-                    return alive;
-                }
-            }
-        }
         !self.status.destroyed && self.health.is_alive()
     }
 
-    /// OBJECT_REGISTRY dual-world reads/writes only when bridge is explicitly enabled.
-    #[inline]
-    fn engine_bridge_active() -> bool {
-        crate::gameworld_shadow::engine_object_bridge_enabled()
-    }
-
-    fn read_engine_is_alive(engine_id: u32) -> Option<bool> {
-        let obj = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)?;
-        let guard = obj.read().ok()?;
-        Some(guard.is_alive())
-    }
-
     pub fn get_health_percentage(&self) -> f32 {
-        if Self::engine_bridge_active() {
-            if let Some(engine_id) = self.engine_object_id {
-                if let Some(pct) = Self::read_engine_health_percentage(engine_id) {
-                    return pct;
-                }
-            }
-        }
         self.health.percentage()
-    }
-
-    fn read_engine_health_percentage(engine_id: u32) -> Option<f32> {
-        let obj = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)?;
-        let guard = obj.read().ok()?;
-        Some(guard.get_health_percentage())
     }
 
     pub fn is_constructed(&self) -> bool {
@@ -3045,79 +3013,19 @@ impl Object {
     }
 
     pub fn get_position(&self) -> Vec3 {
-        if Self::engine_bridge_active() {
-            if let Some(engine_id) = self.engine_object_id {
-                if let Some(pos) = Self::read_engine_position(engine_id) {
-                    return pos;
-                }
-            }
-        }
         self.thing.get_position()
-    }
-
-    fn read_engine_position(engine_id: u32) -> Option<Vec3> {
-        let obj = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)?;
-        let guard = obj.read().ok()?;
-        let pos = guard.get_position(); // Coord3D is glam::Vec3
-        Some(Vec3::new(pos.x, pos.y, pos.z))
     }
 
     pub fn set_position(&mut self, position: Vec3) {
         self.thing.set_position(position);
-        // Propagate only when OBJECT_REGISTRY bridge is explicitly enabled.
-        if Self::engine_bridge_active() {
-            if let Some(engine_id) = self.engine_object_id {
-                Self::write_engine_position(engine_id, position);
-            }
-        }
-    }
-
-    fn write_engine_position(engine_id: u32, position: Vec3) {
-        if let Some(obj) = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id) {
-            if let Ok(mut guard) = obj.write() {
-                // Convert glam 0.24 Vec3 -> gamelogic Coord3D (glam 0.28)
-                let coord = gamelogic::common::Coord3D::new(position.x, position.y, position.z);
-                if let Err(err) = guard.set_position(&coord) {
-                    log::warn!("failed to synchronize bridge object {engine_id} position: {err}");
-                }
-            }
-        }
     }
 
     pub fn get_orientation(&self) -> f32 {
-        if Self::engine_bridge_active() {
-            if let Some(engine_id) = self.engine_object_id {
-                if let Some(angle) = Self::read_engine_orientation(engine_id) {
-                    return angle;
-                }
-            }
-        }
         self.thing.get_orientation()
-    }
-
-    fn read_engine_orientation(engine_id: u32) -> Option<f32> {
-        let obj = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)?;
-        let guard = obj.read().ok()?;
-        Some(guard.get_orientation())
     }
 
     pub fn set_orientation(&mut self, angle: f32) {
         self.thing.set_orientation(angle);
-        if Self::engine_bridge_active() {
-            if let Some(engine_id) = self.engine_object_id {
-                if let Some(obj) =
-                    gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)
-                {
-                    if let Ok(mut guard) = obj.write() {
-                        if let Err(err) = guard.set_orientation(angle) {
-                            log::warn!(
-                                "failed to synchronize bridge object {engine_id} orientation: {err}"
-                            );
-                        }
-                    }
-                }
-            }
-        }
     }
 
     pub fn get_transform_matrix(&self) -> Mat4 {
