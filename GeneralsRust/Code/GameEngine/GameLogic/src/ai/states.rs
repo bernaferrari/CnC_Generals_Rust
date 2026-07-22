@@ -1933,8 +1933,9 @@ impl AIIdleState {
                                 if !ultra_accurate {
                                     let pos = owner_guard.get_position();
                                     if pos.x != 0.0 || pos.y != 0.0 || pos.z != 0.0 {
+                                        let owner_id = owner_guard.get_id();
                                         let _ = crate::ai::pathfind::update_goal_for_object(
-                                            &owner,
+                                            owner_id,
                                             &pos,
                                             crate::ai::pathfind::PathfindLayerEnum::Ground,
                                         );
@@ -1954,7 +1955,7 @@ impl AIIdleState {
                                                 }
                                             }
                                             let _ = crate::ai::pathfind::update_goal_for_object(
-                                                &owner,
+                                                owner_id,
                                                 &snapped,
                                                 crate::ai::pathfind::PathfindLayerEnum::Ground,
                                             );
