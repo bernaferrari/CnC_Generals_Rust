@@ -8,7 +8,7 @@
 
 use std::any::Any;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock};
 
 use super::behavior_module::{
     xfer_update_module_base_state, BehaviorModuleInterface, CountermeasuresBehaviorInterface,
@@ -422,7 +422,6 @@ impl Default for CountermeasuresState {
 pub struct CountermeasuresBehavior {
     module_data: Arc<CountermeasuresBehaviorModuleData>,
     object_id: ObjectID,
-    object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
     state: Arc<RwLock<CountermeasuresState>>,
     next_call_frame_and_phase: UnsignedInt,
     upgrade_mux: UpgradeMux,
@@ -432,12 +431,8 @@ impl CountermeasuresBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
         module_data: Arc<CountermeasuresBehaviorModuleData>,
-        initial_object: Option<Arc<RwLock<GameObject>>>,
+        _initial_object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
-        let initial_handle = initial_object
-            .or_else(|| OBJECT_REGISTRY.get_object(object_id))
-            .map(|arc| Arc::downgrade(&arc));
-
         let mut state = CountermeasuresState::default();
         state.available_countermeasures = module_data
             .number_of_volleys
@@ -448,7 +443,6 @@ impl CountermeasuresBehavior {
         Self {
             module_data,
             object_id,
-            object_handle: Mutex::new(initial_handle),
             state: Arc::new(RwLock::new(state)),
             next_call_frame_and_phase: 0,
             upgrade_mux,
@@ -693,21 +687,9 @@ impl CountermeasuresBehavior {
                 id: OBJECT_INVALID_ID,
             });
         }
-
-        if let Ok(mut handle) = self.object_handle.lock() {
-            if let Some(weak) = handle.as_ref() {
-                if let Some(object) = weak.upgrade() {
-                    return Ok(object);
-                }
-            }
-
-            if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
-                *handle = Some(Arc::downgrade(&object));
-                return Ok(object);
-            }
-        }
-
-        Err(BehaviorError::ObjectNotFound { id: self.object_id })
+        OBJECT_REGISTRY
+            .get_object(self.object_id)
+            .ok_or(BehaviorError::ObjectNotFound { id: self.object_id })
     }
 
     fn get_current_frame(&self) -> UnsignedInt {
