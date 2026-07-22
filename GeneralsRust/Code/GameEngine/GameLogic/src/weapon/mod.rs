@@ -3991,47 +3991,25 @@ impl Weapon {
         use crate::object_manager::get_object_manager;
 
         let object_manager = get_object_manager();
-
-        // Try to get both objects
-        let obj_mgr = match object_manager.read() {
-            Ok(mgr) => mgr,
-            Err(_) => return false, // Can't see if we can't access objects
+        let Ok(obj_mgr) = object_manager.read() else {
+            return false; // Can't see if we can't access objects
         };
 
-        // Get source object
-        let source_obj = match obj_mgr.get_object(source_id) {
-            Some(obj) => obj,
-            None => return false, // Source not found
+        // Borrow-first: extract pose/vision under the manager lock (no Arc clone).
+        let Some((source_pos, vision_range)) = obj_mgr.with_object(source_id, |src| {
+            let pos = src.get_position().clone();
+            let vision = src
+                .base
+                .read()
+                .map(|base| base.get_vision_range())
+                .unwrap_or(0.0);
+            (pos, vision)
+        }) else {
+            return false; // Source not found / lock poisoned
         };
-
-        // Get target object
-        let target_obj = match obj_mgr.get_object(target_id) {
-            Some(obj) => obj,
-            None => return false, // Target not found
-        };
-
-        // Release the read lock before acquiring write locks
-        drop(obj_mgr);
-
-        // Read source position and vision range
-        let (source_pos, vision_range) = match source_obj.read() {
-            Ok(src) => {
-                let pos = src.get_position().clone();
-                // Get actual vision range from object (set from template during initialization)
-                let vision = src
-                    .base
-                    .read()
-                    .map(|base| base.get_vision_range())
-                    .unwrap_or(0.0);
-                (pos, vision)
-            }
-            Err(_) => return false, // Can't read source
-        };
-
-        // Read target position
-        let target_pos = match target_obj.read() {
-            Ok(tgt) => tgt.get_position().clone(),
-            Err(_) => return false, // Can't read target
+        let Some(target_pos) = obj_mgr.with_object(target_id, |tgt| tgt.get_position().clone())
+        else {
+            return false; // Target not found / lock poisoned
         };
 
         // Calculate distance and check if within vision range
@@ -4072,40 +4050,19 @@ impl Weapon {
             return false;
         }
 
-        // Get the global object manager
         let object_manager = get_object_manager();
-
-        // Try to get both objects and their teams
-        let obj_mgr = match object_manager.read() {
-            Ok(mgr) => mgr,
-            Err(_) => return true, // If lock fails, assume enemy (safe fallback)
+        let Ok(obj_mgr) = object_manager.read() else {
+            return true; // If lock fails, assume enemy (safe fallback)
         };
 
-        // Get source object's team
-        let source_obj = match obj_mgr.get_object(source_obj_id) {
-            Some(obj) => obj,
-            None => return true, // Source not found, assume enemy
+        // Borrow-first: clone team Arcs under manager lock (no object Arc clone).
+        let Some(source_team) = obj_mgr.with_object(source_obj_id, |src| src.team.clone()) else {
+            return true; // Source not found, assume enemy
         };
-
-        // Get target object's team
-        let target_obj = match obj_mgr.get_object(target_obj_id) {
-            Some(obj) => obj,
-            None => return true, // Target not found, assume enemy
+        let Some(target_team) = obj_mgr.with_object(target_obj_id, |tgt| tgt.team.clone()) else {
+            return true; // Target not found, assume enemy
         };
-
-        // Release the read lock before acquiring write locks
         drop(obj_mgr);
-
-        // Read the teams from both objects
-        let source_team = match source_obj.read() {
-            Ok(src) => src.team.clone(),
-            Err(_) => return true, // If read fails, assume enemy
-        };
-
-        let target_team = match target_obj.read() {
-            Ok(tgt) => tgt.team.clone(),
-            Err(_) => return true, // If read fails, assume enemy
-        };
 
         // Check team relationship
         match (source_team, target_team) {
@@ -4125,11 +4082,11 @@ impl Weapon {
                 // Neither has a team - treat as enemies (can fire on neutral objects)
                 true
             }
-            (Some(source_team_lock), None) => {
+            (Some(_source_team_lock), None) => {
                 // Target has no team but source does - assume neutral, can fire
                 true
             }
-            (None, Some(target_team_lock)) => {
+            (None, Some(_target_team_lock)) => {
                 // Source has no team but target does - assume neutral, can fire
                 true
             }
@@ -4636,34 +4593,29 @@ impl Weapon {
             WeaponError::SystemError(format!("Failed to read object manager: {}", e))
         })?;
 
-        // Get the specific object we want to damage
-        let obj_arc = obj_mgr
-            .get_object(obj_id)
-            .ok_or(WeaponError::InvalidTarget)?;
+        // Borrow-first mutable access (no Arc clone).
+        let dealt = obj_mgr
+            .with_object_mut(obj_id, |obj| -> Result<f32, WeaponError> {
+                let mut engine_damage_info = self.build_engine_damage_info(damage_info);
+                if let Ok(mut base) = obj.base.write() {
+                    base.attempt_damage(&mut engine_damage_info).map_err(|e| {
+                        WeaponError::SystemError(format!("Failed to apply damage: {}", e))
+                    })?;
+                } else {
+                    return Err(WeaponError::SystemError(
+                        "Failed to acquire base object lock".to_string(),
+                    ));
+                }
+                damage_info.output.actual_damage_dealt =
+                    engine_damage_info.output.actual_damage_dealt;
+                damage_info.output.actual_damage_clipped =
+                    engine_damage_info.output.actual_damage_clipped;
+                damage_info.output.no_effect = engine_damage_info.output.no_effect;
+                Ok(engine_damage_info.output.actual_damage_dealt)
+            })
+            .ok_or(WeaponError::InvalidTarget)??;
 
-        drop(obj_mgr); // Release read lock before acquiring write lock
-
-        // Get mutable access to object and apply damage
-        let mut obj = obj_arc.write().map_err(|e| {
-            WeaponError::SystemError(format!("Failed to acquire object lock: {}", e))
-        })?;
-
-        // Call object's attempt_damage() method to apply damage
-        let mut engine_damage_info = self.build_engine_damage_info(damage_info);
-        if let Ok(mut base) = obj.base.write() {
-            base.attempt_damage(&mut engine_damage_info)
-                .map_err(|e| WeaponError::SystemError(format!("Failed to apply damage: {}", e)))?;
-        } else {
-            return Err(WeaponError::SystemError(
-                "Failed to acquire base object lock".to_string(),
-            ));
-        }
-
-        damage_info.output.actual_damage_dealt = engine_damage_info.output.actual_damage_dealt;
-        damage_info.output.actual_damage_clipped = engine_damage_info.output.actual_damage_clipped;
-        damage_info.output.no_effect = engine_damage_info.output.no_effect;
-
-        Ok(engine_damage_info.output.actual_damage_dealt)
+        Ok(dealt)
     }
 
     /// Random float generator using synchronized game-logic RNG.

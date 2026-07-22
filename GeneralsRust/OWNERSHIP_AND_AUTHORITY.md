@@ -205,6 +205,13 @@ mid-frame host combat still runs for C++ armor/side-effect parity.
  Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
+### Weapon with_object residual (2026-07-21)
+
+`Weapon::can_see_target`, `is_enemy_target`, and `apply_damage_to_object` use
+ObjectManager `with_object` / `with_object_mut` instead of cloning object Arcs.
+Remaining weapon paths still use `get_object` Arc handles where multi-lock or
+long-lived handles are required.
+
 ### ObjectManager borrow-first APIs (2026-07-21)
 
 Crate `ObjectManager` still stores `HashMap<ObjectID, Arc<RwLock<GameObjectInstance>>>`
