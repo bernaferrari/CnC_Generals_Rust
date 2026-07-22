@@ -85,6 +85,36 @@ impl PartitionManager {
         out
     }
 
+    /// Object ids registered in cells overlapping a world-space XZ radius.
+    ///
+    /// Cell ring is ceil(radius / cell_size) + 1 (inclusive margin). Used by AI
+    /// acquire scans so Lone Eagle (~900 objs) does not full-table scan every unit.
+    pub fn ids_in_radius(&self, x: f32, z: f32, radius: f32) -> Vec<u32> {
+        if self.object_cells.is_empty() {
+            return Vec::new();
+        }
+        let r = radius.max(0.0);
+        let (cx, cz) = Self::cell_coords(x, z);
+        // Callers still distance-filter; +0 keeps small radii from spanning half the map.
+        // Partial-cell margin: include one extra ring only when radius > 0.
+        let ring = if r <= 0.0 {
+            0
+        } else {
+            (r / PARTITION_CELL_SIZE_RESIDUAL).ceil() as i32
+        };
+        let mut out = Vec::new();
+        for dz in -ring..=ring {
+            for dx in -ring..=ring {
+                if let Some(list) = self.cells.get(&(cx + dx, cz + dz)) {
+                    out.extend(list.iter().copied());
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     pub fn registered_count(&self) -> usize {
         self.object_cells.len()
     }
@@ -121,5 +151,10 @@ mod tests {
         pm.register_object_at(2, 100.0, 100.0);
         let n2 = pm.neighbor_object_ids(100.0, 100.0);
         assert!(n2.contains(&2) && n2.contains(&3));
+        // Radius query includes far cell when radius is large enough.
+        let wide = pm.ids_in_radius(10.0, 10.0, 200.0);
+        assert!(wide.contains(&2) && wide.contains(&3));
+        let tight = pm.ids_in_radius(10.0, 10.0, 5.0);
+        assert!(!tight.contains(&3));
     }
 }
