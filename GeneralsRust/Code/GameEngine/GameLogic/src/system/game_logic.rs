@@ -3675,6 +3675,11 @@ impl GameLogic {
             .and_then(|id| self.objects.get(id).cloned())
     }
 
+    /// Stable object IDs in list order (no Arc retention).
+    pub fn get_all_object_ids(&self) -> &[ObjectID] {
+        &self.all_objects
+    }
+
     /// Get object count
     pub fn get_object_count(&self) -> usize {
         self.all_objects.len()
