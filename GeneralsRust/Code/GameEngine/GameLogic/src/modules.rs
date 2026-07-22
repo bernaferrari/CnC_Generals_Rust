@@ -1442,9 +1442,19 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Clear move-out-of-way state (noop by default).
     fn clear_move_out_of_way(&mut self) {}
 
-    /// Get goal object (for AI coordination)
+    /// Goal object id (for AI coordination).
+    fn get_goal_object_id(&self) -> ObjectID {
+        crate::common::INVALID_ID
+    }
+    /// Resolve goal object for the duration of a call.
     fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
-        None
+        let id = self.get_goal_object_id();
+        if id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        }
     }
 
     /// Set goal object (friend_setGoalObject parity).
@@ -1555,16 +1565,38 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Set current victim target (matching C++ AIUpdateInterface::setCurrentVictim).
     fn set_current_victim(&mut self, _victim: Option<ObjectID>) {}
     /// Check for crate to pick up (matching C++ AIUpdateInterface::checkForCrateToPickup)
+    fn check_for_crate_to_pickup_id(&self) -> ObjectID {
+        crate::common::INVALID_ID
+    }
     fn check_for_crate_to_pickup(&self) -> Option<Arc<RwLock<Object>>> {
-        None
+        let id = self.check_for_crate_to_pickup_id();
+        if id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        }
     }
     /// Get next target based on mood/auto-acquire (matching C++ AIUpdateInterface::getNextMoodTarget)
-    fn get_next_mood_target(
+    fn get_next_mood_target_id(
         &mut self,
         _use_existing_target: bool,
         _ignore_attacked: bool,
+    ) -> ObjectID {
+        crate::common::INVALID_ID
+    }
+    fn get_next_mood_target(
+        &mut self,
+        use_existing_target: bool,
+        ignore_attacked: bool,
     ) -> Option<Arc<RwLock<Object>>> {
-        None
+        let id = self.get_next_mood_target_id(use_existing_target, ignore_attacked);
+        if id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        }
     }
     /// Get next mood check time (matching C++ AIUpdateInterface::getNextMoodCheckTime)
     fn get_next_mood_check_time(&self) -> u32 {
@@ -2027,13 +2059,13 @@ pub trait AIUpdateInterfaceExt {
     fn ai_enter(&self, obj_id: ObjectID, cmd_source: CommandSourceType);
     fn ai_force_attack_object(
         &self,
-        victim: &Arc<RwLock<Object>>,
+        victim_id: ObjectID,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     );
     fn ai_attack_object(
         &self,
-        victim: &Arc<RwLock<Object>>,
+        victim_id: ObjectID,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     );
@@ -2111,7 +2143,7 @@ pub trait AIUpdateInterfaceExt {
     fn ai_move_away_from_unit(&self, obj_id: ObjectID, cmd_source: CommandSourceType);
     fn ai_guard_retaliate(
         &self,
-        victim: &Arc<RwLock<Object>>,
+        victim_id: ObjectID,
         pos: &Coord3D,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
@@ -2124,7 +2156,7 @@ pub trait AIUpdateInterfaceExt {
     );
     fn ai_guard_object(
         &self,
-        obj_to_guard: &Arc<RwLock<Object>>,
+        obj_to_guard_id: ObjectID,
         guard_mode: GuardMode,
         cmd_source: CommandSourceType,
     );
@@ -2287,47 +2319,35 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
 
     fn ai_force_attack_object(
         &self,
-        victim: &Arc<RwLock<Object>>,
+        victim_id: ObjectID,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
         // C++ Reference: AIUpdateInterface::aiForceAttackObject()
-        // Force attack ignores normal targeting restrictions
         if let Ok(mut guard) = self.try_lock() {
-            // Get victim's object ID
-            if let Ok(victim_guard) = victim.read() {
-                let victim_id = victim_guard.get_id();
-                let mut params = crate::ai::AiCommandParams::new(
-                    crate::ai::AiCommandType::ForceAttackObject,
-                    cmd_source,
-                );
-                params.obj = Some(victim_id);
-                params.int_value = max_shots_to_fire;
-                let _ = guard.execute_command(&params);
-            }
+            let mut params = crate::ai::AiCommandParams::new(
+                crate::ai::AiCommandType::ForceAttackObject,
+                cmd_source,
+            );
+            params.obj = Some(victim_id);
+            params.int_value = max_shots_to_fire;
+            let _ = guard.execute_command(&params);
         }
     }
 
     fn ai_attack_object(
         &self,
-        victim: &Arc<RwLock<Object>>,
+        victim_id: ObjectID,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
         // C++ Reference: AIUpdateInterface::aiAttackObject()
-        // Normal attack follows targeting rules
         if let Ok(mut guard) = self.try_lock() {
-            // Get victim's object ID
-            if let Ok(victim_guard) = victim.read() {
-                let victim_id = victim_guard.get_id();
-                let mut params = crate::ai::AiCommandParams::new(
-                    crate::ai::AiCommandType::AttackObject,
-                    cmd_source,
-                );
-                params.obj = Some(victim_id);
-                params.int_value = max_shots_to_fire;
-                let _ = guard.execute_command(&params);
-            }
+            let mut params =
+                crate::ai::AiCommandParams::new(crate::ai::AiCommandType::AttackObject, cmd_source);
+            params.obj = Some(victim_id);
+            params.int_value = max_shots_to_fire;
+            let _ = guard.execute_command(&params);
         }
     }
 
@@ -2589,23 +2609,21 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
 
     fn ai_guard_retaliate(
         &self,
-        victim: &Arc<RwLock<Object>>,
+        victim_id: ObjectID,
         pos: &Coord3D,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
         // C++ Reference: AIUpdateInterface::aiGuardRetaliate()
         if let Ok(mut guard) = self.try_lock() {
-            if let Ok(victim_guard) = victim.read() {
-                let mut params = crate::ai::AiCommandParams::new(
-                    crate::ai::AiCommandType::GuardRetaliate,
-                    cmd_source,
-                );
-                params.obj = Some(victim_guard.get_id());
-                params.pos = *pos;
-                params.int_value = max_shots_to_fire;
-                let _ = guard.execute_command(&params);
-            }
+            let mut params = crate::ai::AiCommandParams::new(
+                crate::ai::AiCommandType::GuardRetaliate,
+                cmd_source,
+            );
+            params.obj = Some(victim_id);
+            params.pos = *pos;
+            params.int_value = max_shots_to_fire;
+            let _ = guard.execute_command(&params);
         }
     }
 
@@ -2630,21 +2648,17 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
 
     fn ai_guard_object(
         &self,
-        obj_to_guard: &Arc<RwLock<Object>>,
+        obj_to_guard_id: ObjectID,
         guard_mode: GuardMode,
         cmd_source: CommandSourceType,
     ) {
         // C++ Reference: AIUpdateInterface::aiGuardObject()
         if let Ok(mut guard) = self.try_lock() {
-            if let Ok(target_guard) = obj_to_guard.read() {
-                let mut params = crate::ai::AiCommandParams::new(
-                    crate::ai::AiCommandType::GuardObject,
-                    cmd_source,
-                );
-                params.obj = Some(target_guard.get_id());
-                params.int_value = guard_mode.as_i32();
-                let _ = guard.execute_command(&params);
-            }
+            let mut params =
+                crate::ai::AiCommandParams::new(crate::ai::AiCommandType::GuardObject, cmd_source);
+            params.obj = Some(obj_to_guard_id);
+            params.int_value = guard_mode.as_i32();
+            let _ = guard.execute_command(&params);
         }
     }
 
@@ -2871,7 +2885,7 @@ pub trait SupplyTruckAIInterface: Send + Sync {
     /// Dock action delay (matches C++ SupplyTruckAIInterface::getActionDelayForDock)
     fn get_action_delay_for_dock(
         &self,
-        _dock: &Arc<RwLock<Object>>,
+        _dock_id: ObjectID,
     ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
         Ok(0)
     }
@@ -3819,7 +3833,7 @@ pub trait PowerPlantUpdateInterface: Send + Sync {
 pub trait RailedTransportDockUpdateInterface: Send + Sync {
     fn is_loading_or_unloading(&self) -> bool;
     fn unload_all(&mut self);
-    fn unload_single_object(&mut self, obj: &Arc<RwLock<Object>>);
+    fn unload_single_object(&mut self, obj_id: ObjectID);
 }
 
 pub trait POWTruckAIUpdateInterface: Send + Sync {
@@ -3830,7 +3844,7 @@ pub trait POWTruckAIUpdateInterface: Send + Sync {
     );
     fn get_current_task(&self) -> crate::pow_truck_ai_update::POWTruckTask;
     fn load_prisoner(&mut self, prisoner: ObjectID);
-    fn unload_prisoners_to_prison(&mut self, prison: &Arc<RwLock<Object>>);
+    fn unload_prisoners_to_prison(&mut self, prison_id: ObjectID);
 }
 
 pub trait HackInternetAIUpdateInterface: Send + Sync {
@@ -3871,7 +3885,7 @@ pub trait SlavedUpdateInterface {
     /// Called when this object becomes enslaved to a master
     fn on_enslave(
         &mut self,
-        _master: &Arc<RwLock<Object>>,
+        _master_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(()) // Default implementation does nothing
     }

@@ -1904,8 +1904,13 @@ impl SupplyTruckAIInterface for SupplyTruckAIUpdate {
 
     fn get_action_delay_for_dock(
         &self,
-        dock: &Arc<RwLock<Object>>,
+        dock_id: ObjectID,
     ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
+        let Some(dock) = crate::helpers::TheGameLogic::find_object_by_id(dock_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(dock_id))
+        else {
+            return Ok(0);
+        };
         let is_warehouse = dock.read().ok().map_or(false, |obj| {
             obj.find_update_module("SupplyWarehouseDockUpdate")
                 .is_some()
@@ -1972,8 +1977,13 @@ impl SupplyTruckAIInterface for WorkerAIUpdate {
 
     fn get_action_delay_for_dock(
         &self,
-        dock: &Arc<RwLock<Object>>,
+        dock_id: ObjectID,
     ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
+        let Some(dock) = crate::helpers::TheGameLogic::find_object_by_id(dock_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(dock_id))
+        else {
+            return Ok(0);
+        };
         let is_warehouse = dock.read().ok().map_or(false, |obj| {
             obj.find_update_module("SupplyWarehouseDockUpdate")
                 .is_some()

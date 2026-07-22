@@ -524,9 +524,9 @@ impl SpawnBehavior {
         master: &Arc<RwLock<Object>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let spawn_guard = spawned.read().map_err(|_| "Failed to read spawn")?;
-        if let Some(result) =
-            spawn_guard.with_slaved_update_interface(|slaved| slaved.on_enslave(master))
-        {
+        if let Some(result) = spawn_guard.with_slaved_update_interface(|slaved| {
+            slaved.on_enslave(master.read().ok().map(|g| g.get_id()).unwrap_or(0))
+        }) {
             return result;
         }
 
@@ -535,7 +535,7 @@ impl SpawnBehavior {
                 .lock()
                 .map_err(|_| "Failed to lock behavior module")?;
             if let Some(slaved) = behavior_guard.get_slaved_update_interface() {
-                slaved.on_enslave(master)?;
+                slaved.on_enslave(master.read().ok().map(|g| g.get_id()).unwrap_or(0))?;
                 break;
             }
         }
@@ -1368,7 +1368,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
                 if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                     if let Ok(spawn_guard) = spawn_obj.read() {
                         if let Some(ai) = spawn_guard.get_ai_update_interface() {
-                            ai.ai_attack_object(&target_handle, max_shots_to_fire, cmd_source);
+                            ai.ai_attack_object(
+                                target_handle.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                                max_shots_to_fire,
+                                cmd_source,
+                            );
                         }
                     }
                 }

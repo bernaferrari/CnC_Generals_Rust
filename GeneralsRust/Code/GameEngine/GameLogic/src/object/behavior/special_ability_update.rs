@@ -1143,7 +1143,7 @@ impl SpecialAbilityUpdate {
                                 WeaponLockType::LockedTemporarily,
                             );
                             if let Some(ai) = obj_guard.get_ai_update_interface() {
-                                ai.ai_attack_object(&target, crate::weapon::NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
+                                ai.ai_attack_object(target.read().ok().map(|g| g.get_id()).unwrap_or(0), crate::weapon::NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
                             }
                         }
                     }

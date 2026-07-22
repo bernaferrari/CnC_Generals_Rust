@@ -1266,8 +1266,13 @@ impl SlavedUpdateInterface for SlavedUpdate {
 
     fn on_enslave(
         &mut self,
-        master: &Arc<RwLock<GameObject>>,
+        master_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(master) = crate::helpers::TheGameLogic::find_object_by_id(master_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(master_id))
+        else {
+            return Ok(());
+        };
         let master_guard = master.read().map_err(|_| "slaver lock poisoned")?;
         self.start_slaved_effects(&*master_guard);
         Ok(())

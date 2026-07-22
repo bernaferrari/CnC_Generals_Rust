@@ -775,9 +775,17 @@ impl AIGroup {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
                         if forced {
-                            ai.ai_force_attack_object(victim, max_shots_to_fire, cmd_source);
+                            ai.ai_force_attack_object(
+                                victim.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                                max_shots_to_fire,
+                                cmd_source,
+                            );
                         } else {
-                            ai.ai_attack_object(victim, max_shots_to_fire, cmd_source);
+                            ai.ai_attack_object(
+                                victim.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                                max_shots_to_fire,
+                                cmd_source,
+                            );
                         }
                     }
                 }
@@ -855,7 +863,11 @@ impl AIGroup {
             if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
                 if let Ok(obj_ref) = obj.try_read() {
                     if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_guard_object(obj_to_guard, guard_mode, cmd_source);
+                        ai.ai_guard_object(
+                            obj_to_guard.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                            guard_mode,
+                            cmd_source,
+                        );
                     }
                 }
             }
