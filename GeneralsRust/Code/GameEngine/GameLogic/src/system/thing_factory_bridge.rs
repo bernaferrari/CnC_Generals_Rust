@@ -126,8 +126,7 @@ impl ObjectCreator for GameLogicObjectCreator {
             .map_err(|_| {
                 ThingCreationError::CreationFailed("GameObjectInstance lock poisoned".to_string())
             })?
-            .base
-            .clone();
+            .base();
 
         let mask = GameLogicStatusMask::from_bits_truncate(status_bits as u64);
         if !mask.is_empty() {

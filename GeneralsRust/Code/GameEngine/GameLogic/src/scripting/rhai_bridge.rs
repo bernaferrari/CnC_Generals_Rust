@@ -306,13 +306,20 @@ impl RhaiScriptExecutor {
                     let owned_objects = manager.get_objects_owned_by_player(player as u32);
                     for obj_id in owned_objects {
                         if let Some(obj_arc) = manager.get_object(obj_id) {
-                            if let Ok(obj) = obj_arc.read() {
-                                if let Ok(base) = obj.base.read() {
-                                    if let Some(template) = &obj.template {
-                                        if template.get_name().eq_ignore_ascii_case(building_type) {
-                                            if base.is_kind_of(KindOf::Structure) {
-                                                return true;
-                                            }
+                            let (template_name, base_arc) = match obj_arc.read() {
+                                Ok(obj) => (
+                                    obj.template
+                                        .as_ref()
+                                        .map(|t| t.get_name().to_string()),
+                                    Some(obj.base()),
+                                ),
+                                Err(_) => (None, None),
+                            };
+                            if let (Some(template_name), Some(base_arc)) = (template_name, base_arc) {
+                                if let Ok(base) = base_arc.read() {
+                                    if template_name.eq_ignore_ascii_case(building_type) {
+                                        if base.is_kind_of(KindOf::Structure) {
+                                            return true;
                                         }
                                     }
                                 }

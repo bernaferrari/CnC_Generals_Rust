@@ -201,7 +201,8 @@ impl PrerequisiteChecker for Player {
                 let Ok(instance_guard) = instance.read() else {
                     continue;
                 };
-                let Ok(base_guard) = instance_guard.base.read() else {
+                let __base_arc = instance_guard.base();
+                let Ok(base_guard) = __base_arc.read() else {
                     continue;
                 };
                 !base_guard.is_destroyed() && base_guard.get_template_name() == building_name

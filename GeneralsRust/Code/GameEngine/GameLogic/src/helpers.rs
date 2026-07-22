@@ -3390,8 +3390,7 @@ impl TheThingFactory {
         let base = instance
             .read()
             .map_err(|_| "GameObjectInstance lock poisoned")?
-            .base
-            .clone();
+            .base();
 
         Ok(base)
     }
@@ -3433,8 +3432,7 @@ impl TheThingFactory {
         let base = instance
             .read()
             .map_err(|_| "GameObjectInstance lock poisoned")?
-            .base
-            .clone();
+            .base();
 
         Ok(base)
     }
@@ -3481,8 +3479,7 @@ impl TheThingFactory {
         let base = instance
             .read()
             .map_err(|_| "GameObjectInstance lock poisoned")?
-            .base
-            .clone();
+            .base();
 
         Ok(base)
     }

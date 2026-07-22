@@ -6180,7 +6180,7 @@ impl ScriptAction for CreateBuildingAction {
                 if let Some(object) = manager.get_object(object_id) {
                     if let Ok(guard) = object.write() {
                         let _ = guard
-                            .base
+                            .base()
                             .write()
                             .map(|mut base| base.set_orientation(angle as f32));
                     }
@@ -8539,7 +8539,7 @@ mod tests {
             {
                 let instance = object.write().unwrap();
                 instance
-                    .base
+                    .base()
                     .write()
                     .unwrap()
                     .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
@@ -8672,7 +8672,7 @@ mod tests {
             {
                 let instance = object.write().unwrap();
                 instance
-                    .base
+                    .base()
                     .write()
                     .unwrap()
                     .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
@@ -8802,7 +8802,8 @@ mod tests {
 
         {
             let instance = object.write().unwrap();
-            let mut base = instance.base.write().unwrap();
+            let __base_arc = instance.base();
+            let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
@@ -8846,7 +8847,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            object.read().unwrap().base.read().unwrap().get_group_id(),
+            object.read().unwrap().base().read().unwrap().get_group_id(),
             None
         );
     }
@@ -8918,7 +8919,7 @@ mod tests {
         {
             let instance = object.write().unwrap();
             instance
-                .base
+                .base()
                 .write()
                 .unwrap()
                 .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
@@ -9032,7 +9033,8 @@ mod tests {
 
         {
             let instance = attacker.write().unwrap();
-            let mut base = instance.base.write().unwrap();
+            let __base_arc = instance.base();
+            let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
@@ -9084,7 +9086,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            attacker.read().unwrap().base.read().unwrap().get_group_id(),
+            attacker.read().unwrap().base().read().unwrap().get_group_id(),
             None
         );
     }
@@ -9171,7 +9173,8 @@ mod tests {
 
         {
             let instance = object.write().unwrap();
-            let mut base = instance.base.write().unwrap();
+            let __base_arc = instance.base();
+            let mut base = __base_arc.write().unwrap();
             base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
@@ -9215,7 +9218,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            object.read().unwrap().base.read().unwrap().get_group_id(),
+            object.read().unwrap().base().read().unwrap().get_group_id(),
             None
         );
     }
