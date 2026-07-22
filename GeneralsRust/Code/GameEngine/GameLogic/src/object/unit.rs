@@ -1522,17 +1522,12 @@ impl Unit {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.follow_target = Some(target);
         self.follow_distance = distance.max(0.0);
-        let target_obj = match crate::object::registry::OBJECT_REGISTRY.get_object(target) {
-            Some(obj) => obj,
-            None => {
-                self.follow_target = None;
-                self.current_order = None;
-                self.advance_order_queue();
-                return Ok(());
-            }
-        };
-        let target_pos = target_obj.read().ok().map(|g| *g.get_position());
-        let Some(target_pos) = target_pos else {
+        let Some(target_pos) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(target, |g| *g.get_position())
+        else {
+            self.follow_target = None;
+            self.current_order = None;
+            self.advance_order_queue();
             return Ok(());
         };
         let current_pos = self.get_position();
@@ -1831,16 +1826,10 @@ impl Unit {
                 return Ok(());
             }
         };
-        let leader = match crate::object::registry::OBJECT_REGISTRY.get_object(leader_id) {
-            Some(obj) => obj,
-            None => {
-                self.group_leader = None;
-                self.return_to_formation = false;
-                return Ok(());
-            }
-        };
-        let leader_pos = leader.read().ok().map(|g| *g.get_position());
-        let Some(leader_pos) = leader_pos else {
+        let Some(leader_pos) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(leader_id, |g| *g.get_position())
+        else {
+            self.group_leader = None;
             self.return_to_formation = false;
             return Ok(());
         };
@@ -2441,25 +2430,28 @@ struct RappelState {
 }
 
 fn find_enemy_in_container(killer_id: ObjectID, container_id: ObjectID) -> Option<ObjectID> {
-    let container = crate::object::registry::OBJECT_REGISTRY.get_object(container_id)?;
-    let contained_ids = {
-        let guard = container.read().ok()?;
-        let contain = guard.get_contain()?;
-        let contain_guard = contain.lock().ok()?;
-        contain_guard.get_contained_objects().to_vec()
-    };
+    let contained_ids = crate::object::registry::OBJECT_REGISTRY
+        .with_object(container_id, |guard| {
+            let contain = guard.get_contain()?;
+            let contain_guard = contain.lock().ok()?;
+            Some(contain_guard.get_contained_objects().to_vec())
+        })
+        .flatten()?;
 
     for id in contained_ids {
-        let enemy = crate::object::registry::OBJECT_REGISTRY.get_object(id)?;
-        let enemy_guard = enemy.read().ok()?;
-        if enemy_guard.is_effectively_dead() {
-            continue;
-        }
-        let Some(killer) = crate::object::registry::OBJECT_REGISTRY.get_object(killer_id) else {
-            continue;
-        };
-        let killer_guard = killer.read().ok()?;
-        if killer_guard.relationship_to(&enemy_guard) == Relationship::Enemies {
+        let is_enemy = crate::object::registry::OBJECT_REGISTRY
+            .with_object(killer_id, |killer_guard| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(id, |enemy_guard| {
+                        if enemy_guard.is_effectively_dead() {
+                            return false;
+                        }
+                        killer_guard.relationship_to(enemy_guard) == Relationship::Enemies
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if is_enemy {
             return Some(id);
         }
     }
@@ -3567,15 +3559,15 @@ impl UnitAIUpdate {
         let mut target_is_bldg = false;
         let mut target_valid = None;
         if let Some(target_id) = target_id {
-            if let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id) {
-                if let Ok(target_guard) = target.read() {
-                    if !target_guard.is_effectively_dead()
+            let is_bldg = crate::object::registry::OBJECT_REGISTRY
+                .with_object(target_id, |target_guard| {
+                    !target_guard.is_effectively_dead()
                         && target_guard.is_kind_of(KindOf::Structure)
-                    {
-                        target_is_bldg = true;
-                        target_valid = Some(target_id);
-                    }
-                }
+                })
+                .unwrap_or(false);
+            if is_bldg {
+                target_is_bldg = true;
+                target_valid = Some(target_id);
             }
         }
 
@@ -3589,13 +3581,15 @@ impl UnitAIUpdate {
 
         if target_is_bldg {
             if let Some(target_id) = target_valid {
-                if let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
-                {
-                    if let Ok(target_guard) = target.read() {
-                        dest_z += target_guard
+                if let Some(extra_z) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    target_id,
+                    |target_guard| {
+                        target_guard
                             .get_geometry_info()
-                            .get_max_height_above_position();
-                    }
+                            .get_max_height_above_position()
+                    },
+                ) {
+                    dest_z += extra_z;
                 }
             }
         } else {
@@ -3676,12 +3670,9 @@ impl UnitAIUpdate {
         if current_state.target_is_bldg {
             let target_gone = current_state
                 .target_id
-                .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-                .map(|target| {
-                    target
-                        .read()
-                        .ok()
-                        .map(|target_guard| {
+                .map(|id| {
+                    crate::object::registry::OBJECT_REGISTRY
+                        .with_object(id, |target_guard| {
                             target_guard.is_effectively_dead()
                                 || !target_guard.is_kind_of(KindOf::Structure)
                         })
@@ -7665,20 +7656,22 @@ impl AIUpdateInterface for UnitAIUpdate {
                 if mid == self_id {
                     continue;
                 }
-                let Some(oarc) = crate::object::registry::OBJECT_REGISTRY.get_object(mid) else {
+                let Some((pos, ai)) = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(mid, |og| {
+                        let Some(oai) = og.get_ai_update_interface() else {
+                            return None;
+                        };
+                        if og.is_disabled_by_type(crate::common::types::DisabledType::Held) {
+                            return None;
+                        }
+                        Some((*og.get_position(), oai))
+                    })
+                    .flatten()
+                else {
                     continue;
                 };
-                let Ok(og) = oarc.read() else {
-                    continue;
-                };
-                let Some(oai) = og.get_ai_update_interface() else {
-                    continue;
-                };
-                if og.is_disabled_by_type(crate::common::types::DisabledType::Held) {
-                    continue;
-                }
-                other_pos = Some(*og.get_position());
-                if let Ok(aig) = oai.try_lock() {
+                other_pos = Some(pos);
+                if let Ok(aig) = ai.try_lock() {
                     other_idle = aig.is_idle();
                     other_goal_obj = aig.get_goal_object();
                     other_goal_pos = aig.get_goal_position();

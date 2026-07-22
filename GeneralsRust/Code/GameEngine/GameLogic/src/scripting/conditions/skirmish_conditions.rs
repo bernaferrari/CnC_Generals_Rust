@@ -41,54 +41,58 @@ where
     let player_index = player.get_player_index();
 
     for object_id in player.get_all_objects() {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+        let Some(found) = OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                if obj.is_destroyed() || obj.is_effectively_dead() || !filter(obj) {
+                    return None;
+                }
+
+                let status = obj.get_status_bits();
+                if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
+                    && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
+                    && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
+                {
+                    return None;
+                }
+
+                let pos = *obj.get_position();
+                for candidate_id in partition.get_objects_in_range(&pos, radius) {
+                    let is_hostile = OBJECT_REGISTRY
+                        .with_object(candidate_id, |candidate| {
+                            if candidate.is_destroyed() || candidate.is_effectively_dead() {
+                                return false;
+                            }
+                            let Some(owner_id) = candidate.get_controlling_player_id() else {
+                                return false;
+                            };
+                            if owner_id as i32 == player_index {
+                                return false;
+                            }
+                            players
+                                .get_player(owner_id as i32)
+                                .cloned()
+                                .and_then(|owner_arc| {
+                                    owner_arc.read().ok().map(|owner| {
+                                        owner.get_player_type() != PlayerType::Neutral
+                                            && !owner.is_player_observer()
+                                            && !player.is_allied_with_player(&owner)
+                                    })
+                                })
+                                .unwrap_or(true)
+                        })
+                        .unwrap_or(false);
+                    if is_hostile {
+                        return Some(true);
+                    }
+                }
+                Some(false)
+            })
+            .flatten()
+        else {
             continue;
         };
-        let Ok(obj) = obj_arc.read() else {
-            continue;
-        };
-        if obj.is_destroyed() || obj.is_effectively_dead() || !filter(&obj) {
-            continue;
-        }
-
-        let status = obj.get_status_bits();
-        if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
-            && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
-            && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
-        {
-            continue;
-        }
-
-        for candidate_id in partition.get_objects_in_range(obj.get_position(), radius) {
-            let Some(candidate_arc) = OBJECT_REGISTRY.get_object(candidate_id) else {
-                continue;
-            };
-            let Ok(candidate) = candidate_arc.read() else {
-                continue;
-            };
-            if candidate.is_destroyed() || candidate.is_effectively_dead() {
-                continue;
-            }
-            let Some(owner_id) = candidate.get_controlling_player_id() else {
-                continue;
-            };
-            if owner_id as i32 == player_index {
-                continue;
-            }
-            let hostile = players
-                .get_player(owner_id as i32)
-                .cloned()
-                .and_then(|owner_arc| {
-                    owner_arc.read().ok().map(|owner| {
-                        owner.get_player_type() != PlayerType::Neutral
-                            && !owner.is_player_observer()
-                            && !player.is_allied_with_player(&owner)
-                    })
-                })
-                .unwrap_or(true);
-            if hostile {
-                return true;
-            }
+        if found {
+            return true;
         }
     }
 
@@ -139,32 +143,28 @@ fn player_has_ready_special_power(
     let template_name = template.get_name();
 
     for object_id in player.get_all_objects() {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            continue;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            continue;
-        };
+        let ready = OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                if obj.is_destroyed()
+                    || obj.is_effectively_dead()
+                    || obj.is_disabled()
+                    || obj
+                        .get_status_bits()
+                        .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
+                {
+                    return false;
+                }
 
-        if obj.is_destroyed()
-            || obj.is_effectively_dead()
-            || obj.is_disabled()
-            || obj
-                .get_status_bits()
-                .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
-        {
-            continue;
-        }
+                if obj.get_special_power_module(template_id).is_none() {
+                    return false;
+                }
 
-        if obj.get_special_power_module(template_id).is_none() {
-            continue;
-        }
-
-        let Some(ready) = obj
-            .with_special_power_module_interface_by_name(template_name, |module| module.is_ready())
-        else {
-            continue;
-        };
+                obj.with_special_power_module_interface_by_name(template_name, |module| {
+                    module.is_ready()
+                })
+                .unwrap_or(false)
+            })
+            .unwrap_or(false);
 
         if ready {
             return true;
@@ -258,31 +258,28 @@ impl ScriptCondition for SkirmishSpecialPowerReadyFromNamedCondition {
             return Ok(false);
         };
 
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(source_id) else {
-            return Ok(false);
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return Ok(false);
-        };
-        if obj.is_destroyed()
-            || obj.is_effectively_dead()
-            || obj.is_disabled()
-            || obj
-                .get_status_bits()
-                .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
-        {
-            return Ok(false);
-        }
-        if obj.get_special_power_module(template.get_id()).is_none() {
-            return Ok(false);
-        }
+        Ok(OBJECT_REGISTRY
+            .with_object(source_id, |obj| {
+                if obj.is_destroyed()
+                    || obj.is_effectively_dead()
+                    || obj.is_disabled()
+                    || obj
+                        .get_status_bits()
+                        .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
+                {
+                    return false;
+                }
+                if obj.get_special_power_module(template.get_id()).is_none() {
+                    return false;
+                }
 
-        Ok(obj
-            .with_special_power_module_interface_by_name(template.get_name(), |module| {
-                let required_science = template.get_required_science();
-                (required_science == crate::common::science::SCIENCE_INVALID
-                    || player.has_science(required_science))
-                    && module.is_ready()
+                obj.with_special_power_module_interface_by_name(template.get_name(), |module| {
+                    let required_science = template.get_required_science();
+                    (required_science == crate::common::science::SCIENCE_INVALID
+                        || player.has_science(required_science))
+                        && module.is_ready()
+                })
+                .unwrap_or(false)
             })
             .unwrap_or(false))
     }
@@ -334,12 +331,13 @@ impl ScriptCondition for SkirmishCommandButtonReadyCondition {
             }
             // Check that at least one member is alive
             for &member_id in team.get_members() {
-                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
-                    if let Ok(obj) = obj_arc.read() {
-                        if !obj.is_effectively_dead() && !obj.is_destroyed() {
-                            return Ok(true);
-                        }
-                    }
+                let alive = OBJECT_REGISTRY
+                    .with_object(member_id, |obj| {
+                        !obj.is_effectively_dead() && !obj.is_destroyed()
+                    })
+                    .unwrap_or(false);
+                if alive {
+                    return Ok(true);
                 }
             }
         }
@@ -647,12 +645,13 @@ impl ScriptCondition for SkirmishBuildingsDestroyedCondition {
 
         let mut destroyed_count: i64 = 0;
         for obj_id in &owned {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    if obj.is_kind_of(KindOf::Structure) && obj.is_destroyed() {
-                        destroyed_count += 1;
-                    }
-                }
+            let destroyed = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj| {
+                    obj.is_kind_of(KindOf::Structure) && obj.is_destroyed()
+                })
+                .unwrap_or(false);
+            if destroyed {
+                destroyed_count += 1;
             }
         }
 
@@ -712,13 +711,14 @@ impl ScriptCondition for SkirmishUnitsDestroyedCondition {
 
         let mut destroyed_count: i64 = 0;
         for obj_id in &owned {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
-                if let Ok(obj) = obj_arc.read() {
+            let destroyed = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj| {
                     // Count units that are not structures
-                    if !obj.is_kind_of(KindOf::Structure) && obj.is_destroyed() {
-                        destroyed_count += 1;
-                    }
-                }
+                    !obj.is_kind_of(KindOf::Structure) && obj.is_destroyed()
+                })
+                .unwrap_or(false);
+            if destroyed {
+                destroyed_count += 1;
             }
         }
 
@@ -773,19 +773,20 @@ impl ScriptCondition for SkirmishEnemyInAreaCondition {
         let objects = tracker.get_objects_in_area(&area_name)?;
 
         for obj_id in &objects {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
-                if let Ok(obj) = obj_arc.read() {
+            let is_enemy = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj| {
                     // Skip effectively dead or destroyed objects
                     if obj.is_effectively_dead() || obj.is_destroyed() {
-                        continue;
+                        return false;
                     }
                     // Check if this object is controlled by a different (enemy) player
-                    if let Some(owner_id) = obj.get_controlling_player_id() {
-                        if owner_id != player_id {
-                            return Ok(true);
-                        }
-                    }
-                }
+                    obj.get_controlling_player_id()
+                        .map(|owner_id| owner_id != player_id)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if is_enemy {
+                return Ok(true);
             }
         }
         Ok(false)
@@ -839,18 +840,18 @@ impl ScriptCondition for SkirmishAllUnitsGarrisonedCondition {
             }
 
             for &member_id in members {
-                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
-                    if let Ok(obj) = obj_arc.read() {
+                let garrisoned_or_dead = OBJECT_REGISTRY
+                    .with_object(member_id, |obj| {
                         if obj.is_effectively_dead() || obj.is_destroyed() {
-                            continue; // Dead units don't need to be garrisoned
+                            return true; // Dead units don't need to be garrisoned
                         }
                         // Check if the object is disabled by Held type (garrisoned)
-                        if !obj.is_disabled_by_type(crate::common::DisabledType::Held) {
-                            return Ok(false);
-                        }
-                    }
+                        obj.is_disabled_by_type(crate::common::DisabledType::Held)
+                    })
+                    .unwrap_or(true); // Object not in registry - assume dead, skip
+                if !garrisoned_or_dead {
+                    return Ok(false);
                 }
-                // Object not in registry - assume dead, skip
             }
         }
         Ok(true)
@@ -1101,19 +1102,20 @@ impl ScriptCondition for SkirmishTeamNearPositionCondition {
                 .read()
                 .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
             for &member_id in team.get_members() {
-                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
-                    if let Ok(obj) = obj_arc.read() {
+                let near = OBJECT_REGISTRY
+                    .with_object(member_id, |obj| {
                         if obj.is_effectively_dead() || obj.is_destroyed() {
-                            continue;
+                            return false;
                         }
                         let pos = obj.get_position();
                         let dx = pos.x - center.x;
                         let dy = pos.y - center.y;
                         let dist = (dx * dx + dy * dy).sqrt();
-                        if dist <= radius {
-                            return Ok(true);
-                        }
-                    }
+                        dist <= radius
+                    })
+                    .unwrap_or(false);
+                if near {
+                    return Ok(true);
                 }
             }
         }
@@ -1266,15 +1268,15 @@ impl ScriptCondition for SkirmishStructureCountCondition {
 
         let mut structure_count: i64 = 0;
         for obj_id in &owned {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    if obj.is_kind_of(KindOf::Structure)
+            let is_structure = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj| {
+                    obj.is_kind_of(KindOf::Structure)
                         && !obj.is_destroyed()
                         && !obj.is_effectively_dead()
-                    {
-                        structure_count += 1;
-                    }
-                }
+                })
+                .unwrap_or(false);
+            if is_structure {
+                structure_count += 1;
             }
         }
 
@@ -1334,16 +1336,16 @@ impl ScriptCondition for SkirmishUnitCountCondition {
 
         let mut unit_count: i64 = 0;
         for obj_id in &owned {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
-                if let Ok(obj) = obj_arc.read() {
+            let is_unit = OBJECT_REGISTRY
+                .with_object(*obj_id, |obj| {
                     // Count non-structure, living objects
-                    if !obj.is_kind_of(KindOf::Structure)
+                    !obj.is_kind_of(KindOf::Structure)
                         && !obj.is_destroyed()
                         && !obj.is_effectively_dead()
-                    {
-                        unit_count += 1;
-                    }
-                }
+                })
+                .unwrap_or(false);
+            if is_unit {
+                unit_count += 1;
             }
         }
 
