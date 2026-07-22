@@ -4566,19 +4566,18 @@ impl AIPlayer {
             }
             if let Some(dozer_id) = self.find_dozer(&bridge_pos)? {
                 self.repair_dozer = Some(dozer_id);
-                if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
-                    if let Ok(dg) = dozer_arc.read() {
-                        self.repair_dozer_origin = *dg.get_position();
-                        if let Some(ai) = dg.get_ai_update_interface() {
-                            if let Ok(mut ai_lock) = ai.lock() {
-                                let mut params = AiCommandParams::new(
-                                    AiCommandType::Repair,
-                                    CommandSourceType::FromAi,
-                                );
-                                params.obj = Some(bridge_id);
-                                let _ = ai_lock.execute_command(&params);
-                            }
-                        }
+                if let Some(pos) = OBJECT_REGISTRY.with_object(dozer_id, |dg| *dg.get_position()) {
+                    self.repair_dozer_origin = pos;
+                }
+                if let Some(ai) = OBJECT_REGISTRY
+                    .with_object(dozer_id, |dg| dg.get_ai_update_interface())
+                    .flatten()
+                {
+                    if let Ok(mut ai_lock) = ai.lock() {
+                        let mut params =
+                            AiCommandParams::new(AiCommandType::Repair, CommandSourceType::FromAi);
+                        params.obj = Some(bridge_id);
+                        let _ = ai_lock.execute_command(&params);
                     }
                 }
                 self.dozer_is_repairing = true;
@@ -5756,10 +5755,8 @@ impl AIPlayer {
                 }
             }
             if let Some(&mid) = team_g.get_members().first() {
-                if let Some(o) = OBJECT_REGISTRY.get_object(mid) {
-                    if let Ok(g) = o.read() {
-                        origin = *g.get_position();
-                    }
+                if let Some(pos) = OBJECT_REGISTRY.with_object(mid, |g| *g.get_position()) {
+                    origin = pos;
                 }
             }
             (origin, tid)
@@ -6436,14 +6433,14 @@ impl AIPlayer {
             let mut dozer_id = builder_id;
             let mut builder_ok = false;
             if dozer_id != INVALID_ID {
-                if let Some(darc) = OBJECT_REGISTRY.get_object(dozer_id) {
-                    if let Ok(dg) = darc.read() {
-                        if dg.get_controlling_player_id() == Some(player_index)
+                if OBJECT_REGISTRY
+                    .with_object(dozer_id, |dg| {
+                        dg.get_controlling_player_id() == Some(player_index)
                             && dg.get_ai_update_interface().is_some()
-                        {
-                            builder_ok = true;
-                        }
-                    }
+                    })
+                    .unwrap_or(false)
+                {
+                    builder_ok = true;
                 }
             }
             if !builder_ok {
@@ -6454,24 +6451,21 @@ impl AIPlayer {
                     continue;
                 }
                 // Clear dead builder on building.
-                if let Some(barc) = OBJECT_REGISTRY.get_object(bldg_id) {
-                    if let Ok(mut bg) = barc.write() {
-                        bg.set_builder(None);
-                    }
-                }
+                let _ = OBJECT_REGISTRY.with_object_mut(bldg_id, |bg| {
+                    bg.set_builder(None);
+                });
             }
-            if let Some(darc) = OBJECT_REGISTRY.get_object(dozer_id) {
-                if let Ok(dg) = darc.read() {
-                    if let Some(ai) = dg.get_ai_update_interface() {
-                        if let Ok(mut ai_g) = ai.lock() {
-                            let mut params = crate::ai::AiCommandParams::new(
-                                crate::ai::AiCommandType::ResumeConstruction,
-                                CommandSourceType::FromAi,
-                            );
-                            params.obj = Some(bldg_id);
-                            let _ = ai_g.execute_command(&params);
-                        }
-                    }
+            if let Some(ai) = OBJECT_REGISTRY
+                .with_object(dozer_id, |dg| dg.get_ai_update_interface())
+                .flatten()
+            {
+                if let Ok(mut ai_g) = ai.lock() {
+                    let mut params = crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::ResumeConstruction,
+                        CommandSourceType::FromAi,
+                    );
+                    params.obj = Some(bldg_id);
+                    let _ = ai_g.execute_command(&params);
                 }
             }
         }
@@ -7481,13 +7475,10 @@ impl AIPlayer {
         };
         let mut count = 0;
         for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_kind_of(KindOf::Harvester) {
+            let is_harvester = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| obj_guard.is_kind_of(KindOf::Harvester))
+                .unwrap_or(false);
+            if is_harvester {
                 count += 1;
             }
         }
