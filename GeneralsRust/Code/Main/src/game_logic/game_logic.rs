@@ -6071,6 +6071,12 @@ impl GameLogic {
         // Post-phase: Audio events
         // -----------------------------------------------------------------------
         self.process_audio_events();
+
+        // Host-only ticks: settle deferred economy spends (DAMAGE/HP already
+        // fail-open onto host when not in a coupled shadow writeback frame).
+        if !crate::gameworld_shadow::shadow_coupled_tick_active() {
+            crate::gameworld_shadow::materialize_host_economy_pending(self);
+        }
     }
 
     /// Update construction progress.
@@ -46928,6 +46934,11 @@ impl GameLogic {
         // Process all queued commands
         while let Some(command) = self.command_queue.pop_front() {
             self.execute_command(command);
+        }
+        // Standalone command processing (unit tests / host gates without a full
+        // sim tick) must still settle deferred economy/damage authority logs.
+        if !crate::gameworld_shadow::shadow_coupled_tick_active() {
+            crate::gameworld_shadow::materialize_host_economy_pending(self);
         }
     }
 
