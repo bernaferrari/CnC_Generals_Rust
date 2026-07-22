@@ -2024,32 +2024,33 @@ impl Weapon {
             return true;
         }
 
-        let Some(source) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj) else {
+        let Some((src_pos, src_geom)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(source_obj, |source_guard| {
+                (
+                    *source_guard.get_position(),
+                    source_guard.get_geometry_info().clone(),
+                )
+            })
+        else {
             return true;
         };
-        let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_obj) else {
+        let Some((dst_pos, dst_geom)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(target_obj, |target_guard| {
+                (
+                    *target_guard.get_position(),
+                    target_guard.get_geometry_info().clone(),
+                )
+            })
+        else {
             return true;
         };
 
-        let Ok(source_guard) = source.read() else {
-            return true;
-        };
-        let Ok(target_guard) = target.read() else {
-            return true;
-        };
-
-        let src_pos = source_guard.get_position();
-        let dst_pos = target_guard.get_position();
         const ACCEPTABLE_DZ: Real = 10.0;
         if (dst_pos.z - src_pos.z).abs() < ACCEPTABLE_DZ {
             return true;
         }
 
-        let (min_pitch, max_pitch) = source_guard.get_geometry_info().calc_pitches(
-            src_pos,
-            target_guard.get_geometry_info(),
-            dst_pos,
-        );
+        let (min_pitch, max_pitch) = src_geom.calc_pitches(&src_pos, &dst_geom, &dst_pos);
 
         let min_target = self.template.min_target_pitch;
         let max_target = self.template.max_target_pitch;
@@ -2284,27 +2285,21 @@ impl Weapon {
         target_obj: Option<ObjectId>,
         target_pos: Option<&Coord3D>,
     ) -> bool {
-        let Some(source) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj) else {
+        let Some(source_pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_obj, |guard| *guard.get_position())
+        else {
             return false;
         };
-        let source_guard = match source.read() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-        let source_pos = *source_guard.get_position();
 
         let target_pos = if let Some(pos) = target_pos {
             *pos
         } else if let Some(target_id) = target_obj {
-            let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
+            let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(target_id, |guard| *guard.get_position())
             else {
                 return false;
             };
-            let target_guard = match target.read() {
-                Ok(guard) => guard,
-                Err(_) => return false,
-            };
-            *target_guard.get_position()
+            pos
         } else {
             return false;
         };
@@ -2329,27 +2324,21 @@ impl Weapon {
         target_obj: Option<ObjectId>,
         target_pos: Option<&Coord3D>,
     ) -> bool {
-        let Some(source) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj) else {
+        let Some(source_pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_obj, |guard| *guard.get_position())
+        else {
             return false;
         };
-        let source_guard = match source.read() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-        let source_pos = *source_guard.get_position();
 
         let target_pos = if let Some(pos) = target_pos {
             *pos
         } else if let Some(target_id) = target_obj {
-            let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
+            let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(target_id, |guard| *guard.get_position())
             else {
                 return false;
             };
-            let target_guard = match target.read() {
-                Ok(guard) => guard,
-                Err(_) => return false,
-            };
-            *target_guard.get_position()
+            pos
         } else {
             return false;
         };
@@ -2372,23 +2361,17 @@ impl Weapon {
         let mut range = self.get_attack_range(source_obj);
 
         if let Some(victim_id) = victim_obj {
-            let source_radius =
-                match crate::object::registry::OBJECT_REGISTRY.get_object(source_obj) {
-                    Some(arc) => match arc.read() {
-                        Ok(guard) => guard.get_geometry_info().get_bounding_circle_radius(),
-                        Err(_) => 0.0,
-                    },
-                    None => 0.0,
-                };
+            let source_radius = crate::object::registry::OBJECT_REGISTRY
+                .with_object(source_obj, |guard| {
+                    guard.get_geometry_info().get_bounding_circle_radius()
+                })
+                .unwrap_or(0.0);
 
-            let victim_radius = match crate::object::registry::OBJECT_REGISTRY.get_object(victim_id)
-            {
-                Some(arc) => match arc.read() {
-                    Ok(guard) => guard.get_geometry_info().get_bounding_circle_radius(),
-                    Err(_) => 0.0,
-                },
-                None => 0.0,
-            };
+            let victim_radius = crate::object::registry::OBJECT_REGISTRY
+                .with_object(victim_id, |guard| {
+                    guard.get_geometry_info().get_bounding_circle_radius()
+                })
+                .unwrap_or(0.0);
 
             range += source_radius + victim_radius;
         }
@@ -2412,29 +2395,25 @@ impl Weapon {
         target_pos: Option<&Coord3D>,
     ) -> bool {
         let source_radius = crate::object::registry::OBJECT_REGISTRY
-            .get_object(source_obj)
-            .and_then(|source| {
-                source
-                    .read()
-                    .ok()
-                    .map(|guard| guard.get_geometry_info().get_bounding_circle_radius())
+            .with_object(source_obj, |guard| {
+                guard.get_geometry_info().get_bounding_circle_radius()
             })
             .unwrap_or(0.0);
 
         let (tgt_pos, target_radius) = if let Some(target_id) = target_obj {
-            let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
+            let Some(pair) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                    (
+                        *target_guard.get_position(),
+                        target_guard
+                            .get_geometry_info()
+                            .get_bounding_circle_radius(),
+                    )
+                })
             else {
                 return false;
             };
-            let Ok(target_guard) = target.read() else {
-                return false;
-            };
-            (
-                *target_guard.get_position(),
-                target_guard
-                    .get_geometry_info()
-                    .get_bounding_circle_radius(),
-            )
+            pair
         } else if let Some(pos) = target_pos {
             (*pos, 0.0)
         } else {
@@ -2884,33 +2863,29 @@ impl Weapon {
     ) -> bool {
         use crate::object::collide::Coord3D as CollideCoord;
 
-        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj)
+        let Some(origin) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(source_obj, |source_guard| {
+                let source_pos = source_guard.get_position();
+                let source_height = source_guard
+                    .get_geometry_info()
+                    .get_max_height_above_position();
+                CollideCoord::new(source_pos.x, source_pos.y, source_pos.z + source_height)
+            })
         else {
             return true;
         };
-        let Ok(source_guard) = source_arc.read() else {
-            return true;
-        };
-        let source_pos = source_guard.get_position();
-        let source_height = source_guard
-            .get_geometry_info()
-            .get_max_height_above_position();
-        let origin = CollideCoord::new(source_pos.x, source_pos.y, source_pos.z + source_height);
-        drop(source_guard);
 
-        let Some(target_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(target_obj)
+        let Some(victim_pos) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(target_obj, |target_guard| {
+                let target_pos = target_guard.get_position();
+                let target_height = target_guard
+                    .get_geometry_info()
+                    .get_max_height_above_position();
+                CollideCoord::new(target_pos.x, target_pos.y, target_pos.z + target_height)
+            })
         else {
             return true;
         };
-        let Ok(target_guard) = target_arc.read() else {
-            return true;
-        };
-        let target_pos = target_guard.get_position();
-        let target_height = target_guard
-            .get_geometry_info()
-            .get_max_height_above_position();
-        let victim_pos =
-            CollideCoord::new(target_pos.x, target_pos.y, target_pos.z + target_height);
 
         crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
             None,
@@ -2929,18 +2904,17 @@ impl Weapon {
     ) -> bool {
         use crate::object::collide::Coord3D as CollideCoord;
 
-        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj)
+        let Some(origin) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(source_obj, |source_guard| {
+                let source_pos = source_guard.get_position();
+                let source_height = source_guard
+                    .get_geometry_info()
+                    .get_max_height_above_position();
+                CollideCoord::new(source_pos.x, source_pos.y, source_pos.z + source_height)
+            })
         else {
             return true;
         };
-        let Ok(source_guard) = source_arc.read() else {
-            return true;
-        };
-        let source_pos = source_guard.get_position();
-        let source_height = source_guard
-            .get_geometry_info()
-            .get_max_height_above_position();
-        let origin = CollideCoord::new(source_pos.x, source_pos.y, source_pos.z + source_height);
 
         let victim = CollideCoord::new(victim_pos.x, victim_pos.y, victim_pos.z);
 
@@ -2961,32 +2935,28 @@ impl Weapon {
     ) -> bool {
         use crate::object::collide::Coord3D as CollideCoord;
 
-        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj)
+        let Some(origin) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(source_obj, |source_guard| {
+                let source_height = source_guard
+                    .get_geometry_info()
+                    .get_max_height_above_position();
+                CollideCoord::new(goal_pos.x, goal_pos.y, goal_pos.z + source_height)
+            })
         else {
             return true;
         };
-        let Ok(source_guard) = source_arc.read() else {
-            return true;
-        };
-        let source_height = source_guard
-            .get_geometry_info()
-            .get_max_height_above_position();
-        let origin = CollideCoord::new(goal_pos.x, goal_pos.y, goal_pos.z + source_height);
-        drop(source_guard);
 
-        let Some(target_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(target_obj)
+        let Some(victim_pos) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(target_obj, |target_guard| {
+                let target_pos = target_guard.get_position();
+                let target_height = target_guard
+                    .get_geometry_info()
+                    .get_max_height_above_position();
+                CollideCoord::new(target_pos.x, target_pos.y, target_pos.z + target_height)
+            })
         else {
             return true;
         };
-        let Ok(target_guard) = target_arc.read() else {
-            return true;
-        };
-        let target_pos = target_guard.get_position();
-        let target_height = target_guard
-            .get_geometry_info()
-            .get_max_height_above_position();
-        let victim_pos =
-            CollideCoord::new(target_pos.x, target_pos.y, target_pos.z + target_height);
 
         crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
             None,
@@ -3006,17 +2976,16 @@ impl Weapon {
     ) -> bool {
         use crate::object::collide::Coord3D as CollideCoord;
 
-        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj)
+        let Some(origin) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(source_obj, |source_guard| {
+                let source_height = source_guard
+                    .get_geometry_info()
+                    .get_max_height_above_position();
+                CollideCoord::new(goal_pos.x, goal_pos.y, goal_pos.z + source_height)
+            })
         else {
             return true;
         };
-        let Ok(source_guard) = source_arc.read() else {
-            return true;
-        };
-        let source_height = source_guard
-            .get_geometry_info()
-            .get_max_height_above_position();
-        let origin = CollideCoord::new(goal_pos.x, goal_pos.y, goal_pos.z + source_height);
 
         let victim = CollideCoord::new(victim_pos.x, victim_pos.y, victim_pos.z);
 
@@ -3783,31 +3752,30 @@ impl Weapon {
             return true;
         }
 
-        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_id)
+        let Some(ok) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(source_id, |source_guard| {
+                let source_pos = source_guard.get_position();
+                let dx = target_pos.x - source_pos.x;
+                let dy = target_pos.y - source_pos.y;
+                if dx.abs() < f32::EPSILON && dy.abs() < f32::EPSILON {
+                    return true;
+                }
+                let angle_to_target = dy.atan2(dx);
+                let current_angle = source_guard.get_orientation();
+
+                let mut angle_diff = angle_to_target - current_angle;
+                if angle_diff > std::f32::consts::PI {
+                    angle_diff -= 2.0 * std::f32::consts::PI;
+                } else if angle_diff < -std::f32::consts::PI {
+                    angle_diff += 2.0 * std::f32::consts::PI;
+                }
+
+                angle_diff.abs() <= aim_delta
+            })
         else {
             return false;
         };
-        let Ok(source_guard) = source_arc.read() else {
-            return false;
-        };
-        let source_pos = source_guard.get_position();
-
-        let dx = target_pos.x - source_pos.x;
-        let dy = target_pos.y - source_pos.y;
-        if dx.abs() < f32::EPSILON && dy.abs() < f32::EPSILON {
-            return true;
-        }
-        let angle_to_target = dy.atan2(dx);
-        let current_angle = source_guard.get_orientation();
-
-        let mut angle_diff = angle_to_target - current_angle;
-        if angle_diff > std::f32::consts::PI {
-            angle_diff -= 2.0 * std::f32::consts::PI;
-        } else if angle_diff < -std::f32::consts::PI {
-            angle_diff += 2.0 * std::f32::consts::PI;
-        }
-
-        angle_diff.abs() <= aim_delta
+        ok
     }
 
     /// Apply damage to a target object.
@@ -3820,17 +3788,6 @@ impl Weapon {
         damage_type: crate::damage::DamageType,
         source_id: Option<ObjectId>,
     ) -> f32 {
-        let Some(target_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
-        else {
-            return 0.0;
-        };
-        let Ok(mut target_guard) = target_arc.write() else {
-            return 0.0;
-        };
-        if target_guard.is_destroyed() {
-            return 0.0;
-        }
-
         let mut damage_info = crate::damage::DamageInfo::with_simple(
             amount,
             source_id.unwrap_or(INVALID_OBJECT_ID),
@@ -3839,22 +3796,31 @@ impl Weapon {
         );
 
         if let Some(src_id) = source_id {
-            if let Some(src_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(src_id) {
-                if let Ok(src_guard) = src_arc.read() {
-                    if let Some(player) = src_guard.get_controlling_player() {
-                        if let Ok(player_guard) = player.read() {
-                            damage_info.input.source_player_mask = player_guard.get_player_mask();
-                        }
-                    }
+            if let Some(mask) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(src_id, |src_guard| {
+                    src_guard
+                        .get_controlling_player()
+                        .and_then(|player| player.read().ok().map(|p| p.get_player_mask()))
+                })
+            {
+                if let Some(mask) = mask {
+                    damage_info.input.source_player_mask = mask;
                 }
             }
         }
         damage_info.sync_from_input();
 
-        match target_guard.attempt_damage_with_return(&mut damage_info) {
-            Ok(actual) => actual,
-            Err(_) => 0.0,
-        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(target_id, |target_guard| {
+                if target_guard.is_destroyed() {
+                    return 0.0;
+                }
+                match target_guard.attempt_damage_with_return(&mut damage_info) {
+                    Ok(actual) => actual,
+                    Err(_) => 0.0,
+                }
+            })
+            .unwrap_or(0.0)
     }
 
     /// Enable or disable a weapon bonus condition on the owning object.
@@ -3865,31 +3831,25 @@ impl Weapon {
         condition: crate::common::types::WeaponBonusConditionType,
         enabled: bool,
     ) {
-        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_id)
-        else {
-            return;
-        };
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
+                if enabled {
+                    source_guard.set_weapon_bonus_condition(condition);
+                } else {
+                    source_guard.clear_weapon_bonus_condition(condition);
+                }
 
-        let Ok(mut source_guard) = source_arc.write() else {
-            return;
-        };
-
-        if enabled {
-            source_guard.set_weapon_bonus_condition(condition);
-        } else {
-            source_guard.clear_weapon_bonus_condition(condition);
-        }
-
-        for slot_idx in 0..crate::common::WEAPONSLOT_COUNT {
-            let slot = match slot_idx {
-                0 => WeaponSlotType::Primary,
-                1 => WeaponSlotType::Secondary,
-                _ => WeaponSlotType::Tertiary,
-            };
-            if let Some(weapon) = source_guard.get_weapon_in_slot_mut(slot) {
-                let _ = weapon.on_weapon_bonus_change(source_id);
-            }
-        }
+                for slot_idx in 0..crate::common::WEAPONSLOT_COUNT {
+                    let slot = match slot_idx {
+                        0 => WeaponSlotType::Primary,
+                        1 => WeaponSlotType::Secondary,
+                        _ => WeaponSlotType::Tertiary,
+                    };
+                    if let Some(weapon) = source_guard.get_weapon_in_slot_mut(slot) {
+                        let _ = weapon.on_weapon_bonus_change(source_id);
+                    }
+                }
+            });
     }
 
     /// Update weapon state per frame
@@ -4541,6 +4501,7 @@ impl Weapon {
         let object_ids = obj_mgr.find_objects_in_radius(*center, radius);
         drop(obj_mgr);
 
+        // Keep source Arc only while scanning radius targets (relationship needs &Object).
         let source_arc = OBJECT_REGISTRY.get_object(source_obj_id);
         let source_guard = match source_arc.as_ref() {
             Some(arc) => arc.read().ok(),
@@ -4549,22 +4510,21 @@ impl Weapon {
 
         let mut results = Vec::new();
         for obj_id in object_ids {
-            // Get object to retrieve position and relationship
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            // Borrow-first target access (no Arc clone kept beyond the callback).
+            let Some((pos, relationship_mask)) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                let pos = *obj.get_position();
+                let relationship_mask = source_guard
+                    .as_ref()
+                    .map(|source| match source.relationship_to(obj) {
+                        Relationship::Allies => WeaponAffectsMask::ALLIES,
+                        Relationship::Enemies => WeaponAffectsMask::ENEMIES,
+                        _ => WeaponAffectsMask::NEUTRALS,
+                    })
+                    .unwrap_or(WeaponAffectsMask::NEUTRALS);
+                (pos, relationship_mask)
+            }) else {
                 continue;
             };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            let pos = *obj.get_position();
-            let relationship_mask = source_guard
-                .as_ref()
-                .map(|source| match source.relationship_to(&obj) {
-                    Relationship::Allies => WeaponAffectsMask::ALLIES,
-                    Relationship::Enemies => WeaponAffectsMask::ENEMIES,
-                    _ => WeaponAffectsMask::NEUTRALS,
-                })
-                .unwrap_or(WeaponAffectsMask::NEUTRALS);
             results.push((obj_id, pos, relationship_mask));
         }
 
@@ -4856,8 +4816,9 @@ impl Snapshotable for Weapon {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         if self.projectile_stream_id != INVALID_OBJECT_ID {
+            // Existence probe via borrow-first helper (no Arc kept).
             if crate::object::registry::OBJECT_REGISTRY
-                .get_object(self.projectile_stream_id)
+                .with_object(self.projectile_stream_id, |_| ())
                 .is_none()
             {
                 self.projectile_stream_id = INVALID_OBJECT_ID;

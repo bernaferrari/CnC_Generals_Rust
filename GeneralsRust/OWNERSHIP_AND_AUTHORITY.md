@@ -205,6 +205,12 @@ mid-frame host combat still runs for C++ armor/side-effect parity.
  Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
+### ObjectRegistry with_object residual (2026-07-21)
+
+`OBJECT_REGISTRY` gained `with_object` / `with_object_mut`. Weapon range/pitch/LOS/
+aim/damage/bonus and radius scan peels use them instead of keeping Arc clones at
+call sites. One intentional source Arc remains in blast-radius relationship scan.
+
 ### Weapon with_object residual (2026-07-21)
 
 `Weapon::can_see_target`, `is_enemy_target`, and `apply_damage_to_object` use
