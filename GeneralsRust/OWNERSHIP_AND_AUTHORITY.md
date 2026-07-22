@@ -56,7 +56,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 
 ## Migration order
 
-1. PresentationFrame consumers (render/HUD) — stop locking live sim during GPU passes.
+1. PresentationFrame consumers (render/HUD) — stop locking live sim during GPU passes. **Host get_objects dual-reads closed (2026-07-21).**
 2. Unify IDs across Main and crate.
 3. Flip crate `HashMap<ObjectID, Arc<RwLock<Object>>>` → owned store + IDs.
 4. Retire ObjectFactory dual registry / `engine_object_id` bridge. **Host path done** (field + dual-create + dual-read removed; crate OM/factory Arc store remains).
@@ -204,6 +204,19 @@ mid-frame host combat still runs for C++ armor/side-effect parity.
 
  Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
+
+### Host get_objects dual-read close (2026-07-21)
+
+`CncGameEngine` InGame host paths no longer walk live `GameLogic::get_objects()` for
+roster/selection/status/camera/dozer/runtime-host commands. Those consumers use
+`last_presentation_frame` only; empty presentation yields fail-closed empty/None
+defaults (Menu/Loading boot residual may still read players/map name).
+
+Still residual:
+- Crate `ObjectManager` `HashMap<ObjectID, Arc<RwLock<GameObjectInstance>>>` store
+- Global `OBJECT_REGISTRY` dual-world paths (empty early-outs on host)
+- Main mid-frame host authority (GameWorld not sole production authority)
+- `playable_claim` stays false (no full retail WND/GPU playthrough)
 
 ### Presentation boundary residual (2026-07-14)
 
