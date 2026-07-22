@@ -216,12 +216,10 @@ pub enum GarrisonPointCondition {
 /// Garrison point data for tracking occupants
 #[derive(Debug)]
 pub struct GarrisonPointData {
-    /// Object at this garrison point
-    pub object: Option<Arc<RwLock<Object>>>,
-    /// Object ID for save/load post-process
-    pub object_id: Option<ObjectId>,
-    /// Object ID of current target
-    pub target_id: Option<ObjectId>,
+    /// Occupant object id (INVALID_ID if empty).
+    pub object_id: ObjectID,
+    /// Current target id (INVALID_ID if none).
+    pub target_id: ObjectID,
     /// Frame when placed at this garrison point
     pub place_frame: u32,
     /// Last frame effects were fired
@@ -235,9 +233,8 @@ pub struct GarrisonPointData {
 impl Default for GarrisonPointData {
     fn default() -> Self {
         Self {
-            object: None,
-            object_id: None,
-            target_id: None,
+            object_id: INVALID_ID,
+            target_id: INVALID_ID,
             place_frame: 0,
             last_effect_frame: 0,
             effect: None,
@@ -294,6 +291,15 @@ pub struct GarrisonContain {
 }
 
 impl GarrisonContain {
+    fn garrison_point_object(&self, point_index: usize) -> Option<Arc<RwLock<Object>>> {
+        let id = self.garrison_point_data.get(point_index)?.object_id;
+        if id == INVALID_ID {
+            return None;
+        }
+        TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+    }
+
     /// Create a new GarrisonContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
@@ -1461,7 +1467,7 @@ impl GarrisonContain {
             return Err("Invalid garrison point index".into());
         }
 
-        if self.garrison_point_data[point_index].object.is_some() {
+        if self.garrison_point_data[point_index].object_id != INVALID_ID {
             return Err("Garrison point is not empty".into());
         }
 
@@ -1475,11 +1481,14 @@ impl GarrisonContain {
             }
         }
 
-        // Save garrison point data
-        let obj_id = obj.read().ok().map(|guard| guard.get_id());
-        self.garrison_point_data[point_index].object = Some(obj.clone());
+        // Save garrison point data (ID-first occupancy).
+        let obj_id = obj
+            .read()
+            .ok()
+            .map(|guard| guard.get_id())
+            .unwrap_or(INVALID_ID);
         self.garrison_point_data[point_index].object_id = obj_id;
-        self.garrison_point_data[point_index].target_id = target_id;
+        self.garrison_point_data[point_index].target_id = target_id.unwrap_or(INVALID_ID);
         self.garrison_point_data[point_index].place_frame = TheGameLogic::get_frame();
         self.garrison_points_in_use += 1;
 
@@ -1497,20 +1506,15 @@ impl GarrisonContain {
         obj: Arc<RwLock<Object>>,
         index: Option<usize>,
     ) -> GameResult<()> {
+        let obj_id = obj.read().map_err(|_| GameError::LockError)?.get_id();
         let point_index = if let Some(idx) = index {
             idx
         } else {
-            // Search for object
             let mut found_index = None;
             for i in 0..MAX_GARRISON_POINTS {
-                if let Some(ref point_obj) = self.garrison_point_data[i].object {
-                    let matches = Arc::ptr_eq(point_obj, &obj)
-                        || point_obj.read().ok().map(|guard| guard.get_id())
-                            == obj.read().ok().map(|guard| guard.get_id());
-                    if matches {
-                        found_index = Some(i);
-                        break;
-                    }
+                if self.garrison_point_data[i].object_id == obj_id {
+                    found_index = Some(i);
+                    break;
                 }
             }
             match found_index {
@@ -1533,10 +1537,8 @@ impl GarrisonContain {
             }
         }
 
-        // Clear garrison point data
-        self.garrison_point_data[point_index].object = None;
-        self.garrison_point_data[point_index].object_id = None;
-        self.garrison_point_data[point_index].target_id = None;
+        self.garrison_point_data[point_index].object_id = INVALID_ID;
+        self.garrison_point_data[point_index].target_id = INVALID_ID;
         self.garrison_point_data[point_index].place_frame = 0;
         self.garrison_point_data[point_index].last_effect_frame = 0;
 
@@ -1600,7 +1602,7 @@ impl GarrisonContain {
         let mut to_remove = Vec::new();
 
         for i in 0..MAX_GARRISON_POINTS {
-            if let Some(ref obj) = self.garrison_point_data[i].object {
+            if let Some(obj) = self.garrison_point_object(i) {
                 if let Ok(contained) = obj.read() {
                     let mut target_is_valid = true;
 
@@ -1910,7 +1912,7 @@ impl GarrisonContain {
     fn get_object_garrison_point_index(&self, obj: &Object) -> Option<usize> {
         let obj_id = obj.get_id();
         for i in 0..MAX_GARRISON_POINTS {
-            if let Some(ref point_obj) = self.garrison_point_data[i].object {
+            if let Some(point_obj) = self.garrison_point_object(i) {
                 if point_obj.read().ok().map(|guard| guard.get_id()) == Some(obj_id) {
                     return Some(i);
                 }
@@ -1933,7 +1935,7 @@ impl GarrisonContain {
         let mut closest_dist_sq = f32::MAX;
 
         for i in 0..MAX_GARRISON_POINTS {
-            if self.garrison_point_data[i].object.is_none() {
+            if self.garrison_point_data[i].object_id == INVALID_ID {
                 let dist_sq =
                     self.calc_dist_sqr(target_pos, &self.garrison_points[condition_index][i]);
                 if dist_sq < closest_dist_sq {
@@ -2119,16 +2121,8 @@ impl GarrisonContain {
         // Save garrison point data
         let mut point_data = Vec::with_capacity(MAX_GARRISON_POINTS * 5 * 4);
         for point in &self.garrison_point_data {
-            let object_id = point
-                .object_id
-                .or_else(|| {
-                    point
-                        .object
-                        .as_ref()
-                        .and_then(|obj| obj.read().ok().map(|g| g.get_id()))
-                })
-                .unwrap_or(INVALID_ID);
-            let target_id = point.target_id.unwrap_or(INVALID_ID);
+            let object_id = point.object_id;
+            let target_id = point.target_id;
             let effect_id = point.effect_id.unwrap_or(0);
             push_u32(&mut point_data, object_id as u32);
             push_u32(&mut point_data, target_id as u32);
@@ -2231,21 +2225,20 @@ impl GarrisonContain {
                 let effect_id = read_u32(data, &mut offset).unwrap_or(0);
 
                 point.object_id = if object_id == INVALID_ID as u32 {
-                    None
+                    INVALID_ID
                 } else {
-                    Some(object_id as ObjectId)
+                    object_id as ObjectID
                 };
                 point.target_id = if target_id == INVALID_ID as u32 {
-                    None
+                    INVALID_ID
                 } else {
-                    Some(target_id as ObjectId)
+                    target_id as ObjectID
                 };
                 point.effect_id = if effect_id == 0 {
                     None
                 } else {
                     Some(effect_id)
                 };
-                point.object = None;
                 point.effect = None;
             }
         }
@@ -2293,15 +2286,12 @@ impl GarrisonContain {
         self.base.load_post_process()?;
 
         for point in &mut self.garrison_point_data {
-            if let Some(object_id) = point.object_id {
-                if object_id != INVALID_ID {
-                    if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-                        point.object = Some(obj);
-                    } else {
-                        return Err("GarrisonContain::load_post_process: missing object".into());
-                    }
-                } else {
-                    point.object = None;
+            if point.object_id != INVALID_ID {
+                let resolved = TheGameLogic::find_object_by_id(point.object_id).or_else(|| {
+                    crate::object::registry::OBJECT_REGISTRY.get_object(point.object_id)
+                });
+                if resolved.is_none() {
+                    return Err("GarrisonContain::load_post_process: missing object".into());
                 }
             }
 
@@ -2364,19 +2354,11 @@ impl Snapshotable for GarrisonContain {
             .map_err(|e| e.to_string())?;
         for index in 0..usize::from(point_data_count).min(MAX_GARRISON_POINTS) {
             let point = &mut self.garrison_point_data[index];
-            let mut object_id = point
-                .object_id
-                .or_else(|| {
-                    point
-                        .object
-                        .as_ref()
-                        .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
-                })
-                .unwrap_or(INVALID_ID);
+            let mut object_id = point.object_id;
             xfer.xfer_object_id(&mut object_id)
                 .map_err(|e| e.to_string())?;
 
-            let mut target_id = point.target_id.unwrap_or(INVALID_ID);
+            let mut target_id = point.target_id;
             xfer.xfer_object_id(&mut target_id)
                 .map_err(|e| e.to_string())?;
 
@@ -2390,22 +2372,21 @@ impl Snapshotable for GarrisonContain {
                 .map_err(|e| e.to_string())?;
 
             if xfer.get_xfer_mode() == XferMode::Load {
-                point.object_id = if object_id == INVALID_ID {
-                    None
+                point.object_id = if object_id == INVALID_ID as u32 {
+                    INVALID_ID
                 } else {
-                    Some(object_id)
+                    object_id as ObjectID
                 };
-                point.target_id = if target_id == INVALID_ID {
-                    None
+                point.target_id = if target_id == INVALID_ID as u32 {
+                    INVALID_ID
                 } else {
-                    Some(target_id)
+                    target_id as ObjectID
                 };
                 point.effect_id = if effect_id == 0 {
                     None
                 } else {
                     Some(effect_id)
                 };
-                point.object = None;
                 point.effect = None;
             }
         }
@@ -2844,9 +2825,9 @@ mod tests {
     #[test]
     fn test_garrison_point_data_default() {
         let point = GarrisonPointData::default();
-        assert!(point.object.is_none());
-        assert!(point.object_id.is_none());
-        assert!(point.target_id.is_none());
+        assert_eq!(point.object_id, INVALID_ID);
+        assert_eq!(point.object_id, INVALID_ID);
+        assert_eq!(point.target_id, INVALID_ID);
         assert_eq!(point.place_frame, 0);
         assert_eq!(point.last_effect_frame, 0);
         assert!(point.effect.is_none());
