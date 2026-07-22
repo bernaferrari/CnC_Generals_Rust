@@ -450,7 +450,15 @@ impl ConvertToHijackedVehicleCrateCollide {
 
         {
             let mut hijacker_guard = hijacker.write().map_err(|_| GameError::LockError)?;
-            hijacker_guard.on_contained_by(other.clone()).ok();
+            hijacker_guard
+                .on_contained_by(
+                    other
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID),
+                )
+                .ok();
             hijacker_guard.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
             hijacker_guard.set_status(ObjectStatusMaskType::MASKED, true);
             hijacker_guard.set_status(ObjectStatusMaskType::UNSELECTABLE, true);

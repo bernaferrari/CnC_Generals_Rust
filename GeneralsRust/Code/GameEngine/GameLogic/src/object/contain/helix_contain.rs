@@ -366,7 +366,12 @@ impl HelixContain {
             self.portable_structure_id = Some(obj_id);
             if let Some(owner_obj) = self.get_object() {
                 if let Ok(mut obj_mut) = obj.write() {
-                    let _ = obj_mut.set_contained_by(Some(owner_obj));
+                    let owner_id = owner_obj
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID);
+                    let _ = obj_mut.set_contained_by(Some(owner_id));
                 }
             }
 
@@ -438,7 +443,12 @@ impl HelixContain {
             self.portable_structure_id = Some(obj_id);
             if let Some(owner_obj) = self.get_object() {
                 if let Ok(mut obj_mut) = obj.write() {
-                    let _ = obj_mut.set_contained_by(Some(owner_obj));
+                    let owner_id = owner_obj
+                        .read()
+                        .ok()
+                        .map(|g| g.get_id())
+                        .unwrap_or(crate::common::INVALID_ID);
+                    let _ = obj_mut.set_contained_by(Some(owner_id));
                 }
             }
 

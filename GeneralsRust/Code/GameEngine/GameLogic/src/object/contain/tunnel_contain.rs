@@ -210,7 +210,13 @@ impl TunnelContain {
         // Trigger onRemovedFrom event for the object being removed
         {
             let mut obj_write = obj.write().map_err(|_| "Object lock poisoned")?;
-            obj_write.on_removed_from(owner.clone())?;
+            obj_write.on_removed_from(
+                owner
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID),
+            )?;
         }
 
         // Remove from tunnel network if still valid
