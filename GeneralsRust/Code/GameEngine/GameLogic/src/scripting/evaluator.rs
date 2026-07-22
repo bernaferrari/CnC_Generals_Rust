@@ -577,7 +577,12 @@ impl ScriptEvaluator {
                 };
 
                 let mut count = 0;
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -740,7 +745,12 @@ impl ScriptEvaluator {
                 };
 
                 let mut count = 0;
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -817,7 +827,12 @@ impl ScriptEvaluator {
 
                 let kind_of_filter = Self::kind_of_type_to_mask(kind_of_type_int);
                 let mut count = 0;
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -940,7 +955,12 @@ impl ScriptEvaluator {
                     return Ok(false);
                 };
 
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -999,7 +1019,12 @@ impl ScriptEvaluator {
                 };
 
                 let mut total_cost = 0i32;
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -1362,7 +1387,12 @@ impl ScriptEvaluator {
                 };
 
                 let mut num_faction_units = 0i32;
-                for obj_arc in neutral_guard.get_objects() {
+                for obj_id in neutral_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -1441,7 +1471,12 @@ impl ScriptEvaluator {
 
                 // C++ counts buildings with ContainModuleInterface::isGarrisonable() && getContainCount() > 0
                 let mut num_garrisoned = 0i32;
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -1495,7 +1530,12 @@ impl ScriptEvaluator {
                 };
 
                 let mut num_captured = 0i32;
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -1559,7 +1599,12 @@ impl ScriptEvaluator {
                 };
 
                 let mut count = 0;
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -1638,7 +1683,12 @@ impl ScriptEvaluator {
                     return Ok(true);
                 };
 
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -1686,7 +1736,12 @@ impl ScriptEvaluator {
                 };
 
                 // C++: iterates player objects checking shroud status against discoveredByIndex
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -1754,7 +1809,12 @@ impl ScriptEvaluator {
                 };
 
                 let mut current_count = 0i32;
-                for obj_arc in player_guard.get_objects() {
+                for obj_id in player_guard.get_object_ids() {
+                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
@@ -3260,7 +3320,12 @@ impl ScriptEvaluator {
         let types = self.resolve_object_types(type_param);
 
         let mut count = 0;
-        for obj_arc in player_guard.get_objects() {
+        for obj_id in player_guard.get_object_ids() {
+            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            else {
+                continue;
+            };
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };

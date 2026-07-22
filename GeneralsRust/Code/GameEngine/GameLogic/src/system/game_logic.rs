@@ -4041,6 +4041,10 @@ impl GameLogic {
 
     /// Iterate over all objects in the game
     /// Returns iterator yielding Arc<RwLock<Object>> for each object
+    pub fn iter_all_object_ids(&self) -> impl Iterator<Item = ObjectID> + '_ {
+        self.all_objects.iter().copied()
+    }
+
     pub fn iter_all_objects(&self) -> impl Iterator<Item = Arc<RwLock<Object>>> + '_ {
         self.objects.values().cloned()
     }

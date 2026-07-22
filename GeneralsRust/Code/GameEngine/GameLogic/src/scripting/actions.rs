@@ -4189,18 +4189,29 @@ impl ScriptAction for PlayerDisableFactoriesAction {
         // 4. Existing queue items continue or are cancelled
         // Rust: player.disable_all_production()
 
-        if let Ok(list) = player_list().read() {
+        let object_ids = {
+            let Ok(list) = player_list().read() else {
+                return Ok(ScriptResult::Success(None));
+            };
             let index = player as i32;
             if let Some(player_arc) = list.get_player(index) {
                 if let Ok(player_guard) = player_arc.read() {
-                    for obj_arc in player_guard.get_objects() {
-                        if let Ok(mut obj_guard) = obj_arc.write() {
-                            obj_guard.set_production_enabled(false);
-                        }
-                    }
+                    player_guard.get_object_ids()
+                } else {
+                    Vec::new()
                 }
             } else {
                 log::warn!("PlayerDisableFactoriesAction: player {} not found", player);
+                Vec::new()
+            }
+        };
+        for obj_id in object_ids {
+            if let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            {
+                if let Ok(mut obj_guard) = obj_arc.write() {
+                    obj_guard.set_production_enabled(false);
+                }
             }
         }
 
@@ -4247,18 +4258,29 @@ impl ScriptAction for PlayerEnableFactoriesAction {
         // 3. Player can queue new units again
         // Rust: player.enable_all_production()
 
-        if let Ok(list) = player_list().read() {
+        let object_ids = {
+            let Ok(list) = player_list().read() else {
+                return Ok(ScriptResult::Success(None));
+            };
             let index = player as i32;
             if let Some(player_arc) = list.get_player(index) {
                 if let Ok(player_guard) = player_arc.read() {
-                    for obj_arc in player_guard.get_objects() {
-                        if let Ok(mut obj_guard) = obj_arc.write() {
-                            obj_guard.set_production_enabled(true);
-                        }
-                    }
+                    player_guard.get_object_ids()
+                } else {
+                    Vec::new()
                 }
             } else {
                 log::warn!("PlayerEnableFactoriesAction: player {} not found", player);
+                Vec::new()
+            }
+        };
+        for obj_id in object_ids {
+            if let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            {
+                if let Ok(mut obj_guard) = obj_arc.write() {
+                    obj_guard.set_production_enabled(true);
+                }
             }
         }
 
@@ -4427,11 +4449,16 @@ impl ScriptAction for PlayerGarrisonAllBuildingsAction {
                 return Ok(ScriptResult::Success(None));
             };
 
-            let objects = player_guard.get_objects();
+            let object_ids = player_guard.get_object_ids();
             let mut garrison_buildings = Vec::new();
             let mut infantry_units = Vec::new();
 
-            for obj_arc in &objects {
+            for obj_id in object_ids {
+                let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                else {
+                    continue;
+                };
                 let Ok(obj_guard) = obj_arc.read() else {
                     continue;
                 };
@@ -4610,7 +4637,12 @@ impl ScriptAction for PlayerEvacuateBuildingAction {
                 return Ok(ScriptResult::Success(None));
             };
 
-            for obj_arc in player_guard.get_objects() {
+            for obj_id in player_guard.get_object_ids() {
+                let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                else {
+                    continue;
+                };
                 let Ok(obj_guard) = obj_arc.read() else {
                     continue;
                 };

@@ -16604,7 +16604,12 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         }
 
-        for obj_arc in player.get_objects() {
+        for obj_id in player.get_object_ids() {
+            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            else {
+                continue;
+            };
             let Ok(obj) = obj_arc.read() else {
                 continue;
             };
