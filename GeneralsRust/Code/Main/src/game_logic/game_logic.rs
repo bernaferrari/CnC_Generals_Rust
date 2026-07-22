@@ -6878,13 +6878,6 @@ impl GameLogic {
         }
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
-                // Dual-world factory objects only when bridge is on.
-                if crate::gameworld_shadow::engine_object_bridge_enabled()
-                    && obj.engine_object_id.is_some()
-                {
-                    continue;
-                }
-
                 // Horizontal (XZ) distance — path grid / terrain height use Y separately,
                 // and 3D distance falsely stalls waypoint advance when |ΔY| is large.
                 let horiz = |a: Vec3, b: Vec3| {
@@ -8075,25 +8068,6 @@ impl GameLogic {
             return Some(*id);
         }
         // Engine named tracker residual only when dual-world object bridge is enabled.
-        if crate::gameworld_shadow::engine_object_bridge_enabled() {
-            let eng_id = gamelogic::scripting::engine::get_named_object_tracker()
-                .get_object_id(name)
-                .ok()
-                .flatten();
-            if let Some(id) = eng_id {
-                if let Some((hid, _)) = self
-                    .objects
-                    .iter()
-                    .find(|(_, o)| o.engine_object_id == Some(id))
-                {
-                    return Some(*hid);
-                }
-                let hid = ObjectId(id);
-                if self.objects.contains_key(&hid) {
-                    return Some(hid);
-                }
-            }
-        }
         None
     }
 
@@ -8708,15 +8682,8 @@ impl GameLogic {
         if let Some(f) = self.objects.get_mut(&from_id) {
             f.name.clear();
         }
-        // Register on tracker: host ObjectId by default; engine_object_id only when bridge on.
-        let tracker_id = if crate::gameworld_shadow::engine_object_bridge_enabled() {
-            self.objects
-                .get(&to_id)
-                .and_then(|o| o.engine_object_id)
-                .unwrap_or(to_id.0)
-        } else {
-            to_id.0
-        };
+        // Register on tracker with host ObjectId (no dual-world engine id).
+        let tracker_id = to_id.0;
         let tracker = get_named_object_tracker();
         let _ = tracker.register_named_object(n, tracker_id);
         true
@@ -9077,20 +9044,11 @@ impl GameLogic {
         // We need access to object_attack_priority_sets - use public get if exists.
         // Engine may only expose get_object_attack_priority_set per id.
 
-        // Sync host objects: use host ObjectId as script-engine key by default.
-        // engine_object_id only when dual-world bridge is enabled.
-        let bridge = crate::gameworld_shadow::engine_object_bridge_enabled();
+        // Sync host objects: host ObjectId is the script-engine key.
         let object_ids: Vec<(ObjectId, Option<u32>)> = self
             .objects
             .iter()
-            .map(|(id, o)| {
-                let eng = if bridge {
-                    o.engine_object_id.or(Some(id.0))
-                } else {
-                    Some(id.0)
-                };
-                (*id, eng)
-            })
+            .map(|(id, _o)| (*id, Some(id.0)))
             .collect();
 
         for (host_id, eng_opt) in object_ids {
@@ -20648,28 +20606,8 @@ impl GameLogic {
     }
 
     fn check_bridge_disabled_statuses(&self) {
-        if !crate::gameworld_shadow::engine_object_bridge_enabled() {
-            return;
-        }
-        let engine_ids: Vec<u32> = self
-            .objects
-            .values()
-            .filter_map(|obj| obj.engine_object_id)
-            .collect();
-
-        for engine_id in engine_ids {
-            let Some(engine_obj) =
-                gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)
-            else {
-                continue;
-            };
-            let Ok(mut engine_obj) = engine_obj.write() else {
-                continue;
-            };
-            if engine_obj.is_disabled() {
-                engine_obj.check_disabled_status();
-            }
-        }
+        // Dual-world OBJECT_REGISTRY status peel retired — host owns disabled state.
+        let _ = self;
     }
 
     /// Create a new object
@@ -21463,47 +21401,6 @@ impl GameLogic {
                 self.overlord_addons.record_propaganda_install();
             }
             let _ = helix_spawn;
-
-            // Dual-object factory bridge is opt-in. Default host path owns objects
-            // directly (engine_object_id stays None) so combat/commands/victory do not
-            // require a second living world. Enable with GENERALS_ALLOW_DUAL_TICK or
-            // GENERALS_BRIDGE_ENGINE_OBJECTS.
-            let allow_engine_bridge = crate::gameworld_shadow::engine_object_bridge_enabled();
-            if allow_engine_bridge {
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    let gl_team = resolve_gamelogic_team(&team);
-                    let coord = glam::Vec3::new(position.x, position.y, position.z);
-                    let factory_arc = get_object_factory();
-                    let result = match factory_arc.write() {
-                        Ok(mut factory) => factory.create_object(
-                            template_name,
-                            coord,
-                            gl_team,
-                            ObjectCreationFlags::NONE,
-                        ),
-                        Err(e) => Err(format!("ObjectFactory lock poisoned: {}", e).into()),
-                    };
-
-                    match result {
-                        Ok(engine_id) => {
-                            obj.engine_object_id = Some(engine_id);
-                            log::debug!(
-                                "Bridged object {} to GameEngine object {} ({})",
-                                id,
-                                engine_id,
-                                template_name
-                            );
-                        }
-                        Err(e) => {
-                            log::debug!(
-                                "ObjectFactory creation skipped for '{}' (lightweight-only): {}",
-                                template_name,
-                                e
-                            );
-                        }
-                    }
-                }
-            }
 
             // Host residual: Listening Outpost InitialPayload TankHunter × 2.
             // Dock after insert so recursive create_object cannot re-enter mid-build.
@@ -22304,17 +22201,6 @@ impl GameLogic {
                     continue;
                 }
 
-                // ObjectFactory bridge residual only when dual-world bridge is enabled.
-                if crate::gameworld_shadow::engine_object_bridge_enabled() {
-                    if let Some(eid) = self
-                        .objects
-                        .get(&object_id)
-                        .and_then(|o| o.engine_object_id)
-                    {
-                        self.bridge_move_to_engine(eid, target_position);
-                        continue;
-                    }
-                }
                 // Host pathfinding / move channel (default production path).
                 self.move_object_with_pathfinding(object_id, target_position, None);
             }
@@ -22371,21 +22257,6 @@ impl GameLogic {
                     continue;
                 }
 
-                // ObjectFactory bridge residual only when dual-world bridge is enabled.
-                if crate::gameworld_shadow::engine_object_bridge_enabled() {
-                    let engine_id = self
-                        .objects
-                        .get(&object_id)
-                        .and_then(|o| o.engine_object_id);
-                    let target_engine_id = self
-                        .objects
-                        .get(&target_id)
-                        .and_then(|t| t.engine_object_id);
-                    if let (Some(eid), Some(tid)) = (engine_id, target_engine_id) {
-                        self.bridge_attack_to_engine(eid, tid);
-                        continue;
-                    }
-                }
                 // Host attack channel (default production path — host ObjectIds only).
                 if let Some(obj_mut) = self.objects.get_mut(&object_id) {
                     obj_mut.set_force_attack(false);
@@ -22636,22 +22507,6 @@ impl GameLogic {
                         .with_position(death_pos)
                         .with_priority(200),
                 );
-
-                // Phase 1: Destroy the corresponding GameEngine ObjectFactory object
-                // only when the dual-world bridge is explicitly enabled.
-                if crate::gameworld_shadow::engine_object_bridge_enabled() {
-                    if let Some(engine_id) = obj.engine_object_id {
-                        if let Ok(mut factory) = get_object_factory().write() {
-                            if let Err(e) = factory.destroy_object(engine_id) {
-                                log::debug!(
-                                    "ObjectFactory destroy_object({}) failed: {}",
-                                    engine_id,
-                                    e
-                                );
-                            }
-                        }
-                    }
-                }
 
                 let eject_origin = obj.get_position();
 

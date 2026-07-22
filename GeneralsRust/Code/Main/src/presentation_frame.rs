@@ -449,7 +449,7 @@ pub struct RenderableObject {
     pub mesh_scale: f32,
     /// Cull / selection radius for presentation-only draw (no live GameLogic re-read).
     pub selection_radius: f32,
-    /// True when bridged to GameEngine ObjectFactory (`engine_object_id`).
+    /// True when bridged to GameEngine ObjectFactory (retired host dual-id).
     /// Presentation-owned so the unit mesh pass can skip double-draw without
     /// locking live GameLogic for identity.
     pub engine_bridged: bool,
@@ -2641,7 +2641,7 @@ impl PresentationFrame {
                 model_key,
                 mesh_scale,
                 selection_radius: obj.selection_radius.max(5.0),
-                engine_bridged: obj.engine_object_id.is_some(),
+                engine_bridged: false,
                 fow_visibility,
                 ground_height,
                 ground_height_from_terrain,
@@ -10055,7 +10055,6 @@ mod tests {
             o.selection_radius = 11.0;
             o.team_color = [0.1, 0.2, 0.9, 1.0];
             // Not bridged — main mesh pass owns draw.
-            o.engine_object_id = None;
         }
         if let Some(p) = logic.get_player_mut(0) {
             p.selected_objects = vec![id];
@@ -10088,7 +10087,6 @@ mod tests {
         if let Some(o) = logic.get_object_mut(id) {
             o.set_position(glam::Vec3::new(999.0, 0.0, 999.0));
             o.selected = false;
-            o.engine_object_id = Some(42);
         }
         let inputs_after = snap.unit_render_inputs();
         assert_eq!(inputs_after.len(), 1);
@@ -10396,30 +10394,31 @@ mod tests {
         let dead_id = logic
             .create_object("SkipUnit", Team::China, glam::Vec3::new(2.0, 0.0, 2.0))
             .expect("dead");
-        let bridged_id = logic
+        let other_id = logic
             .create_object("SkipUnit", Team::China, glam::Vec3::new(3.0, 0.0, 3.0))
-            .expect("bridged");
+            .expect("other");
         if let Some(o) = logic.get_object_mut(dead_id) {
             o.status.destroyed = true;
             o.health.current = 0.0;
-        }
-        if let Some(o) = logic.get_object_mut(bridged_id) {
-            o.engine_object_id = Some(99);
         }
 
         let snap = PresentationFrame::build_from_logic(&logic, 0);
         let inputs = snap.unit_render_inputs();
         assert_eq!(
             inputs.len(),
-            1,
-            "only non-destroyed, non-bridged units enter main mesh pass"
+            2,
+            "non-destroyed host units enter main mesh pass (dual-id bridge retired)"
         );
-        assert_eq!(inputs[0].id, alive_id);
-        // IDs list still includes all alive (including bridged) for FOW/id residual.
+        let input_ids: Vec<_> = inputs.iter().map(|i| i.id).collect();
+        assert!(input_ids.contains(&alive_id) && input_ids.contains(&other_id));
         let ids = snap.renderable_object_ids();
         assert!(ids.contains(&alive_id));
-        assert!(ids.contains(&bridged_id));
+        assert!(ids.contains(&other_id));
         assert!(!ids.contains(&dead_id));
+        assert!(
+            inputs.iter().all(|i| !i.engine_bridged),
+            "engine_bridged residual stays false on host-only path"
+        );
     }
 
     #[test]
