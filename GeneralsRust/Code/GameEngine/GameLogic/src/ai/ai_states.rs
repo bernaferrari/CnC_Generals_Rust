@@ -555,28 +555,25 @@ impl AIState for AIMoveAndEvacuateState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Failed;
-        };
-        let Ok(mut owner) = owner_arc.write() else {
-            return StateReturnType::Failed;
-        };
-
-        if owner.is_effectively_dead() {
-            return StateReturnType::Failed;
-        }
-
-        if goal_reached(context) {
-            Self::evacuate_contents(&mut owner);
-            if self.evacuate_and_exit {
-                let owner_id = owner.get_id();
-                drop(owner);
-                let _ = TheGameLogic::destroy_object_by_id(owner_id);
+        let Some((ret, destroy)) = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if owner.is_effectively_dead() {
+                return (StateReturnType::Failed, false);
             }
-            return StateReturnType::Success;
+            if goal_reached(context) {
+                Self::evacuate_contents(owner);
+                if self.evacuate_and_exit {
+                    return (StateReturnType::Success, true);
+                }
+                return (StateReturnType::Success, false);
+            }
+            (StateReturnType::Continue, false)
+        }) else {
+            return StateReturnType::Failed;
+        };
+        if destroy {
+            let _ = TheGameLogic::destroy_object_by_id(context.owner_id);
         }
-
-        StateReturnType::Continue
+        ret
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
@@ -1310,22 +1307,22 @@ impl AIState for AIHackInternetState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(status) = OBJECT_REGISTRY.with_object(context.owner_id, |owner_guard| {
+            let Some(ai) = owner_guard.get_ai_update_interface() else {
+                return None; // Failed
+            };
+            let Ok(mut ai_guard) = ai.lock() else {
+                return None; // Failed
+            };
+            let Some(hack) = ai_guard.get_hack_internet_ai_update_interface() else {
+                return Some(false); // Success (not busy)
+            };
+            Some(hack.is_hacking_packing_or_unpacking())
+        })
+        .flatten() else {
             return StateReturnType::Failed;
         };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        let Some(ai) = owner_guard.get_ai_update_interface() else {
-            return StateReturnType::Failed;
-        };
-        let Ok(mut ai_guard) = ai.lock() else {
-            return StateReturnType::Failed;
-        };
-        let Some(hack) = ai_guard.get_hack_internet_ai_update_interface() else {
-            return StateReturnType::Success;
-        };
-        if hack.is_hacking_packing_or_unpacking() {
+        if status {
             StateReturnType::Continue
         } else {
             StateReturnType::Success
@@ -1563,19 +1560,15 @@ impl AIState for AIBusyState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Success;
-        };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return StateReturnType::Success;
-        };
-        let Some(ai) = owner_guard.get_ai_update_interface() else {
-            return StateReturnType::Success;
-        };
-        let Ok(ai_guard) = ai.lock() else {
-            return StateReturnType::Success;
-        };
-        if ai_guard.is_idle() {
+        let idle = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner_guard| {
+                owner_guard.get_ai_update_interface().and_then(|ai| {
+                    ai.lock().ok().map(|ai_guard| ai_guard.is_idle())
+                })
+            })
+            .flatten()
+            .unwrap_or(true);
+        if idle {
             StateReturnType::Success
         } else {
             StateReturnType::Continue
@@ -1626,20 +1619,21 @@ impl AIExitInstantlyState {
 
 impl AIState for AIExitInstantlyState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(ok) = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if owner.is_effectively_dead() {
+                return false;
+            }
+            Self::release_from_container(owner);
+            Self::evacuate_contents(owner);
+            true
+        }) else {
             return StateReturnType::Failed;
         };
-        let Ok(mut owner) = owner_arc.write() else {
-            return StateReturnType::Failed;
-        };
-
-        if owner.is_effectively_dead() {
-            return StateReturnType::Failed;
+        if ok {
+            StateReturnType::Success
+        } else {
+            StateReturnType::Failed
         }
-
-        Self::release_from_container(&owner);
-        Self::evacuate_contents(&mut owner);
-        StateReturnType::Success
     }
 
     fn update(&mut self, _context: &mut AIStateMachineContext) -> StateReturnType {
@@ -1694,21 +1688,17 @@ impl AIState for AIGetRepairedState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let Some(dead) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+            owner.is_effectively_dead()
+        }) else {
             return StateReturnType::Failed;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-
-        if owner.is_effectively_dead() {
+        if dead {
             return StateReturnType::Failed;
         }
-
         if goal_reached(context) {
             return StateReturnType::Success;
         }
-
         StateReturnType::Continue
     }
 
