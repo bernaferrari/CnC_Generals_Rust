@@ -1036,7 +1036,7 @@ impl TransportContain {
             .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
             .unwrap_or(false);
         if should_remove_from_world {
-            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), false);
+            let _ = self.base.add_or_remove_obj_from_world(obj_id, false);
         }
         self.base.redeploy_occupants()?;
         self.on_containing(obj_id, was_selected)?;
@@ -1076,7 +1076,7 @@ impl TransportContain {
             .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
             .unwrap_or(false);
         if should_add_to_world {
-            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), true);
+            let _ = self.base.add_or_remove_obj_from_world(obj_id, true);
             if let Some(owner) = self.get_object() {
                 if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
                     let _ = obj_guard.set_position(owner_guard.get_position());

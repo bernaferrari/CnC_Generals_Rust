@@ -724,7 +724,7 @@ impl OpenContain {
         self.add_to_contain_list_id(obj_id, is_stealth_garrison)?;
 
         if enclosing {
-            let _ = self.add_or_remove_obj_from_world(obj.clone(), false);
+            let _ = self.add_or_remove_obj_from_world(obj_id, false);
         }
 
         self.redeploy_occupants()?;
@@ -832,7 +832,7 @@ impl OpenContain {
             .map(|g| self.is_enclosing_container_for(&*g))
             .unwrap_or(false);
         if enclosing {
-            let _ = self.add_or_remove_obj_from_world(obj.clone(), true);
+            let _ = self.add_or_remove_obj_from_world(obj_id, true);
             if let Some(owner) = self.get_object() {
                 if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
                     if let Err(err) = obj_guard.set_position(owner_guard.get_position()) {
@@ -1275,17 +1275,14 @@ impl OpenContain {
         let _ = owner_ai_guard.update_goal_position(&owner_pos, owner_layer);
     }
 
-    fn prepare_object(
-        &mut self,
-        obj: &Arc<RwLock<Object>>,
-        hurry: bool,
-    ) -> GameResult<Option<ExitPrep>> {
-        let prep_id = obj
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
-        self.remove_from_contain(prep_id, false)?;
+    fn prepare_object(&mut self, obj_id: ObjectID, hurry: bool) -> GameResult<Option<ExitPrep>> {
+        self.remove_from_contain(obj_id, false)?;
+
+        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(None);
+        };
 
         let Some(owner) = self.get_object() else {
             return Ok(None);
@@ -1377,7 +1374,14 @@ impl OpenContain {
             return Ok(());
         }
 
-        let Some(prep) = self.prepare_object(&obj, false)? else {
+        let Some(prep) = self.prepare_object(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            false,
+        )?
+        else {
             return Ok(());
         };
 
@@ -1417,7 +1421,14 @@ impl OpenContain {
             return Ok(());
         };
 
-        let Some(prep) = self.prepare_object(&obj, true)? else {
+        let Some(prep) = self.prepare_object(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            true,
+        )?
+        else {
             return Ok(());
         };
 
@@ -1559,9 +1570,15 @@ impl OpenContain {
 
     pub(crate) fn add_or_remove_obj_from_world(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         add: bool,
     ) -> GameResult<()> {
+        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if add {
             if let Ok(mut guard) = obj.write() {
                 let _ = guard.register_in_partition_manager();
@@ -1571,13 +1588,11 @@ impl OpenContain {
                     }
                 }
             }
-        } else {
-            if let Ok(mut guard) = obj.write() {
-                guard.leave_group();
-                if let Some(drawable) = guard.get_drawable() {
-                    if let Ok(mut draw_guard) = drawable.write() {
-                        let _ = draw_guard.set_drawable_hidden(true);
-                    }
+        } else if let Ok(mut guard) = obj.write() {
+            guard.leave_group();
+            if let Some(drawable) = guard.get_drawable() {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    let _ = draw_guard.set_drawable_hidden(true);
                 }
             }
         }
@@ -1595,24 +1610,27 @@ impl OpenContain {
             }
         };
 
-        for object_id in contained_ids {
-            if let Some(child) = TheGameLogic::find_object_by_id(object_id) {
-                let should_recurse = {
-                    let child_guard = child.read().map_err(|_| GameError::LockError)?;
-                    let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
-                    if let Some(contain) = obj_guard.get_contain() {
-                        if let Ok(contain_guard) = contain.lock() {
-                            !contain_guard.is_enclosing_container_for(&*child_guard)
-                        } else {
-                            false
-                        }
+        for child_id in contained_ids {
+            let Some(child) = TheGameLogic::find_object_by_id(child_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(child_id))
+            else {
+                continue;
+            };
+            let should_recurse = {
+                let child_guard = child.read().map_err(|_| GameError::LockError)?;
+                let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
+                if let Some(contain) = obj_guard.get_contain() {
+                    if let Ok(contain_guard) = contain.lock() {
+                        !contain_guard.is_enclosing_container_for(&*child_guard)
                     } else {
                         false
                     }
-                };
-                if should_recurse {
-                    let _ = self.add_or_remove_obj_from_world(child, add);
+                } else {
+                    false
                 }
+            };
+            if should_recurse {
+                let _ = self.add_or_remove_obj_from_world(child_id, add);
             }
         }
 
@@ -1692,7 +1710,7 @@ impl OpenContain {
                 .map(|obj_guard| self.is_enclosing_container_for(&*obj_guard))
                 .unwrap_or(false);
             if is_enclosing {
-                let _ = self.add_or_remove_obj_from_world(obj.clone(), false);
+                let _ = self.add_or_remove_obj_from_world(object_id, false);
             }
             {
                 let mut obj_guard = obj.write().map_err(|e| e.to_string())?;

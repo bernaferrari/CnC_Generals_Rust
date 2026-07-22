@@ -530,7 +530,7 @@ impl GarrisonContain {
             .map(|guard| self.is_enclosing_container_for_internal(Some(&guard)))
             .unwrap_or(false)
         {
-            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), false);
+            let _ = self.base.add_or_remove_obj_from_world(obj_id, false);
         }
 
         self.base.redeploy_occupants()?;
@@ -577,7 +577,7 @@ impl GarrisonContain {
             .map(|guard| self.is_enclosing_container_for_internal(Some(&guard)))
             .unwrap_or(false)
         {
-            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), true);
+            let _ = self.base.add_or_remove_obj_from_world(obj_id, true);
             if let Some(owner) = self.get_object() {
                 if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
                     if let Err(err) = obj_guard.set_position(owner_guard.get_position()) {
