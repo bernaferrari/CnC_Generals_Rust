@@ -3,9 +3,11 @@
 //! This closely mirrors the original C++ `SimpleObjectIterator` implementation.
 
 use std::cmp::Ordering;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
-use crate::common::{Int, Real};
+use crate::common::{Int, ObjectID, Real, INVALID_ID};
+use crate::helpers::TheGameLogic;
+use crate::object::registry::OBJECT_REGISTRY;
 
 use super::Object;
 
@@ -24,23 +26,29 @@ pub enum IterOrderType {
     SortedExpensiveToCheap,
 }
 
-/// Lightweight entry storing the weak reference and associated numeric key.
+/// Lightweight entry storing object id and associated numeric key.
 #[derive(Debug, Clone)]
 struct Clump {
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
     numeric: Real,
 }
 
 impl Clump {
     fn new(object: &Arc<RwLock<Object>>, numeric: Real) -> Self {
-        Self {
-            object: Arc::downgrade(object),
-            numeric,
-        }
+        let object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+        Self { object_id, numeric }
     }
 
     fn upgrade(&self) -> Option<Arc<RwLock<Object>>> {
-        self.object.upgrade()
+        if self.object_id == INVALID_ID {
+            return None;
+        }
+        TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
+    }
+
+    fn is_live(&self) -> bool {
+        self.upgrade().is_some()
     }
 
     fn build_cost(&self) -> Option<Int> {
@@ -145,7 +153,7 @@ impl SimpleObjectIterator {
     }
 
     fn prune_dead(&mut self) {
-        self.clumps.retain(|clump| clump.object.strong_count() > 0);
+        self.clumps.retain(|clump| clump.is_live());
         if self.cursor > self.clumps.len() {
             self.cursor = self.clumps.len();
         }

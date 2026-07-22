@@ -1,6 +1,7 @@
 //! TransitionDamageFX - damage module that triggers FX on damage state transitions.
 //! Ported from GameLogic/Object/Damage/TransitionDamageFX.cpp.
 
+use crate::common::ObjectID;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, Weak};
 
@@ -1004,7 +1005,7 @@ const TRANSITION_DAMAGE_FX_FIELDS: &[FieldParse<TransitionDamageFXModuleData>] =
 
 #[derive(Debug)]
 pub struct TransitionDamageFX {
-    object: Weak<RwLock<GameObject>>,
+    object_id: ObjectID,
     module_data: Arc<TransitionDamageFXModuleData>,
     particle_system_ids:
         [[crate::common::ParticleSystemID; DAMAGE_MODULE_MAX_FX]; BODY_DAMAGE_TYPE_COUNT],
@@ -1016,7 +1017,11 @@ impl TransitionDamageFX {
         module_data: Arc<TransitionDamageFXModuleData>,
     ) -> Self {
         Self {
-            object: Arc::downgrade(&object),
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             particle_system_ids: [[INVALID_PARTICLE_SYSTEM_ID; DAMAGE_MODULE_MAX_FX];
                 BODY_DAMAGE_TYPE_COUNT],
@@ -1245,7 +1250,12 @@ impl DamageModuleInterface for TransitionDamageFX {
         old_state: BodyDamageType,
         new_state: BodyDamageType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(object_arc) = self.object.upgrade() else {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
             return Ok(());
         };
         let Ok(object_guard) = object_arc.read() else {
