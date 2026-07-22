@@ -258,11 +258,11 @@ pub struct SabotageSupplyCenterCrateCollide {
 impl SabotageSupplyCenterCrateCollide {
     /// Create new sabotage supply center crate collide module
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object: &Arc<RwLock<Object>>,
         module_data: SabotageSupplyCenterCrateCollideModuleData,
     ) -> Self {
         Self {
-            base: LegacyCrateCollide::from_object_handle(object, module_data.base.clone()),
+            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
             module_data: Arc::new(Mutex::new(module_data)),
         }
     }
@@ -554,7 +554,7 @@ mod tests {
             steal_cash_amount: 500,
             ..Default::default()
         };
-        let module = SabotageSupplyCenterCrateCollide::new(saboteur, module_data);
+        let module = SabotageSupplyCenterCrateCollide::new(&saboteur, module_data);
 
         assert_eq!(
             module

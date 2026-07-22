@@ -3035,7 +3035,7 @@ impl ClassicState for AIWaitState {
 pub struct AIFollowState {
     base: State,
     /// The object we are following
-    target: Option<Arc<RwLock<Object>>>,
+    target_id: ObjectID,
     /// Whether a move command has been issued this frame
     issued_move: bool,
     /// Distance threshold to consider "close enough" to the target
@@ -3048,7 +3048,7 @@ impl AIFollowState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: State::new(machine, "AIFollow"),
-            target: None,
+            target_id: INVALID_ID,
             issued_move: false,
             follow_distance: 3.0 * PATHFIND_CELL_SIZE_F,
             last_target_pos: Coord3D::new(0.0, 0.0, 0.0),
@@ -3088,7 +3088,7 @@ impl ClassicState for AIFollowState {
             .base
             .get_machine_goal_object()
             .ok_or_else(|| "AIFollow state missing goal object".to_string())?;
-        self.target = Some(target.clone());
+        self.target_id = target.read().map(|g| g.get_id()).unwrap_or(INVALID_ID);
 
         if let Ok(target_guard) = target.read() {
             self.last_target_pos = *target_guard.get_position();
@@ -3100,7 +3100,12 @@ impl ClassicState for AIFollowState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let Some(target) = &self.target else {
+        if self.target_id == INVALID_ID {
+            return Ok(StateReturnType::Failure);
+        }
+        let Some(target) = TheGameLogic::find_object_by_id(self.target_id)
+            .or_else(|| OBJECT_REGISTRY.get_object(self.target_id))
+        else {
             return Ok(StateReturnType::Failure);
         };
 
@@ -3161,7 +3166,7 @@ impl ClassicState for AIFollowState {
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        self.target = None;
+        self.target_id = INVALID_ID;
         self.issued_move = false;
         Ok(())
     }
@@ -6092,7 +6097,7 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
 #[derive(Debug)]
 pub struct AIAttackObjectState {
     base: State,
-    target: Option<Arc<RwLock<Object>>>,
+    target_id: ObjectID,
     force_attack: Bool,
     follow_target: Bool,
     issued_attack: Bool,
@@ -6108,7 +6113,7 @@ impl AIAttackObjectState {
     pub fn new(machine: &StateMachine, force_attack: Bool, follow_target: Bool) -> Self {
         Self {
             base: State::new(machine, "AIAttackObject"),
-            target: None,
+            target_id: INVALID_ID,
             force_attack,
             follow_target,
             issued_attack: false,
@@ -6190,7 +6195,7 @@ impl ClassicState for AIAttackObjectState {
             .base
             .get_machine_goal_object()
             .ok_or_else(|| "attack object state missing goal object".to_string())?;
-        self.target = Some(target.clone());
+        self.target_id = target.read().map(|g| g.get_id()).unwrap_or(INVALID_ID);
 
         {
             let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
@@ -6313,7 +6318,12 @@ impl ClassicState for AIAttackObjectState {
             }
         }
 
-        let Some(target) = &self.target else {
+        if self.target_id == INVALID_ID {
+            return Ok(StateReturnType::Failure);
+        }
+        let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(self.target_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.target_id))
+        else {
             return Ok(StateReturnType::Failure);
         };
 
@@ -6425,7 +6435,7 @@ impl ClassicState for AIAttackObjectState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         // Stop attacking — destroy attack machine (C++ AIAttackState::onExit)
-        self.target = None;
+        self.target_id = INVALID_ID;
         self.issued_attack = false;
         if let Some(mut machine) = self.attack_machine.take() {
             let _ = machine.halt();
@@ -6463,7 +6473,7 @@ impl ClassicState for AIAttackObjectState {
     }
 
     fn classic_is_busy(&self) -> bool {
-        self.target.is_some()
+        self.target_id != INVALID_ID
     }
 }
 
@@ -11305,8 +11315,12 @@ impl Snapshotable for AIAttackObjectState {
                 true,
                 self.force_attack,
             );
-            if let Some(target) = self.target.as_ref() {
-                machine.set_goal_object(Some(target));
+            if self.target_id != INVALID_ID {
+                if let Some(target) = TheGameLogic::find_object_by_id(self.target_id)
+                    .or_else(|| OBJECT_REGISTRY.get_object(self.target_id))
+                {
+                    machine.set_goal_object(Some(&target));
+                }
             }
             self.attack_machine = Some(machine);
         }

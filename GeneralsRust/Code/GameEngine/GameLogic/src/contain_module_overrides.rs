@@ -2258,7 +2258,7 @@ fn convert_to_car_bomb_crate_collide_module_factory(
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id)
         .expect("ConvertToCarBombCrateCollide requires a valid object");
-    let collide = ConvertToCarBombCrateCollide::new(object, data_arc.data.clone());
+    let collide = ConvertToCarBombCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "ConvertToCarBombCrateCollide",
         data_arc,
@@ -2292,7 +2292,7 @@ fn convert_to_hijacked_vehicle_crate_collide_module_factory(
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id)
         .unwrap_or_else(|| panic!("ConvertToHijackedVehicleCrateCollide requires a valid object"));
-    let collide = ConvertToHijackedVehicleCrateCollide::new(object, data_arc.data.clone());
+    let collide = ConvertToHijackedVehicleCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "ConvertToHijackedVehicleCrateCollide",
         data_arc,
@@ -2357,7 +2357,7 @@ fn sabotage_command_center_crate_collide_module_factory(
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id)
         .unwrap_or_else(|| panic!("SabotageCommandCenterCrateCollide requires a valid object"));
-    let collide = SabotageCommandCenterCrateCollide::new(object, data_arc.data.clone());
+    let collide = SabotageCommandCenterCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageCommandCenterCrateCollide",
         data_arc,
@@ -2389,7 +2389,7 @@ fn sabotage_fake_building_crate_collide_module_factory(
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id)
         .unwrap_or_else(|| panic!("SabotageFakeBuildingCrateCollide requires a valid object"));
-    let collide = SabotageFakeBuildingCrateCollide::new(object, data_arc.data.clone());
+    let collide = SabotageFakeBuildingCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageFakeBuildingCrateCollide",
         data_arc,
@@ -2423,7 +2423,7 @@ fn sabotage_internet_center_crate_collide_module_factory(
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id)
         .expect("SabotageInternetCenterCrateCollide requires a valid object");
-    let collide = SabotageInternetCenterCrateCollide::new(object, data_arc.data.clone());
+    let collide = SabotageInternetCenterCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageInternetCenterCrateCollide",
         data_arc,
@@ -2457,7 +2457,7 @@ fn sabotage_military_factory_crate_collide_module_factory(
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id)
         .expect("SabotageMilitaryFactoryCrateCollide requires a valid object");
-    let collide = SabotageMilitaryFactoryCrateCollide::new(object, data_arc.data.clone());
+    let collide = SabotageMilitaryFactoryCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageMilitaryFactoryCrateCollide",
         data_arc,
@@ -2489,7 +2489,7 @@ fn sabotage_power_plant_crate_collide_module_factory(
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id)
         .expect("SabotagePowerPlantCrateCollide requires a valid object");
-    let collide = SabotagePowerPlantCrateCollide::new(object, data_arc.data.clone());
+    let collide = SabotagePowerPlantCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotagePowerPlantCrateCollide",
         data_arc,
@@ -2521,7 +2521,7 @@ fn sabotage_superweapon_crate_collide_module_factory(
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id)
         .unwrap_or_else(|| panic!("SabotageSuperweaponCrateCollide requires a valid object"));
-    let collide = SabotageSuperweaponCrateCollide::new(object, data_arc.data.clone());
+    let collide = SabotageSuperweaponCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSuperweaponCrateCollide",
         data_arc,
@@ -2553,7 +2553,7 @@ fn sabotage_supply_center_crate_collide_module_factory(
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id)
         .expect("SabotageSupplyCenterCrateCollide requires a valid object");
-    let collide = SabotageSupplyCenterCrateCollide::new(object, data_arc.data.clone());
+    let collide = SabotageSupplyCenterCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSupplyCenterCrateCollide",
         data_arc,
@@ -2588,7 +2588,7 @@ fn sabotage_supply_dropzone_crate_collide_module_factory(
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id)
         .expect("SabotageSupplyDropzoneCrateCollide requires a valid object");
-    let collide = SabotageSupplyDropzoneCrateCollide::new(object, data_arc.data.clone());
+    let collide = SabotageSupplyDropzoneCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSupplyDropzoneCrateCollide",
         data_arc,
