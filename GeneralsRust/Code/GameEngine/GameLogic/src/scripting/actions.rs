@@ -5683,10 +5683,9 @@ impl ScriptAction for ObjectCreateRadarEventAction {
         let Some(object_id) = resolve_named_object_id(&object_name) else {
             return Ok(ScriptResult::Success(None));
         };
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return Ok(ScriptResult::Success(None));
-        };
-        let Some(position) = object_arc.read().ok().map(|object| *object.get_position()) else {
+        let Some(position) =
+            OBJECT_REGISTRY.with_object(object_id, |object| *object.get_position())
+        else {
             return Ok(ScriptResult::Success(None));
         };
 
@@ -6920,7 +6919,16 @@ impl ScriptAction for DamageObjectAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+        let mut damage_info = DamageInfo::with_simple(
+            damage as f32,
+            INVALID_OBJECT_ID,
+            DamageType::Unresistable,
+            DeathType::Normal,
+        );
+
+        let Some(result) = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+            object_guard.attempt_damage(&mut damage_info)
+        }) else {
             log::warn!(
                 "DamageObjectAction: object '{}' (ID {}) not found in registry",
                 object_name,
@@ -6929,18 +6937,7 @@ impl ScriptAction for DamageObjectAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let mut object_guard = object_arc
-            .write()
-            .map_err(|_| GameLogicError::Threading("Failed to lock Object".to_string()))?;
-
-        let mut damage_info = DamageInfo::with_simple(
-            damage as f32,
-            INVALID_OBJECT_ID,
-            DamageType::Unresistable,
-            DeathType::Normal,
-        );
-
-        if let Err(err) = object_guard.attempt_damage(&mut damage_info) {
+        if let Err(err) = result {
             log::warn!(
                 "DamageObjectAction: failed to damage '{}' (ID {}): {}",
                 object_name,
@@ -6999,7 +6996,9 @@ impl ScriptAction for KillObjectAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+        let Some(()) = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+            object_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+        }) else {
             log::warn!(
                 "KillObjectAction: object '{}' (ID {}) not found in registry",
                 object_name,
@@ -7007,12 +7006,6 @@ impl ScriptAction for KillObjectAction {
             );
             return Ok(ScriptResult::Success(None));
         };
-
-        let mut object_guard = object_arc
-            .write()
-            .map_err(|_| GameLogicError::Threading("Failed to lock Object".to_string()))?;
-
-        object_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
 
         Ok(ScriptResult::Success(None))
     }
@@ -7064,7 +7057,13 @@ impl ScriptAction for HealObjectAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+        let Some(result) = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+            if amount < 0 {
+                object_guard.heal_completely()
+            } else {
+                object_guard.heal(amount as f32)
+            }
+        }) else {
             log::warn!(
                 "HealObjectAction: object '{}' (ID {}) not found in registry",
                 object_name,
@@ -7073,27 +7072,23 @@ impl ScriptAction for HealObjectAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let mut object_guard = object_arc
-            .write()
-            .map_err(|_| GameLogicError::Threading("Failed to lock Object".to_string()))?;
-
-        if amount < 0 {
-            if let Err(err) = object_guard.heal_completely() {
+        if let Err(err) = result {
+            if amount < 0 {
                 log::warn!(
                     "HealObjectAction: failed to fully heal '{}' (ID {}): {}",
                     object_name,
                     object_id,
                     err
                 );
+            } else {
+                log::warn!(
+                    "HealObjectAction: failed to heal '{}' (ID {}) by {}: {}",
+                    object_name,
+                    object_id,
+                    amount,
+                    err
+                );
             }
-        } else if let Err(err) = object_guard.heal(amount as f32) {
-            log::warn!(
-                "HealObjectAction: failed to heal '{}' (ID {}) by {}: {}",
-                object_name,
-                object_id,
-                amount,
-                err
-            );
         }
 
         Ok(ScriptResult::Success(None))

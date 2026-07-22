@@ -1117,13 +1117,10 @@ impl BoneFXUpdate {
 
     fn resolve_bone_locations(&mut self) {
         let state_idx = self.cur_body_state as usize;
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return;
-        };
-        let Ok(object_guard) = object_arc.read() else {
-            return;
-        };
-        let Some(drawable) = object_guard.get_drawable() else {
+        let Some(drawable) = OBJECT_REGISTRY
+            .with_object(self.object_id, |object_guard| object_guard.get_drawable())
+            .flatten()
+        else {
             return;
         };
         let Ok(draw_guard) = drawable.read() else {
@@ -1194,31 +1191,32 @@ impl BoneFXUpdate {
             self.resolve_bone_locations();
         }
 
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return;
-        };
-        let Ok(object_guard) = object_arc.read() else {
-            return;
-        };
-
-        if let Some(body_module) = object_guard.get_body_module() {
-            if let Some(last_damage_info) = body_module.get_last_damage_info() {
-                if !self
-                    .module_data
-                    .damage_fx_types
-                    .contains_damage_type(last_damage_info.input.damage_type)
-                {
-                    return;
+        let Some(new_pos) = OBJECT_REGISTRY
+            .with_object(self.object_id, |object_guard| {
+                if let Some(body_module) = object_guard.get_body_module() {
+                    if let Some(last_damage_info) = body_module.get_last_damage_info() {
+                        if !self
+                            .module_data
+                            .damage_fx_types
+                            .contains_damage_type(last_damage_info.input.damage_type)
+                        {
+                            return None;
+                        }
+                    }
                 }
-            }
-        }
 
-        let world_transform = object_guard.convert_bone_pos_to_world_pos(Some(bone_position), None);
-        let translation = world_transform.w_axis;
-        let new_pos = Coord3D {
-            x: translation.x,
-            y: translation.y,
-            z: translation.z,
+                let world_transform =
+                    object_guard.convert_bone_pos_to_world_pos(Some(bone_position), None);
+                let translation = world_transform.w_axis;
+                Some(Coord3D {
+                    x: translation.x,
+                    y: translation.y,
+                    z: translation.z,
+                })
+            })
+            .flatten()
+        else {
+            return;
         };
 
         if let Some(manager) = get_fx_list_manager() {
@@ -1234,33 +1232,6 @@ impl BoneFXUpdate {
             self.resolve_bone_locations();
         }
 
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return;
-        };
-        let Ok(object_guard) = object_arc.read() else {
-            return;
-        };
-
-        if let Some(body_module) = object_guard.get_body_module() {
-            if let Some(last_damage_info) = body_module.get_last_damage_info() {
-                if !self
-                    .module_data
-                    .damage_ocl_types
-                    .contains_damage_type(last_damage_info.input.damage_type)
-                {
-                    return;
-                }
-            }
-        }
-
-        let world_transform = object_guard.convert_bone_pos_to_world_pos(Some(bone_position), None);
-        let translation = world_transform.w_axis;
-        let new_pos = Coord3D {
-            x: translation.x,
-            y: translation.y,
-            z: translation.z,
-        };
-
         let Some(ocl_name) = NameKeyGenerator::key_to_name(ocl as NameKeyType) else {
             return;
         };
@@ -1270,14 +1241,36 @@ impl BoneFXUpdate {
             return;
         };
         let ctx = live_creation_context();
-        let _ = ocl_handle.create_with_angle(
-            &ctx,
-            Some(&*object_guard),
-            &new_pos,
-            &new_pos,
-            INVALID_ANGLE,
-            0,
-        );
+        let _ = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+            if let Some(body_module) = object_guard.get_body_module() {
+                if let Some(last_damage_info) = body_module.get_last_damage_info() {
+                    if !self
+                        .module_data
+                        .damage_ocl_types
+                        .contains_damage_type(last_damage_info.input.damage_type)
+                    {
+                        return;
+                    }
+                }
+            }
+
+            let world_transform =
+                object_guard.convert_bone_pos_to_world_pos(Some(bone_position), None);
+            let translation = world_transform.w_axis;
+            let new_pos = Coord3D {
+                x: translation.x,
+                y: translation.y,
+                z: translation.z,
+            };
+            let _ = ocl_handle.create_with_angle(
+                &ctx,
+                Some(object_guard),
+                &new_pos,
+                &new_pos,
+                INVALID_ANGLE,
+                0,
+            );
+        });
     }
 
     /// Execute particle system at a bone position.
@@ -1292,33 +1285,6 @@ impl BoneFXUpdate {
             self.resolve_bone_locations();
         }
 
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(self.object_id) else {
-            return;
-        };
-        let Ok(object_guard) = object_arc.read() else {
-            return;
-        };
-
-        if let Some(body_module) = object_guard.get_body_module() {
-            if let Some(last_damage_info) = body_module.get_last_damage_info() {
-                if !self
-                    .module_data
-                    .damage_particle_types
-                    .contains_damage_type(last_damage_info.input.damage_type)
-                {
-                    return;
-                }
-            }
-        }
-
-        let world_transform = object_guard.convert_bone_pos_to_world_pos(Some(bone_position), None);
-        let translation = world_transform.w_axis;
-        let new_pos = Coord3D {
-            x: translation.x,
-            y: translation.y,
-            z: translation.z,
-        };
-
         let Some(template_name) =
             NameKeyGenerator::key_to_name(particle_system_template as NameKeyType)
         else {
@@ -1328,23 +1294,57 @@ impl BoneFXUpdate {
             return;
         };
 
+        let Some((new_pos, hidden)) = OBJECT_REGISTRY
+            .with_object(self.object_id, |object_guard| {
+                if let Some(body_module) = object_guard.get_body_module() {
+                    if let Some(last_damage_info) = body_module.get_last_damage_info() {
+                        if !self
+                            .module_data
+                            .damage_particle_types
+                            .contains_damage_type(last_damage_info.input.damage_type)
+                        {
+                            return None;
+                        }
+                    }
+                }
+
+                let world_transform =
+                    object_guard.convert_bone_pos_to_world_pos(Some(bone_position), None);
+                let translation = world_transform.w_axis;
+                let new_pos = Coord3D {
+                    x: translation.x,
+                    y: translation.y,
+                    z: translation.z,
+                };
+                let hidden = if let Some(drawable) = object_guard.get_drawable() {
+                    drawable
+                        .read()
+                        .ok()
+                        .map(|draw_guard| draw_guard.is_drawable_effectively_hidden())
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+                Some((new_pos, hidden))
+            })
+            .flatten()
+        else {
+            return;
+        };
+
         let Some(psys_id) = ps_manager.create_particle_system(Some(template_name.as_str())) else {
             return;
         };
 
-        if let Some(drawable) = object_guard.get_drawable() {
-            if let Ok(draw_guard) = drawable.read() {
-                if draw_guard.is_drawable_effectively_hidden() {
-                    // Best-effort replacement for C++ ParticleSystem::stop().
-                    ps_manager.destroy_particle_system(psys_id);
-                    return;
-                }
-            }
+        if hidden {
+            // Best-effort replacement for C++ ParticleSystem::stop().
+            ps_manager.destroy_particle_system(psys_id);
+            return;
         }
 
         self.particle_system_ids.push(psys_id);
         ps_manager.set_particle_system_position(psys_id, &new_pos);
-        ps_manager.attach_particle_system_to_object(psys_id, object_guard.get_id());
+        ps_manager.attach_particle_system_to_object(psys_id, self.object_id);
     }
 
     /// Compute next client FX time.

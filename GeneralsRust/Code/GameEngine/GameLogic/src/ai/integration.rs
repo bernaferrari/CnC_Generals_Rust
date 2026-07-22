@@ -815,11 +815,13 @@ impl AiIntegrationManager {
             if let Ok(ai_guard) = THE_AI.read() {
                 if let Some(pathfinder) = ai_guard.pathfinder() {
                     if let Ok(mut pf) = pathfinder.write() {
-                        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
-                            if let Ok(obj_guard) = obj_arc.read() {
-                                pf.create_wall_from_object(&obj_guard);
-                                return Ok(());
-                            }
+                        if OBJECT_REGISTRY
+                            .with_object(object_id, |obj_guard| {
+                                pf.create_wall_from_object(obj_guard);
+                            })
+                            .is_some()
+                        {
+                            return Ok(());
                         }
                     }
                 }
@@ -844,11 +846,13 @@ impl AiIntegrationManager {
         if let Ok(ai_guard) = THE_AI.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
-                    if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
-                        if let Ok(obj_guard) = obj_arc.read() {
-                            pf.remove_wall_from_object(&obj_guard);
-                            return Ok(());
-                        }
+                    if OBJECT_REGISTRY
+                        .with_object(object_id, |obj_guard| {
+                            pf.remove_wall_from_object(obj_guard);
+                        })
+                        .is_some()
+                    {
+                        return Ok(());
                     }
                 }
             }
@@ -941,42 +945,38 @@ impl AiIntegrationManager {
 
     /// Determine unit role based on object ID/type
     fn determine_unit_role(&self, object_id: ObjectID) -> UnitRole {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return UnitRole::DamageDealer;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return UnitRole::DamageDealer;
-        };
-
-        if obj.is_kind_of(KindOf::Hero) {
-            return UnitRole::Leader;
-        }
-        if obj.is_kind_of(KindOf::Dozer)
-            || obj.is_kind_of(KindOf::Hacker)
-            || obj.is_kind_of(KindOf::Saboteur)
-            || obj.is_kind_of(KindOf::Salvager)
-            || obj.is_kind_of(KindOf::WeaponSalvager)
-            || obj.is_kind_of(KindOf::ArmorSalvager)
-        {
-            return UnitRole::Support;
-        }
-        if obj.is_kind_of(KindOf::Drone) {
-            return UnitRole::Scout;
-        }
-        if obj.is_kind_of(KindOf::Aircraft) {
-            return UnitRole::Light;
-        }
-        if obj.is_kind_of(KindOf::Infantry) {
-            return UnitRole::Light;
-        }
-        if obj.is_kind_of(KindOf::Vehicle) {
-            return UnitRole::Tank;
-        }
-        if obj.is_kind_of(KindOf::Building) || obj.is_kind_of(KindOf::Structure) {
-            return UnitRole::Support;
-        }
-
-        UnitRole::DamageDealer
+        OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                if obj.is_kind_of(KindOf::Hero) {
+                    return UnitRole::Leader;
+                }
+                if obj.is_kind_of(KindOf::Dozer)
+                    || obj.is_kind_of(KindOf::Hacker)
+                    || obj.is_kind_of(KindOf::Saboteur)
+                    || obj.is_kind_of(KindOf::Salvager)
+                    || obj.is_kind_of(KindOf::WeaponSalvager)
+                    || obj.is_kind_of(KindOf::ArmorSalvager)
+                {
+                    return UnitRole::Support;
+                }
+                if obj.is_kind_of(KindOf::Drone) {
+                    return UnitRole::Scout;
+                }
+                if obj.is_kind_of(KindOf::Aircraft) {
+                    return UnitRole::Light;
+                }
+                if obj.is_kind_of(KindOf::Infantry) {
+                    return UnitRole::Light;
+                }
+                if obj.is_kind_of(KindOf::Vehicle) {
+                    return UnitRole::Tank;
+                }
+                if obj.is_kind_of(KindOf::Building) || obj.is_kind_of(KindOf::Structure) {
+                    return UnitRole::Support;
+                }
+                UnitRole::DamageDealer
+            })
+            .unwrap_or(UnitRole::DamageDealer)
     }
 
     /// Get performance statistics
