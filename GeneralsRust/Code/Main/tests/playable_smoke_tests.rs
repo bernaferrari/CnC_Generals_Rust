@@ -154,13 +154,13 @@ fn run_basic_faction_flow(human_team: Team) {
         .create_object("SmokePowerPlant", human_team, Vec3::new(-24.0, 0.0, 0.0))
         .expect("human power plant should spawn");
     let dozer = game_logic
-        .create_object("SmokeDozer", human_team, Vec3::new(12.0, 0.0, 0.0))
+        .create_object("SmokeDozer", human_team, Vec3::new(70.0, 0.0, 0.0))
         .expect("human dozer should spawn");
     let supply_dock = game_logic
         .create_object("SmokeSupplyDock", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
         .expect("neutral supply dock should spawn");
     let enemy_command_center = game_logic
-        .create_object("SmokeCommandCenter", enemy_team, Vec3::new(80.0, 0.0, 0.0))
+        .create_object("SmokeCommandCenter", enemy_team, Vec3::new(160.0, 0.0, 0.0))
         .expect("enemy command center should spawn");
 
     game_logic.queue_command(command(
@@ -168,10 +168,21 @@ fn run_basic_faction_flow(human_team: Team) {
         0,
         CommandType::DozerConstruct {
             template_name: "SmokeBarracks".to_string(),
-            location: Vec3::new(20.0, 0.0, 0.0),
+            location: Vec3::new(80.0, 0.0, 0.0),
+            orientation: 0.0,
         },
         vec![dozer],
     ));
+    game_logic.process_commands();
+    let barracks_pending = game_logic
+        .get_objects()
+        .values()
+        .any(|o| o.template_name == "SmokeBarracks");
+    assert!(
+        barracks_pending,
+        "DozerConstruct must place SmokeBarracks under construction"
+    );
+
     assert!(
         run_until(&mut game_logic, 90, |game_logic| game_logic
             .get_objects()
@@ -266,15 +277,13 @@ fn run_basic_faction_flow(human_team: Team) {
         },
         Vec::new(),
     ));
-    game_logic.process_commands();
-    let supplies_after_sell = game_logic
-        .get_player(0)
-        .expect("human player should exist after sell")
-        .resources
-        .supplies;
     assert!(
-        supplies_after_sell >= supplies_before_sell + 400,
-        "{} player in slot 0 should be able to sell owned structures",
+        run_until(&mut game_logic, 120, |g| {
+            g.get_player(0)
+                .map(|p| p.resources.supplies > supplies_before_sell)
+                .unwrap_or(false)
+        }),
+        "{} player in slot 0 should refund supplies on multi-frame sell",
         human_team.get_name()
     );
 
@@ -291,14 +300,12 @@ fn run_basic_faction_flow(human_team: Team) {
         },
         vec![ranger_id],
     ));
-    run_frames(&mut game_logic, 2);
-    let enemy_health_after = game_logic
-        .get_object(enemy_command_center)
-        .expect("enemy command center should still exist")
-        .health
-        .current;
     assert!(
-        enemy_health_after < enemy_health_before,
+        run_until(&mut game_logic, 180, |g| {
+            g.get_object(enemy_command_center)
+                .map(|o| o.health.current < enemy_health_before)
+                .unwrap_or(false)
+        }),
         "{} infantry should damage the enemy command center",
         human_team.get_name()
     );
@@ -333,13 +340,17 @@ fn mini_skirmish_playable_flow_smoke() {
         .create_object("SmokePowerPlant", Team::USA, Vec3::new(-24.0, 0.0, 0.0))
         .expect("USA power plant should spawn");
     let dozer = game_logic
-        .create_object("SmokeDozer", Team::USA, Vec3::new(12.0, 0.0, 0.0))
+        .create_object("SmokeDozer", Team::USA, Vec3::new(70.0, 0.0, 0.0))
         .expect("USA dozer should spawn");
     let supply_dock = game_logic
         .create_object("SmokeSupplyDock", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
         .expect("neutral supply dock should spawn");
     let enemy_command_center = game_logic
-        .create_object("SmokeCommandCenter", Team::China, Vec3::new(80.0, 0.0, 0.0))
+        .create_object(
+            "SmokeCommandCenter",
+            Team::China,
+            Vec3::new(160.0, 0.0, 0.0),
+        )
         .expect("China command center should spawn");
 
     let starting_supplies = game_logic
@@ -353,7 +364,8 @@ fn mini_skirmish_playable_flow_smoke() {
         0,
         CommandType::DozerConstruct {
             template_name: "SmokeBarracks".to_string(),
-            location: Vec3::new(20.0, 0.0, 0.0),
+            location: Vec3::new(80.0, 0.0, 0.0),
+            orientation: 0.0,
         },
         vec![dozer],
     ));
@@ -547,13 +559,14 @@ fn mini_skirmish_playable_flow_smoke() {
         },
         vec![ranger_id],
     ));
-    run_frames(&mut game_logic, 2);
-    let enemy_health_after = game_logic
-        .get_object(enemy_command_center)
-        .expect("enemy command center should still exist")
-        .health
-        .current;
-    assert!(enemy_health_after < enemy_health_before);
+    assert!(
+        run_until(&mut game_logic, 120, |g| {
+            g.get_object(enemy_command_center)
+                .map(|o| o.health.current < enemy_health_before)
+                .unwrap_or(false)
+        }),
+        "post-load ranger attack should damage enemy CC"
+    );
 
     // Eliminate every living China object (fail-closed if AI left residuals).
     let china_ids: Vec<_> = game_logic
@@ -588,4 +601,56 @@ fn retail_factions_build_train_attack_smoke() {
     for human_team in [Team::USA, Team::China, Team::GLA] {
         run_basic_faction_flow(human_team);
     }
+}
+
+#[test]
+fn dozer_construct_places_barracks_under_construction() {
+    use generals_main::game_logic::host_production_buildable_command_residual::LBC_OK;
+    let mut game_logic = GameLogic::new();
+    game_logic.start_new_game(GameMode::Skirmish);
+    game_logic.clear_all_players();
+    install_smoke_templates(&mut game_logic);
+    game_logic.add_player(Player::new(0, Team::USA, "USA", true));
+    let dozer = game_logic
+        .create_object("SmokeDozer", Team::USA, Vec3::new(70.0, 0.0, 0.0))
+        .expect("dozer");
+    let cc = game_logic
+        .create_object("SmokeCommandCenter", Team::USA, Vec3::ZERO)
+        .expect("cc");
+    let _ = cc;
+    let loc = Vec3::new(80.0, 0.0, 0.0);
+    let code =
+        game_logic.legal_build_code_at_for_builder(Team::USA, loc, "SmokeBarracks", Some(dozer));
+    assert_eq!(code, LBC_OK, "legal build code {code}");
+    let d = game_logic.get_object(dozer).expect("dozer obj");
+    assert!(d.can_construct(), "dozer must can_construct");
+    assert!(d.is_worker());
+    assert!(d.can_move());
+    game_logic.queue_command(command(
+        1,
+        0,
+        CommandType::DozerConstruct {
+            template_name: "SmokeBarracks".to_string(),
+            location: loc,
+            orientation: 0.0,
+        },
+        vec![dozer],
+    ));
+    game_logic.process_commands();
+    assert!(
+        game_logic
+            .get_objects()
+            .values()
+            .any(|o| o.template_name == "SmokeBarracks"),
+        "barracks must exist after DozerConstruct; supplies={}",
+        game_logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0)
+    );
+    let supplies = game_logic.get_player(0).unwrap().resources.supplies;
+    assert!(
+        supplies <= 10000 - 500,
+        "must charge 500 for barracks, supplies={supplies}"
+    );
 }

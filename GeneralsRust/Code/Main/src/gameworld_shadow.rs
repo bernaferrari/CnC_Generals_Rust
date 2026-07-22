@@ -7103,6 +7103,27 @@ pub fn probe_host_vs_gameworld(logic: &mut GameLogic) -> (GameWorldShadow, GameW
 ///
 /// Damage authority freezes mid-frame HP; without this, host-only combat never
 /// shows HP/destroy. Economy authority parks refunds in `pending_supply_delta`.
+
+/// Apply pending supply deltas without replaying damage/heal logs.
+///
+/// Host-only command/sim paths use this when DAMAGE_AUTHORITY is fail-open
+/// (HP already applied) but ECONOMY_AUTHORITY still defers cash to pending.
+pub fn materialize_host_economy_pending(logic: &mut GameLogic) {
+    for p in logic.get_players_mut().values_mut() {
+        if p.pending_supply_delta != 0 {
+            let v = p.resources.supplies as i64 + p.pending_supply_delta;
+            p.resources.supplies = if v <= 0 {
+                0
+            } else if v >= u32::MAX as i64 {
+                u32::MAX
+            } else {
+                v as u32
+            };
+            p.pending_supply_delta = 0;
+        }
+    }
+}
+
 pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
     // --- Damage (DAMAGE_AUTHORITY freezes mid-frame HP) ---
     let damage_events = crate::game_logic::host_damage_log::drain();
