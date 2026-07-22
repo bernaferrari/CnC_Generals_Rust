@@ -4946,7 +4946,6 @@ impl GameLogic {
         }
     }
 
-
     fn ground_loaded_map_objects_to_terrain(
         &mut self,
         objects: &[super::script_loader::PlacedObject],
@@ -5219,11 +5218,8 @@ impl GameLogic {
                                 self.create_object(obj.template.as_str(), team, spawn_position)
                             {
                                 spawned_object_ids.push((id, index));
-                                if let Some(name) = obj
-                                    .name
-                                    .as_deref()
-                                    .map(str::trim)
-                                    .filter(|n| !n.is_empty())
+                                if let Some(name) =
+                                    obj.name.as_deref().map(str::trim).filter(|n| !n.is_empty())
                                 {
                                     if let Some(created) = self.objects.get_mut(&id) {
                                         created.name = name.to_string();
@@ -13713,23 +13709,23 @@ impl GameLogic {
                         // ~0.5s at 30 Hz when already marching; always plan when idle/stuck.
                         let repath_due = !has_active_path || (self.frame % 15 == 0);
                         if repath_due {
-                            let (wrange, wname) =
-                                self.objects
-                                    .get(&attacker_id)
-                                    .map(|a| {
-                                        let r = a
-                                            .weapon
-                                            .as_ref()
-                                            .map(|w| w.range)
-                                            .or_else(|| a.secondary_weapon.as_ref().map(|w| w.range))
-                                            .unwrap_or(50.0);
-                                        let n =
-                                            a.thing.template.primary_weapon_name.clone().or_else(
-                                                || a.thing.template.secondary_weapon_name.clone(),
-                                            );
-                                        (r, n)
-                                    })
-                                    .unwrap_or((50.0, None));
+                            let (wrange, wname) = self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|a| {
+                                    let r = a
+                                        .weapon
+                                        .as_ref()
+                                        .map(|w| w.range)
+                                        .or_else(|| a.secondary_weapon.as_ref().map(|w| w.range))
+                                        .unwrap_or(50.0);
+                                    let n =
+                                        a.thing.template.primary_weapon_name.clone().or_else(
+                                            || a.thing.template.secondary_weapon_name.clone(),
+                                        );
+                                    (r, n)
+                                })
+                                .unwrap_or((50.0, None));
                             let approach = self.approach_pos_for_attack(
                                 attacker_id,
                                 target_position,
@@ -41694,9 +41690,7 @@ impl GameLogic {
         // GLA Camouflage residual: re-cloak when idle (innate_stealth after
         // Upgrade_GLACamouflage). Fail-closed vs full 2500ms StealthDelay.
         {
-            use crate::game_logic::host_upgrades::{
-                UPGRADE_GLA_CAMOUFLAGE,
-            };
+            use crate::game_logic::host_upgrades::UPGRADE_GLA_CAMOUFLAGE;
             // Upgrade tag is only applied to camouflage-eligible units at unlock.
             let camo_ids: Vec<ObjectId> = self
                 .objects
@@ -48688,7 +48682,6 @@ impl GameLogic {
                 self.actively_constructing_updates.saturating_add(updates);
         }
     }
-
 
     /// C++ BuildAssistant::sellObject residual — start multi-frame sell process.
 
