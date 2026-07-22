@@ -3565,16 +3565,18 @@ impl ThePartitionManager {
         candidate_ids
             .into_iter()
             .filter_map(|id| {
-                let obj = OBJECT_REGISTRY.get_object(id)?;
-                let obj_guard = obj.read().ok()?;
-                let obj_pos = obj_guard.get_position();
-                let dx = obj_pos.x - pos.x;
-                let dy = obj_pos.y - pos.y;
-                if dx * dx + dy * dy <= radius_sqr {
-                    Some(id)
-                } else {
-                    None
-                }
+                OBJECT_REGISTRY
+                    .with_object(id, |obj_guard| {
+                        let obj_pos = obj_guard.get_position();
+                        let dx = obj_pos.x - pos.x;
+                        let dy = obj_pos.y - pos.y;
+                        if dx * dx + dy * dy <= radius_sqr {
+                            Some(id)
+                        } else {
+                            None
+                        }
+                    })
+                    .flatten()
             })
             .collect()
     }
