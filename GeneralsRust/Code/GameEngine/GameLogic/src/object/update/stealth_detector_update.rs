@@ -269,49 +269,51 @@ impl StealthDetectorController {
     /// Perform detection scan
     /// Matches C++ update() lines 123-402
     pub fn update(&mut self, _current_frame: UnsignedInt) -> Result<UpdateSleepTime, String> {
-        let Some(self_obj) = OBJECT_REGISTRY.get_object(self.object_id) else {
+        let Some((is_dead, under_construction, is_sold, is_contained, self_pos, self_team_id)) =
+            OBJECT_REGISTRY.with_object(self.object_id, |self_guard| {
+                (
+                    self_guard.is_effectively_dead(),
+                    self_guard
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::UNDER_CONSTRUCTION),
+                    self_guard
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::SOLD),
+                    self_guard.get_container().is_some(),
+                    *self_guard.get_position(),
+                    self_guard.get_team_id(),
+                )
+            })
+        else {
             return Ok(UpdateSleepTime::Forever);
         };
 
-        let self_guard = self_obj.read().map_err(|_| "Lock failed")?;
-
         // Don't scan if dead (lines 128-129)
-        if self_guard.is_effectively_dead() {
+        if is_dead {
             self.clear_grid_particles();
             self.clear_ping_beacon_particles();
             return Ok(UpdateSleepTime::Forever);
         }
 
         // Wait until fully constructed (lines 132-133)
-        if self_guard
-            .get_status_bits()
-            .contains(ObjectStatusMaskType::UNDER_CONSTRUCTION)
-        {
+        if under_construction {
             return Ok(UpdateSleepTime::None);
         }
 
         // Turn off forever if sold (lines 136-137)
-        if self_guard
-            .get_status_bits()
-            .contains(ObjectStatusMaskType::SOLD)
-        {
+        if is_sold {
             self.clear_grid_particles();
             self.clear_ping_beacon_particles();
             return Ok(UpdateSleepTime::Forever);
         }
 
         // Check if contained (lines 140-162)
-        let is_contained = self_guard.get_container().is_some();
         if is_contained
             && !(self.data.can_detect_while_transported || self.data.can_detect_while_garrisoned)
         {
             self.clear_ping_beacon_particles();
             return Ok(UpdateSleepTime::Frames(self.data.update_rate));
         }
-
-        let self_pos = *self_guard.get_position();
-        let self_team_id = self_guard.get_team_id();
-        drop(self_guard);
 
         self.clear_grid_particles();
 
@@ -393,19 +395,19 @@ impl StealthDetectorController {
                 if !was_detected {
                     // Newly detected - do UI feedback (lines 202-239)
                     // Check if local player is the detector owner (C++ line 202)
-                    let is_local_detector = if let Ok(self_guard) = self_obj.read() {
-                        let local_index = player_list()
-                            .read()
-                            .ok()
-                            .map(|list| list.get_local_player_index())
-                            .unwrap_or(PLAYER_INDEX_INVALID);
-                        self_guard
-                            .get_controlling_player_id()
-                            .map(|id| id as i32 == local_index)
-                            .unwrap_or(false)
-                    } else {
-                        false
-                    };
+                    let is_local_detector = OBJECT_REGISTRY
+                        .with_object(self.object_id, |self_guard| {
+                            let local_index = player_list()
+                                .read()
+                                .ok()
+                                .map(|list| list.get_local_player_index())
+                                .unwrap_or(PLAYER_INDEX_INVALID);
+                            self_guard
+                                .get_controlling_player_id()
+                                .map(|id| id as i32 == local_index)
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false);
 
                     if is_local_detector {
                         // Create radar event (lines 211)
@@ -531,17 +533,17 @@ impl StealthDetectorController {
         // Play IR effects and sounds (lines 338-397)
         // Only if detector is visible to local player (lines 340-342)
         // C++ checks shroud status: getShroudedStatus <= OBJECTSHROUD_PARTIAL_CLEAR
-        let is_visible = if let Ok(self_guard) = self_obj.read() {
-            let local_player_index = crate::player::ThePlayerList()
-                .read()
-                .ok()
-                .map(|list| list.get_local_player_index())
-                .unwrap_or(-1);
-            let shroud = self_guard.get_shrouded_status(local_player_index);
-            (shroud as u8) <= (ObjectShroudStatus::PartialClear as u8)
-        } else {
-            false
-        };
+        let is_visible = OBJECT_REGISTRY
+            .with_object(self.object_id, |self_guard| {
+                let local_player_index = crate::player::ThePlayerList()
+                    .read()
+                    .ok()
+                    .map(|list| list.get_local_player_index())
+                    .unwrap_or(-1);
+                let shroud = self_guard.get_shrouded_status(local_player_index);
+                (shroud as u8) <= (ObjectShroudStatus::PartialClear as u8)
+            })
+            .unwrap_or(false);
 
         if is_visible {
             self.clear_ping_beacon_particles();
@@ -560,7 +562,7 @@ impl StealthDetectorController {
                     {
                         let mut ping_pos = self_pos;
                         if !self.data.ir_particle_sys_bone.is_empty() {
-                            if let Ok(self_guard) = self_obj.read() {
+                            let _ = OBJECT_REGISTRY.with_object(self.object_id, |self_guard| {
                                 if let Some(drawable) = self_guard.get_drawable() {
                                     if let Ok(drawable_guard) = drawable.read() {
                                         if let Some(bone_matrix) = drawable_guard
@@ -577,7 +579,7 @@ impl StealthDetectorController {
                                         }
                                     }
                                 }
-                            }
+                            });
                         }
                         ps_manager.set_particle_system_position(system_id, &ping_pos);
                         ps_manager.attach_particle_system_to_object(system_id, self.object_id);
