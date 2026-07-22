@@ -6069,7 +6069,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                     let dock_machine =
                         AIDockMachine::new(owner_object.clone()).map_err(|err| err.to_string())?;
                     if let Ok(mut machine) = dock_machine.state_machine.lock() {
-                        machine.set_goal_object(Some(Arc::downgrade(&target_arc)));
+                        machine.set_goal_object_by_id(target_arc.read().ok().map(|g| g.get_id()));
                         let _ = machine.init_default_state();
                     }
                     let _ = self.set_can_path_through_units(true);
@@ -6254,7 +6254,8 @@ impl AIUpdateInterface for UnitAIUpdate {
                         let dock_machine = AIDockMachine::new(owner_object.clone())
                             .map_err(|err| err.to_string())?;
                         if let Ok(mut machine) = dock_machine.state_machine.lock() {
-                            machine.set_goal_object(Some(Arc::downgrade(&target_arc)));
+                            machine
+                                .set_goal_object_by_id(target_arc.read().ok().map(|g| g.get_id()));
                             let _ = machine.init_default_state();
                         }
                         let _ = self.set_can_path_through_units(true);
