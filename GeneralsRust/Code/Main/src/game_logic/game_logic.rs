@@ -4853,6 +4853,7 @@ impl GameLogic {
     fn sync_named_shell_object_into_legacy_runtime(
         &self,
         object: &super::script_loader::PlacedObject,
+        host_id: ObjectId,
     ) {
         if self.game_mode != GameMode::Shell {
             return;
@@ -4869,6 +4870,20 @@ impl GameLogic {
 
         let tracker = gamelogic::scripting::engine::get_named_object_tracker();
         if tracker.get_object_id(name).ok().flatten().is_some() {
+            return;
+        }
+
+        // Default host path: register the host ObjectId on the named tracker.
+        // Dual ObjectManager/OBJECT_REGISTRY mirror only when engine bridge is on.
+        if !crate::gameworld_shadow::engine_object_bridge_enabled() {
+            if let Err(err) = tracker.register_named_object(name.to_string(), host_id.0) {
+                log::warn!(
+                    "Failed to register host shell object '{}' -> {}: {}",
+                    name,
+                    host_id.0,
+                    err
+                );
+            }
             return;
         }
 
@@ -4930,6 +4945,7 @@ impl GameLogic {
             );
         }
     }
+
 
     fn ground_loaded_map_objects_to_terrain(
         &mut self,
@@ -5203,7 +5219,18 @@ impl GameLogic {
                                 self.create_object(obj.template.as_str(), team, spawn_position)
                             {
                                 spawned_object_ids.push((id, index));
-                                self.sync_named_shell_object_into_legacy_runtime(obj);
+                                if let Some(name) = obj
+                                    .name
+                                    .as_deref()
+                                    .map(str::trim)
+                                    .filter(|n| !n.is_empty())
+                                {
+                                    if let Some(created) = self.objects.get_mut(&id) {
+                                        created.name = name.to_string();
+                                        created.record_host_identity();
+                                    }
+                                }
+                                self.sync_named_shell_object_into_legacy_runtime(obj, id);
                                 if let Some(rot) = obj.rotation {
                                     if let Some(created) = self.objects.get_mut(&id) {
                                         created.set_orientation(rot);

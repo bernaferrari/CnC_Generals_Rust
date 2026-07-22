@@ -667,6 +667,15 @@ impl PathfindingSystem {
         self.logic_frame = frame;
     }
 
+    /// Rebuild vehicle/structure dynamic blocks at most once per logic frame.
+    #[inline]
+    fn ensure_dynamic_obstacles(&mut self, objects: &HashMap<ObjectId, Object>) {
+        if self.dynamic_obstacle_frame != self.logic_frame {
+            self.grid.update_dynamic_obstacles(objects);
+            self.dynamic_obstacle_frame = self.logic_frame;
+        }
+    }
+
     /// Find path between two world positions.
     ///
     /// Waypoint heights are lerped from start.y → goal.y so followers do not dive
@@ -712,7 +721,7 @@ impl PathfindingSystem {
         weapon_range: f32,
         objects: &HashMap<ObjectId, Object>,
     ) -> Option<Vec<Vec3>> {
-        self.grid.update_dynamic_obstacles(objects);
+        self.ensure_dynamic_obstacles(objects);
         let range = weapon_range.max(self.grid.grid_size());
         let cell_size = self.grid.grid_size();
         let start = self.grid.world_to_grid(from);
@@ -1067,11 +1076,7 @@ impl PathfindingSystem {
         objects: &HashMap<ObjectId, Object>,
         aircraft: bool,
     ) -> Option<Vec<Vec3>> {
-        // Dynamic vehicle/structure blocks: rebuild at most once per logic frame.
-        if self.dynamic_obstacle_frame != self.logic_frame {
-            self.grid.update_dynamic_obstacles(objects);
-            self.dynamic_obstacle_frame = self.logic_frame;
-        }
+        self.ensure_dynamic_obstacles(objects);
 
         let start_grid = self.grid.world_to_grid(start);
         let goal_grid = self.grid.world_to_grid(goal);
@@ -1175,8 +1180,8 @@ impl PathfindingSystem {
         goal_pos: Vec3,
         objects: &HashMap<ObjectId, Object>,
     ) {
-        // Update obstacles and create flow field
-        self.grid.update_dynamic_obstacles(objects);
+        // Update obstacles and create flow field (once per logic frame).
+        self.ensure_dynamic_obstacles(objects);
 
         let goal_grid = self.grid.world_to_grid(goal_pos);
         let mut flow_field = FlowField::new_with_origin(
@@ -1244,7 +1249,7 @@ impl PathfindingSystem {
         path_requests: Vec<(ObjectId, Vec3, Vec3)>, // (unit_id, start, goal)
         objects: &HashMap<ObjectId, Object>,
     ) -> Vec<(ObjectId, Option<Vec<Vec3>>)> {
-        self.grid.update_dynamic_obstacles(objects);
+        self.ensure_dynamic_obstacles(objects);
 
         // Process all pathfinding requests sequentially
         let mut results = Vec::new();
