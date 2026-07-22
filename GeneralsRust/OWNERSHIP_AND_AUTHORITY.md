@@ -205,6 +205,12 @@ mid-frame host combat still runs for C++ armor/side-effect parity.
  Opt-in: `GENERALS_GAMEWORLD_SHADOW=1`.
 Not production authority — first migration slice toward retiring Main stores.
 
+### AIGroup::add_by_id + team area with_object residual (2026-07-21)
+
+`AIGroup::add_by_id` centralizes registry Arc acquisition at the group boundary;
+command_processor force-attack/cheer use it after with_object ownership checks.
+Team polygon enter/exit/inside queries peel to `OBJECT_REGISTRY.with_object`.
+
 ### CommandProcessor beacon/production with_object residual (2026-07-21)
 
 Beacon collect/remove validation, cancel-upgrade, queue/cancel unit create, and

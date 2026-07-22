@@ -1391,26 +1391,31 @@ impl Team {
         let mut outside = false;
 
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
+            let Some((did_enter, is_outside)) = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if !Self::locomotor_surface_matches(
+                        object_guard.get_ai_update_interface(),
+                        which_to_consider,
+                    ) {
+                        return None;
+                    }
+                    if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert)
+                    {
+                        return None;
+                    }
+
+                    let did_enter = Self::object_did_enter(object_id, trigger);
+                    let is_outside = !did_enter && !Self::object_in_trigger(object_guard, trigger);
+                    Some((did_enter, is_outside))
+                })
+                .flatten()
+            else {
                 continue;
             };
 
-            if !Self::locomotor_surface_matches(
-                object_guard.get_ai_update_interface(),
-                which_to_consider,
-            ) {
-                continue;
-            }
-            if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert) {
-                continue;
-            }
-
-            if Self::object_did_enter(object_id, trigger) {
+            if did_enter {
                 entered = true;
-            } else if !Self::object_in_trigger(&object_guard, trigger) {
+            } else if is_outside {
                 outside = true;
             }
         }
@@ -1428,24 +1433,22 @@ impl Team {
         }
 
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-
-            if !Self::locomotor_surface_matches(
-                object_guard.get_ai_update_interface(),
-                which_to_consider,
-            ) {
-                continue;
-            }
-            if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert) {
-                continue;
-            }
-
-            if Self::object_did_enter(object_id, trigger) {
+            if OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if !Self::locomotor_surface_matches(
+                        object_guard.get_ai_update_interface(),
+                        which_to_consider,
+                    ) {
+                        return false;
+                    }
+                    if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert)
+                    {
+                        return false;
+                    }
+                    Self::object_did_enter(object_id, trigger)
+                })
+                .unwrap_or(false)
+            {
                 return true;
             }
         }
@@ -1463,24 +1466,22 @@ impl Team {
         }
 
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-
-            if !Self::locomotor_surface_matches(
-                object_guard.get_ai_update_interface(),
-                which_to_consider,
-            ) {
-                continue;
-            }
-            if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert) {
-                continue;
-            }
-
-            if Self::object_did_exit(object_id, trigger) {
+            if OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if !Self::locomotor_surface_matches(
+                        object_guard.get_ai_update_interface(),
+                        which_to_consider,
+                    ) {
+                        return false;
+                    }
+                    if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert)
+                    {
+                        return false;
+                    }
+                    Self::object_did_exit(object_id, trigger)
+                })
+                .unwrap_or(false)
+            {
                 return true;
             }
         }
@@ -1502,27 +1503,32 @@ impl Team {
         let mut any_considered = false;
 
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
+            let Some((did_exit, is_inside)) = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if !Self::locomotor_surface_matches(
+                        object_guard.get_ai_update_interface(),
+                        which_to_consider,
+                    ) {
+                        return None;
+                    }
+                    if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert)
+                    {
+                        return None;
+                    }
 
-            if !Self::locomotor_surface_matches(
-                object_guard.get_ai_update_interface(),
-                which_to_consider,
-            ) {
+                    let did_exit = Self::object_did_exit(object_id, trigger);
+                    let is_inside = !did_exit && Self::object_in_trigger(object_guard, trigger);
+                    Some((did_exit, is_inside))
+                })
+                .flatten()
+            else {
                 continue;
-            }
-            if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert) {
-                continue;
-            }
+            };
 
             any_considered = true;
-            if Self::object_did_exit(object_id, trigger) {
+            if did_exit {
                 exited = true;
-            } else if Self::object_in_trigger(&object_guard, trigger) {
+            } else if is_inside {
                 inside = true;
             }
         }
@@ -1543,25 +1549,27 @@ impl Team {
         let mut any_outside = false;
 
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(is_outside) = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if !Self::locomotor_surface_matches(
+                        object_guard.get_ai_update_interface(),
+                        which_to_consider,
+                    ) {
+                        return None;
+                    }
+                    if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert)
+                    {
+                        return None;
+                    }
+                    Some(!Self::object_in_trigger(object_guard, trigger))
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-
-            if !Self::locomotor_surface_matches(
-                object_guard.get_ai_update_interface(),
-                which_to_consider,
-            ) {
-                continue;
-            }
-            if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert) {
-                continue;
-            }
 
             any_considered = true;
-            if !Self::object_in_trigger(&object_guard, trigger) {
+            if is_outside {
                 any_outside = true;
                 break;
             }
@@ -1579,25 +1587,27 @@ impl Team {
         let mut any_inside = false;
 
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(is_inside) = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if !Self::locomotor_surface_matches(
+                        object_guard.get_ai_update_interface(),
+                        which_to_consider,
+                    ) {
+                        return None;
+                    }
+                    if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert)
+                    {
+                        return None;
+                    }
+                    Some(Self::object_in_trigger(object_guard, trigger))
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-
-            if !Self::locomotor_surface_matches(
-                object_guard.get_ai_update_interface(),
-                which_to_consider,
-            ) {
-                continue;
-            }
-            if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert) {
-                continue;
-            }
 
             any_considered = true;
-            if Self::object_in_trigger(&object_guard, trigger) {
+            if is_inside {
                 any_inside = true;
             }
         }
@@ -1615,25 +1625,27 @@ impl Team {
         let mut any_outside = false;
 
         for &object_id in &self.members {
-            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(is_inside) = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if !Self::locomotor_surface_matches(
+                        object_guard.get_ai_update_interface(),
+                        which_to_consider,
+                    ) {
+                        return None;
+                    }
+                    if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert)
+                    {
+                        return None;
+                    }
+                    Some(Self::object_in_trigger(object_guard, trigger))
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-
-            if !Self::locomotor_surface_matches(
-                object_guard.get_ai_update_interface(),
-                which_to_consider,
-            ) {
-                continue;
-            }
-            if object_guard.is_effectively_dead() || object_guard.is_kind_of(KindOf::Inert) {
-                continue;
-            }
 
             any_considered = true;
-            if Self::object_in_trigger(&object_guard, trigger) {
+            if is_inside {
                 any_inside = true;
             } else {
                 any_outside = true;
