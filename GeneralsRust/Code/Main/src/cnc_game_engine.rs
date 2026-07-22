@@ -3099,18 +3099,14 @@ impl CnCGameEngine {
                             .iter()
                             .copied()
                             .filter(|id| {
-                                if let Some(frame) = self.last_presentation_frame.as_ref() {
+                                self.last_presentation_frame.as_ref().is_some_and(|frame| {
                                     frame.objects.iter().any(|o| {
                                         o.id == *id
                                             && o.team == team
                                             && !o.destroyed
                                             && o.has_weapon
                                     })
-                                } else {
-                                    self.game_logic.get_object(*id).is_some_and(|o| {
-                                        o.team == team && o.is_alive() && o.can_attack()
-                                    })
-                                }
+                                })
                             })
                             .collect();
                         if attackers.is_empty() {
@@ -3574,12 +3570,20 @@ impl CnCGameEngine {
                     // spawn buddy infantry beside the anchor so the command path is honest.
                     if mobile_sel.len() < 2 {
                         if let Some(team) = team {
+                            let frame = self.last_presentation_frame.as_ref();
                             let anchor = mobile_sel
                                 .first()
-                                .and_then(|id| self.game_logic.get_object(*id).map(|o| o.position))
+                                .and_then(|id| {
+                                    frame.and_then(|f| {
+                                        f.objects
+                                            .iter()
+                                            .find(|o| o.id == *id && !o.destroyed)
+                                            .map(|o| o.position)
+                                    })
+                                })
                                 .or_else(|| {
-                                    self.last_presentation_frame.as_ref().and_then(|frame| {
-                                        frame.objects.iter().find_map(|o| {
+                                    frame.and_then(|f| {
+                                        f.objects.iter().find_map(|o| {
                                             if o.team == team && !o.destroyed {
                                                 Some(o.position)
                                             } else {
@@ -3592,9 +3596,12 @@ impl CnCGameEngine {
                             let template = mobile_sel
                                 .first()
                                 .and_then(|id| {
-                                    self.game_logic
-                                        .get_object(*id)
-                                        .map(|o| o.template_name.clone())
+                                    frame.and_then(|f| {
+                                        f.objects
+                                            .iter()
+                                            .find(|o| o.id == *id)
+                                            .map(|o| o.template_name.clone())
+                                    })
                                 })
                                 .filter(|n| !n.is_empty())
                                 .unwrap_or_else(|| "AmericaInfantryRanger".to_string());
@@ -10203,34 +10210,28 @@ impl CnCGameEngine {
 
     #[inline]
     fn ui_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
-        if let Some(o) = self.presentation_ro(id) {
-            return !o.destroyed && o.health_current > 0.0;
-        }
-        self.game_logic.get_object(id).is_some_and(|o| o.is_alive())
+        // Presentation-only identity for InGame UI residual.
+        self.presentation_ro(id)
+            .is_some_and(|o| !o.destroyed && o.health_current > 0.0)
     }
 
     #[inline]
     fn ui_object_is_dozer(&self, id: crate::game_logic::ObjectId) -> bool {
-        if let Some(o) = self.presentation_ro(id) {
-            if o.destroyed || o.health_current <= 0.0 {
-                return false;
-            }
-            let n = o.template_name.to_ascii_lowercase();
-            return n.contains("dozer")
-                || n.contains("worker")
-                || n.contains("crane")
-                || crate::presentation_frame::PresentationFrame::object_has_kind(
-                    o,
-                    crate::game_logic::KindOf::Worker,
-                );
+        // Presentation-only identity for InGame UI residual.
+        let Some(o) = self.presentation_ro(id) else {
+            return false;
+        };
+        if o.destroyed || o.health_current <= 0.0 {
+            return false;
         }
-        self.game_logic.get_object(id).is_some_and(|o| {
-            o.is_alive()
-                && (o.is_dozer
-                    || o.template_name.to_ascii_lowercase().contains("dozer")
-                    || o.template_name.to_ascii_lowercase().contains("worker")
-                    || o.template_name.to_ascii_lowercase().contains("crane"))
-        })
+        let n = o.template_name.to_ascii_lowercase();
+        n.contains("dozer")
+            || n.contains("worker")
+            || n.contains("crane")
+            || crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Worker,
+            )
     }
 
     #[inline]
@@ -10258,16 +10259,9 @@ impl CnCGameEngine {
 
     #[inline]
     fn ui_production_queue_head(&self, id: crate::game_logic::ObjectId) -> Option<String> {
-        if let Some(o) = self.presentation_ro(id) {
-            return o.production_queue.first().map(|p| p.template_name.clone());
-        }
-        self.game_logic.get_object(id).and_then(|o| {
-            o.building_data.as_ref().and_then(|b| {
-                b.production_queue
-                    .first()
-                    .map(|item| item.template_name.clone())
-            })
-        })
+        // Presentation-only identity for InGame UI residual.
+        self.presentation_ro(id)
+            .and_then(|o| o.production_queue.first().map(|p| p.template_name.clone()))
     }
 
     #[inline]
@@ -10290,20 +10284,13 @@ impl CnCGameEngine {
         &self,
         id: crate::game_logic::ObjectId,
     ) -> Option<crate::command_system::SpecialPowerType> {
-        if let Some(o) = self.presentation_ro(id) {
-            if !o.special_power_ready || o.destroyed || o.health_current <= 0.0 {
-                return None;
-            }
-            return crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
-                &o.template_name,
-            );
-        }
-        let obj = self.game_logic.get_object(id)?;
-        if !obj.is_alive() || !obj.special_power_ready {
+        // Presentation-only identity for InGame UI residual.
+        let o = self.presentation_ro(id)?;
+        if !o.special_power_ready || o.destroyed || o.health_current <= 0.0 {
             return None;
         }
         crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
-            &obj.template_name,
+            &o.template_name,
         )
     }
 
@@ -12758,25 +12745,11 @@ impl CnCGameEngine {
                         info!("Control group {} is empty (view)", group_num);
                         return;
                     }
-                    let center = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        frame.centroid_of_ids(&stored)
-                    } else {
-                        let mut sum = Vec3::ZERO;
-                        let mut n = 0u32;
-                        for id in &stored {
-                            if let Some(obj) = self.game_logic.find_object(*id) {
-                                if obj.is_alive() {
-                                    sum += obj.get_position();
-                                    n += 1;
-                                }
-                            }
-                        }
-                        if n == 0 {
-                            None
-                        } else {
-                            Some(sum / n as f32)
-                        }
-                    };
+                    // Presentation-only poses for InGame control-group camera jump.
+                    let center = self
+                        .last_presentation_frame
+                        .as_ref()
+                        .and_then(|frame| frame.centroid_of_ids(&stored));
                     if let Some(center) = center {
                         let clamped = self.clamp_to_world_bounds(center);
                         self.camera_target.x = clamped.x;
@@ -13827,27 +13800,11 @@ impl CnCGameEngine {
         if ids.is_empty() {
             return;
         }
-        let center = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.centroid_of_ids(&ids)
-        } else {
-            // Boot residual only.
-            let mut sum = Vec3::ZERO;
-            let mut n = 0u32;
-            for id in &ids {
-                if let Some(obj) = self.game_logic.find_object(*id) {
-                    if obj.is_alive() {
-                        sum += obj.get_position();
-                        n += 1;
-                    }
-                }
-            }
-            if n == 0 {
-                None
-            } else {
-                Some(sum / n as f32)
-            }
+        // Presentation-only poses for InGame camera tracking.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-        if let Some(center) = center {
+        if let Some(center) = frame.centroid_of_ids(&ids) {
             let clamped = self.clamp_to_world_bounds(center);
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
@@ -14993,27 +14950,12 @@ impl CnCGameEngine {
             .get(&group_num)
             .cloned()
             .unwrap_or_default();
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-        let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.filter_alive_selectable_ids(&stored, team)
-        } else {
-            let mut live = Vec::new();
-            for id in stored {
-                if let Some(obj) = self.game_logic.find_object(id) {
-                    if obj.team == team && obj.is_selectable() && obj.is_alive() {
-                        live.push(id);
-                    }
-                }
-            }
-            live
-        };
+        let team = frame.local_team();
+        let selection = frame.filter_alive_selectable_ids(&stored, team);
         if selection.is_empty() {
             let msg = format!("Control group {group_num} empty");
             self.game_hud.push_info_message(&msg);
@@ -15354,24 +15296,11 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        let center = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.centroid_of_ids(&selected)
-        } else {
-            let mut sum = glam::Vec3::ZERO;
-            let mut n = 0u32;
-            for id in &selected {
-                if let Some(obj) = self.game_logic.find_object(*id) {
-                    sum += obj.get_position();
-                    n += 1;
-                }
-            }
-            if n == 0 {
-                None
-            } else {
-                Some(sum / n as f32)
-            }
+        // Presentation-only poses for InGame camera center.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
-        let Some(center) = center else {
+        let Some(center) = frame.centroid_of_ids(&selected) else {
             return;
         };
         let clamped = self.clamp_to_world_bounds(center);
@@ -15564,33 +15493,24 @@ impl CnCGameEngine {
 
     /// Shift+click residual: add friendly unit or remove if already selected.
     fn toggle_select_object(&mut self, object_id: ObjectId) {
-        let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            let Some(player) = self.game_logic.get_player(self.current_player_id) else {
-                return;
-            };
-            player.team
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
         };
+        let player_team = frame.local_team();
 
         // Only toggle friendly selectable units (enemy click under Shift still replaces? retail
         // keeps multi-select among friendlies; enemy under Shift is ignored for add).
-        let is_friendly_selectable = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame
-                .objects
-                .iter()
-                .find(|o| o.id == object_id)
-                .map(|o| {
-                    o.team == player_team
-                        && !o.destroyed
-                        && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
-                })
-                .unwrap_or(false)
-        } else if let Some(obj) = self.game_logic.find_object(object_id) {
-            obj.team == player_team && obj.is_selectable() && obj.is_alive()
-        } else {
-            false
-        };
+        let is_friendly_selectable = frame
+            .objects
+            .iter()
+            .find(|o| o.id == object_id)
+            .map(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+            })
+            .unwrap_or(false);
         if !is_friendly_selectable {
             return;
         }

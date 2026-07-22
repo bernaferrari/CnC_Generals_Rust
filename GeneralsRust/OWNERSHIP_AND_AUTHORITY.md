@@ -217,6 +217,15 @@ at the call boundary:
 Ownership queries (`get_objects_owned_by_player`, `object_is_owned_by`) use these helpers.
 Full owned-store flip (`HashMap<ObjectID, GameObjectInstance>`) remains migration item 3.
 
+### Host get_object/find_object dual-read close (2026-07-21)
+
+`CncGameEngine` InGame UI helpers, camera center/track, control-group cycle/jump,
+toggle-select, and runtime-host attacker/formation identity no longer call
+`GameLogic::get_object` / `find_object`. Presentation residual is authoritative.
+
+Still residual: some `get_player` boot paths (selection list / economy / science)
+and crate ObjectManager Arc store.
+
 ### Host get_objects dual-read close (2026-07-21)
 
 `CncGameEngine` InGame host paths no longer walk live `GameLogic::get_objects()` for
