@@ -402,7 +402,10 @@ impl crate::modules::UpgradeModuleInterface for FXListDie {
             return false;
         }
 
-        let Ok(mut obj_guard) = self.base.object.write() else {
+        let Some(obj_arc) = self.base.get_object() else {
+            return false;
+        };
+        let Ok(mut obj_guard) = obj_arc.write() else {
             return false;
         };
 

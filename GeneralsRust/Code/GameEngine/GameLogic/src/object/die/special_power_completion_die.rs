@@ -261,19 +261,12 @@ impl SpecialPowerCompletionDie {
 
     /// Notify the script engine that the special power has completed
     pub fn notify_script_engine(&self) {
-        let player_index = if let Ok(obj_guard) = self.base.object.read() {
-            if let Some(player) = obj_guard.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    Some(player_guard.get_player_index() as usize)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let player_index = self.base.get_object().and_then(|obj_arc| {
+            let obj_guard = obj_arc.read().ok()?;
+            let player = obj_guard.get_controlling_player()?;
+            let player_guard = player.read().ok()?;
+            Some(player_guard.get_player_index() as usize)
+        });
 
         self.notify_script_engine_with_player_index(player_index);
     }

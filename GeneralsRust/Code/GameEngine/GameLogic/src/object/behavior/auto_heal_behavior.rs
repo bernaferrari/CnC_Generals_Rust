@@ -43,15 +43,12 @@ const INVALID_PARTICLE_SYSTEM_ID: ParticleSystemID = 0;
 
 #[derive(Debug, Clone)]
 struct AutoHealObjectHandle {
-    object: Arc<RwLock<GameObject>>,
+    object_id: ObjectID,
 }
 
 impl ModuleObjectTrait for AutoHealObjectHandle {
     fn get_object_id(&self) -> ObjectID {
-        self.object
-            .read()
-            .map(|guard| guard.get_id())
-            .unwrap_or(OBJECT_INVALID_ID)
+        self.object_id
     }
 
     fn remove_upgrade(
@@ -71,8 +68,13 @@ impl ModuleObjectTrait for AutoHealObjectHandle {
             return;
         }
 
-        if let Ok(mut guard) = self.object.write() {
-            guard.remove_upgrade_mask(mask_bits);
+        if self.object_id == OBJECT_INVALID_ID {
+            return;
+        }
+        if let Some(arc) = OBJECT_REGISTRY.get_object(self.object_id) {
+            if let Ok(mut guard) = arc.write() {
+                guard.remove_upgrade_mask(mask_bits);
+            }
         }
     }
 }
@@ -1163,7 +1165,11 @@ impl UpgradeModuleInterface for AutoHealBehavior {
         if activation_mask.is_empty() || upgrade_mask.intersects(activation_mask) {
             self.undo_upgrade();
             if let Some(object) = self.get_object() {
-                let object_handle = AutoHealObjectHandle { object };
+                let object_id = object
+                    .read()
+                    .map(|g| g.get_id())
+                    .unwrap_or(OBJECT_INVALID_ID);
+                let object_handle = AutoHealObjectHandle { object_id };
                 self.module_data
                     .upgrade_mux_data
                     .mux_data_process_upgrade_removal(&object_handle);
