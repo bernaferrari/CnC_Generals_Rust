@@ -463,6 +463,37 @@ impl AIInternalMoveToState {
             .get_owner()
             .ok_or_else(|| "state machine owner not set".to_string())
     }
+    pub fn get_machine_goal_object_id(&self) -> Result<Option<crate::common::ObjectID>, String> {
+        let machine = self.upgrade_machine()?;
+        let guard = machine.lock().map_err(|_| {
+            format!(
+                "AIInternalMoveToState '{}' failed to lock machine",
+                self.name
+            )
+        })?;
+        let id = guard.get_goal_object_id();
+        if id == crate::common::INVALID_ID {
+            Ok(None)
+        } else {
+            Ok(Some(id))
+        }
+    }
+
+    pub fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
+        let machine = self.upgrade_machine()?;
+        let guard = machine.lock().map_err(|_| {
+            format!(
+                "AIInternalMoveToState '{}' failed to lock machine",
+                self.name
+            )
+        })?;
+        let id = guard.get_owner_id();
+        if id == crate::common::INVALID_ID {
+            Err("state machine owner not set".to_string())
+        } else {
+            Ok(id)
+        }
+    }
 
     /// Obtain a handle to the underlying state machine.
     pub fn get_machine(&self) -> Result<Arc<Mutex<StateMachine>>, String> {

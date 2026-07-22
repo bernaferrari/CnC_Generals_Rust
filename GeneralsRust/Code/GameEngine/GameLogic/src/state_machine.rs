@@ -369,6 +369,28 @@ impl State {
             .get_goal_object()
     }
 
+    pub fn get_machine_goal_object_id(&self) -> Option<crate::common::ObjectID> {
+        let machine = self.machine.as_ref().and_then(|weak| weak.upgrade())?;
+        let guard = machine.lock().ok()?;
+        let id = guard.get_goal_object_id();
+        if id == crate::common::INVALID_ID {
+            None
+        } else {
+            Some(id)
+        }
+    }
+
+    pub fn get_machine_owner_id(&self) -> Option<crate::common::ObjectID> {
+        let machine = self.machine.as_ref().and_then(|weak| weak.upgrade())?;
+        let guard = machine.lock().ok()?;
+        let id = guard.get_owner_id();
+        if id == crate::common::INVALID_ID {
+            None
+        } else {
+            Some(id)
+        }
+    }
+
     /// Get the machine goal squad
     pub fn get_machine_goal_squad(&self) -> Option<Arc<Mutex<Squad>>> {
         self.machine
@@ -1003,6 +1025,10 @@ impl StateMachine {
         }
         crate::helpers::TheGameLogic::find_object_by_id(self.goal_object_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.goal_object_id))
+    }
+
+    pub fn get_goal_object_id(&self) -> crate::common::ObjectID {
+        self.goal_object_id
     }
 
     /// Set goal squad
