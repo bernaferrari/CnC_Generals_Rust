@@ -1449,12 +1449,19 @@ impl ExitInterface for ExitInterfaceProxy {
 
     fn exit_object_via_door(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
+        obj_id: ObjectID,
         door: crate::modules::ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if let Ok(mut guard) = self.behavior.lock() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface.exit_object_via_door(obj, door);
+                return exit_interface
+                    .exit_object_via_door(obj.read().map(|g| g.get_id()).unwrap_or(0), door);
             }
         }
         Ok(())
@@ -1462,11 +1469,17 @@ impl ExitInterface for ExitInterfaceProxy {
 
     fn exit_object_in_a_hurry(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if let Ok(mut guard) = self.behavior.lock() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface.exit_object_in_a_hurry(obj);
+                return exit_interface.exit_object_in_a_hurry(obj_id);
             }
         }
         Ok(())
@@ -1474,12 +1487,18 @@ impl ExitInterface for ExitInterfaceProxy {
 
     fn exit_object_by_budding(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
-        host: Option<&Arc<RwLock<crate::object::Object>>>,
+        obj_id: ObjectID,
+        host_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if let Ok(mut guard) = self.behavior.lock() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface.exit_object_by_budding(obj, host);
+                return exit_interface.exit_object_by_budding(obj_id, host_id);
             }
         }
         Ok(())
@@ -1498,8 +1517,11 @@ impl ExitInterface for ContainExitInterfaceProxy {
         let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
             return false;
         };
-        self.exit_object_via_door(&obj, crate::modules::ExitDoorType::Primary)
-            .is_ok()
+        self.exit_object_via_door(
+            obj.read().map(|g| g.get_id()).unwrap_or(0),
+            crate::modules::ExitDoorType::Primary,
+        )
+        .is_ok()
     }
 
     fn get_rally_point(&self) -> Result<Option<Coord3D>, Box<dyn std::error::Error + Send + Sync>> {
@@ -1529,23 +1551,37 @@ impl ExitInterface for ContainExitInterfaceProxy {
 
     fn exit_object_via_door(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
+        obj_id: ObjectID,
         door: crate::modules::ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         self.contain
             .lock()
             .map_err(|_| "failed to lock contain exit interface".into())
-            .and_then(|mut guard| guard.exit_object_via_door(obj, door))
+            .and_then(|mut guard| {
+                guard.exit_object_via_door(obj.read().map(|g| g.get_id()).unwrap_or(0), door)
+            })
     }
 
     fn exit_object_in_a_hurry(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         self.contain
             .lock()
             .map_err(|_| "failed to lock contain exit interface".into())
-            .and_then(|mut guard| guard.exit_object_in_a_hurry(obj))
+            .and_then(|mut guard| guard.exit_object_in_a_hurry(obj_id))
     }
 }
 
@@ -1584,27 +1620,47 @@ impl ExitInterface for ModuleExitInterfaceProxy {
 
     fn exit_object_via_door(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
+        obj_id: ObjectID,
         door: crate::modules::ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.with_exit_behavior(|module| module.exit_object_via_door(obj, door))
-            .unwrap_or(Ok(()))
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.with_exit_behavior(|module| {
+            module.exit_object_via_door(obj.read().map(|g| g.get_id()).unwrap_or(0), door)
+        })
+        .unwrap_or(Ok(()))
     }
 
     fn exit_object_in_a_hurry(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.with_exit_behavior(|module| module.exit_object_in_a_hurry(obj))
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.with_exit_behavior(|module| module.exit_object_in_a_hurry(obj_id))
             .unwrap_or(Ok(()))
     }
 
     fn exit_object_by_budding(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
-        host: Option<&Arc<RwLock<crate::object::Object>>>,
+        obj_id: ObjectID,
+        host_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.with_exit_behavior(|module| module.exit_object_by_budding(obj, host))
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.with_exit_behavior(|module| module.exit_object_by_budding(obj_id, host_id))
             .unwrap_or(Ok(()))
     }
 }

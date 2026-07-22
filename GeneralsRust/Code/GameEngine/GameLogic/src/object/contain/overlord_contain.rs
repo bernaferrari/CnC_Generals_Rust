@@ -293,20 +293,22 @@ impl OverlordContain {
 
     /// Called when this object starts containing another object.
     /// Matches C++ OverlordContain::onContaining (OverlordContain.h:65)
-    pub fn on_containing(
-        &mut self,
-        obj: Arc<RwLock<Object>>,
-        was_selected: bool,
-    ) -> GameResult<()> {
+    pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if let Some(redirected) = self.get_redirected_contain() {
-            self.base.base.on_containing(obj.clone(), was_selected)?;
+            self.base.base.on_containing(obj_id, was_selected)?;
             if let Ok(mut guard) = redirected.lock() {
-                let _ = guard.on_containing(obj, was_selected);
+                let _ = guard.on_containing(obj_id, was_selected);
             }
             return Ok(());
         }
 
-        self.base.on_containing(obj.clone(), was_selected)?;
+        self.base.on_containing(obj_id, was_selected)?;
 
         let is_portable = obj
             .read()
@@ -392,14 +394,20 @@ impl OverlordContain {
 
     /// Called when removing an object from containment.
     /// Matches C++ OverlordContain::onRemoving (OverlordContain.h:66)
-    pub fn on_removing(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+    pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if let Some(redirected) = self.get_redirected_contain() {
-            self.base.base.on_removing(obj.clone())?;
+            self.base.base.on_removing(obj_id)?;
             if let Ok(mut guard) = redirected.lock() {
-                let _ = guard.on_removing(obj);
+                let _ = guard.on_removing(obj_id);
             }
         } else {
-            self.base.on_removing(obj)?;
+            self.base.on_removing(obj_id)?;
         }
 
         // Deactivate redirection when becoming empty
@@ -921,10 +929,16 @@ impl ContainModuleInterface for OverlordContain {
 
     fn on_containing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        OverlordContain::on_containing(self, obj, was_selected).map_err(|e| e.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        OverlordContain::on_containing(self, obj_id, was_selected).map_err(|e| e.into())
     }
 
     fn on_capture(
@@ -938,9 +952,15 @@ impl ContainModuleInterface for OverlordContain {
 
     fn on_removing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        OverlordContain::on_removing(self, obj).map_err(|e| e.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        OverlordContain::on_removing(self, obj_id).map_err(|e| e.into())
     }
 
     fn is_special_overlord_style_container(&self) -> bool {

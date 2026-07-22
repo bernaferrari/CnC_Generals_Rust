@@ -720,7 +720,7 @@ impl OpenContain {
         }
 
         self.redeploy_occupants()?;
-        self.on_containing(obj, was_selected)?;
+        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
 
         Ok(())
     }
@@ -812,7 +812,7 @@ impl OpenContain {
             }
         }
         self.do_unload_sound();
-        self.on_removing(obj.clone())?;
+        self.on_removing(obj.read().map(|g| g.get_id()).unwrap_or(0))?;
 
         if let Ok(obj_guard) = obj.read() {
             if self.is_enclosing_container_for(&*obj_guard) {
@@ -880,11 +880,13 @@ impl OpenContain {
     }
 
     /// Called when this object starts containing another object
-    pub fn on_containing(
-        &mut self,
-        obj: Arc<RwLock<Object>>,
-        was_selected: bool,
-    ) -> GameResult<()> {
+    pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         let _ = was_selected;
 
         // Object-level containment processing (matches C++ Object::onContainedBy).
@@ -910,7 +912,13 @@ impl OpenContain {
     }
 
     /// Called when removing an object from containment
-    pub fn on_removing(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+    pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         // Object-level containment removal processing (matches C++ Object::onRemovedFrom).
         let container = self
             .get_object()
@@ -1228,12 +1236,12 @@ impl OpenContain {
         let _ = owner_ai_guard.update_goal_position(&owner_pos, owner_layer);
     }
 
-    fn prepare_exit_object(
+    fn prepare_object(
         &mut self,
-        exit_obj: &Arc<RwLock<Object>>,
+        obj: &Arc<RwLock<Object>>,
         hurry: bool,
     ) -> GameResult<Option<ExitPrep>> {
-        self.remove_from_contain(Arc::clone(exit_obj), false)?;
+        self.remove_from_contain(Arc::clone(obj), false)?;
 
         let Some(owner) = self.get_object() else {
             return Ok(None);
@@ -1267,7 +1275,7 @@ impl OpenContain {
             end_pos.z = terrain.get_ground_height(end_pos.x, end_pos.y, None);
         }
 
-        let exit_id = if let Ok(mut exit_guard) = exit_obj.write() {
+        let exit_id = if let Ok(mut exit_guard) = obj.write() {
             let _ = exit_guard.set_position(&start_pos);
             let _ = exit_guard.set_orientation(exit_angle);
             exit_guard.set_layer(owner_layer);
@@ -1279,7 +1287,7 @@ impl OpenContain {
         Self::add_to_pathfind_map(exit_id, start_pos);
         Self::refresh_owner_pathfind_goal(&owner_guard);
 
-        if let Ok(exit_guard) = exit_obj.read() {
+        if let Ok(exit_guard) = obj.read() {
             if let Some(ai) = exit_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.try_lock() {
                     ai_guard.set_ignore_collision_time(LOGICFRAMES_PER_SECOND as UnsignedInt);
@@ -1312,18 +1320,24 @@ impl OpenContain {
 
     pub fn exit_object_via_door(
         &mut self,
-        exit_obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         exit_door: ExitDoorType,
     ) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if matches!(exit_door, ExitDoorType::None | ExitDoorType::NoneAvailable) {
             return Ok(());
         }
 
-        let Some(prep) = self.prepare_exit_object(exit_obj, false)? else {
+        let Some(prep) = self.prepare_object(&obj, false)? else {
             return Ok(());
         };
 
-        if let Ok(exit_guard) = exit_obj.read() {
+        if let Ok(exit_guard) = obj.read() {
             let previous_allow_to_fall = exit_guard.get_physics().map(|physics| {
                 let previous = physics.get_allow_to_fall();
                 physics.set_allow_to_fall(false);
@@ -1352,12 +1366,18 @@ impl OpenContain {
         Ok(())
     }
 
-    pub fn exit_object_in_a_hurry(&mut self, exit_obj: &Arc<RwLock<Object>>) -> GameResult<()> {
-        let Some(prep) = self.prepare_exit_object(exit_obj, true)? else {
+    pub fn exit_object_in_a_hurry(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
             return Ok(());
         };
 
-        if let Ok(exit_guard) = exit_obj.read() {
+        let Some(prep) = self.prepare_object(&obj, true)? else {
+            return Ok(());
+        };
+
+        if let Ok(exit_guard) = obj.read() {
             if let Some(ai) = exit_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.try_lock() {
                     let _ = ai_guard.set_path_from_coords(&prep.exit_path);
@@ -1833,17 +1853,29 @@ impl ContainModuleInterface for OpenContain {
 
     fn exit_object_via_door(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         door: ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        OpenContain::exit_object_via_door(self, obj, door).map_err(|err| err.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        OpenContain::exit_object_via_door(self, obj_id, door).map_err(|err| err.into())
     }
 
     fn exit_object_in_a_hurry(
         &mut self,
-        obj: &Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        OpenContain::exit_object_in_a_hurry(self, obj).map_err(|err| err.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        OpenContain::exit_object_in_a_hurry(self, obj_id).map_err(|err| err.into())
     }
 
     fn set_passenger_allowed_to_fire(&mut self, allowed: bool) {
@@ -1856,10 +1888,16 @@ impl ContainModuleInterface for OpenContain {
 
     fn on_containing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        OpenContain::on_containing(self, obj, was_selected).map_err(|e| e.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        OpenContain::on_containing(self, obj_id, was_selected).map_err(|e| e.into())
     }
 
     fn get_player_who_entered(&self) -> PlayerMaskType {
@@ -1868,9 +1906,15 @@ impl ContainModuleInterface for OpenContain {
 
     fn on_removing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        OpenContain::on_removing(self, obj).map_err(|e| e.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        OpenContain::on_removing(self, obj_id).map_err(|e| e.into())
     }
 
     fn remove_all_contained(

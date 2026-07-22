@@ -68,11 +68,17 @@ impl InternetHackContain {
 
     pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
         self.base.add_to_contain(obj.clone())?;
-        self.on_containing(obj)?;
+        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0))?;
         Ok(())
     }
 
-    fn on_containing(&mut self, rider: Arc<RwLock<Object>>) -> GameResult<()> {
+    fn on_containing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if let Ok(rider_guard) = rider.read() {
             if let Some(ai) = rider_guard.get_ai() {
                 if let Ok(mut ai_guard) = ai.lock() {

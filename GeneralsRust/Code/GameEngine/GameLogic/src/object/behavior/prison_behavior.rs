@@ -401,10 +401,16 @@ impl ContainModuleInterface for PrisonBehavior {
 
     fn on_containing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.contain.on_containing(Arc::clone(&obj), was_selected)?;
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.contain.on_containing(obj_id, was_selected)?;
         if let Ok(mut guard) = obj.write() {
             guard.set_disabled(DisabledType::Held);
             if self.module_data.show_prisoners {
@@ -416,15 +422,21 @@ impl ContainModuleInterface for PrisonBehavior {
 
     fn on_removing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         if let Ok(mut guard) = obj.write() {
             if self.module_data.show_prisoners {
                 self.remove_visual(&*guard);
             }
             guard.clear_disabled(DisabledType::Held);
         }
-        self.contain.on_removing(obj)
+        self.contain.on_removing(obj_id)
     }
 
     fn remove_all_contained(

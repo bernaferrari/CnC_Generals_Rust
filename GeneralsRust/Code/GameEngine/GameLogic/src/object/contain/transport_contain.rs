@@ -468,12 +468,14 @@ impl TransportContain {
     }
 
     /// Called when this object starts containing another object
-    pub fn on_containing(
-        &mut self,
-        obj: Arc<RwLock<Object>>,
-        was_selected: bool,
-    ) -> GameResult<()> {
-        self.base.on_containing(obj.clone(), was_selected)?;
+    pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.base.on_containing(obj_id, was_selected)?;
 
         // Set object as disabled (held)
         if let Ok(mut rider) = obj.write() {
@@ -548,8 +550,14 @@ impl TransportContain {
     }
 
     /// Called when removing an object from containment
-    pub fn on_removing(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.on_removing(obj.clone())?;
+    pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        self.base.on_removing(obj_id)?;
 
         // Clear disabled state
         if let Ok(mut rider) = obj.write() {
@@ -1019,7 +1027,7 @@ impl TransportContain {
             let _ = self.base.add_or_remove_obj_from_world(obj.clone(), false);
         }
         self.base.redeploy_occupants()?;
-        self.on_containing(obj, was_selected)?;
+        self.on_containing(obj.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
         Ok(())
     }
 
@@ -1058,7 +1066,7 @@ impl TransportContain {
                 }
             }
             self.base.do_unload_sound();
-            self.on_removing(obj.clone())?;
+            self.on_removing(obj.read().map(|g| g.get_id()).unwrap_or(0))?;
         }
 
         let _ = expose_stealth_units;
@@ -1267,17 +1275,29 @@ impl ContainModuleInterface for TransportContain {
 
     fn on_containing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        TransportContain::on_containing(self, obj, was_selected).map_err(|e| e.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        TransportContain::on_containing(self, obj_id, was_selected).map_err(|e| e.into())
     }
 
     fn on_removing(
         &mut self,
-        obj: Arc<RwLock<Object>>,
+        obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        TransportContain::on_removing(self, obj).map_err(|e| e.into())
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        TransportContain::on_removing(self, obj_id).map_err(|e| e.into())
     }
 
     fn remove_all_contained(

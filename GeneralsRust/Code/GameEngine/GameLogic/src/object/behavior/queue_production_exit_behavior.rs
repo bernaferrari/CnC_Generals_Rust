@@ -398,9 +398,15 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
 
     fn exit_object_via_door(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
+        obj_id: ObjectID,
         door: ModuleExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
         let exit_door = match door {
             ModuleExitDoorType::Primary
             | ModuleExitDoorType::Secondary
@@ -505,18 +511,29 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
 
     fn exit_object_by_budding(
         &mut self,
-        obj: &Arc<RwLock<crate::object::Object>>,
-        host: Option<&Arc<RwLock<crate::object::Object>>>,
+        obj_id: ObjectID,
+        host_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let host_info = host.and_then(|arc| {
-            arc.read().ok().map(|guard| {
-                (
-                    *guard.get_position(),
-                    guard.get_orientation(),
-                    guard.get_layer(),
-                )
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+
+        let host_info = host_id
+            .and_then(|id| {
+                crate::helpers::TheGameLogic::find_object_by_id(id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
             })
-        });
+            .and_then(|arc| {
+                arc.read().ok().map(|guard| {
+                    (
+                        *guard.get_position(),
+                        guard.get_orientation(),
+                        guard.get_layer(),
+                    )
+                })
+            });
         let owner_info = TheGameLogic::find_object_by_id(self.owner_id).and_then(|arc| {
             arc.read()
                 .ok()
