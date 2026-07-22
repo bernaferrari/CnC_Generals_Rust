@@ -289,23 +289,17 @@ impl CarpetBombPower {
     }
 
     fn resolve_owner_object(&self) -> Option<Arc<RwLock<crate::object::Object>>> {
-        if self.owner_object_id != INVALID_ID {
-            if let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_object_id) {
-                return Some(owner);
-            }
-        }
-        let player_id = self.owner_player_id?;
-        let list = player_list().read().ok()?;
-        let player = list.get_player(player_id as Int).cloned()?;
-        let player_guard = player.read().ok()?;
-        let owned = player_guard.get_all_objects();
-        drop(player_guard);
-        for object_id in owned {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
-                return Some(obj);
-            }
-        }
-        None
+        crate::special_power_module::resolve_special_power_owner(
+            self.owner_object_id,
+            self.owner_player_id,
+        )
+    }
+
+    fn resolve_owner_object_id(&self) -> Option<ObjectID> {
+        crate::special_power_module::resolve_special_power_owner_id(
+            self.owner_object_id,
+            self.owner_player_id,
+        )
     }
 
     fn select_ocl_name(&self) -> Option<AsciiString> {
