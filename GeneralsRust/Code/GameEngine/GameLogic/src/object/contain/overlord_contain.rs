@@ -446,7 +446,12 @@ impl OverlordContain {
             return Ok(());
         }
 
-        self.base.add_to_contain_list(obj)
+        self.base.add_to_contain_list(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
     }
 
     /// Add object to containment.
@@ -460,7 +465,12 @@ impl OverlordContain {
             return Ok(());
         }
 
-        self.base.add_to_contain(obj)
+        self.base.add_to_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )
     }
 
     /// Remove object from containment.
@@ -480,7 +490,13 @@ impl OverlordContain {
             return Ok(());
         }
 
-        self.base.remove_from_contain(obj, expose_stealth_units)
+        self.base.remove_from_contain(
+            obj.read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            expose_stealth_units,
+        )
     }
 
     /// Remove all contained objects.

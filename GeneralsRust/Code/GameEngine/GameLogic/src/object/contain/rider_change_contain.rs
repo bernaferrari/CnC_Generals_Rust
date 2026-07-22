@@ -997,7 +997,13 @@ impl RiderChangeContain {
             }
         }
 
-        self.base.add_to_contain_list(rider.clone())?;
+        self.base.add_to_contain_list(
+            rider
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+        )?;
         let should_remove_from_world = rider
             .read()
             .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
