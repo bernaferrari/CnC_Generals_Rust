@@ -379,12 +379,9 @@ impl State {
 
     /// Get the machine goal object
     pub fn get_machine_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.machine
-            .as_ref()?
-            .upgrade()?
-            .try_lock()
-            .ok()?
-            .get_goal_object()
+        let id = self.get_machine_goal_object_id()?;
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     pub fn get_machine_goal_object_id(&self) -> Option<crate::common::ObjectID> {

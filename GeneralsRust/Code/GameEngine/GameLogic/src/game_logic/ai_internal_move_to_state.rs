@@ -448,14 +448,11 @@ impl AIInternalMoveToState {
 
     /// Access the machine goal object if present.
     pub fn get_machine_goal_object(&self) -> Result<Option<Arc<RwLock<Object>>>, String> {
-        let machine = self.upgrade_machine()?;
-        let guard = machine.lock().map_err(|_| {
-            format!(
-                "AIInternalMoveToState '{}' failed to lock machine",
-                self.name
-            )
-        })?;
-        Ok(guard.get_goal_object())
+        let id = self.get_machine_goal_object_id()?;
+        Ok(id.and_then(|goal_id| {
+            crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
+        }))
     }
 
     /// Access the machine owner object.
