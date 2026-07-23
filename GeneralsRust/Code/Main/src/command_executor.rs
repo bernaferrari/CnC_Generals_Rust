@@ -843,31 +843,71 @@ impl<'a> CommandExecutor<'a> {
         CommandResult::Success
     }
 
-    fn execute_guard(&mut self, units: &[ObjectId], target: &GuardTarget) -> CommandResult {
+    pub(crate) fn execute_guard(
+        &mut self,
+        units: &[ObjectId],
+        target: &GuardTarget,
+    ) -> CommandResult {
+        // C++ AIGroup::groupGuardPosition/Object — only units with AI/move;
+        // guard radius residual ≈ adjusted vision (getStdGuardRange).
+        const GUARD_MIN_RADIUS: f32 = 80.0;
+        let mut any = false;
         for &unit_id in units {
+            let (can, vision, weapon_r) = match self.game_logic.get_object(unit_id) {
+                Some(unit)
+                    if unit.is_alive()
+                        && unit.can_move()
+                        && !unit.is_kind_of(crate::game_logic::KindOf::Immobile)
+                        && !unit.is_kind_of(crate::game_logic::KindOf::Structure) =>
+                {
+                    let wr = unit
+                        .weapon
+                        .as_ref()
+                        .map(|w| w.range)
+                        .or_else(|| unit.secondary_weapon.as_ref().map(|w| w.range))
+                        .unwrap_or(0.0);
+                    (true, unit.vision_range, wr)
+                }
+                _ => (false, 0.0, 0.0),
+            };
+            if !can {
+                continue;
+            }
+
             let target_pos = match target {
                 GuardTarget::Position(pos) => Some(*pos),
                 GuardTarget::Object(target_id) => self
                     .game_logic
                     .get_object(*target_id)
+                    .filter(|o| o.is_alive())
                     .map(|o| o.get_position()),
             };
 
-            // Set guard anchors first (short borrow).
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.guard_radius = unit.selection_radius * 2.0;
+                // C++ getStdGuardRange ≈ vision with guard-inner factor; host uses
+                // max(vision, weapon, min radius).
+                unit.guard_radius = vision.max(weapon_r).max(GUARD_MIN_RADIUS);
+                unit.set_target(None);
+                unit.set_force_attack(false);
+                unit.end_guard_retaliate();
                 match target {
                     GuardTarget::Position(pos) => {
+                        unit.set_guard_target(None);
                         unit.set_guard_position(Some(*pos));
                     }
                     GuardTarget::Object(target_id) => {
+                        if target_pos.is_none() {
+                            continue;
+                        }
+                        // Object guard: anchor follows target; clear area pin.
+                        unit.guard_position = None;
                         unit.set_guard_target(Some(*target_id));
                     }
                 }
             } else {
                 continue;
             }
-            // Path to guard anchor / object, then restore guard AI mode.
+
             match target {
                 GuardTarget::Position(pos) => {
                     let _ = self.path_to_goal_with_state(unit_id, *pos, AIState::GuardingArea);
@@ -880,27 +920,7 @@ impl<'a> CommandExecutor<'a> {
                     }
                 }
             }
-        }
-        CommandResult::Success
-    }
-
-    fn execute_patrol(&mut self, units: &[ObjectId]) -> CommandResult {
-        let mut any = false;
-        for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if !unit.is_alive() || !unit.can_move() {
-                    continue;
-                }
-                unit.set_target(None);
-                unit.set_force_attack(false);
-                unit.set_guard_position(None);
-                unit.set_guard_target(None);
-                unit.end_guard_retaliate();
-                // C++ AI_HUNT / patrol residual: wander + auto-engage.
-                unit.set_ai_state(AIState::Patrolling);
-                unit.status.moving = false;
-                any = true;
-            }
+            any = true;
         }
         if any {
             CommandResult::Success
@@ -908,6 +928,40 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
+
+    pub(crate) fn execute_patrol(&mut self, units: &[ObjectId]) -> CommandResult {
+        // C++ AIGroup::groupHunt / host Patrol button residual (AI_HUNT).
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() || !unit.can_move() {
+                continue;
+            }
+            if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || unit.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            unit.set_target(None);
+            unit.set_force_attack(false);
+            unit.set_guard_position(None);
+            unit.set_guard_target(None);
+            unit.end_guard_retaliate();
+            // Hunt enables auto-acquire while wandering.
+            unit.auto_acquire_when_idle = true;
+            unit.set_ai_state(AIState::Patrolling);
+            unit.status.moving = false;
+            any = true;
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
     fn execute_set_attitude(
         &mut self,
         units: &[ObjectId],
@@ -1385,6 +1439,25 @@ impl<'a> CommandExecutor<'a> {
             }
         } else {
             CommandResult::InvalidTarget
+        }
+    }
+
+    /// C++ AIGroup::groupSell residual — sell every selected friendly structure.
+    pub(crate) fn execute_sell_selected(
+        &mut self,
+        units: &[ObjectId],
+        player_id: u32,
+    ) -> CommandResult {
+        let mut any = false;
+        for &id in units {
+            if matches!(self.execute_sell(id, player_id), CommandResult::Success) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
         }
     }
 
@@ -4889,6 +4962,116 @@ mod group_move_tests {
     }
 
     #[test]
+    fn guard_uses_vision_radius_and_skips_structures() {
+        use super::CommandExecutor;
+        use crate::command_system::{CommandResult, GuardTarget};
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        for (name, kinds) in [
+            ("GD_V", &[KindOf::Vehicle, KindOf::Selectable][..]),
+            ("GD_S", &[KindOf::Structure, KindOf::Selectable][..]),
+        ] {
+            let mut tpl = ThingTemplate::new(name);
+            for k in kinds {
+                tpl.add_kind_of(*k);
+            }
+            tpl.set_health(500.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let v = logic
+            .create_object("GD_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let s = logic
+            .create_object("GD_S", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let u = logic.get_object_mut(v).unwrap();
+            u.vision_range = 120.0;
+            u.selection_radius = 10.0;
+        }
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        let pos = Vec3::new(50.0, 0.0, 0.0);
+        assert_eq!(
+            exec.execute_guard(&[v, s], &GuardTarget::Position(pos)),
+            CommandResult::Success
+        );
+        let u = logic.get_object(v).unwrap();
+        assert!(
+            (u.guard_radius - 120.0).abs() < 0.1,
+            "guard radius should track vision, got {}",
+            u.guard_radius
+        );
+        assert!(matches!(
+            u.ai_state,
+            AIState::GuardingArea | AIState::Moving
+        ));
+        // Structure must not enter guard.
+        assert_ne!(logic.get_object(s).unwrap().ai_state, AIState::GuardingArea);
+    }
+
+    #[test]
+    fn patrol_enables_auto_acquire_hunt_residual() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("PT_A");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("PT_A".to_string(), tpl);
+        let a = logic.create_object("PT_A", Team::USA, Vec3::ZERO).unwrap();
+        logic.get_object_mut(a).unwrap().auto_acquire_when_idle = false;
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(exec.execute_patrol(&[a]), CommandResult::Success);
+        let u = logic.get_object(a).unwrap();
+        assert_eq!(u.ai_state, AIState::Patrolling);
+        assert!(u.auto_acquire_when_idle);
+    }
+
+    #[test]
+    fn sell_selected_sells_friendly_structures_only() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        for name in ["SL_S", "SL_V"] {
+            let mut tpl = ThingTemplate::new(name);
+            if name == "SL_S" {
+                tpl.add_kind_of(KindOf::Structure);
+            } else {
+                tpl.add_kind_of(KindOf::Vehicle);
+            }
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(500.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let s = logic
+            .create_object("SL_S", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let v = logic
+            .create_object("SL_V", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_sell_selected(&[s, v], 0),
+            CommandResult::Success
+        );
+        // Structure entered sell residual; vehicle rejected.
+        assert!(
+            logic.is_object_being_sold(s)
+                || logic.get_object(s).map(|o| o.status.sold).unwrap_or(false)
+        );
+    }
+
+    #[test]
     fn evacuate_requires_container_not_passenger_only() {
         use super::CommandExecutor;
         use crate::command_system::CommandResult;
@@ -4941,7 +5124,7 @@ mod group_move_tests {
             "fn execute_build",
         ] {
             let i = prod.find(name).unwrap_or_else(|| panic!("missing {name}"));
-            let w = &prod[i..prod.len().min(i + 2500)];
+            let w = &prod[i..prod.len().min(i + 6000)];
             assert!(
                 w.contains("path_to_goal_with_state") || w.contains("assign_unit_path"),
                 "{name} must pathfind, not bare set_destination"
