@@ -6928,7 +6928,7 @@ impl Object {
             return true;
         }
         // SearchAndDestroy residual: BATTLEPLAN_SEARCHANDDESTROY RANGE 120%.
-        let max_range = weapon.range * self.battle_plan_range_multiplier();
+        let max_range = self.effective_weapon_range(weapon.range);
         distance <= max_range
     }
 
@@ -7167,6 +7167,7 @@ impl Object {
 
     /// C++ Weapon::isWithinAttackRange residual (primary then secondary).
     /// When LeechRange is active for a slot, max range is waived (C++ hasLeechRange).
+    /// Max range includes WeaponBonus RANGE field (garrison / SearchAndDestroy / …).
     pub fn is_within_attack_range(&self, other: &Object) -> bool {
         let dist = self.distance_to_object(other);
         if let Some(w) = &self.weapon {
@@ -7175,7 +7176,7 @@ impl Object {
             } else if self.leech_range_active_primary {
                 return true;
             } else {
-                let range = w.range * self.battle_plan_range_multiplier();
+                let range = self.effective_weapon_range(w.range);
                 if dist <= range + 1e-3 {
                     return true;
                 }
@@ -7187,7 +7188,7 @@ impl Object {
             } else if self.leech_range_active_secondary {
                 return true;
             } else {
-                let range = w.range * self.battle_plan_range_multiplier();
+                let range = self.effective_weapon_range(w.range);
                 if dist <= range + 1e-3 {
                     return true;
                 }
@@ -7204,7 +7205,7 @@ impl Object {
             } else if self.leech_range_active_primary {
                 return true;
             } else {
-                let range = w.range * self.battle_plan_range_multiplier();
+                let range = self.effective_weapon_range(w.range);
                 if dist <= range + 1e-3 {
                     return true;
                 }
@@ -7215,7 +7216,7 @@ impl Object {
             } else if self.leech_range_active_secondary {
                 return true;
             } else {
-                let range = w.range * self.battle_plan_range_multiplier();
+                let range = self.effective_weapon_range(w.range);
                 if dist <= range + 1e-3 {
                     return true;
                 }
@@ -10643,6 +10644,35 @@ mod tests {
         assert_eq!(
             resolve_host_death_type(None, DamageType::Toxin),
             HostDeathType::Poisoned
+        );
+    }
+
+    #[test]
+    fn garrison_range_bonus_extends_is_within_attack_range() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut atk_t = ThingTemplate::new("GR_A");
+        atk_t.add_kind_of(KindOf::Infantry);
+        atk_t.set_health(100.0);
+        let mut vic_t = ThingTemplate::new("GR_V");
+        vic_t.add_kind_of(KindOf::Vehicle);
+        vic_t.set_health(100.0);
+        let mut atk = Object::new(atk_t, ObjectId(1), Team::USA);
+        let mut vic = Object::new(vic_t, ObjectId(2), Team::GLA);
+        atk.set_position(Vec3::ZERO);
+        // 120 units away; weapon range 100 — out without garrison, in with 133%.
+        vic.set_position(Vec3::new(120.0, 0.0, 0.0));
+        atk.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        assert!(!atk.is_within_attack_range(&vic));
+        atk.contained_by = Some(ObjectId(99));
+        assert!(
+            atk.is_within_attack_range(&vic),
+            "garrison RANGE 133% should cover 120 with base 100"
         );
     }
 
