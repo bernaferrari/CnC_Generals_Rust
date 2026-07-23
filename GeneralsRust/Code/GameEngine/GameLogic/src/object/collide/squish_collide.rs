@@ -154,12 +154,16 @@ impl SquishCollide {
     fn should_allow_squish(&self, owner: &OwnerSnapshot, target: &TargetSnapshot) -> bool {
         OBJECT_REGISTRY
             .with_object(owner.id, |owner_guard| {
-                let goal_matches_target = owner_guard
-                    .get_ai_update_interface()
-                    .and_then(|ai| ai.lock().ok().and_then(|guard| guard.get_goal_object()))
-                    .and_then(|goal| goal.read().ok().map(|guard| guard.get_id()))
-                    .map(|goal_id| goal_id == target.id)
-                    .unwrap_or(false);
+                let goal_matches_target = if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(guard) = ai.lock() {
+                        let goal_id = guard.get_goal_object_id();
+                        goal_id != crate::common::INVALID_ID && goal_id == target.id
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
                 if !goal_matches_target {
                     return true;
                 }
