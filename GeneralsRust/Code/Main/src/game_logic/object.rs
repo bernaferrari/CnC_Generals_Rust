@@ -2734,11 +2734,64 @@ impl Object {
 
     /// Retail BATTLEPLAN_SEARCHANDDESTROY RANGE multiplier (1.0 when clear).
     pub fn battle_plan_range_multiplier(&self) -> f32 {
-        if self.weapon_bonus_battle_plan_search_and_destroy {
-            crate::game_logic::host_strategy_center::SEARCH_AND_DESTROY_RANGE_MULT
-        } else {
-            1.0
+        self.weapon_bonus_fields().1
+    }
+
+    /// C++ WeaponBonus append residual for active condition flags.
+    /// Returns (DAMAGE, RANGE, RATE_OF_FIRE, PRE_ATTACK) multipliers (default 1.0).
+    pub fn weapon_bonus_fields(&self) -> (f32, f32, f32, f32) {
+        use crate::game_logic::host_propaganda::{
+            ENTHUSIASTIC_RATE_OF_FIRE_MULT, SUBLIMINAL_RATE_OF_FIRE_MULT,
+        };
+        use crate::game_logic::host_red_guard::{
+            INFANTRY_HORDE_ROF_MULT, INFANTRY_NATIONALISM_ROF_MULT,
+        };
+        use crate::game_logic::host_strategy_center::{
+            BOMBARDMENT_DAMAGE_MULT, SEARCH_AND_DESTROY_RANGE_MULT,
+        };
+
+        let mut damage = 1.0f32;
+        let mut range = 1.0f32;
+        let mut rof = 1.0f32;
+        let pre_attack = 1.0f32;
+
+        if self.weapon_bonus_enthusiastic {
+            rof *= ENTHUSIASTIC_RATE_OF_FIRE_MULT;
         }
+        if self.weapon_bonus_subliminal {
+            rof *= SUBLIMINAL_RATE_OF_FIRE_MULT;
+        }
+        if self.weapon_bonus_horde {
+            rof *= INFANTRY_HORDE_ROF_MULT;
+        }
+        if self.weapon_bonus_nationalism {
+            rof *= INFANTRY_NATIONALISM_ROF_MULT;
+        }
+        damage *= self.frenzy_damage_multiplier();
+        if self.weapon_bonus_battle_plan_bombardment {
+            damage *= BOMBARDMENT_DAMAGE_MULT;
+        }
+        if self.weapon_bonus_battle_plan_search_and_destroy {
+            range *= SEARCH_AND_DESTROY_RANGE_MULT;
+        }
+
+        (damage, range, rof.max(0.01), pre_attack.max(0.01))
+    }
+
+    /// Effective weapon range with WeaponBonus RANGE field.
+    pub fn effective_weapon_range(&self, base_range: f32) -> f32 {
+        base_range * self.weapon_bonus_fields().1
+    }
+
+    /// Effective weapon damage with WeaponBonus DAMAGE field.
+    pub fn effective_weapon_damage(&self, base_damage: f32) -> f32 {
+        base_damage * self.weapon_bonus_fields().0
+    }
+
+    /// Effective reload interval (seconds) with RATE_OF_FIRE bonus.
+    pub fn effective_weapon_reload(&self, base_reload: f32) -> f32 {
+        let rof = self.weapon_bonus_fields().2;
+        (base_reload / rof).max(0.0)
     }
 
     /// C++ OBJECT_STATUS_FAERIE_FIRE residual (Avenger paint).
@@ -6877,12 +6930,14 @@ impl Object {
     }
 
     /// Name-aware ready check (preferred).
+    /// `effective_reload` = WeaponBonus RATE_OF_FIRE adjusted interval (seconds).
     pub fn weapon_ready_named(
         weapon: &Weapon,
         current_time: f32,
         weapon_name: Option<&str>,
+        effective_reload: f32,
     ) -> bool {
-        current_time - weapon.last_fire_time >= weapon.reload_time
+        current_time - weapon.last_fire_time >= effective_reload
             && Self::weapon_has_ammo_for_shot(weapon, weapon_name)
     }
 
@@ -7566,11 +7621,16 @@ impl Object {
         // Prefer the locked/active slot when ready; else primary; else secondary.
         let slot = {
             let prefer_secondary = self.active_weapon_slot == 1;
+            let rof = self.weapon_bonus_fields().2;
+            let primary_name = self.primary_weapon_name().map(|s| s.to_string());
+            let secondary_name = self.secondary_weapon_name().map(|s| s.to_string());
             let primary_ready = self.weapon.as_ref().is_some_and(|w| {
-                Self::weapon_ready_named(w, current_time, self.primary_weapon_name())
+                let reload = (w.reload_time / rof).max(0.0);
+                Self::weapon_ready_named(w, current_time, primary_name.as_deref(), reload)
             });
             let secondary_ready = self.secondary_weapon.as_ref().is_some_and(|w| {
-                Self::weapon_ready_named(w, current_time, self.secondary_weapon_name())
+                let reload = (w.reload_time / rof).max(0.0);
+                Self::weapon_ready_named(w, current_time, secondary_name.as_deref(), reload)
             });
             if prefer_secondary && secondary_ready {
                 1u8
@@ -7584,10 +7644,13 @@ impl Object {
         };
 
         // C++ Weapon::getPreAttackDelay / PreAttackType residual.
-        let pre_delay = self
-            .weapon_slot(slot)
-            .map(|w| w.pre_attack_delay.max(0.0))
-            .unwrap_or(0.0);
+        let pre_delay = {
+            let base = self
+                .weapon_slot(slot)
+                .map(|w| w.pre_attack_delay.max(0.0))
+                .unwrap_or(0.0);
+            base * self.weapon_bonus_fields().3
+        };
         let prefire = {
             let name = if slot == 1 {
                 self.thing.template.secondary_weapon_name.as_deref().or(self
@@ -7642,9 +7705,10 @@ impl Object {
         } else {
             self.primary_weapon_name().map(|s| s.to_string())
         };
+        let base_damage = self.weapon_slot(slot).map(|w| w.damage).unwrap_or(0.0);
+        let weapon_damage = self.effective_weapon_damage(base_damage);
         if let Some(weapon) = self.weapon_slot_mut(slot) {
             Self::consume_ammo_on_fire_named(weapon, current_time, fire_weapon_name.as_deref());
-            let weapon_damage = weapon.damage;
             let weapon_speed = weapon.projectile_speed;
             let weapon_splash = weapon.splash_radius;
             // AA residual: air-only weapons home on live target (missile track).
@@ -10406,6 +10470,40 @@ mod tests {
     }
 
     #[test]
+    fn weapon_bonus_fields_stack_rof_and_damage() {
+        use crate::game_logic::host_propaganda::ENTHUSIASTIC_RATE_OF_FIRE_MULT;
+        use crate::game_logic::host_red_guard::INFANTRY_HORDE_ROF_MULT;
+        use crate::game_logic::host_strategy_center::BOMBARDMENT_DAMAGE_MULT;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("WB_V");
+        tpl.add_kind_of(KindOf::Infantry);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("WB_V".to_string(), tpl);
+        let id = logic.create_object("WB_V", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let o = logic.get_object_mut(id).unwrap();
+            o.weapon_bonus_enthusiastic = true;
+            o.weapon_bonus_horde = true;
+            o.weapon_bonus_battle_plan_bombardment = true;
+            let (dmg, _range, rof, _) = o.weapon_bonus_fields();
+            assert!(
+                (rof - ENTHUSIASTIC_RATE_OF_FIRE_MULT * INFANTRY_HORDE_ROF_MULT).abs() < 0.001,
+                "ROF stacks propaganda+horde got {rof}"
+            );
+            assert!(
+                (dmg - BOMBARDMENT_DAMAGE_MULT).abs() < 0.001,
+                "damage includes bombardment got {dmg}"
+            );
+            assert!((o.effective_weapon_reload(2.0) - 2.0 / rof).abs() < 0.001);
+            assert!((o.effective_weapon_damage(10.0) - 10.0 * dmg).abs() < 0.001);
+        }
+    }
+
+    #[test]
     fn effective_max_lift_uses_damaged_locomotor() {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -10751,7 +10849,8 @@ mod tests {
         assert!(!Object::weapon_ready_named(
             jet.weapon.as_ref().unwrap(),
             2.0,
-            Some("HostTestRaptorJetMissileWeapon")
+            Some("HostTestRaptorJetMissileWeapon"),
+            jet.weapon.as_ref().unwrap().reload_time,
         ));
         assert!(jet.rearm_return_to_base_weapons());
         assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(2));
