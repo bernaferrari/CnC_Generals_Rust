@@ -231,16 +231,6 @@ impl TurretAI {
         }
     }
 
-    /// Get current target
-    fn owner_object(&self) -> Option<Arc<RwLock<Object>>> {
-        if self.owner_id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id))
-            .or_else(|| crate::ai::object_registry::get_legacy_object(self.owner_id))
-    }
-
     pub fn get_current_target_id(&self) -> Option<ObjectID> {
         self.current_target
     }
@@ -603,41 +593,29 @@ impl TurretAI {
 
     /// Check if any turret weapon is within range of target (matches C++ friend_isAnyWeaponInRangeOf)
     pub fn friend_is_any_weapon_in_range_of(&self, target_id: ObjectID) -> bool {
-        let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
-        else {
+        if self.owner_id == crate::common::INVALID_ID {
             return false;
-        };
-        let owner_arc = match self.owner_object() {
-            Some(owner) => owner,
-            None => return false,
-        };
-        let owner_guard = match owner_arc.read() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-        let target_id = match target.read() {
-            Ok(guard) => guard.get_id(),
-            Err(_) => return false,
-        };
-
-        for slot in [
-            WeaponSlotType::Primary,
-            WeaponSlotType::Secondary,
-            WeaponSlotType::Tertiary,
-        ] {
-            if !self.is_weapon_slot_on_turret(slot) {
-                continue;
-            }
-            let Some(weapon) = owner_guard.get_weapon_in_slot(slot) else {
-                continue;
-            };
-            if weapon.is_within_attack_range(owner_guard.get_id(), Some(target_id), None) {
-                return true;
-            }
         }
-
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| {
+                for slot in [
+                    WeaponSlotType::Primary,
+                    WeaponSlotType::Secondary,
+                    WeaponSlotType::Tertiary,
+                ] {
+                    if !self.is_weapon_slot_on_turret(slot) {
+                        continue;
+                    }
+                    let Some(weapon) = owner_guard.get_weapon_in_slot(slot) else {
+                        continue;
+                    };
+                    if weapon.is_within_attack_range(owner_guard.get_id(), Some(target_id), None) {
+                        return true;
+                    }
+                }
+                false
+            })
+            .unwrap_or(false)
     }
 
     /// Scan for targets within turret's range and arc
@@ -648,24 +626,27 @@ impl TurretAI {
             return targets;
         }
 
-        let owner_arc = match self.owner_object() {
-            Some(owner) => owner,
-            None => return targets,
-        };
-        let owner_guard = match owner_arc.read() {
-            Ok(guard) => guard,
-            Err(_) => return targets,
-        };
-        let Some(weapon) = owner_guard.get_weapon_in_slot(self.weapon_slot) else {
+        if self.owner_id == crate::common::INVALID_ID {
+            return targets;
+        }
+        let Some((owner_id, owner_pos, range)) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| {
+                let Some(weapon) = owner_guard.get_weapon_in_slot(self.weapon_slot) else {
+                    return None;
+                };
+                let range = weapon.get_attack_range(owner_guard.get_id());
+                Some((owner_guard.get_id(), *owner_guard.get_position(), range))
+            })
+            .flatten()
+        else {
             return targets;
         };
-        let range = weapon.get_attack_range(owner_guard.get_id());
         let Some(partition) = ThePartitionManager::get() else {
             return targets;
         };
 
-        for candidate_id in partition.get_objects_in_range(owner_guard.get_position(), range) {
-            if candidate_id == owner_guard.get_id() {
+        for candidate_id in partition.get_objects_in_range(&owner_pos, range) {
+            if candidate_id == owner_id {
                 continue;
             }
             let Some(candidate_arc) = get_legacy_object(candidate_id) else {
@@ -678,7 +659,12 @@ impl TurretAI {
                 if candidate_guard.is_destroyed() {
                     continue;
                 }
-                if owner_guard.relationship_to(&candidate_guard) != Relationship::Enemies {
+                let is_enemy = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(owner_id, |owner_guard| {
+                        owner_guard.relationship_to(&candidate_guard) == Relationship::Enemies
+                    })
+                    .unwrap_or(false);
+                if !is_enemy {
                     continue;
                 }
             }
@@ -1087,17 +1073,16 @@ impl TurretAI {
 
     /// Check for idle mood target acquisition (matches C++ friend_checkForIdleMoodTarget)
     pub fn friend_check_for_idle_mood_target(&mut self) {
-        let owner_arc = match self.owner_object() {
-            Some(owner) => owner,
-            None => return,
-        };
-        let owner_guard = match owner_arc.read() {
-            Ok(guard) => guard,
-            Err(_) => return,
-        };
-        let ai = match owner_guard.get_ai_update_interface() {
-            Some(ai) => ai,
-            None => return,
+        if self.owner_id == crate::common::INVALID_ID {
+            return;
+        }
+        let Some(ai) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| {
+                owner_guard.get_ai_update_interface()
+            })
+            .flatten()
+        else {
+            return;
         };
         let mut ai_guard = match ai.lock() {
             Ok(guard) => guard,
@@ -1110,13 +1095,16 @@ impl TurretAI {
         }
         if let Some(enemy) = ai_guard.get_next_mood_target(true, true) {
             drop(ai_guard);
-            drop(owner_guard);
-            if let (Ok(mut owner_write), Ok(target_guard)) = (owner_arc.write(), enemy.read()) {
-                let _ = owner_write.choose_best_weapon_for_target(
-                    &target_guard,
-                    WeaponChoiceCriteria::PreferMostDamage,
-                    crate::common::CommandSourceType::FromAi,
-                );
+            if let Some(owner_arc) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id))
+            {
+                if let (Ok(mut owner_write), Ok(target_guard)) = (owner_arc.write(), enemy.read()) {
+                    let _ = owner_write.choose_best_weapon_for_target(
+                        &target_guard,
+                        WeaponChoiceCriteria::PreferMostDamage,
+                        crate::common::CommandSourceType::FromAi,
+                    );
+                }
             }
             let enemy_id = enemy.read().ok().map(|g| g.get_id());
             self.set_current_target_from_idle_mood(enemy_id);
@@ -1685,7 +1673,11 @@ impl ClassicState for TurretAIAimTurretState {
                     if target_dead {
                         turret.set_current_target(None);
                         next_state = Some(TurretStateType::Hold);
-                    } else if let Some(owner_arc) = turret.owner_object() {
+                    } else if let Some(owner_arc) =
+                        crate::helpers::TheGameLogic::find_object_by_id(turret.owner_id).or_else(
+                            || crate::object::registry::OBJECT_REGISTRY.get_object(turret.owner_id),
+                        )
+                    {
                         let (rel, is_primary_enemy, can_attack, can_attack_target, team_changed) =
                             match (owner_arc.read(), target.read()) {
                                 (Ok(owner_guard), Ok(target_guard)) => {
