@@ -1595,14 +1595,14 @@ impl AIExitInstantlyState {
     }
 
     fn release_from_container(owner: &GameObject) {
-        if let Some(container_arc) = owner.get_container() {
-            if let Ok(mut container) = container_arc.write() {
+        if let Some(container_id) = owner.get_container_id() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(container_id, |container| {
                 if let Some(contain) = container.get_contain() {
                     if let Ok(mut contain_guard) = contain.lock() {
                         let _ = contain_guard.release_object(owner.get_id());
                     }
                 }
-            }
+            });
         }
     }
 
