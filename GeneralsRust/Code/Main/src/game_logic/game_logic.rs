@@ -7129,8 +7129,13 @@ impl GameLogic {
                 }
                 // C++ ToppleUpdate::update residual (trees / crushable props).
                 topple_kill = obj.tick_topple();
+                // C++ StructureToppleUpdate::update residual (buildings).
+                if !topple_kill {
+                    topple_kill = obj.tick_structure_topple(self.frame);
+                }
             }
             if topple_kill {
+                // Completed topple: queue destroy (structure Done bypasses re-topple).
                 self.mark_object_for_destruction(object_id, None);
                 continue;
             }
@@ -22008,8 +22013,63 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        // C++ StructureToppleUpdate::onDie residual: buildings fall before remove.
+        if self.try_begin_structure_topple_instead_of_destroy(id, killer) {
+            return;
+        }
         self.objects_to_destroy
             .push_back(DestructionEvent { id, killer });
+    }
+
+    /// If `id` is a standing structure topple candidate, start fall and defer destroy.
+    fn try_begin_structure_topple_instead_of_destroy(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+    ) -> bool {
+        let attacker_pos = {
+            let src = self.objects.get(&id).and_then(|o| o.last_damage_source);
+            src.and_then(|sid| {
+                self.objects.get(&sid).map(|s| {
+                    let p = s.get_position();
+                    (p.x, p.z)
+                })
+            })
+        };
+        let frame = self.frame;
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !obj.is_kind_of(KindOf::Structure) {
+            return false;
+        }
+        if obj
+            .structure_topple_data
+            .as_ref()
+            .map(|d| {
+                matches!(
+                    d.state,
+                    crate::game_logic::host_structure_topple::HostStructureToppleState::Done
+                )
+            })
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        if obj
+            .structure_topple_data
+            .as_ref()
+            .map(|d| d.is_active())
+            .unwrap_or(false)
+        {
+            let _ = killer;
+            return true;
+        }
+        if !obj.begin_structure_topple(frame, attacker_pos) {
+            return false;
+        }
+        let _ = killer;
+        true
     }
 
     /// Find object by ID
@@ -81640,6 +81700,55 @@ mod tests {
     }
 
     /// Residual: TroopCrawlerAssault DEPLOY fire unloads payload and orders attack.
+
+    #[test]
+    fn structure_topple_defers_destruction() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaWarFactory");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("AmericaWarFactory".into(), t);
+        let id = logic
+            .create_object(
+                "AmericaWarFactory",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("id");
+        logic.mark_object_for_destruction(id, None);
+        // Should be toppling, not queued for immediate destroy.
+        assert!(
+            logic
+                .objects
+                .get(&id)
+                .unwrap()
+                .structure_topple_data
+                .is_some(),
+            "structure topple should start"
+        );
+        assert!(
+            logic.objects_to_destroy.iter().all(|e| e.id != id),
+            "should defer destroy while toppling"
+        );
+        // Advance until done.
+        let mut finished = false;
+        for _ in 0..800 {
+            logic.frame = logic.frame.saturating_add(1);
+            if let Some(obj) = logic.objects.get_mut(&id) {
+                if obj.tick_structure_topple(logic.frame) {
+                    finished = true;
+                    break;
+                }
+            }
+        }
+        assert!(finished);
+        logic.mark_object_for_destruction(id, None);
+        assert!(
+            logic.objects_to_destroy.iter().any(|e| e.id == id),
+            "done structure should destroy"
+        );
+    }
 
     #[test]
     fn water_edge_damage_on_dry_to_wet_transition() {
