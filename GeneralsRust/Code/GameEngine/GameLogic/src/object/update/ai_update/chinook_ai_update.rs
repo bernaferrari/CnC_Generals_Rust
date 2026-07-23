@@ -980,13 +980,10 @@ impl ChinookAIUpdate {
 
     pub fn set_airfield_for_healing(&mut self, id: ObjectID) {
         if self.airfield_for_healing != INVALID_ID && self.airfield_for_healing != id {
-            if let (Some(airfield), Some(owner)) = (
-                TheGameLogic::find_object_by_id(self.airfield_for_healing),
-                TheGameLogic::find_object_by_id(self.object_id),
-            ) {
+            if let Some(airfield) = TheGameLogic::find_object_by_id(self.airfield_for_healing) {
                 if let Ok(guard) = airfield.read() {
                     let _ = guard.with_parking_place_behavior(|pp| {
-                        pp.set_healee(Some(owner.clone()), false);
+                        pp.set_healee(Some(self.object_id), false);
                     });
                 }
             }
@@ -1632,32 +1629,33 @@ impl ChinookAIUpdate {
         self.update_flight_status(ai);
 
         if self.airfield_for_healing != INVALID_ID {
-            if let (Some(airfield), Some(owner)) = (
-                TheGameLogic::find_object_by_id(self.airfield_for_healing),
-                TheGameLogic::find_object_by_id(self.object_id),
-            ) {
-                if let (Ok(airfield_guard), Ok(owner_guard)) = (airfield.read(), owner.read()) {
-                    let mut healed = false;
-                    if self.flight_status == ChinookFlightStatus::Landed
-                        && self.pending_command.is_none()
-                    {
-                        if let Some(body) = owner_guard.get_body_module() {
-                            if let Ok(body_guard) = body.lock() {
-                                if body_guard.get_health() >= body_guard.get_max_health() {
-                                    healed = true;
+            if let Some(airfield) = TheGameLogic::find_object_by_id(self.airfield_for_healing) {
+                let healed = if self.flight_status == ChinookFlightStatus::Landed
+                    && self.pending_command.is_none()
+                {
+                    crate::object::registry::OBJECT_REGISTRY
+                        .with_object(self.object_id, |owner_guard| {
+                            if let Some(body) = owner_guard.get_body_module() {
+                                if let Ok(body_guard) = body.lock() {
+                                    return body_guard.get_health() >= body_guard.get_max_health();
                                 }
                             }
-                        }
-                    }
+                            false
+                        })
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+                if let Ok(airfield_guard) = airfield.read() {
                     if healed {
                         let _ = airfield_guard.with_parking_place_behavior(|pp| {
-                            pp.set_healee(Some(owner.clone()), false);
+                            pp.set_healee(Some(self.object_id), false);
                         });
                         self.set_flight_status(ChinookFlightStatus::TakingOff, ai);
                     } else {
                         let landed = self.flight_status == ChinookFlightStatus::Landed;
                         let _ = airfield_guard.with_parking_place_behavior(|pp| {
-                            pp.set_healee(Some(owner.clone()), landed);
+                            pp.set_healee(Some(self.object_id), landed);
                         });
                     }
                 }
