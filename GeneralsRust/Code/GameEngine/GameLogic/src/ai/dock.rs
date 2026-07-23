@@ -434,7 +434,7 @@ impl ClassicState for AIDockApproachState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if self.move_helper.get_machine_goal_object()?.is_none() {
+        if self.move_helper.get_machine_goal_object_id()?.is_none() {
             return Ok(StateReturnType::Failure);
         }
 
@@ -725,7 +725,7 @@ impl ClassicState for AIDockAdvancePositionState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if self.move_helper.get_machine_goal_object()?.is_none() {
+        if self.move_helper.get_machine_goal_object_id()?.is_none() {
             return Ok(StateReturnType::Failure);
         }
 
@@ -852,7 +852,7 @@ impl ClassicState for AIDockMoveToEntryState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if self.move_helper.get_machine_goal_object()?.is_none() {
+        if self.move_helper.get_machine_goal_object_id()?.is_none() {
             return Ok(StateReturnType::Failure);
         }
 
