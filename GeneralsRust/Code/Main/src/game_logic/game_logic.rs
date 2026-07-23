@@ -1790,6 +1790,9 @@ pub struct GameLogic {
     supply_create_center_registers: u32,
     /// C++ GenerateMinefieldBehavior structure mine placements.
     structure_minefield_placements: u32,
+    /// C++ SpecialPowerCompletionDie + PowerPlantUpdate residual log.
+    special_power_completion_log:
+        crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionLog,
     /// C++ RebuildHoleBehavior reconstruct residual events.
     rebuild_hole_reconstructs: u32,
     rebuild_hole_workers: u32,
@@ -3078,6 +3081,7 @@ impl GameLogic {
             supply_create_warehouse_registers: 0,
             supply_create_center_registers: 0,
             structure_minefield_placements: 0,
+            special_power_completion_log: crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionLog::default(),
             rebuild_hole_reconstructs: 0,
             rebuild_hole_workers: 0,
             rebuild_hole_heals: 0,
@@ -3500,6 +3504,8 @@ impl GameLogic {
         self.supply_create_warehouse_registers = 0;
         self.supply_create_center_registers = 0;
         self.structure_minefield_placements = 0;
+        self.special_power_completion_log =
+            crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionLog::default();
         self.rebuild_hole_reconstructs = 0;
         self.rebuild_hole_workers = 0;
         self.rebuild_hole_heals = 0;
@@ -5819,6 +5825,7 @@ impl GameLogic {
         // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
         self.update_propaganda_tower_pulse(dt);
         self.update_overcharge_drain(dt);
+        self.update_power_plant_rods();
 
         // Host China Battlemaster HordeUpdate residual (ExactMatch allies Radius 75 / Count 5).
         // Fail-closed vs full RubOffRadius honorary / terrain-decal flag matrix.
@@ -6922,6 +6929,19 @@ impl GameLogic {
             ScriptEvent::RevealMapForPlayer { player_id } => {
                 params.insert("player_id".into(), Val::PlayerId(*player_id));
                 "reveal_map_for_player"
+            }
+            ScriptEvent::CompletedSpecialPower {
+                player_id,
+                special_power_name,
+                creator_id,
+            } => {
+                params.insert("player_id".into(), Val::PlayerId(*player_id));
+                params.insert(
+                    "special_power".into(),
+                    Val::String(special_power_name.clone()),
+                );
+                params.insert("creator_id".into(), Val::String(creator_id.to_string()));
+                "completed_special_power"
             }
         };
 
@@ -19113,16 +19133,14 @@ impl GameLogic {
     /// Tags America power plants and adds EnergyBonus to power_provided;
     /// sets POWER_PLANT_UPGRADED model condition (extendRods residual).
     fn apply_advanced_control_rods_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
-        use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
         use crate::game_logic::host_structure_economy_residual::{
             is_power_plant_template, AMERICA_POWER_ENERGY_BONUS,
             UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
         };
 
         let bonus = AMERICA_POWER_ENERGY_BONUS;
-        let bit = model_condition_bit_name_index("POWER_PLANT_UPGRADED");
-        let mut affected = 0u32;
-        for obj in self.objects.values_mut() {
+        let mut plant_ids: Vec<ObjectId> = Vec::new();
+        for (id, obj) in self.objects.iter_mut() {
             if obj.team != team || !obj.is_alive() {
                 continue;
             }
@@ -19150,10 +19168,16 @@ impl GameLogic {
             obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
             obj.power_provided = obj.power_provided.saturating_add(bonus);
             obj.record_host_entity_power();
-            if let Some(b) = bit {
-                obj.model_condition_bits |= 1u128 << b;
+            plant_ids.push(*id);
+        }
+        let mut affected = 0u32;
+        for id in plant_ids {
+            // C++ PowerPlantUpdate::extendRods(TRUE) residual — UPGRADING → UPGRADED.
+            if self.begin_power_plant_rods_extend(id) {
+                affected = affected.saturating_add(1);
+            } else {
+                affected = affected.saturating_add(1);
             }
-            affected = affected.saturating_add(1);
         }
         self.control_rods_upgrades = self.control_rods_upgrades.saturating_add(1);
         self.control_rods_plants_affected =
@@ -22357,6 +22381,8 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        // C++ SpecialPowerCompletionDie::onDie residual.
+        self.maybe_notify_special_power_completion(id);
         // C++ DamDie::onDie residual fires with other die modules at death start.
         self.maybe_apply_dam_die(id);
         // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
@@ -36518,6 +36544,93 @@ impl GameLogic {
     /// C++ SpecialPowerModule ctor path: StartsPaused → pauseCountdown(TRUE).
 
     /// C++ SupplyWarehouseCreate::onCreate residual.
+
+    /// C++ SpecialPowerCompletionDie::onDie → notifyOfCompletedSpecialPower residual.
+    pub(crate) fn maybe_notify_special_power_completion(&mut self, id: ObjectId) {
+        let Some(obj) = self.objects.get(&id) else {
+            return;
+        };
+        let Some(ref data) = obj.special_power_completion else {
+            return;
+        };
+        if !data.creator_set {
+            return;
+        }
+        let power = data.special_power_name.clone();
+        let creator = data.creator_id;
+        let team = obj.team;
+        let player_id = self
+            .players
+            .values()
+            .find(|p| p.team == team)
+            .map(|p| p.id)
+            .unwrap_or(0);
+        crate::game_logic::script_events::push_event(
+            crate::game_logic::script_events::ScriptEvent::CompletedSpecialPower {
+                player_id,
+                special_power_name: power.clone(),
+                creator_id: creator,
+            },
+        );
+        self.special_power_completion_log
+            .record_notify(&power, creator);
+    }
+
+    /// C++ PowerPlantUpdate::extendRods(true) residual — start rod animation timer.
+    pub fn begin_power_plant_rods_extend(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
+        use crate::game_logic::host_special_power_completion_die::rods_extend_frames_for_template;
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if obj.power_plant_rods_extended && obj.power_plant_rods_done_frame == 0 {
+            // Already fully extended.
+            return false;
+        }
+        if obj.power_plant_rods_done_frame > 0 {
+            // Already extending.
+            return false;
+        }
+        let frames = rods_extend_frames_for_template(&obj.template_name);
+        if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADING") {
+            obj.model_condition_bits |= 1u128 << bit;
+        }
+        // Clear upgraded while animating.
+        if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADED") {
+            obj.model_condition_bits &= !(1u128 << bit);
+        }
+        obj.power_plant_rods_done_frame = self.frame.saturating_add(frames.max(1));
+        obj.power_plant_rods_extended = true;
+        self.special_power_completion_log.record_rods_start();
+        true
+    }
+
+    /// C++ PowerPlantUpdate::update residual — finish rod extend.
+    pub fn update_power_plant_rods(&mut self) {
+        use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
+        let now = self.frame;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.power_plant_rods_done_frame > 0 && o.power_plant_rods_done_frame <= now
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADING") {
+                    obj.model_condition_bits &= !(1u128 << bit);
+                }
+                if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADED") {
+                    obj.model_condition_bits |= 1u128 << bit;
+                }
+                obj.power_plant_rods_done_frame = 0;
+                self.special_power_completion_log.record_rods_complete();
+            }
+        }
+    }
+
     fn init_supply_warehouse_create(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_structure_economy_residual::starting_supplies_for_template;
         let Some(obj) = self.objects.get_mut(&object_id) else {
@@ -47251,6 +47364,18 @@ impl GameLogic {
                 ScriptEvent::RevealMapForPlayer { player_id } => {
                     log::debug!("📜 Script event: reveal map for player {}", player_id);
                     self.partition_manager.reveal_map_for_player(player_id);
+                }
+                ScriptEvent::CompletedSpecialPower {
+                    player_id,
+                    ref special_power_name,
+                    creator_id,
+                } => {
+                    log::debug!(
+                        "📜 Script event: completed special power {} player {} creator {}",
+                        special_power_name,
+                        player_id,
+                        creator_id
+                    );
                 }
                 ScriptEvent::AllianceStateChanged { player_id, state } => {
                     log::debug!(
@@ -58980,6 +59105,69 @@ mod tests {
     /// C++ SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate::doDisableAttack
     /// setDisabledUntil(DISABLED_EMP, now + DisabledDuration=30000ms).
     /// Fail-closed: not full OCL bomb / spheroid drawable / spark particles.
+
+    #[test]
+    fn special_power_completion_die_notifies_script() {
+        use crate::game_logic::script_events::{self, ScriptEvent};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let _ = script_events::drain_events(); // clear
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        let mut t = ThingTemplate::new("ScudStormMissile");
+        t.set_health(100.0);
+        logic.templates.insert("ScudStormMissile".into(), t);
+        let id = logic
+            .create_object("ScudStormMissile", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        if let Some(obj) = logic.objects.get_mut(&id) {
+            obj.set_special_power_completion("SuperweaponScudStorm", 42);
+        }
+        logic.destroy_object(id);
+        assert!(
+            logic.special_power_completion_log.notifications >= 1,
+            "SpecialPowerCompletionDie must notify on destroy"
+        );
+        let evs = script_events::drain_events();
+        assert!(
+            evs.iter().any(|e| matches!(
+                e,
+                ScriptEvent::CompletedSpecialPower {
+                    special_power_name,
+                    creator_id: 42,
+                    ..
+                } if special_power_name == "SuperweaponScudStorm"
+            )),
+            "expected CompletedSpecialPower event, got {evs:?}"
+        );
+    }
+
+    #[test]
+    fn power_plant_rods_extend_upgrading_then_upgraded() {
+        use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaPowerPlant");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Structure);
+        t.add_kind_of(KindOf::PowerPlant);
+        logic.templates.insert("AmericaPowerPlant".into(), t);
+        let id = logic
+            .create_object("AmericaPowerPlant", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        assert!(logic.begin_power_plant_rods_extend(id));
+        let upgrading = model_condition_bit_name_index("POWER_PLANT_UPGRADING").unwrap();
+        let upgraded = model_condition_bit_name_index("POWER_PLANT_UPGRADED").unwrap();
+        let o = logic.objects.get(&id).unwrap();
+        assert_ne!(o.model_condition_bits & (1u128 << upgrading), 0);
+        assert_eq!(o.model_condition_bits & (1u128 << upgraded), 0);
+        // Advance frames past extend time.
+        logic.frame = o.power_plant_rods_done_frame;
+        logic.update_power_plant_rods();
+        let o = logic.objects.get(&id).unwrap();
+        assert_eq!(o.model_condition_bits & (1u128 << upgrading), 0);
+        assert_ne!(o.model_condition_bits & (1u128 << upgraded), 0);
+        assert!(logic.special_power_completion_log.rods_extend_completes >= 1);
+    }
 
     #[test]
     fn supply_warehouse_create_seeds_starting_boxes() {

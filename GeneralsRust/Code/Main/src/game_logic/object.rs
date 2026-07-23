@@ -781,6 +781,17 @@ pub struct Object {
     /// C++ SubObjectsUpgrade show/hide residual (Bombload / BombWing peels).
     #[serde(default)]
     pub sub_object_visibility: crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility,
+    /// C++ SpecialPowerCompletionDie residual (notify script on death).
+    #[serde(default)]
+    pub special_power_completion: Option<
+        crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionDieData,
+    >,
+    /// C++ PowerPlantUpdate m_extended residual.
+    #[serde(default)]
+    pub power_plant_rods_extended: bool,
+    /// Absolute frame when POWER_PLANT_UPGRADING → UPGRADED (0 = idle).
+    #[serde(default)]
+    pub power_plant_rods_done_frame: u32,
     /// C++ SpecialPowerModule m_pausedCount>0 residual (StartsPaused / pauseCountdown).
     #[serde(default)]
     pub special_power_paused: std::collections::HashSet<crate::command_system::SpecialPowerType>,
@@ -1791,6 +1802,9 @@ impl Object {
             locomotor_upgrade: false,
             terrain_decal_chemsuit: false,
             sub_object_visibility: Default::default(),
+            special_power_completion: None,
+            power_plant_rods_extended: false,
+            power_plant_rods_done_frame: 0,
             special_power_paused: std::collections::HashSet::new(),
             weapon_set_mine_clearing_detail: false,
             weapon_set_carbomb: false,
@@ -2150,6 +2164,9 @@ impl Object {
             locomotor_upgrade: false,
             terrain_decal_chemsuit: false,
             sub_object_visibility: Default::default(),
+            special_power_completion: None,
+            power_plant_rods_extended: false,
+            power_plant_rods_done_frame: 0,
             special_power_paused: std::collections::HashSet::new(),
             weapon_set_mine_clearing_detail: false,
             weapon_set_carbomb: false,
@@ -10439,6 +10456,28 @@ impl Object {
     /// C++ Drawable::setTerrainDecal(TERRAIN_DECAL_CHEMSUIT) residual.
     pub fn set_terrain_decal_chemsuit(&mut self, enabled: bool) {
         self.terrain_decal_chemsuit = enabled;
+    }
+
+    /// C++ SpecialPowerCompletionDie::setCreator residual.
+    pub fn set_special_power_completion(
+        &mut self,
+        special_power_name: impl Into<String>,
+        creator_id: u32,
+    ) {
+        if self
+            .special_power_completion
+            .as_ref()
+            .map(|d| d.creator_set)
+            .unwrap_or(false)
+        {
+            return;
+        }
+        self.special_power_completion = Some(
+            crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionDieData::new(
+                special_power_name,
+                creator_id,
+            ),
+        );
     }
 
     /// C++ SpecialPowerModule::startPowerRecharge residual (non-SharedNSync path).

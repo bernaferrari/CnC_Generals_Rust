@@ -208,6 +208,7 @@ pub mod host_slave_drones;
 mod host_slow_death;
 pub mod host_sneak_attack;
 pub mod host_sp_science_upgrade_player_team_residual_wave109;
+mod host_special_power_completion_die;
 pub mod host_special_power_enum_residual;
 pub mod host_spy_drone;
 pub mod host_spy_satellite;
