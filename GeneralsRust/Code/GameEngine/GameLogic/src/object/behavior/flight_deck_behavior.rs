@@ -1993,9 +1993,8 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         self.config.landing_deck_height_offset
     }
 
-    fn set_healee(&mut self, healee: Option<Arc<RwLock<GameObject>>>, add: Bool) {
-        let object_id = healee.and_then(|obj| obj.read().ok().map(|guard| guard.get_id()));
-        let Some(object_id) = object_id else { return };
+    fn set_healee(&mut self, healee: Option<ObjectID>, add: Bool) {
+        let object_id = healee.unwrap_or(OBJECT_INVALID_ID);
         FlightDeckBehavior::set_healee(self, object_id, add);
     }
 
