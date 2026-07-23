@@ -6876,7 +6876,15 @@ impl GameLogic {
                     if horiz(current_pos, waypoint) < 5.0 {
                         obj.movement.current_path_index += 1;
                         if obj.movement.current_path_index >= obj.movement.path.len() {
+                            let do_evac = obj.pending_evacuate_on_stop;
+                            let and_exit = obj.pending_exit_after_evacuate;
                             obj.stop_moving();
+                            if do_evac {
+                                // Defer mut borrow: process after this get_mut ends.
+                                // Use a side channel via pending flags re-set for post-pass.
+                                obj.pending_evacuate_on_stop = true;
+                                obj.pending_exit_after_evacuate = and_exit;
+                            }
                             continue;
                         }
                     }
@@ -6944,6 +6952,22 @@ impl GameLogic {
                     }
                 }
             }
+        }
+
+        // C++ AICMD_MOVE_TO_POSITION_AND_EVACUATE arrival residual.
+        let mut evac_now: Vec<(ObjectId, bool)> = Vec::new();
+        for &id in object_ids {
+            if let Some(obj) = self.objects.get(&id) {
+                if obj.pending_evacuate_on_stop
+                    && obj.movement.path.is_empty()
+                    && !obj.status.moving
+                {
+                    evac_now.push((id, obj.pending_exit_after_evacuate));
+                }
+            }
+        }
+        for (id, and_exit) in evac_now {
+            let _ = self.evacuate_container_now(id, and_exit);
         }
     }
 
@@ -25011,6 +25035,69 @@ impl GameLogic {
     }
 
     /// Record a residual transport unload/evacuate (tests / host path).
+
+    /// C++ move-to-and-evacuate arrival residual: dump all occupants near container.
+    /// When `and_exit`, mark the transport sold/destroyed after unload (script exit residual).
+    pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> bool {
+        let Some(container) = self.objects.get(&container_id) else {
+            return false;
+        };
+        if !container.is_alive() {
+            return false;
+        }
+        let origin = container
+            .building_data
+            .as_ref()
+            .and_then(|b| b.rally_point)
+            .unwrap_or_else(|| container.get_position());
+        let passengers: Vec<ObjectId> = container.contained_units();
+        if passengers.is_empty() && !and_exit {
+            // Still clear pending flags.
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                c.pending_evacuate_on_stop = false;
+                c.pending_exit_after_evacuate = false;
+            }
+            return false;
+        }
+
+        let mut any = false;
+        for (i, pid) in passengers.iter().enumerate() {
+            // Remove from container first.
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                let _ = c.remove_occupant(*pid);
+            }
+            if let Some(p) = self.objects.get_mut(pid) {
+                p.contained_by = None;
+                p.target = None;
+                // Spread slightly so units don't stack.
+                let angle = (i as f32) * 0.9;
+                let drop = origin + glam::Vec3::new(angle.cos() * 8.0, 0.0, angle.sin() * 8.0);
+                p.set_position(drop);
+                p.stop_moving();
+                p.set_ai_state(AIState::Idle);
+                p.status.moving = false;
+                any = true;
+            }
+            self.record_transport_residual_unload();
+        }
+
+        if let Some(c) = self.objects.get_mut(&container_id) {
+            c.pending_evacuate_on_stop = false;
+            c.pending_exit_after_evacuate = false;
+        }
+
+        if and_exit {
+            // C++ evacuate-and-exit: transport returns/deletes itself.
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                c.health.current = 0.0;
+                c.status.destroyed = true;
+                c.set_ai_state(AIState::Idle);
+            }
+            any = true;
+        }
+        any
+    }
+
     pub fn record_transport_residual_unload(&mut self) {
         self.transport_residual_unloads = self.transport_residual_unloads.saturating_add(1);
     }
