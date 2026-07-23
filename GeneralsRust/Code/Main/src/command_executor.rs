@@ -311,8 +311,9 @@ impl<'a> CommandExecutor<'a> {
 
     // === Movement Commands ===
 
-    fn execute_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
+    pub(crate) fn execute_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
         let goals = self.group_move_destinations(units, destination);
+        let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_attack();
@@ -322,8 +323,31 @@ impl<'a> CommandExecutor<'a> {
             if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
                 return CommandResult::InvalidCommand;
             }
+            // C++ groupMoveToPosition clears formation id on free move.
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Keep stamped formation when formation move path used destinations
+                // already offset; free-move / column still clear id so next move
+                // doesn't keep stale offsets after scatter-like pack.
+                // C++ setFormationID(NO_FORMATION) on free individual move.
+                if unit.formation_id != 0 {
+                    // Only clear when destinations were not pure formation offsets:
+                    // formation path keeps id. Detect: goal == dest + offset.
+                    let off = unit.formation_offset;
+                    let expected = glam::Vec3::new(
+                        destination.x + off.x,
+                        destination.y,
+                        destination.z + off.y,
+                    );
+                    if (goal - expected).length() > 0.5 {
+                        unit.formation_id = 0;
+                        unit.formation_offset = glam::Vec2::ZERO;
+                    }
+                }
+            }
+            moved.push(unit_id);
             debug!("Unit {} moving to {:?}", unit_id.0, goal);
         }
+        self.apply_player_stealth_mood_delay(&moved);
         CommandResult::Success
     }
 
@@ -334,6 +358,7 @@ impl<'a> CommandExecutor<'a> {
         waypoints: &[Vec3],
     ) -> CommandResult {
         let goals = self.group_move_destinations(units, destination);
+        let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_attack();
@@ -343,8 +368,10 @@ impl<'a> CommandExecutor<'a> {
             if !self.game_logic.assign_unit_path(unit_id, goal, waypoints) {
                 return CommandResult::InvalidCommand;
             }
+            moved.push(unit_id);
             debug!("Unit {} moving via waypoints to {:?}", unit_id.0, goal);
         }
+        self.apply_player_stealth_mood_delay(&moved);
         CommandResult::Success
     }
 
@@ -353,6 +380,29 @@ impl<'a> CommandExecutor<'a> {
     /// Sort movers near→far to the click, take the nearest unit as the free-move
     /// "center", then offset each unit's goal by its (clamped) vector from that
     /// center — preserves relative formation instead of inventing a ring.
+
+    /// C++ AIGroup player move/stop stealth residual: delay mood auto-acquire until
+    /// unstealthed combat stealth units can cloak again.
+    fn apply_player_stealth_mood_delay(&mut self, unit_ids: &[ObjectId]) {
+        let now = self.game_logic.get_frame();
+        for (i, &unit_id) in unit_ids.iter().enumerate() {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            let can_stealth = unit.innate_stealth || unit.stealth_delay_frames > 0;
+            if can_stealth
+                && unit.auto_acquire_when_idle
+                && unit.can_attack()
+                && !unit.status.stealthed
+                && !unit.status.detected
+            {
+                let delay = unit.stealth_delay_frames.max(1);
+                let skew = (i as u32) % 30;
+                unit.next_mood_check_time = now.saturating_add(delay).saturating_add(skew);
+            }
+        }
+    }
+
     pub(crate) fn group_move_destinations(
         &self,
         units: &[ObjectId],
@@ -592,6 +642,7 @@ impl<'a> CommandExecutor<'a> {
             any = true;
         }
         if any {
+            self.apply_player_stealth_mood_delay(units);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -600,6 +651,7 @@ impl<'a> CommandExecutor<'a> {
 
     fn execute_force_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
         let goals = self.group_move_destinations(units, destination);
+        let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
             if self.game_logic.get_object(unit_id).is_none() {
                 return CommandResult::InvalidTarget;
@@ -614,20 +666,31 @@ impl<'a> CommandExecutor<'a> {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.set_ai_state(AIState::Moving);
             }
+            moved.push(unit_id);
         }
+        self.apply_player_stealth_mood_delay(&moved);
         CommandResult::Success
     }
 
-    fn execute_add_waypoint(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
-        for &unit_id in units {
+    pub(crate) fn execute_add_waypoint(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+    ) -> CommandResult {
+        // C++ groupMoveToPosition(addWaypoint): individual dests + path append.
+        let goals = self.group_move_destinations(units, destination);
+        let mut moved: Vec<ObjectId> = Vec::new();
+        for (unit_id, goal) in goals {
             if self.game_logic.get_object(unit_id).is_none() {
                 return CommandResult::InvalidTarget;
             }
-            if !self.game_logic.append_unit_waypoint(unit_id, destination) {
+            if !self.game_logic.append_unit_waypoint(unit_id, goal) {
                 return CommandResult::InvalidCommand;
             }
-            debug!("Added waypoint for unit {} at {:?}", unit_id.0, destination);
+            moved.push(unit_id);
+            debug!("Added waypoint for unit {} at {:?}", unit_id.0, goal);
         }
+        self.apply_player_stealth_mood_delay(&moved);
         CommandResult::Success
     }
 
@@ -763,10 +826,7 @@ impl<'a> CommandExecutor<'a> {
     pub(crate) fn execute_stop(&mut self, units: &[ObjectId]) -> CommandResult {
         // C++ AIGroup::groupIdle (player stop):
         // aiIdle + stealth combat unit mood delay until stealthed again.
-        let now = self.game_logic.get_frame();
-        // Deterministic group skew residual (C++ GameLogicRandomValue 0..LOGICFRAMES_PER_SECOND).
-        // Host: unit index mod 30 so large multi-selects stagger re-acquire.
-        for (i, &unit_id) in units.iter().enumerate() {
+        for &unit_id in units {
             let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
                 continue;
             };
@@ -778,25 +838,8 @@ impl<'a> CommandExecutor<'a> {
             unit.set_guard_target(None);
             unit.end_guard_retaliate();
             unit.set_ai_state(AIState::Idle);
-
-            // C++: CAN_STEALTH + canAutoAcquire + not stealthed + not detected +
-            // !canAutoAcquireWhileStealthed → delay mood check by stealth delay.
-            // Host residual: innate_stealth or stealth_delay_frames>0 as CAN_STEALTH proxy;
-            // stealthed idle acquire already blocked in get_next_mood_target.
-            let can_stealth = unit.innate_stealth || unit.stealth_delay_frames > 0;
-            let not_stealthed = !unit.status.stealthed;
-            let not_detected = !unit.status.detected;
-            if can_stealth
-                && unit.auto_acquire_when_idle
-                && unit.can_attack()
-                && not_stealthed
-                && not_detected
-            {
-                let delay = unit.stealth_delay_frames.max(1);
-                let skew = (i as u32) % 30; // LOGICFRAMES_PER_SECOND residual
-                unit.next_mood_check_time = now.saturating_add(delay).saturating_add(skew);
-            }
         }
+        self.apply_player_stealth_mood_delay(units);
         CommandResult::Success
     }
 
@@ -4951,14 +4994,18 @@ mod group_move_tests {
     fn execute_stop_clears_guard_residual() {
         let src = include_str!("command_executor.rs");
         let start = src.find("fn execute_stop").expect("execute_stop");
-        // Include stealth mood-delay residual after the clear anchors block.
-        let body = &src[start..start + 2200];
+        let body = &src[start..start + 1200];
         assert!(
             body.contains("set_guard_position(None)")
                 && body.contains("end_guard_retaliate")
                 && body.contains("set_target(None)")
-                && body.contains("next_mood_check_time"),
-            "Stop must clear guard anchors/targets and delay stealth mood residual"
+                && body.contains("apply_player_stealth_mood_delay"),
+            "Stop must clear guard anchors/targets and apply stealth mood delay"
+        );
+        assert!(
+            src.contains("fn apply_player_stealth_mood_delay")
+                && src.contains("next_mood_check_time"),
+            "shared stealth mood delay helper must schedule next_mood_check_time"
         );
     }
 
@@ -4996,5 +5043,79 @@ mod group_move_tests {
             u.next_mood_check_time, 145,
             "player stop should delay mood until stealth window"
         );
+    }
+    #[test]
+    fn add_waypoint_uses_group_destinations() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        for name in ["WP_A", "WP_B"] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Vehicle);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(100.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let a = logic
+            .create_object("WP_A", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("WP_B", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        for id in [a, b] {
+            logic.get_object_mut(id).unwrap().selection_radius = 10.0;
+        }
+        let click = Vec3::new(100.0, 0.0, 50.0);
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_add_waypoint(&[a, b], click),
+            CommandResult::Success
+        );
+        // Paths should not be identical stacked goals for multi-select.
+        let pa = logic.get_object(a).unwrap().movement.path.clone();
+        let pb = logic.get_object(b).unwrap().movement.path.clone();
+        assert!(!pa.is_empty() && !pb.is_empty());
+        let ga = *pa.last().unwrap();
+        let gb = *pb.last().unwrap();
+        assert!(
+            (ga - gb).length() > 5.0,
+            "waypoint goals must spread like group move, ga={ga:?} gb={gb:?}"
+        );
+    }
+
+    #[test]
+    fn move_delays_mood_for_unstealthed_stealth_unit() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.set_current_frame(50);
+        let mut tpl = ThingTemplate::new("MV_ST");
+        tpl.add_kind_of(KindOf::Infantry);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("MV_ST".to_string(), tpl);
+        let a = logic.create_object("MV_ST", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let u = logic.get_object_mut(a).unwrap();
+            u.innate_stealth = true;
+            u.stealth_delay_frames = 30;
+            u.auto_acquire_when_idle = true;
+            u.status.stealthed = false;
+            u.status.detected = false;
+            u.next_mood_check_time = 0;
+        }
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_move(&[a], Vec3::new(50.0, 0.0, 0.0)),
+            CommandResult::Success
+        );
+        let u = logic.get_object(a).unwrap();
+        assert_eq!(u.next_mood_check_time, 80); // 50+30+0
     }
 }
