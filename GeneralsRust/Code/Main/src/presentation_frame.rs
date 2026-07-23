@@ -698,6 +698,16 @@ pub enum PresentationEvent {
         template_name: String,
         position: Vec3,
     },
+    /// C++ FiringTracker looping FireSound start/refresh residual.
+    WeaponFireLoopStarted {
+        unit: ObjectId,
+        sound: String,
+    },
+    /// C++ FiringTracker stop looping FireSound after FireSoundLoopTime idle.
+    WeaponFireLoopStopped {
+        unit: ObjectId,
+        sound: String,
+    },
 }
 
 /// Snapshot-owned combat particle system for presentation/client observe path.
@@ -3038,6 +3048,20 @@ impl PresentationFrame {
                     attacker: ev.attacker,
                     target: ev.target,
                 });
+            }
+
+            for ev in crate::game_logic::host_fire_sound_loop_log::take_last_drain() {
+                if ev.start {
+                    events.push(PresentationEvent::WeaponFireLoopStarted {
+                        unit: ev.unit,
+                        sound: ev.sound,
+                    });
+                } else {
+                    events.push(PresentationEvent::WeaponFireLoopStopped {
+                        unit: ev.unit,
+                        sound: ev.sound,
+                    });
+                }
             }
         }
         for ev in crate::game_logic::host_move_log::take_last_drain() {
@@ -6460,6 +6484,8 @@ impl PresentationFrame {
                     hud.push_info_message(&msg);
                 }
                 PresentationEvent::ParticleSystemSpawned { .. } => {}
+                PresentationEvent::WeaponFireLoopStarted { .. }
+                | PresentationEvent::WeaponFireLoopStopped { .. } => {}
             }
         }
     }
@@ -6503,6 +6529,14 @@ impl PresentationFrame {
                 PresentationEvent::EconomyChanged { .. } => Some(("MoneyTick", None)),
                 PresentationEvent::Victory { .. } => Some(("Victory", None)),
                 PresentationEvent::MoveOrdered { unit, .. } => Some(("UnitMove", Some(*unit))),
+                PresentationEvent::WeaponFireLoopStarted { unit, sound } => {
+                    let _ = sound;
+                    Some(("WeaponFireLoop", Some(*unit)))
+                }
+                PresentationEvent::WeaponFireLoopStopped { unit, sound } => {
+                    let _ = sound;
+                    Some(("WeaponFireLoopStop", Some(*unit)))
+                }
                 PresentationEvent::RadarMessage { .. }
                 | PresentationEvent::OwnerChanged { .. }
                 | PresentationEvent::ParticleSystemSpawned { .. } => None,

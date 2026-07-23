@@ -838,6 +838,12 @@ pub struct Object {
     pub weapon_lock_slot: u8,
     /// C++ Weapon::m_status residual (active slot).
     pub weapon_fire_status: WeaponFireStatus,
+    /// C++ FiringTracker::m_frameToStopLoopingSound residual.
+    #[serde(default)]
+    pub fire_sound_loop_until_frame: u32,
+    /// Active looping FireSound name while until_frame is live.
+    #[serde(default)]
+    pub fire_sound_loop_name: String,
     /// C++ Weapon::m_curBarrel residual (which fire bone / FX barrel).
     pub weapon_cur_barrel: u8,
     /// C++ WeaponTemplate::m_shotsPerBarrel residual (0/1 = single-barrel).
@@ -1663,6 +1669,8 @@ impl Object {
             weapon_lock_type: WeaponLockType::NotLocked,
             weapon_lock_slot: 0,
             weapon_fire_status: WeaponFireStatus::ReadyToFire,
+            fire_sound_loop_until_frame: 0,
+            fire_sound_loop_name: String::new(),
             weapon_cur_barrel: 0,
             weapon_shots_per_barrel: 1,
             weapon_barrel_count: 1,
@@ -1985,6 +1993,8 @@ impl Object {
             weapon_lock_type: WeaponLockType::NotLocked,
             weapon_lock_slot: 0,
             weapon_fire_status: WeaponFireStatus::ReadyToFire,
+            fire_sound_loop_until_frame: 0,
+            fire_sound_loop_name: String::new(),
             weapon_cur_barrel: 0,
             weapon_shots_per_barrel: 1,
             weapon_barrel_count: 1,
@@ -7841,6 +7851,7 @@ impl Object {
 
     /// C++ FiringTracker::update cool-down after ContinuousFireCoast idle.
     pub fn tick_continuous_fire_coast(&mut self, frame: u32) {
+        self.tick_fire_sound_loop(frame);
         if self.continuous_fire_level == 0 {
             return;
         }
@@ -8424,6 +8435,19 @@ impl Object {
             self.consume_max_shot_count();
             self.refresh_weapon_fire_status(current_time);
             {
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let wname_owned = if slot == 1 {
+                    self.thing
+                        .template
+                        .secondary_weapon_name
+                        .clone()
+                        .or_else(|| self.thing.template.primary_weapon_name.clone())
+                } else {
+                    self.thing.template.primary_weapon_name.clone()
+                };
+                self.stamp_fire_sound_loop_after_shot(frame, wname_owned.as_deref());
+            }
+            {
                 let (dmg, rng) = self
                     .weapon_slot(slot)
                     .map(|w| (w.damage, w.range))
@@ -8537,6 +8561,44 @@ impl Object {
 
     /// C++ Weapon barrel rotation residual after a shot.
     /// Decrements shots on current barrel; when exhausted, advances `weapon_cur_barrel`.
+
+    /// C++ FiringTracker::shotFired FireSoundLoopTime residual.
+    /// Extends the looping fire-audio deadline; records start when newly armed.
+    pub fn stamp_fire_sound_loop_after_shot(&mut self, frame: u32, weapon_name: Option<&str>) {
+        let loop_frames = weapon_name
+            .map(crate::game_logic::weapon_bootstrap::host_fire_sound_loop_frames_for_weapon_name)
+            .unwrap_or(0);
+        if loop_frames == 0 {
+            return;
+        }
+        let sound = weapon_name
+            .map(crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name)
+            .unwrap_or_default();
+        if sound.is_empty() {
+            return;
+        }
+        let was_active = self.fire_sound_loop_until_frame > frame;
+        self.fire_sound_loop_until_frame = frame.saturating_add(loop_frames);
+        self.fire_sound_loop_name = sound.clone();
+        if !was_active {
+            crate::game_logic::host_fire_sound_loop_log::record(self.id, sound, true);
+        }
+    }
+
+    /// C++ FiringTracker::update stop-loop residual when deadline elapses.
+    pub fn tick_fire_sound_loop(&mut self, frame: u32) {
+        if self.fire_sound_loop_until_frame == 0 {
+            return;
+        }
+        if frame >= self.fire_sound_loop_until_frame {
+            let sound = std::mem::take(&mut self.fire_sound_loop_name);
+            self.fire_sound_loop_until_frame = 0;
+            if !sound.is_empty() {
+                crate::game_logic::host_fire_sound_loop_log::record(self.id, sound, false);
+            }
+        }
+    }
+
     pub fn advance_weapon_barrel_after_shot(&mut self) {
         let spb = self.weapon_shots_per_barrel.max(1);
         let barrels = self.weapon_barrel_count.max(1) as u32;
@@ -10855,6 +10917,39 @@ mod tests {
         // 1 + 6/2 = 4 barrels wrapped -> barrel 0 after 8 shots total from start of loop?
         // started at barrel 1 after 2 shots; +6 shots = 3 more barrel advances -> barrel 0
         assert_eq!(o.weapon_cur_barrel, 0);
+    }
+
+    #[test]
+    fn fire_sound_loop_extends_and_stops() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut tmpl = ThingTemplate::new("FlameLoop");
+        tmpl.primary_weapon_name = Some("DragonTankFlameWeapon".into());
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut o = Object::new(tmpl, ObjectId(7), Team::China);
+        o.weapon = Some(Weapon {
+            damage: 5.0,
+            range: 50.0,
+            reload_time: 0.1,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        });
+        crate::game_logic::host_fire_sound_loop_log::clear();
+        o.stamp_fire_sound_loop_after_shot(10, Some("DragonTankFlameWeapon"));
+        assert!(o.fire_sound_loop_until_frame > 10);
+        let start = crate::game_logic::host_fire_sound_loop_log::drain();
+        assert_eq!(start.len(), 1);
+        assert!(start[0].start);
+        // refresh should not re-emit start while still active
+        o.stamp_fire_sound_loop_after_shot(11, Some("DragonTankFlameWeapon"));
+        assert!(crate::game_logic::host_fire_sound_loop_log::drain().is_empty());
+        let stop_at = o.fire_sound_loop_until_frame;
+        o.tick_fire_sound_loop(stop_at);
+        let stop = crate::game_logic::host_fire_sound_loop_log::drain();
+        assert_eq!(stop.len(), 1);
+        assert!(!stop[0].start);
+        assert_eq!(o.fire_sound_loop_until_frame, 0);
     }
 
     #[test]
