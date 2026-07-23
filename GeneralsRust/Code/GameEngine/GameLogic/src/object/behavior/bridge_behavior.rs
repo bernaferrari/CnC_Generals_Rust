@@ -751,27 +751,11 @@ impl BridgeBehavior {
 
     fn play_audio_event(&self, _event: &AudioEventRTS) {}
 
-    fn get_object_position(
-        &self,
-        object: &Arc<RwLock<GameObject>>,
-    ) -> Result<Coord3D, Box<dyn std::error::Error + Send + Sync>> {
-        let guard = object
-            .read()
-            .map_err(|e| format!("bridge object lock poisoned: {}", e))?;
-        Ok(*guard.get_position())
-    }
-
     fn get_bone_position(
         &self,
-        object: &Arc<RwLock<GameObject>>,
         bone_name: &str,
     ) -> Result<Option<Coord3D>, Box<dyn std::error::Error + Send + Sync>> {
-        let drawable = {
-            let guard = object
-                .read()
-                .map_err(|e| format!("bridge object lock poisoned: {}", e))?;
-            guard.get_drawable()
-        };
+        let drawable = self.with_object(|guard| guard.get_drawable())?;
 
         if let Some(drawable) = drawable {
             if let Ok(drawable_guard) = drawable.read() {
@@ -787,7 +771,6 @@ impl BridgeBehavior {
 
     fn resolve_spawn_target(
         &self,
-        object: &Arc<RwLock<GameObject>>,
         template: Option<&TerrainRoadType>,
         bridge: Option<&Bridge>,
         info: &TimeAndLocationInfo,
@@ -799,7 +782,7 @@ impl BridgeBehavior {
                 return Ok(ModuleEffectSpawn::ParentObject);
             }
 
-            if let Some(position) = self.get_bone_position(object, bone_name)? {
+            if let Some(position) = self.get_bone_position(bone_name)? {
                 return Ok(ModuleEffectSpawn::Position(position));
             }
 
@@ -817,7 +800,6 @@ impl BridgeBehavior {
     fn execute_ocl_on_object(
         &self,
         ocl: &ObjectCreationList,
-        _object: &Arc<RwLock<GameObject>>,
         position: &Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ocl.create_at_position(position, self.object_id)
@@ -1865,8 +1847,7 @@ impl UpdateModuleInterface for BridgeBehavior {
             let current_frame = self.get_current_frame()?;
             let death_time = current_frame.saturating_sub(self.death_frame);
 
-            let object = self.get_object()?;
-            let object_position = self.get_object_position(&object)?;
+            let object_position = self.with_object(|me| *me.get_position())?;
 
             let bridge = self.find_bridge_at_position(&object_position)?;
             let bridge_template = if let Some(ref bridge_ref) = bridge {
@@ -1889,7 +1870,6 @@ impl UpdateModuleInterface for BridgeBehavior {
                     .and_then(|opt| opt.as_ref().cloned())
                 {
                     let spawn = self.resolve_spawn_target(
-                        &object,
                         template_ref,
                         bridge_ref,
                         &fx_info.time_and_location_info,
@@ -1918,7 +1898,6 @@ impl UpdateModuleInterface for BridgeBehavior {
                     .and_then(|opt| opt.as_ref().cloned())
                 {
                     let spawn = self.resolve_spawn_target(
-                        &object,
                         template_ref,
                         bridge_ref,
                         &ocl_info.time_and_location_info,
@@ -1929,11 +1908,7 @@ impl UpdateModuleInterface for BridgeBehavior {
                             self.execute_ocl_at_position(handle_arc.as_ref(), &pos)?;
                         }
                         ModuleEffectSpawn::ParentObject => {
-                            self.execute_ocl_on_object(
-                                handle_arc.as_ref(),
-                                &object,
-                                &object_position,
-                            )?;
+                            self.execute_ocl_on_object(handle_arc.as_ref(), &object_position)?;
                         }
                     }
                 }

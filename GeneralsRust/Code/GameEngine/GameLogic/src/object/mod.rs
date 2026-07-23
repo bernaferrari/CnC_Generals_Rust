@@ -3209,6 +3209,18 @@ impl Object {
 
     /// Check for a booby trap attached to this object and detonate it if needed.
     /// Mirrors C++ Object::checkAndDetonateBoobyTrap.
+    /// ID-based victim check; prefer over Arc-resolved `&Object` at call sites.
+    pub fn check_and_detonate_booby_trap_for_victim_id(&self, victim_id: Option<ObjectID>) -> bool {
+        match victim_id {
+            Some(id) if id != INVALID_ID => crate::object::registry::OBJECT_REGISTRY
+                .with_object(id, |victim| {
+                    self.check_and_detonate_booby_trap(Some(victim))
+                })
+                .unwrap_or_else(|| self.check_and_detonate_booby_trap(None)),
+            _ => self.check_and_detonate_booby_trap(None),
+        }
+    }
+
     pub fn check_and_detonate_booby_trap(&self, victim: Option<&Object>) -> bool {
         const BOOBY_TRAP_SCAN_RANGE: Real = 25.0;
 

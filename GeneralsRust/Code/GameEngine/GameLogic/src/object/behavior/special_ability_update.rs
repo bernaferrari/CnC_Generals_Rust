@@ -908,20 +908,14 @@ impl SpecialAbilityUpdate {
                     {
                         return;
                     }
-                    // Booby-trap detonation still needs a short-lived owner Arc for &Object.
-                    if let Some(owner) = self.get_object() {
-                        if target_guard
-                            .check_and_detonate_booby_trap(owner.read().ok().as_deref())
-                        {
-                            if target_guard.is_effectively_dead()
-                                || owner
-                                    .read()
-                                    .ok()
-                                    .map(|o| o.is_effectively_dead())
-                                    .unwrap_or(false)
-                            {
-                                return;
-                            }
+                    if target_guard
+                        .check_and_detonate_booby_trap_for_victim_id(Some(self.get_object_id()))
+                    {
+                        let owner_dead = self
+                            .with_object(|o| o.is_effectively_dead())
+                            .unwrap_or(true);
+                        if target_guard.is_effectively_dead() || owner_dead {
+                            return;
                         }
                     }
                 }
@@ -1169,13 +1163,21 @@ impl SpecialAbilityUpdate {
                     Some(target) => target,
                     None => return,
                 };
-                if let Some(owner) = self.get_object() {
-                    if target.read().ok().map(|t| t.check_and_detonate_booby_trap(owner.read().ok().as_deref())).unwrap_or(false) {
-                        if target.read().ok().map(|t| t.is_effectively_dead()).unwrap_or(false)
-                            || owner.read().ok().map(|o| o.is_effectively_dead()).unwrap_or(false)
-                        {
-                            return;
-                        }
+                if target
+                    .read()
+                    .ok()
+                    .map(|t| {
+                        t.check_and_detonate_booby_trap_for_victim_id(Some(self.get_object_id()))
+                    })
+                    .unwrap_or(false)
+                {
+                    let owner_dead = self
+                        .with_object(|o| o.is_effectively_dead())
+                        .unwrap_or(true);
+                    if target.read().ok().map(|t| t.is_effectively_dead()).unwrap_or(false)
+                        || owner_dead
+                    {
+                        return;
                     }
                 }
 
@@ -1265,22 +1267,26 @@ impl SpecialAbilityUpdate {
                     Some(target) => target,
                     None => return,
                 };
-                let owner = match self.get_object() {
-                    Some(owner) => owner,
-                    None => return,
-                };
+                if self.get_object_id() == INVALID_ID {
+                    return;
+                }
                 let Ok(mut target_guard) = target.write() else {
                     return;
                 };
-                let Ok(owner_guard) = owner.read() else {
-                    return;
-                };
-                if target_guard.check_and_detonate_booby_trap(Some(&owner_guard)) {
-                    if target_guard.is_effectively_dead() || owner_guard.is_effectively_dead() {
+                if target_guard
+                    .check_and_detonate_booby_trap_for_victim_id(Some(self.get_object_id()))
+                {
+                    let owner_dead = self
+                        .with_object(|o| o.is_effectively_dead())
+                        .unwrap_or(true);
+                    if target_guard.is_effectively_dead() || owner_dead {
                         return;
                     }
                 }
-                if owner_guard.relationship_to(&target_guard) == Relationship::Allies {
+                if self.with_object(|owner_guard| {
+                    owner_guard.relationship_to(&target_guard) == Relationship::Allies
+                }) == Some(true)
+                {
                     return;
                 }
 
@@ -1293,7 +1299,10 @@ impl SpecialAbilityUpdate {
                     }
                 }
 
-                target_guard.defect(owner_guard.get_team(), 1);
+                let team = self.with_object(|owner_guard| owner_guard.get_team());
+                if let Some(Some(team)) = team {
+                    target_guard.defect(Some(team), 1);
+                }
             }
             crate::object::special_power_types::SpecialPowerType::BlackLotusStealCashHack => {
                 let target = match TheGameLogic::find_object_by_id(self.target_id) {
@@ -1347,18 +1356,23 @@ impl SpecialAbilityUpdate {
             }
             crate::object::special_power_types::SpecialPowerType::RemoteCharges => {
                 if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                    if let Some(owner) = self.get_object() {
-                        if target
-                            .read()
-                            .ok()
-                            .map(|t| t.check_and_detonate_booby_trap(owner.read().ok().as_deref()))
-                            .unwrap_or(false)
+                    if target
+                        .read()
+                        .ok()
+                        .map(|t| {
+                            t.check_and_detonate_booby_trap_for_victim_id(Some(
+                                self.get_object_id(),
+                            ))
+                        })
+                        .unwrap_or(false)
+                    {
+                        let owner_dead = self
+                            .with_object(|o| o.is_effectively_dead())
+                            .unwrap_or(true);
+                        if target.read().ok().map(|t| t.is_effectively_dead()).unwrap_or(false)
+                            || owner_dead
                         {
-                            if target.read().ok().map(|t| t.is_effectively_dead()).unwrap_or(false)
-                                || owner.read().ok().map(|o| o.is_effectively_dead()).unwrap_or(false)
-                            {
-                                return;
-                            }
+                            return;
                         }
                     }
                 }

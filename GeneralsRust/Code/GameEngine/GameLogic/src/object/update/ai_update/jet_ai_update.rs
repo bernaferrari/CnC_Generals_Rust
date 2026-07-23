@@ -1375,12 +1375,11 @@ impl JetAIUpdate {
                             should_takeoff = true;
                             pp.set_healee(None, false);
                         } else {
-                            // ParkingPlaceBehavior still stores healee as Arc for now.
                             pp.set_healee(
                                 if allow_air_loco {
                                     None
                                 } else {
-                                    self.get_object()
+                                    Some(self.object_id)
                                 },
                                 !allow_air_loco,
                             );

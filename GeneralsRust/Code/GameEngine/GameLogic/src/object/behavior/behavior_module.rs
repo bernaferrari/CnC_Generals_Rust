@@ -76,7 +76,7 @@ pub trait ParkingPlaceBehaviorInterface: Send + Sync {
     fn transfer_runway_reservation_to_next_in_line_for_takeoff(&mut self, id: ObjectID);
     fn get_approach_height(&self) -> Real;
     fn get_landing_deck_height_offset(&self) -> Real;
-    fn set_healee(&mut self, healee: Option<Arc<RwLock<Object>>>, add: Bool);
+    fn set_healee(&mut self, healee: Option<ObjectID>, add: Bool);
     fn kill_all_parked_units(&mut self);
     fn defect_all_parked_units(&mut self, new_team: Arc<RwLock<Team>>, detection_time: UnsignedInt);
     fn calc_best_parking_assignment(

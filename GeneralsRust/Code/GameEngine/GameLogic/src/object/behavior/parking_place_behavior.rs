@@ -1622,10 +1622,10 @@ impl ParkingPlaceBehaviorInterfaceTrait for ParkingPlaceBehavior {
         self.module_data.landing_deck_height_offset
     }
 
-    fn set_healee(&mut self, healee: Option<Arc<RwLock<Object>>>, add: Bool) {
-        if let Some(obj) = healee {
-            if let Ok(guard) = obj.read() {
-                ParkingPlaceBehavior::set_healee(self, guard.get_id(), add);
+    fn set_healee(&mut self, healee: Option<ObjectID>, add: Bool) {
+        if let Some(healee_id) = healee {
+            if healee_id != OBJECT_INVALID_ID {
+                ParkingPlaceBehavior::set_healee(self, healee_id, add);
             }
         }
     }
