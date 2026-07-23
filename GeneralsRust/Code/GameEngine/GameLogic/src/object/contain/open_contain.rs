@@ -633,16 +633,18 @@ impl OpenContain {
 
     /// Check art condition changes and redeploy occupants when FIREPOINT bones may have changed.
     pub fn monitor_condition_changes(&mut self) -> GameResult<()> {
-        let Some(owner) = self.get_object() else {
+        let owner_id = self.get_object_id();
+        if owner_id == crate::common::INVALID_ID {
             return Ok(());
-        };
-        let curr_condition = owner
-            .read()
-            .ok()
-            .and_then(|owner_guard| owner_guard.get_drawable())
-            .map(|drawable| drawable.get_model_condition_flags());
-
-        let Some(curr_condition) = curr_condition else {
+        }
+        let Some(curr_condition) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| {
+                owner_guard
+                    .get_drawable()
+                    .map(|drawable| drawable.get_model_condition_flags())
+            })
+            .flatten()
+        else {
             return Ok(());
         };
         if curr_condition != self.condition_state {
@@ -677,15 +679,20 @@ impl OpenContain {
         }
 
         // Check ally/enemy restrictions
-        if let Some(owner_obj) = self.get_object() {
-            if let (Ok(owner), Ok(candidate)) = (owner_obj.read(), obj.try_read()) {
-                let relationship = owner.get_relationship_to(&candidate);
-                match relationship {
-                    ObjectRelationship::Ally => return self.module_data.allow_allies_inside,
-                    ObjectRelationship::Enemy => return self.module_data.allow_enemies_inside,
-                    ObjectRelationship::Neutral => return self.module_data.allow_neutral_inside,
-                    _ => return false,
-                }
+        let owner_id = self.get_object_id();
+        if owner_id != crate::common::INVALID_ID {
+            if let Some(allowed) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
+                    let relationship = owner.get_relationship_to(obj);
+                    match relationship {
+                        ObjectRelationship::Ally => self.module_data.allow_allies_inside,
+                        ObjectRelationship::Enemy => self.module_data.allow_enemies_inside,
+                        ObjectRelationship::Neutral => self.module_data.allow_neutral_inside,
+                        _ => false,
+                    }
+                })
+            {
+                return allowed;
             }
         }
 
@@ -1171,20 +1178,24 @@ impl OpenContain {
     }
 
     pub fn get_natural_rally_point(&self) -> Option<Coord3D> {
-        let owner = self.get_object()?;
-        let owner_guard = owner.read().ok()?;
-        let number_exits = self.module_data.number_of_exit_paths;
-        if number_exits > 0 {
-            let end_bone = if number_exits > 1 {
-                "ExitEnd01"
-            } else {
-                "ExitEnd"
-            };
-            let (_, rally_point, _) = owner_guard.get_single_logical_bone_position(end_bone);
-            Some(rally_point)
-        } else {
-            Some(*owner_guard.get_position())
+        let owner_id = self.get_object_id();
+        if owner_id == crate::common::INVALID_ID {
+            return None;
         }
+        crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+            let number_exits = self.module_data.number_of_exit_paths;
+            if number_exits > 0 {
+                let end_bone = if number_exits > 1 {
+                    "ExitEnd01"
+                } else {
+                    "ExitEnd"
+                };
+                let (_, rally_point, _) = owner_guard.get_single_logical_bone_position(end_bone);
+                rally_point
+            } else {
+                *owner_guard.get_position()
+            }
+        })
     }
 
     /// Check if this is an enclosing container
@@ -1299,25 +1310,26 @@ impl OpenContain {
             return Ok(None);
         };
 
-        let Some(owner) = self.get_object() else {
+        let owner_id = self.get_object_id();
+        if owner_id == crate::common::INVALID_ID {
             return Ok(None);
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return Ok(None);
-        };
+        }
 
         self.door_close_countdown
             .store(self.module_data.door_open_time, Ordering::Relaxed);
         if self.module_data.door_open_time > 0 {
-            drop(owner_guard);
-            if let Ok(mut owner_guard) = owner.write() {
-                let _ = owner_guard.clear_and_set_model_condition_flags(
-                    MODELCONDITION_DOOR_1_CLOSING,
-                    MODELCONDITION_DOOR_1_OPENING,
-                );
-            }
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+                    let _ = owner_guard.clear_and_set_model_condition_flags(
+                        MODELCONDITION_DOOR_1_CLOSING,
+                        MODELCONDITION_DOOR_1_OPENING,
+                    );
+                });
         }
 
+        let Some(owner) = self.get_object() else {
+            return Ok(None);
+        };
         let Ok(owner_guard) = owner.read() else {
             return Ok(None);
         };
@@ -1508,9 +1520,10 @@ impl OpenContain {
     }
 
     fn put_obj_at_next_fire_point(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(owner) = self.get_object() else {
+        let owner_id = self.get_object_id();
+        if owner_id == crate::common::INVALID_ID {
             return Ok(());
-        };
+        }
         let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1518,9 +1531,8 @@ impl OpenContain {
         };
 
         if self.fire_point_size == 0 && !self.no_fire_points_in_art {
-            let fire_points = owner
-                .read()
-                .map(|owner_guard| {
+            let fire_points = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |owner_guard| {
                     owner_guard.get_multi_logical_bone_position("FIREPOINT", MAX_FIRE_POINTS)
                 })
                 .unwrap_or_default();
@@ -1536,24 +1548,26 @@ impl OpenContain {
         }
 
         let pos = if self.no_fire_points_in_art {
-            owner
-                .read()
-                .map(|owner_guard| *owner_guard.get_position())
-                .unwrap_or_else(|_| Coord3D::new(0.0, 0.0, 0.0))
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |owner_guard| *owner_guard.get_position())
+                .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0))
         } else if self.module_data.passengers_in_turret {
             let firepoint = format!("FIREPOINT{:02}", self.fire_point_next + 1);
-            owner
-                .read()
-                .map(|owner_guard| {
+            if let Some((pos, matrix)) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
                     let (_, pos, matrix) = owner_guard.get_single_logical_bone_position_on_turret(
                         TurretType::Primary,
                         &firepoint,
                     );
-                    self.fire_points[self.fire_point_next as usize] =
-                        Self::fire_point_matrix_from_transform(matrix);
-                    pos
+                    (pos, matrix)
                 })
-                .unwrap_or_else(|_| Coord3D::new(0.0, 0.0, 0.0))
+            {
+                self.fire_points[self.fire_point_next as usize] =
+                    Self::fire_point_matrix_from_transform(matrix);
+                pos
+            } else {
+                Coord3D::new(0.0, 0.0, 0.0)
+            }
         } else {
             Self::fire_point_position(&self.fire_points[self.fire_point_next as usize])
         };
@@ -1711,9 +1725,10 @@ impl OpenContain {
             return Err("OpenContain list must be empty before load_post_process".to_string());
         }
 
-        let owner = self.get_object().ok_or_else(|| {
-            "OpenContain has no owning object during load_post_process".to_string()
-        })?;
+        let owner_id = self.get_object_id();
+        if owner_id == crate::common::INVALID_ID {
+            return Err("OpenContain has no owning object during load_post_process".to_string());
+        }
         let ids = std::mem::take(&mut self.xfer_contain_id_list);
         for object_id in ids {
             let obj = TheGameLogic::find_object_by_id(object_id).ok_or_else(|| {
@@ -1730,13 +1745,7 @@ impl OpenContain {
             {
                 let mut obj_guard = obj.write().map_err(|e| e.to_string())?;
                 obj_guard
-                    .on_contained_by(
-                        owner
-                            .read()
-                            .ok()
-                            .map(|g| g.get_id())
-                            .unwrap_or(crate::common::INVALID_ID),
-                    )
+                    .on_contained_by(owner_id)
                     .map_err(|e| e.to_string())?;
             }
         }
