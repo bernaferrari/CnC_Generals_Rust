@@ -778,6 +778,9 @@ pub struct Object {
     /// C++ TERRAIN_DECAL_CHEMSUIT residual (ArmorUpgrade ChemicalSuits unique case).
     #[serde(default)]
     pub terrain_decal_chemsuit: bool,
+    /// C++ SubObjectsUpgrade show/hide residual (Bombload / BombWing peels).
+    #[serde(default)]
+    pub sub_object_visibility: crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility,
     /// C++ SpecialPowerModule m_pausedCount>0 residual (StartsPaused / pauseCountdown).
     #[serde(default)]
     pub special_power_paused: std::collections::HashSet<crate::command_system::SpecialPowerType>,
@@ -1787,6 +1790,7 @@ impl Object {
             armor_set_player_upgrade: false,
             locomotor_upgrade: false,
             terrain_decal_chemsuit: false,
+            sub_object_visibility: Default::default(),
             special_power_paused: std::collections::HashSet::new(),
             weapon_set_mine_clearing_detail: false,
             weapon_set_carbomb: false,
@@ -2145,6 +2149,7 @@ impl Object {
             armor_set_player_upgrade: false,
             locomotor_upgrade: false,
             terrain_decal_chemsuit: false,
+            sub_object_visibility: Default::default(),
             special_power_paused: std::collections::HashSet::new(),
             weapon_set_mine_clearing_detail: false,
             weapon_set_carbomb: false,
