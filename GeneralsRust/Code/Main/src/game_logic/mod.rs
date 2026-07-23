@@ -138,6 +138,8 @@ pub mod host_gps_scrambler;
 pub mod host_hacker_disable;
 pub mod host_hacker_income;
 pub mod host_heal;
+mod host_height_die;
+mod host_helicopter_slow_death;
 pub mod host_helix_minigun;
 pub mod host_helix_napalm;
 pub mod host_hero_abilities;
