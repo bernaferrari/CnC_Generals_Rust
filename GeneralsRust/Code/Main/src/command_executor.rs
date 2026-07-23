@@ -128,9 +128,22 @@ impl<'a> CommandExecutor<'a> {
             CommandType::SetWeaponSetFlag { flag, enabled } => {
                 self.execute_set_weapon_set_flag(&command.selected_units, *flag, *enabled)
             }
-            CommandType::FollowWaypointPath { waypoints, exact } => {
-                self.execute_follow_waypoint_path(&command.selected_units, waypoints, *exact)
-            }
+            CommandType::FollowWaypointPath {
+                waypoints,
+                exact,
+                as_team,
+            } => self.execute_follow_waypoint_path(
+                &command.selected_units,
+                waypoints,
+                *exact,
+                *as_team,
+            ),
+            CommandType::DoCommandButtonUsingWaypoints { button, waypoints } => self
+                .execute_do_command_button_using_waypoints(
+                    &command.selected_units,
+                    button,
+                    waypoints,
+                ),
             CommandType::Surrender { surrendered } => {
                 self.execute_surrender(&command.selected_units, *surrendered)
             }
@@ -732,13 +745,15 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    /// C++ AIGroup::groupFollowWaypointPath / Exact residual.
+    /// C++ AIGroup::groupFollowWaypointPath / Exact / AsTeam residual.
     pub(crate) fn execute_follow_waypoint_path(
         &mut self,
         units: &[ObjectId],
         waypoints: &[Vec3],
         exact: bool,
+        as_team: bool,
     ) -> CommandResult {
+        let _ = exact; // path points are used fully; pathfinder may smooth later.
         if waypoints.is_empty() {
             return CommandResult::InvalidLocation;
         }
@@ -747,17 +762,9 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidLocation;
             }
         }
-        let goal = *waypoints.last().unwrap();
-        let path: Vec<Vec3> = if exact {
-            waypoints.to_vec()
-        } else {
-            // Non-exact: still use full chain; pathfinder may smooth later.
-            waypoints.to_vec()
-        };
-        let mut any = false;
-        // Sort near-to-far to first waypoint (C++ path assignment order residual).
-        let mut movers: Vec<(ObjectId, f32)> = Vec::new();
-        let first = waypoints[0];
+
+        // Collect movers + optional formation/group offsets (AsTeam residual).
+        let mut movers: Vec<(ObjectId, Vec3, glam::Vec2)> = Vec::new();
         for &unit_id in units {
             let Some(unit) = self.game_logic.get_object(unit_id) else {
                 continue;
@@ -770,28 +777,77 @@ impl<'a> CommandExecutor<'a> {
             {
                 continue;
             }
-            let p = unit.get_position();
-            let dx = p.x - first.x;
-            let dz = p.z - first.z;
-            movers.push((unit_id, dx * dx + dz * dz));
+            movers.push((unit_id, unit.get_position(), unit.formation_offset));
         }
-        movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (unit_id, _) in movers {
+        if movers.is_empty() {
+            return CommandResult::InvalidCommand;
+        }
+
+        // Group center from current positions.
+        let (mut cx, mut cz) = (0.0f32, 0.0f32);
+        for (_, pos, _) in &movers {
+            cx += pos.x;
+            cz += pos.z;
+        }
+        let n = movers.len() as f32;
+        cx /= n;
+        cz /= n;
+
+        // Prefer stamped formation offsets when shared; else relative-to-center.
+        let fid0 = self
+            .game_logic
+            .get_object(movers[0].0)
+            .map(|o| o.formation_id)
+            .unwrap_or(0);
+        let use_formation = as_team
+            && fid0 != 0
+            && movers.iter().all(|(id, _, _)| {
+                self.game_logic
+                    .get_object(*id)
+                    .map(|o| o.formation_id == fid0)
+                    .unwrap_or(false)
+            });
+
+        // Near-to-far vs first waypoint.
+        let first = waypoints[0];
+        movers.sort_by(|a, b| {
+            let da = (a.1.x - first.x).hypot(a.1.z - first.z);
+            let db = (b.1.x - first.x).hypot(b.1.z - first.z);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut any = false;
+        for (unit_id, pos, form_off) in movers {
+            let offset = if as_team {
+                if use_formation {
+                    form_off
+                } else {
+                    glam::Vec2::new(pos.x - cx, pos.z - cz)
+                }
+            } else {
+                glam::Vec2::ZERO
+            };
+
+            let unit_wps: Vec<Vec3> = waypoints
+                .iter()
+                .map(|wp| Vec3::new(wp.x + offset.x, wp.y, wp.z + offset.y))
+                .collect();
+            let goal = *unit_wps.last().unwrap();
+            let via = &unit_wps[..unit_wps.len().saturating_sub(1)];
+
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_attack();
                 unit.set_guard_position(None);
                 unit.set_guard_target(None);
                 unit.end_guard_retaliate();
-                unit.formation_id = 0;
+                // AsTeam keeps formation identity; free follow clears it.
+                if !as_team {
+                    unit.formation_id = 0;
+                }
             }
-            if self.game_logic.assign_unit_path(
-                unit_id,
-                goal,
-                &path[..path.len().saturating_sub(1)],
-            ) {
+            if self.game_logic.assign_unit_path(unit_id, goal, via) {
                 any = true;
             } else if self.path_to_goal_with_state(unit_id, goal, AIState::Moving) {
-                // Fallback: at least reach final waypoint.
                 any = true;
             }
         }
@@ -802,8 +858,52 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    /// C++ AIGroup::groupDoCommandButtonUsingWaypoints residual.
+    pub(crate) fn execute_do_command_button_using_waypoints(
+        &mut self,
+        units: &[ObjectId],
+        button: &str,
+        waypoints: &[Vec3],
+    ) -> CommandResult {
+        use crate::command_system::{command_type_from_button_name, CommandType};
+
+        if waypoints.is_empty() {
+            return self.execute_do_command_button(units, button, None, None);
+        }
+        let Some(ct) = command_type_from_button_name(button) else {
+            // Unknown button: still follow the waypoint path.
+            return self.execute_follow_waypoint_path(units, waypoints, false, true);
+        };
+        match ct {
+            CommandType::AttackMoveTo { .. } | CommandType::ForceMoveTo { .. } => {
+                // Attack-move / force-move along waypoints as a team path.
+                self.execute_follow_waypoint_path(units, waypoints, false, true)
+            }
+            CommandType::MoveTo { .. } | CommandType::FollowWaypointPath { .. } => {
+                self.execute_follow_waypoint_path(units, waypoints, false, true)
+            }
+            CommandType::Guard { .. } => {
+                // Guard at final waypoint.
+                let last = *waypoints.last().unwrap();
+                self.execute_do_command_button(units, button, Some(last), None)
+            }
+            _ => {
+                // Default: path as team, then fire button at final point.
+                let last = *waypoints.last().unwrap();
+                let path_res = self.execute_follow_waypoint_path(units, waypoints, false, true);
+                let btn_res = self.execute_do_command_button(units, button, Some(last), None);
+                if matches!(path_res, CommandResult::Success)
+                    || matches!(btn_res, CommandResult::Success)
+                {
+                    CommandResult::Success
+                } else {
+                    path_res
+                }
+            }
+        }
+    }
+
     /// C++ AIGroup::groupDoCommandButton / AtPosition / AtObject residual.
-    /// Resolves retail button name → CommandType and re-dispatches on the group.
     pub(crate) fn execute_do_command_button(
         &mut self,
         units: &[ObjectId],
@@ -916,9 +1016,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     /// C++ AIGroup::groupExecuteRailedTransport residual.
-    /// Host: treat as evacuate + move along current path / dock exit for rail-capable containers.
     pub(crate) fn execute_railed_transport(&mut self, units: &[ObjectId]) -> CommandResult {
-        // Residual: unload passengers then resume move if a path exists.
         let mut any = false;
         for &unit_id in units {
             let is_railish = match self.game_logic.get_object(unit_id) {
@@ -928,18 +1026,15 @@ impl<'a> CommandExecutor<'a> {
                         || n.contains("train")
                         || n.contains("rail")
                         || n.contains("locomotive")
-                        || n.contains("car")
                 }
                 _ => false,
             };
             if !is_railish {
                 continue;
             }
-            // Unload first (C++ railed transport executes embark/disembark sequence).
             if matches!(self.execute_evacuate(&[unit_id]), CommandResult::Success) {
                 any = true;
             }
-            // If still has a movement goal, keep moving.
             let dest = self.game_logic.get_object(unit_id).and_then(|o| {
                 o.movement
                     .path
@@ -956,7 +1051,6 @@ impl<'a> CommandExecutor<'a> {
         if any {
             CommandResult::Success
         } else {
-            // Fallback: plain evacuate for any selected containers.
             self.execute_evacuate(units)
         }
     }
@@ -2803,7 +2897,7 @@ impl<'a> CommandExecutor<'a> {
                     } else if is_troop_crawler {
                         (false, false, false, false, false, false, true, false)
                     } else {
-                        (false, false, false, false, false, false, false, true)
+                        (false, false, false, false, false, false, false, false)
                     }
                 } else if unit.contained_by.is_some() || container_id.is_some() {
                     if is_structure {
@@ -2821,7 +2915,7 @@ impl<'a> CommandExecutor<'a> {
                     } else if is_troop_crawler {
                         (false, false, false, false, false, false, true, false)
                     } else {
-                        (false, false, false, false, false, false, false, true)
+                        (false, false, false, false, false, false, false, false)
                     }
                 } else {
                     (false, false, false, false, false, false, false, false)
@@ -6108,7 +6202,7 @@ mod group_move_tests {
         {
             let mut exec = CommandExecutor::new(&mut logic, 0);
             assert_eq!(
-                exec.execute_follow_waypoint_path(&[id], &wps, true),
+                exec.execute_follow_waypoint_path(&[id], &wps, true, false),
                 CommandResult::Success
             );
         }
@@ -6116,6 +6210,102 @@ mod group_move_tests {
         assert!(
             !o.movement.path.is_empty() || o.movement.target_position.is_some(),
             "should have path or target"
+        );
+    }
+
+    #[test]
+    fn follow_waypoint_as_team_preserves_offsets() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("FT_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("FT_V".to_string(), tpl);
+        let a = logic
+            .create_object("FT_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("FT_V", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        // Stamp formation.
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_create_formation(&[a, b]),
+                CommandResult::Success
+            );
+        }
+        let wps = vec![Vec3::new(100.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0)];
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_follow_waypoint_path(&[a, b], &wps, true, true),
+                CommandResult::Success
+            );
+        }
+        let ga = logic
+            .get_object(a)
+            .unwrap()
+            .movement
+            .path
+            .last()
+            .copied()
+            .or(logic.get_object(a).unwrap().movement.target_position)
+            .unwrap();
+        let gb = logic
+            .get_object(b)
+            .unwrap()
+            .movement
+            .path
+            .last()
+            .copied()
+            .or(logic.get_object(b).unwrap().movement.target_position)
+            .unwrap();
+        // Offsets should keep ~40 world units separation on X (formation).
+        let sep = (ga.x - gb.x).abs();
+        assert!(
+            sep > 20.0,
+            "as-team should preserve formation separation, ga={ga:?} gb={gb:?} sep={sep}"
+        );
+        // Formation id preserved.
+        assert_eq!(
+            logic.get_object(a).unwrap().formation_id,
+            logic.get_object(b).unwrap().formation_id
+        );
+        assert_ne!(logic.get_object(a).unwrap().formation_id, 0);
+    }
+
+    #[test]
+    fn do_command_button_using_waypoints_attack_moves() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("BW_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("BW_V".to_string(), tpl);
+        let id = logic.create_object("BW_V", Team::USA, Vec3::ZERO).unwrap();
+        let wps = vec![Vec3::new(10.0, 0.0, 0.0), Vec3::new(80.0, 0.0, 0.0)];
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_do_command_button_using_waypoints(&[id], "Command_AttackMove", &wps),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert!(
+            !u.movement.path.is_empty() || u.movement.target_position.is_some(),
+            "should path along waypoints"
         );
     }
 
