@@ -154,13 +154,6 @@ impl TunnelTracker {
         }
     }
 
-    /// Prefer [`Self::get_cur_nemesis_id`].
-    pub fn get_cur_nemesis(&mut self) -> GameResult<Option<Arc<RwLock<Object>>>> {
-        Ok(self
-            .get_cur_nemesis_id()?
-            .and_then(|id| find_object_by_id(id).ok().flatten()))
-    }
-
     /// Add an object to the contained list.
     /// Matches C++ TunnelTracker::addToContainList (TunnelTracker.cpp:153-157)
     /// ID-first contain membership.
@@ -418,13 +411,6 @@ impl TunnelTracker {
 
     /// Retrieve a reference to the contained objects list.
     /// Resolve contained members for the duration of the caller (owned Arc vec, not stored).
-    pub fn get_contained_items_list(&self) -> Vec<Arc<RwLock<Object>>> {
-        self.contained_ids
-            .iter()
-            .filter_map(|&id| find_object_by_id(id).ok().flatten())
-            .collect()
-    }
-
     pub fn get_contained_item_ids(&self) -> &[ObjectID] {
         &self.contained_ids
     }
