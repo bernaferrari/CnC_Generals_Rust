@@ -1793,6 +1793,10 @@ pub struct GameLogic {
     /// C++ SpecialPowerCompletionDie + PowerPlantUpdate residual log.
     special_power_completion_log:
         crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionLog,
+    /// C++ StickyBombUpdate follow-position residual ticks.
+    sticky_bomb_follow_ticks: u32,
+    /// C++ StickyBombUpdate target-dead charge destroy residual.
+    sticky_bomb_target_deaths: u32,
     /// C++ RebuildHoleBehavior reconstruct residual events.
     rebuild_hole_reconstructs: u32,
     rebuild_hole_workers: u32,
@@ -3082,6 +3086,8 @@ impl GameLogic {
             supply_create_center_registers: 0,
             structure_minefield_placements: 0,
             special_power_completion_log: crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionLog::default(),
+            sticky_bomb_follow_ticks: 0,
+            sticky_bomb_target_deaths: 0,
             rebuild_hole_reconstructs: 0,
             rebuild_hole_workers: 0,
             rebuild_hole_heals: 0,
@@ -3506,6 +3512,8 @@ impl GameLogic {
         self.structure_minefield_placements = 0;
         self.special_power_completion_log =
             crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionLog::default();
+        self.sticky_bomb_follow_ticks = 0;
+        self.sticky_bomb_target_deaths = 0;
         self.rebuild_hole_reconstructs = 0;
         self.rebuild_hole_workers = 0;
         self.rebuild_hole_heals = 0;
@@ -43949,6 +43957,75 @@ impl GameLogic {
     /// clearer immunity): Workers/Dozers do not proximity-detonate mines; when within
     /// clear range of an enemy/neutral mine they disarm it without area damage.
     /// Fail-closed: not full weapon-set flag / PreAttack scoop delay / AcademyStats.
+
+    /// C++ StickyBombUpdate::update residual.
+    ///
+    /// Timed/remote demo charges with `attached_to` follow the target position
+    /// (vehicle: ride on roof offset Z; structure/immobile: stay at ground height).
+    /// If the target dies, the charge is destroyed (C++ destroyObject(self)).
+    pub(crate) fn update_sticky_bomb_attachments(&mut self) {
+        use crate::game_logic::host_mines::HostMineKind;
+        /// Retail StickyBombUpdate OffsetZ residual (ride on vehicle roof).
+        const STICKY_OFFSET_Z: f32 = 8.0;
+
+        let sticky_ids: Vec<(ObjectId, ObjectId, HostMineKind)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                let md = obj.mine_data.as_ref()?;
+                if !md.is_active() || !obj.is_alive() {
+                    return None;
+                }
+                if !matches!(
+                    md.kind,
+                    HostMineKind::TimedDemoCharge | HostMineKind::RemoteDemoCharge
+                ) {
+                    return None;
+                }
+                let tid = md.attached_to?;
+                Some((*id, tid, md.kind))
+            })
+            .collect();
+
+        let mut destroy_charges: Vec<ObjectId> = Vec::new();
+        let mut moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
+
+        for (charge_id, target_id, _kind) in sticky_ids {
+            let Some(target) = self.objects.get(&target_id) else {
+                destroy_charges.push(charge_id);
+                continue;
+            };
+            if !target.is_alive() || target.status.effectively_dead {
+                destroy_charges.push(charge_id);
+                continue;
+            }
+            let tpos = target.get_position();
+            let immobile =
+                target.is_kind_of(KindOf::Structure) || target.is_kind_of(KindOf::Immobile);
+            let new_pos = if immobile {
+                // Keep ground height for mine-clearing units (C++ IMMOBILE path).
+                glam::Vec3::new(tpos.x, 0.0, tpos.z)
+            } else {
+                glam::Vec3::new(tpos.x, tpos.y + STICKY_OFFSET_Z, tpos.z)
+            };
+            // If structure path kept original plant XY, we still snap to target XY
+            // residual for moving vehicles; immobile also snaps XY to structure center
+            // for host residual simplicity (fail-closed vs bomber plant XY freeze).
+            moves.push((charge_id, new_pos));
+        }
+
+        for (charge_id, pos) in moves {
+            if let Some(obj) = self.objects.get_mut(&charge_id) {
+                obj.set_position(pos);
+            }
+            self.sticky_bomb_follow_ticks = self.sticky_bomb_follow_ticks.saturating_add(1);
+        }
+        for charge_id in destroy_charges {
+            self.sticky_bomb_target_deaths = self.sticky_bomb_target_deaths.saturating_add(1);
+            self.destroy_object(charge_id);
+        }
+    }
+
     pub fn update_mines_and_demo_traps(&mut self) {
         use crate::game_logic::host_mines::{
             can_clear_mine_kind, is_mine_clearer, HostMineDetonateReason, HostMineKind,
@@ -43956,6 +44033,8 @@ impl GameLogic {
         };
 
         let frame = self.frame;
+        // C++ StickyBombUpdate::update residual — stick to target / die with target.
+        self.update_sticky_bomb_attachments();
         let mut due: Vec<(ObjectId, HostMineDetonateReason)> = Vec::new();
         let mut clear_due: Vec<(ObjectId, ObjectId)> = Vec::new(); // (mine_id, clearer_id)
         let mut approach: Vec<(ObjectId, Vec3)> = Vec::new(); // clearer moves toward mine
@@ -56967,6 +57046,71 @@ mod tests {
     }
 
     /// Residual: Burton PlantTimedDemoCharge walks to target then plants sticky timed C4.
+
+    #[test]
+    fn sticky_bomb_follows_moving_vehicle() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut tank = ThingTemplate::new("TestTank");
+        tank.set_health(500.0);
+        tank.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("TestTank".into(), tank);
+        let tid = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let charge = logic
+            .place_timed_demo_charge(Team::USA, glam::Vec3::ZERO, None, Some(tid), Some(300))
+            .expect("charge");
+        // Move target.
+        if let Some(t) = logic.objects.get_mut(&tid) {
+            t.set_position(glam::Vec3::new(50.0, 0.0, 20.0));
+        }
+        logic.update_sticky_bomb_attachments();
+        let cpos = logic.objects.get(&charge).unwrap().get_position();
+        assert!(
+            (cpos.x - 50.0).abs() < 0.1 && (cpos.z - 20.0).abs() < 0.1,
+            "charge must follow vehicle xy, got {cpos:?}"
+        );
+        assert!(
+            cpos.y >= 8.0 - 0.1,
+            "charge rides roof offset Z, y={}",
+            cpos.y
+        );
+        assert!(logic.sticky_bomb_follow_ticks >= 1);
+    }
+
+    #[test]
+    fn sticky_bomb_destroyed_when_target_dies() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut tank = ThingTemplate::new("TestTank");
+        tank.set_health(100.0);
+        tank.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("TestTank".into(), tank);
+        let tid = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::ZERO)
+            .unwrap();
+        let charge = logic
+            .place_remote_demo_charge(Team::USA, glam::Vec3::ZERO, None, Some(tid))
+            .expect("charge");
+        logic.destroy_object(tid);
+        // Ensure target is gone/dead for sticky check.
+        if let Some(t) = logic.objects.get_mut(&tid) {
+            t.status.effectively_dead = true;
+            t.health.current = 0.0;
+        }
+        logic.update_sticky_bomb_attachments();
+        let charge_alive = logic
+            .objects
+            .get(&charge)
+            .map(|o| o.is_alive())
+            .unwrap_or(false);
+        assert!(
+            !charge_alive || logic.sticky_bomb_target_deaths >= 1,
+            "charge must die with target"
+        );
+    }
+
     #[test]
     fn plant_timed_demo_charge_command_plants_after_reach() {
         let mut game_logic = GameLogic::new();
