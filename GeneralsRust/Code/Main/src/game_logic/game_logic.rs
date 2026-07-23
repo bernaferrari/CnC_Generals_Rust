@@ -13462,8 +13462,22 @@ impl GameLogic {
                                                 );
                                             let carrier =
                                                 is_bunker_buster_carrier(&a.template_name);
-                                            let clearer =
-                                                is_kill_garrisoned_clearer(&a.template_name);
+                                            let wname = if slot == 1 {
+                                                a.thing
+                                                    .template
+                                                    .secondary_weapon_name
+                                                    .as_deref()
+                                                    .or(a.thing.template.primary_weapon_name.as_deref())
+                                            } else {
+                                                a.thing.template.primary_weapon_name.as_deref()
+                                            };
+                                            let clearer = is_kill_garrisoned_clearer(
+                                                &a.template_name,
+                                            ) || wname
+                                                .map(
+                                                    crate::game_logic::host_bunker_buster::is_kill_garrisoned_clearer_weapon,
+                                                )
+                                                .unwrap_or(false);
                                             (
                                                 should_apply_bunker_buster(
                                                     has_upgrade,
@@ -14213,19 +14227,58 @@ impl GameLogic {
                         tname, pwn, swn, slot,
                     )
                 };
-                let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
-                    muzzle_pos,
-                    impact_pos,
-                    fire_frame,
-                    attacker_id,
-                    fire_target,
-                    &fire_fx,
-                    &det_fx,
-                    &fire_ocl,
-                    // Ballistic detonation OCL is applied at real impact via projectiles.
-                    // Instant combat residual still stamps det_ocl at fire-time impact.
-                    &det_ocl,
-                );
+                // C++ Weapon::fireWeaponTemplate FireFX stealth gate residual:
+                // stealthed+undetected+non-disguised suppress muzzle FX unless
+                // PlayFXWhenStealthed or KINDOF_MINE.
+                let suppress_fire_fx = {
+                    let a = self.objects.get(&attacker_id);
+                    a.map(|o| {
+                        let is_mine = {
+                            let n = o.template_name.to_ascii_lowercase();
+                            n.contains("mine")
+                                || n.contains("demotrap")
+                                || n.contains("booby")
+                        };
+                        let hidden = o.status.stealthed
+                            && !o.status.detected
+                            && !o.status.disguised
+                            && !is_mine;
+                        if !hidden {
+                            return false;
+                        }
+                        let wname = if slot == 1 {
+                            o.thing
+                                .template
+                                .secondary_weapon_name
+                                .as_deref()
+                                .or(o.thing.template.primary_weapon_name.as_deref())
+                        } else {
+                            o.thing.template.primary_weapon_name.as_deref()
+                        };
+                        let play = wname
+                            .map(
+                                crate::game_logic::weapon_bootstrap::host_play_fx_when_stealthed_for_weapon_name,
+                            )
+                            .unwrap_or(false);
+                        !play
+                    })
+                    .unwrap_or(false)
+                };
+                if !suppress_fire_fx {
+                    let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
+                        muzzle_pos,
+                        impact_pos,
+                        fire_frame,
+                        attacker_id,
+                        fire_target,
+                        &fire_fx,
+                        &det_fx,
+                        &fire_ocl,
+                        // Ballistic detonation OCL is applied at real impact via projectiles.
+                        // Instant combat residual still stamps det_ocl at fire-time impact.
+                        &det_ocl,
+                    );
+                }
                 // C++ Weapon.ini LaserName residual: short-lived combat beam for
                 // presentation / laser_segment_upload observe path.
                 {

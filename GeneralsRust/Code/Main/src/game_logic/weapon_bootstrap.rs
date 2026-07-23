@@ -2543,6 +2543,43 @@ fn seed_fire_sound_loop_frames_for(name: &str) -> u32 {
     0
 }
 
+/// C++ Weapon.ini PlayFXWhenStealthed residual.
+///
+/// When false (default), stealthed+undetected+non-disguised shooters suppress
+/// FireFX (C++ Weapon::fireWeaponTemplate handleWeaponFireFX gate). Mines always
+/// play FX. When true, FX plays even while stealthed.
+pub fn host_play_fx_when_stealthed_for_weapon_name(name: &str) -> bool {
+    seed_play_fx_when_stealthed_for(name)
+}
+
+fn seed_play_fx_when_stealthed_for(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    // Retail weapons that keep muzzle FX while cloaked (subset residual).
+    n.contains("stinger")
+        || n.contains("scudstorm")
+        || n.contains("tunnel")
+        || n.contains("demotrap")
+        || n.contains("booby")
+}
+
+/// C++ Weapon.ini AllowAttackGarrisonedBldgs residual.
+pub fn host_allow_attack_garrisoned_for_weapon_name(name: &str) -> bool {
+    seed_allow_attack_garrisoned_for(name)
+}
+
+fn seed_allow_attack_garrisoned_for(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("flame")
+        || n.contains("dragon")
+        || n.contains("toxin")
+        || n.contains("microwave")
+        || n.contains("ranger")
+        || n.contains("flashbang")
+        || n.contains("buildingclearer")
+        || n.contains("cleargarrison")
+        || n.contains("killgarrison")
+}
+
 pub fn host_fire_sound_for_unit_slot(
     template_name: &str,
     primary_weapon_name: Option<&str>,
@@ -5019,6 +5056,24 @@ mod tests {
         assert!(sec_last > 0.0, "secondary last_fire_time must advance");
     }
 
+    #[test]
+    fn play_fx_when_stealthed_and_allow_garrisoned_seeds() {
+        assert!(!host_play_fx_when_stealthed_for_weapon_name(
+            "AmericaTankCrusaderGun"
+        ));
+        assert!(host_play_fx_when_stealthed_for_weapon_name(
+            "TunnelNetworkGun"
+        ));
+        assert!(host_allow_attack_garrisoned_for_weapon_name(
+            "DragonTankFlameWeapon"
+        ));
+        assert!(host_allow_attack_garrisoned_for_weapon_name(
+            "AmericaRangerFlashBangGrenade"
+        ));
+        assert!(!host_allow_attack_garrisoned_for_weapon_name(
+            "AmericaTankCrusaderGun"
+        ));
+    }
     #[test]
     fn fire_sound_for_seeded_weapons_residual() {
         let _ = ensure_host_weapon_store();
