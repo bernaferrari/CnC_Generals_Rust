@@ -165,10 +165,8 @@ impl BridgeScaffoldBehavior {
     fn update_target_position(&mut self) {
         match self.target_motion {
             ScaffoldTargetMotion::Still => {
-                if let Ok(me) = self.get_object() {
-                    if let Ok(me_read) = me.read() {
-                        self.target_pos = *me_read.get_position();
-                    }
+                if let Ok(pos) = self.with_object(|me_read| *me_read.get_position()) {
+                    self.target_pos = pos;
                 }
             }
             ScaffoldTargetMotion::Rise => {
@@ -187,19 +185,46 @@ impl BridgeScaffoldBehavior {
     }
 
     /// Get the object this behavior belongs to
+    fn owner_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(
+        &self,
+        f: impl FnOnce(&GameObject) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return Err("BridgeScaffoldBehavior missing owning object id".into());
+        }
+        OBJECT_REGISTRY
+            .with_object(id, f)
+            .ok_or_else(|| "owning object not found".into())
+    }
+
+    fn with_object_mut<R>(
+        &self,
+        f: impl FnOnce(&mut GameObject) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return Err("BridgeScaffoldBehavior missing owning object id".into());
+        }
+        OBJECT_REGISTRY
+            .with_object_mut(id, f)
+            .ok_or_else(|| "owning object not found".into())
+    }
+
     fn get_object(
         &self,
     ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
-        if self.object_id == OBJECT_INVALID_ID {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
             return Err("BridgeScaffoldBehavior missing owning object id".into());
         }
-        OBJECT_REGISTRY.get_object(self.object_id).ok_or_else(|| {
-            format!(
-                "BridgeScaffoldBehavior object {} not registered",
-                self.object_id
-            )
-            .into()
-        })
+        OBJECT_REGISTRY
+            .get_object(id)
+            .ok_or_else(|| "owning object not found".into())
     }
 }
 
