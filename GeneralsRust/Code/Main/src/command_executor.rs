@@ -366,7 +366,7 @@ impl<'a> CommandExecutor<'a> {
         }
 
         // Gather movable members with positions (skip dead / immobile).
-        let mut movers: Vec<(ObjectId, Vec3, f32, u32, glam::Vec2)> =
+        let mut movers: Vec<(ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool)> =
             Vec::with_capacity(units.len());
         for &unit_id in units {
             let Some(obj) = self.game_logic.get_object(unit_id) else {
@@ -387,6 +387,8 @@ impl<'a> CommandExecutor<'a> {
                 radius,
                 obj.formation_id,
                 obj.formation_offset,
+                obj.is_kind_of(crate::game_logic::KindOf::Infantry),
+                obj.is_kind_of(crate::game_logic::KindOf::Vehicle),
             ));
         }
         if movers.is_empty() {
@@ -399,18 +401,23 @@ impl<'a> CommandExecutor<'a> {
         // Shared non-zero formation id → C++ formation move offsets.
         let fid0 = movers[0].3;
         let is_formation = fid0 != 0 && movers.iter().all(|m| m.3 == fid0);
-
         if is_formation {
-            // C++ friend_moveFormationToPos residual: goal + formationOffset.
             return movers
                 .into_iter()
-                .map(|(id, _pos, _r, _fid, off)| {
+                .map(|(id, _pos, _r, _fid, off, _inf, _veh)| {
                     (
                         id,
                         Vec3::new(destination.x + off.x, destination.y, destination.z + off.y),
                     )
                 })
                 .collect();
+        }
+
+        // C++ friend_moveInfantryToPos / friend_moveVehicleToPos residual:
+        // when enough pure infantry or vehicles move far enough, pack into columns
+        // along the move direction instead of free-move center offsets.
+        if let Some(column) = self.group_column_destinations(&movers, destination) {
+            return column;
         }
 
         // Near-to-far vs goal (C++ SimpleObjectIterator ITER_SORTED_NEAR_TO_FAR).
@@ -423,7 +430,7 @@ impl<'a> CommandExecutor<'a> {
         // Free-move center is the nearest unit's current position (C++ firstUnit branch).
         let center = movers[0].1;
         let mut out = Vec::with_capacity(movers.len());
-        for (i, (unit_id, pos, radius, _fid, _off)) in movers.into_iter().enumerate() {
+        for (i, (unit_id, pos, radius, _fid, _off, _inf, _veh)) in movers.into_iter().enumerate() {
             let goal = if i == 0 {
                 destination
             } else {
@@ -448,6 +455,100 @@ impl<'a> CommandExecutor<'a> {
             out.push((unit_id, goal));
         }
         out
+    }
+
+    /// C++ AIGroup column path residual (infantry 3-col / vehicle group).
+    /// Fail-closed: not full ground-path node following; destination-side pack only.
+    fn group_column_destinations(
+        &self,
+        movers: &[(ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool)],
+        destination: Vec3,
+    ) -> Option<Vec<(ObjectId, Vec3)>> {
+        use crate::game_logic::host_ai_path_combat_residual_wave105::{
+            MIN_DISTANCE_FOR_GROUP_RESIDUAL, MIN_INFANTRY_FOR_GROUP_RESIDUAL,
+            MIN_VEHICLES_FOR_GROUP_RESIDUAL,
+        };
+
+        let n = movers.len() as i32;
+        let all_infantry = movers.iter().all(|m| m.5);
+        let all_vehicles = movers.iter().all(|m| m.6);
+        if !all_infantry && !all_vehicles {
+            return None;
+        }
+        let min_count = if all_infantry {
+            MIN_INFANTRY_FOR_GROUP_RESIDUAL
+        } else {
+            MIN_VEHICLES_FOR_GROUP_RESIDUAL
+        };
+        if n < min_count {
+            return None;
+        }
+
+        let mut center = Vec3::ZERO;
+        for m in movers {
+            center += m.1;
+        }
+        center /= movers.len() as f32;
+
+        let mut dir_x = destination.x - center.x;
+        let mut dir_z = destination.z - center.z;
+        let dist = (dir_x * dir_x + dir_z * dir_z).sqrt();
+        if dist < MIN_DISTANCE_FOR_GROUP_RESIDUAL {
+            return None;
+        }
+        dir_x /= dist;
+        dir_z /= dist;
+        // Perpendicular (C++ startVectorNormal: (-y, x) on XY → (-z, x) on XZ).
+        let nx = -dir_z;
+        let nz = dir_x;
+
+        // Sort by projection on normal (C++ FAR_TO_NEAR on normal dot).
+        let mut ordered: Vec<(ObjectId, Vec3, f32, f32)> = movers
+            .iter()
+            .map(|m| {
+                let dx = m.1.x - center.x;
+                let dz = m.1.z - center.z;
+                let proj = dx * nx + dz * nz;
+                (m.0, m.1, m.2, proj)
+            })
+            .collect();
+        ordered.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+
+        let num_columns = 3i32;
+        let half = num_columns / 2;
+        let units_to_path = ordered.len() as i32;
+        // C++: spacing uses path cell size; host residual ≈ average radius.
+        let avg_r: f32 = ordered.iter().map(|o| o.2).sum::<f32>() / (ordered.len() as f32).max(1.0);
+        let col_spacing = avg_r.max(8.0) * 1.25;
+        let rank_spacing = avg_r.max(8.0) * 1.5;
+
+        let mut out = Vec::with_capacity(ordered.len());
+        for (cur_index, (id, _pos, _r, _proj)) in ordered.into_iter().enumerate() {
+            let cur_index = cur_index as i32;
+            // C++: divisor = (unitsToPath+1)/numColumns; columnDelta = 1 - curIndex/divisor
+            let mut divisor = (units_to_path + 1) / num_columns;
+            if divisor < 1 {
+                divisor = 1;
+            }
+            let mut column_delta = 1 - (cur_index / divisor);
+            if column_delta < -half {
+                column_delta = -half;
+            }
+            if column_delta > half {
+                column_delta = half;
+            }
+            // Rank depth along move direction (rows).
+            let rank = cur_index / num_columns;
+            let goal = Vec3::new(
+                destination.x + nx * (column_delta as f32) * col_spacing
+                    - dir_x * (rank as f32) * rank_spacing,
+                destination.y,
+                destination.z + nz * (column_delta as f32) * col_spacing
+                    - dir_z * (rank as f32) * rank_spacing,
+            );
+            out.push((id, goal));
+        }
+        Some(out)
     }
 
     /// Pathfind to `goal` then set AI state. Returns false if path assign fails.
@@ -4683,6 +4784,65 @@ mod group_move_tests {
         assert!((gb.x - (100.0 + 20.0)).abs() < 0.1, "b goal {gb:?}");
         assert!((ga.z - 50.0).abs() < 0.1);
         assert!((gb.z - 50.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn infantry_group_move_uses_column_pack() {
+        use super::CommandExecutor;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        for name in ["INF_A", "INF_B", "INF_C", "INF_D"] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Infantry);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(100.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        // Cluster near origin; move far +X so column residual engages.
+        let ids: Vec<_> = ["INF_A", "INF_B", "INF_C", "INF_D"]
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                logic
+                    .create_object(
+                        name,
+                        Team::USA,
+                        Vec3::new(i as f32 * 5.0, 0.0, (i as f32) * 2.0),
+                    )
+                    .unwrap()
+            })
+            .collect();
+        for &id in &ids {
+            logic.get_object_mut(id).unwrap().selection_radius = 10.0;
+        }
+        let click = Vec3::new(300.0, 0.0, 0.0);
+        let exec = CommandExecutor::new(&mut logic, 0);
+        let goals = exec.group_move_destinations(&ids, click);
+        assert_eq!(goals.len(), 4);
+        // Column pack: goals should not all share the same XZ (lateral spread).
+        let zs: Vec<f32> = goals.iter().map(|(_, g)| g.z).collect();
+        let z_span = zs.iter().cloned().fold(f32::MIN, f32::max)
+            - zs.iter().cloned().fold(f32::MAX, f32::min);
+        assert!(
+            z_span > 5.0,
+            "infantry column should lateral-spread goals, zs={zs:?}"
+        );
+        // And not collapse to free-move lead-only click for all.
+        let unique_approx = {
+            let mut xs: Vec<(i32, i32)> = goals
+                .iter()
+                .map(|(_, g)| ((g.x * 10.0) as i32, (g.z * 10.0) as i32))
+                .collect();
+            xs.sort();
+            xs.dedup();
+            xs.len()
+        };
+        assert!(
+            unique_approx >= 3,
+            "expected multiple distinct column goals, got {goals:?}"
+        );
     }
 
     #[test]
