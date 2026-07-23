@@ -95,6 +95,25 @@ pub enum CommandType {
         team: u8,
         max_shots: i32,
     },
+    /// C++ AIGroup::groupOverrideSpecialPowerDestination residual.
+    OverrideSpecialPowerDestination {
+        location: glam::Vec3,
+    },
+    /// C++ AIGroup::setWeaponSetFlag residual.
+    /// flag: 0=PLAYER_UPGRADE, 1=MINE_CLEARING, 2=CARBOMB, 3=VEHICLE_HIJACK.
+    SetWeaponSetFlag {
+        flag: u8,
+        enabled: bool,
+    },
+    /// C++ AIGroup::groupFollowWaypointPath residual (explicit path points).
+    FollowWaypointPath {
+        waypoints: Vec<glam::Vec3>,
+        exact: bool,
+    },
+    /// C++ AIGroup::groupSurrender residual (test-key path).
+    Surrender {
+        surrendered: bool,
+    },
     Deploy,
     Gather {
         target_id: ObjectId,
@@ -2128,6 +2147,25 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             team: 0,
             max_shots: -1,
         }),
+        "overridespecialpowerdestination" | "overridespdest" => {
+            Some(CommandType::OverrideSpecialPowerDestination {
+                location: glam::Vec3::ZERO,
+            })
+        }
+        "setweaponsetflag" | "weaponsetflag" => Some(CommandType::SetWeaponSetFlag {
+            flag: 0,
+            enabled: true,
+        }),
+        "followwaypointpath" | "followwaypoints" => Some(CommandType::FollowWaypointPath {
+            waypoints: Vec::new(),
+            exact: false,
+        }),
+        "followwaypointpathexact" => Some(CommandType::FollowWaypointPath {
+            waypoints: Vec::new(),
+            exact: true,
+        }),
+        "surrender" => Some(CommandType::Surrender { surrendered: true }),
+        "unsurrender" => Some(CommandType::Surrender { surrendered: false }),
         "deploy" => Some(CommandType::Deploy),
         "cheer" | "allcheer" | "groupcheer" => Some(CommandType::Cheer),
         "createformation" | "formation" => Some(CommandType::CreateFormation),
