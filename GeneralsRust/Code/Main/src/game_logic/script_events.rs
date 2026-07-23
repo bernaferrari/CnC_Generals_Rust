@@ -16,6 +16,13 @@ pub enum ScriptEvent {
     RevealMapForPlayer {
         player_id: u32,
     },
+    /// C++ ScriptEngine::notifyOfCompletedSpecialPower residual
+    /// (SpecialPowerCompletionDie::onDie).
+    CompletedSpecialPower {
+        player_id: u32,
+        special_power_name: String,
+        creator_id: u32,
+    },
 }
 
 static EVENT_QUEUE: OnceLock<Mutex<Vec<ScriptEvent>>> = OnceLock::new();
