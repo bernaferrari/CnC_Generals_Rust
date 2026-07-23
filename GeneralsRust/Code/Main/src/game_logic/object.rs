@@ -943,6 +943,12 @@ pub struct Object {
     /// C++ KeepObjectDie residual (leave rubble).
     #[serde(default)]
     pub keep_object_die: Option<crate::game_logic::host_keep_object_die::HostKeepObjectDieData>,
+    /// C++ WaveGuideUpdate residual.
+    #[serde(default)]
+    pub wave_guide_data: Option<crate::game_logic::host_wave_guide::HostWaveGuideData>,
+    /// C++ FireWeaponWhenDead residual once-fired flag.
+    #[serde(default)]
+    pub fire_weapon_when_dead_fired: bool,
     /// C++ FireWeaponWhenDamagedBehavior residual.
     #[serde(default)]
     pub fire_weapon_when_damaged:
@@ -1601,6 +1607,8 @@ impl Object {
             structure_topple_data: None,
             structure_collapse_data: None,
             keep_object_die: None,
+            wave_guide_data: None,
+            fire_weapon_when_dead_fired: false,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
@@ -1948,6 +1956,8 @@ impl Object {
             structure_topple_data: None,
             structure_collapse_data: None,
             keep_object_die: None,
+            wave_guide_data: None,
+            fire_weapon_when_dead_fired: false,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,

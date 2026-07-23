@@ -22150,6 +22150,90 @@ impl GameLogic {
         self.mark_object_for_destruction(id, None);
     }
 
+    /// C++ FireWeaponWhenDeadBehavior::onDie residual — death weapon splash.
+    fn apply_fire_weapon_when_dead(&mut self, dying_id: ObjectId) {
+        use crate::game_logic::host_fire_weapon_when_dead::{
+            death_weapon_for_template, splash_damage_at_distance,
+        };
+
+        let Some(obj) = self.objects.get(&dying_id) else {
+            return;
+        };
+        if obj.fire_weapon_when_dead_fired {
+            return;
+        }
+        if obj.status.under_construction {
+            return;
+        }
+        let Some(splash) = death_weapon_for_template(&obj.template_name) else {
+            return;
+        };
+        let pos = obj.get_position();
+        let team = obj.team;
+        let max_r = splash.primary_radius.max(splash.secondary_radius);
+
+        // Mark fired
+        if let Some(obj) = self.objects.get_mut(&dying_id) {
+            obj.fire_weapon_when_dead_fired = true;
+        }
+
+        let victims: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if *id == dying_id || !o.is_alive() {
+                    return None;
+                }
+                let p = o.get_position();
+                let dx = p.x - pos.x;
+                let dz = p.z - pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                if dist <= max_r {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut destroy_ids = Vec::new();
+        for vid in victims {
+            let Some(v) = self.objects.get_mut(&vid) else {
+                continue;
+            };
+            let p = v.get_position();
+            let dx = p.x - pos.x;
+            let dz = p.z - pos.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            let dmg = splash_damage_at_distance(&splash, dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            let destroyed = v.take_damage_from_immediate(dmg, Some(dying_id));
+            if destroyed {
+                destroy_ids.push(vid);
+            }
+        }
+        // Presentation residual: death explosion particle at epicenter.
+        let _ = self.combat_particles.spawn(
+            crate::game_logic::combat_particles::CombatParticleKind::DeathExplosion,
+            pos,
+            self.frame,
+            Some(dying_id),
+            None,
+        );
+        let _ = team;
+        for id in destroy_ids {
+            // Avoid re-entrancy loops: queue destroy without re-firing this dying unit.
+            if id != dying_id {
+                self.objects_to_destroy.push_back(DestructionEvent {
+                    id,
+                    killer: Some(team),
+                });
+            }
+        }
+    }
+
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
         // C++ DamDie::onDie residual fires with other die modules at death start.
         self.maybe_apply_dam_die(id);
@@ -22217,11 +22301,21 @@ impl GameLogic {
     }
 
     fn apply_dam_die_enable_waveguides(&mut self) {
+        let frame = self.frame;
         for obj in self.objects.values_mut() {
             let is_wg = obj.is_kind_of(crate::game_logic::KindOf::WaveGuide)
-                || crate::game_logic::host_dam_die::is_wave_guide_template(&obj.template_name);
+                || crate::game_logic::host_dam_die::is_wave_guide_template(&obj.template_name)
+                || crate::game_logic::host_wave_guide::is_wave_guide_template(&obj.template_name);
             if is_wg {
                 obj.status.disabled_default = false;
+                if obj.wave_guide_data.is_none() {
+                    let mut wg = crate::game_logic::host_wave_guide::HostWaveGuideData::default();
+                    wg.facing = obj.get_orientation();
+                    wg.ensure_active(frame.max(1));
+                    obj.wave_guide_data = Some(wg);
+                } else if let Some(wg) = obj.wave_guide_data.as_mut() {
+                    wg.ensure_active(frame.max(1));
+                }
             }
         }
     }
@@ -23314,6 +23408,9 @@ impl GameLogic {
                     last_src,
                 );
             }
+
+            // C++ FireWeaponWhenDeadBehavior::onDie residual.
+            self.apply_fire_weapon_when_dead(event.id);
 
             if let Some(obj) = self.objects.remove(&event.id) {
                 crate::game_logic::host_destroy_log::record(event.id);
@@ -43932,6 +44029,7 @@ impl GameLogic {
         // NuclearMissile residual radiation field ticks (after impact blasts).
         self.update_nuclear_radiation_fields();
         self.update_neutron_slow_death_fields();
+        self.update_wave_guides();
         // AnthraxBomb residual toxin field ticks (after impact blasts).
         self.update_anthrax_toxin_fields();
         // SpectreGunship residual orbit damage ticks (after insertion).
@@ -44049,6 +44147,170 @@ impl GameLogic {
 
         self.special_power_strikes
             .restore_neutron_slow_death_fields(keep_fields, keep_metas);
+
+        for (id, team) in destroy_ids {
+            self.mark_object_for_destruction(id, Some(team));
+        }
+    }
+
+    /// C++ WaveGuideUpdate residual — flood wave motion + damage after DamDie.
+    fn update_wave_guides(&mut self) {
+        use crate::game_logic::host_topple::{
+            HostToppleData, TOPPLE_OPTIONS_NO_BOUNCE, TOPPLE_OPTIONS_NO_FX,
+        };
+        use crate::game_logic::host_wave_guide::{
+            is_wave_guide_template, wave_damage_at_distance, MC_BIT_FLOODED, WAVE_DAMAGE_RADIUS,
+            WAVE_TOPPLE_FORCE,
+        };
+
+        let frame = self.frame;
+        // Collect waveguide ids + poses first.
+        let guides: Vec<(ObjectId, glam::Vec3, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.status.disabled_default {
+                    return None;
+                }
+                let is_wg = o.is_kind_of(crate::game_logic::KindOf::WaveGuide)
+                    || is_wave_guide_template(&o.template_name);
+                if !is_wg {
+                    return None;
+                }
+                let wg = o.wave_guide_data.as_ref()?;
+                if !wg.is_moving(frame) {
+                    // Still ensure data exists / active clock.
+                    return None;
+                }
+                Some((*id, o.get_position(), o.get_orientation()))
+            })
+            .collect();
+
+        if guides.is_empty() {
+            // Still tick ensure_active for enabled waveguides waiting on delay.
+            for obj in self.objects.values_mut() {
+                if obj.status.disabled_default {
+                    continue;
+                }
+                let is_wg = obj.is_kind_of(crate::game_logic::KindOf::WaveGuide)
+                    || is_wave_guide_template(&obj.template_name);
+                if is_wg {
+                    if obj.wave_guide_data.is_none() {
+                        let mut wg =
+                            crate::game_logic::host_wave_guide::HostWaveGuideData::default();
+                        wg.facing = obj.get_orientation();
+                        wg.ensure_active(frame.max(1));
+                        obj.wave_guide_data = Some(wg);
+                    } else if let Some(wg) = obj.wave_guide_data.as_mut() {
+                        wg.ensure_active(frame.max(1));
+                    }
+                }
+            }
+            return;
+        }
+
+        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+        for (gid, gpos, gori) in guides {
+            // Motion
+            if let Some(obj) = self.objects.get_mut(&gid) {
+                if let Some(wg) = obj.wave_guide_data.as_mut() {
+                    wg.facing = gori;
+                    if let Some((dx, dz)) = wg.motion_delta(frame) {
+                        let mut p = obj.get_position();
+                        p.x += dx;
+                        p.z += dz;
+                        obj.set_position(p);
+                    }
+                }
+            }
+            let gpos = self
+                .objects
+                .get(&gid)
+                .map(|o| o.get_position())
+                .unwrap_or(gpos);
+
+            // Damage / topple nearby
+            let victims: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter_map(|(id, o)| {
+                    if *id == gid {
+                        return None;
+                    }
+                    if o.is_kind_of(crate::game_logic::KindOf::WaveGuide)
+                        || is_wave_guide_template(&o.template_name)
+                    {
+                        return None;
+                    }
+                    if !o.is_alive() {
+                        return None;
+                    }
+                    let p = o.get_position();
+                    let dx = p.x - gpos.x;
+                    let dz = p.z - gpos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist <= WAVE_DAMAGE_RADIUS {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            for vid in victims {
+                let Some(obj) = self.objects.get_mut(&vid) else {
+                    continue;
+                };
+                let p = obj.get_position();
+                let dx = p.x - gpos.x;
+                let dz = p.z - gpos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let dmg = wave_damage_at_distance(dist);
+                // FLOODED model residual.
+                obj.model_condition_bits |= 1u128 << MC_BIT_FLOODED;
+                // Topple trees/props.
+                let name = obj.template_name.to_ascii_lowercase();
+                if obj.topple_data.is_none()
+                    && (name.contains("tree")
+                        || name.contains("shrub")
+                        || crate::game_logic::host_topple::is_topple_capable_template(
+                            &obj.template_name,
+                        ))
+                {
+                    let mut td = HostToppleData::default();
+                    let len = dist.max(0.001);
+                    if td.apply_toppling_force(
+                        dx / len,
+                        dz / len,
+                        WAVE_TOPPLE_FORCE,
+                        TOPPLE_OPTIONS_NO_BOUNCE | TOPPLE_OPTIONS_NO_FX,
+                    ) {
+                        obj.topple_data = Some(td);
+                    }
+                }
+                if dmg > 0.0 {
+                    if let Some(wg) = self
+                        .objects
+                        .get_mut(&gid)
+                        .and_then(|o| o.wave_guide_data.as_mut())
+                    {
+                        wg.damage_applications = wg.damage_applications.saturating_add(1);
+                    }
+                    let team = self
+                        .objects
+                        .get(&gid)
+                        .map(|o| o.team)
+                        .unwrap_or(Team::Neutral);
+                    if let Some(obj) = self.objects.get_mut(&vid) {
+                        let destroyed = obj.take_damage_from_immediate(dmg, Some(gid));
+                        if destroyed {
+                            destroy_ids.push((vid, team));
+                        }
+                    }
+                }
+            }
+        }
 
         for (id, team) in destroy_ids {
             self.mark_object_for_destruction(id, Some(team));
@@ -82472,6 +82734,101 @@ mod tests {
             0.0
         );
         let _ = SpecialPowerType::NuclearMissile;
+    }
+
+    #[test]
+    fn wave_guide_moves_and_damages_after_dam_die() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut dam = ThingTemplate::new("Dam");
+        dam.set_health(1000.0);
+        dam.add_kind_of(KindOf::Structure);
+        logic.templates.insert("Dam".into(), dam);
+        let mut wg = ThingTemplate::new("WaveGuide");
+        wg.set_health(1.0);
+        wg.add_kind_of(KindOf::WaveGuide);
+        logic.templates.insert("WaveGuide".into(), wg);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank.set_health(200.0);
+        tank.add_kind_of(KindOf::Vehicle);
+        tank.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let dam_id = logic
+            .create_object("Dam", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let wg_id = logic
+            .create_object("WaveGuide", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        logic
+            .objects
+            .get_mut(&wg_id)
+            .unwrap()
+            .status
+            .disabled_default = true;
+        logic.objects.get_mut(&wg_id).unwrap().set_orientation(0.0); // +X
+        let tank_id = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+
+        logic.mark_object_for_destruction(dam_id, None);
+        assert!(!logic.objects.get(&wg_id).unwrap().status.disabled_default);
+        assert!(logic.objects.get(&wg_id).unwrap().wave_guide_data.is_some());
+
+        // Advance past WaveDelay (~23 frames) + motion into tank.
+        for _ in 0..40 {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_wave_guides();
+        }
+        let tank = logic.objects.get(&tank_id);
+        assert!(
+            tank.map(|t| !t.is_alive() || t.health.current <= 0.0 || t.status.destroyed)
+                .unwrap_or(true),
+            "wave must flood-damage nearby tank"
+        );
+        // Wave moved +X
+        let wp = logic.objects.get(&wg_id).unwrap().get_position();
+        assert!(wp.x > 1.0, "waveguide must advance along facing");
+    }
+
+    #[test]
+    fn fire_weapon_when_dead_terrorist_splash() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("GLAInfantryTerrorist");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("GLAInfantryTerrorist".into(), t);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank.set_health(200.0);
+        tank.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let terror_id = logic
+            .create_object(
+                "GLAInfantryTerrorist",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let tank_id = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        // Direct destroy path (skip slow death by using non-vehicle/infantry... terrorist is infantry)
+        // Force mark then process destroy.
+        logic.objects.get_mut(&terror_id).unwrap().health.current = 0.0;
+        // Bypass slow death: mark after clearing wants by using apply path
+        logic.objects_to_destroy.push_back(DestructionEvent {
+            id: terror_id,
+            killer: None,
+        });
+        logic.process_destroy_list();
+        let tank = logic.objects.get(&tank_id);
+        assert!(
+            tank.map(|t| t.health.current < 200.0 || !t.is_alive())
+                .unwrap_or(true),
+            "terrorist death weapon must splash nearby tank"
+        );
     }
 
     #[test]
