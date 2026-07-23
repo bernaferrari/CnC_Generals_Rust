@@ -585,17 +585,36 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::TargetDestroyed;
         }
 
-        let mut any_attacker = false;
+        // C++ groupAttackObjectPrivate(forced=true): near-to-far order.
+        let target_pos = self
+            .game_logic
+            .get_object(target_id)
+            .map(|tg| tg.get_position())
+            .unwrap_or(Vec3::ZERO);
+        let mut ordered: Vec<(ObjectId, f32)> = Vec::new();
         for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.can_attack() {
+                continue;
+            }
+            let p = unit.get_position();
+            let d = (p.x - target_pos.x).hypot(p.z - target_pos.z);
+            ordered.push((unit_id, d));
+        }
+        ordered.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut any_attacker = false;
+        for (unit_id, _) in ordered {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if unit.can_attack() {
-                    unit.set_target(Some(target_id));
-                    unit.set_force_attack(true);
-                    unit.set_ai_state(AIState::Attacking);
-                    any_attacker = true;
-                }
+                unit.set_target(Some(target_id));
+                unit.set_force_attack(true);
+                unit.set_ai_state(AIState::Attacking);
+                any_attacker = true;
             }
         }
+
         if any_attacker {
             CommandResult::Success
         } else {
@@ -642,9 +661,10 @@ impl<'a> CommandExecutor<'a> {
         for &unit_id in units {
             let target_pos = match target {
                 GuardTarget::Position(pos) => Some(*pos),
-                GuardTarget::Object(target_id) => {
-                    self.game_logic.get_object(*target_id).map(|o| o.position)
-                }
+                GuardTarget::Object(target_id) => self
+                    .game_logic
+                    .get_object(*target_id)
+                    .map(|o| o.get_position()),
             };
 
             // Set guard anchors first (short borrow).
@@ -2040,10 +2060,72 @@ impl<'a> CommandExecutor<'a> {
         CommandResult::Success
     }
 
-    fn execute_evacuate(&mut self, units: &[ObjectId]) -> CommandResult {
-        // Emergency exit all units
-        self.execute_exit(units)
+    pub(crate) fn execute_evacuate(&mut self, units: &[ObjectId]) -> CommandResult {
+        // C++ AIGroup::groupEvacuate:
+        //  - airborne aircraft containers: move to ground then evacuate
+        //  - structures without AI: order passengers out
+        //  - other AI containers: aiEvacuate(false) → unload residual
+        // Host residual: unload selected containers via execute_exit; airborne
+        // aircraft path to ground (Y=0) first so chinook-style drop has a dest.
+        let mut ground_containers: Vec<ObjectId> = Vec::new();
+        let mut airborne_containers: Vec<ObjectId> = Vec::new();
+        for &unit_id in units {
+            let Some(obj) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !obj.is_alive() {
+                continue;
+            }
+            let is_container =
+                obj.can_contain() || obj.is_kind_of(crate::game_logic::KindOf::Structure);
+            if !is_container {
+                continue;
+            }
+            let airborne =
+                obj.is_kind_of(crate::game_logic::KindOf::Aircraft) && obj.status.airborne_target;
+            if airborne {
+                airborne_containers.push(unit_id);
+            } else {
+                ground_containers.push(unit_id);
+            }
+        }
+
+        let mut any = false;
+        for unit_id in airborne_containers {
+            let Some(pos) = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|o| o.get_position())
+            else {
+                continue;
+            };
+            // C++: highest ground layer at dest — host residual uses Y=0 ground plane.
+            let dest = Vec3::new(pos.x, 0.0, pos.z);
+            if self.path_to_goal_with_state(unit_id, dest, AIState::Moving) {
+                any = true;
+            }
+            // Also attempt unload residual if already near ground / has passengers.
+            if matches!(self.execute_exit(&[unit_id]), CommandResult::Success) {
+                any = true;
+            }
+        }
+        if !ground_containers.is_empty() {
+            if matches!(
+                self.execute_exit(&ground_containers),
+                CommandResult::Success
+            ) {
+                any = true;
+            }
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            // Fail-closed: no containers selected (unlike Exit which can free passengers).
+            CommandResult::InvalidCommand
+        }
     }
+
     fn execute_hack_internet(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
@@ -3988,12 +4070,23 @@ impl<'a> CommandExecutor<'a> {
         CommandResult::Success
     }
 
-    fn execute_cheer(&mut self, units: &[ObjectId]) -> CommandResult {
+    pub(crate) fn execute_cheer(&mut self, units: &[ObjectId]) -> CommandResult {
+        // C++ AIGroup::groupCheer:
+        // setSpecialModelConditionState(SPECIAL_CHEERING, LOGICFRAMES_PER_SECOND * 3)
+        use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
+        let cheer_secs = 3.0; // 30 logic frames @ 30Hz
+        let cheer_bit = model_condition_bit_name_index("SPECIAL_CHEERING");
         let mut any = false;
         for &unit_id in units {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                if !unit.is_alive() {
+                    continue;
+                }
                 unit.set_ai_state(AIState::SpecialAbility);
-                unit.cheer_timer = 2.0;
+                unit.cheer_timer = cheer_secs;
+                if let Some(bit) = cheer_bit {
+                    unit.model_condition_bits |= 1u128 << bit;
+                }
                 any = true;
             }
         }
@@ -4410,6 +4503,51 @@ mod group_move_tests {
                 "scatter should push outward id={id:?} before={before_d} after={after_d} goal={goal:?}"
             );
         }
+    }
+
+    #[test]
+    fn cheer_uses_three_second_cpp_duration() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("CH_A");
+        tpl.add_kind_of(KindOf::Infantry);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("CH_A".to_string(), tpl);
+        let a = logic.create_object("CH_A", Team::USA, Vec3::ZERO).unwrap();
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(exec.execute_cheer(&[a]), CommandResult::Success);
+        let u = logic.get_object(a).unwrap();
+        assert!(
+            (u.cheer_timer - 3.0).abs() < 0.01,
+            "C++ cheer is 3s (90 frames@30), got {}",
+            u.cheer_timer
+        );
+    }
+
+    #[test]
+    fn evacuate_requires_container_not_passenger_only() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("EV_INF");
+        tpl.add_kind_of(KindOf::Infantry);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("EV_INF".to_string(), tpl);
+        let a = logic
+            .create_object("EV_INF", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        // C++ groupEvacuate no-ops on non-containers without AI contain.
+        assert_eq!(exec.execute_evacuate(&[a]), CommandResult::InvalidCommand);
     }
 
     #[test]
