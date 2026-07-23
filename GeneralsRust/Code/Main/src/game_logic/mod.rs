@@ -1211,8 +1211,14 @@ pub struct Movement {
     pub target_position: Option<Vec3>,
     pub velocity: Vec3,
     pub max_speed: f32,
+    /// C++ LocomotorTemplate::m_maxSpeedDamaged residual.
+    pub max_speed_damaged: f32,
     pub acceleration: f32,
+    /// C++ LocomotorTemplate::m_accelerationDamaged residual.
+    pub acceleration_damaged: f32,
     pub turn_rate: f32,
+    /// C++ LocomotorTemplate::m_maxTurnRateDamaged residual.
+    pub turn_rate_damaged: f32,
     pub path: Vec<Vec3>,
     pub current_path_index: usize,
 }
@@ -1223,8 +1229,12 @@ impl Default for Movement {
             target_position: None,
             velocity: Vec3::ZERO,
             max_speed: 10.0,
+            // Retail default often ~ half pristine when damaged; host uses 50%.
+            max_speed_damaged: 5.0,
             acceleration: 5.0,
+            acceleration_damaged: 2.5,
             turn_rate: std::f32::consts::PI,
+            turn_rate_damaged: std::f32::consts::PI * 0.5,
             path: Vec::new(),
             current_path_index: 0,
         }

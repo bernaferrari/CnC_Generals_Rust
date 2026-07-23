@@ -1375,6 +1375,12 @@ impl XferData for Movement {
         xfer.xfer_f32(&mut self.acceleration)?;
         xfer.xfer_marker_label("TurnRate")?;
         xfer.xfer_f32(&mut self.turn_rate)?;
+        xfer.xfer_marker_label("MaxSpeedDamaged")?;
+        xfer.xfer_f32(&mut self.max_speed_damaged)?;
+        xfer.xfer_marker_label("AccelerationDamaged")?;
+        xfer.xfer_f32(&mut self.acceleration_damaged)?;
+        xfer.xfer_marker_label("TurnRateDamaged")?;
+        xfer.xfer_f32(&mut self.turn_rate_damaged)?;
         xfer.xfer_marker_label("Path")?;
         xfer_vec_vec3(xfer, &mut self.path)?;
         xfer.xfer_marker_label("CurrentPathIndex")?;
