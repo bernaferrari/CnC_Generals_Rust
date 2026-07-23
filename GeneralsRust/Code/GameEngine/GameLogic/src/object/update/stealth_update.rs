@@ -981,16 +981,19 @@ impl StealthUpdateController {
         if detection_status_changed {
             // Access container's ContainModule and recalc apparent controlling player (C++ lines 786-802)
             let _ = OBJECT_REGISTRY.with_object(self.object_id, |guard| {
-                if let Some(container_obj) = guard.get_container() {
-                    if let Ok(container_guard) = container_obj.read() {
-                        if let Some(contain) = container_guard.get_contain() {
-                            if let Ok(contain_guard) = contain.lock() {
-                                // ContainModule will recalculate apparent controlling player
-                                // based on detection status of contained units
-                                drop(contain_guard);
+                if let Some(container_id) = guard.get_container_id() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                        container_id,
+                        |container_guard| {
+                            if let Some(contain) = container_guard.get_contain() {
+                                if let Ok(contain_guard) = contain.lock() {
+                                    // ContainModule will recalculate apparent controlling player
+                                    // based on detection status of contained units
+                                    drop(contain_guard);
+                                }
                             }
-                        }
-                    }
+                        },
+                    );
                 }
             });
         }

@@ -2410,19 +2410,20 @@ impl ScriptAction for TeamExitBuildingAction {
             let Some(unit_arc) = TheGameLogic::find_object_by_id(member_id) else {
                 continue;
             };
-            let container_arc = unit_arc
+            let Some(container_id) = unit_arc
                 .read()
                 .ok()
-                .and_then(|unit_guard| unit_guard.get_container());
-            let Some(container_arc) = container_arc else {
+                .and_then(|unit_guard| unit_guard.get_container_id())
+            else {
                 continue;
             };
-            let contain = container_arc.read().ok().and_then(|c| c.get_contain());
-            if let Some(contain) = contain {
-                if let Ok(mut contain_guard) = contain.try_lock() {
-                    let _ = contain_guard.release_object(member_id);
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |c| {
+                if let Some(contain) = c.get_contain() {
+                    if let Ok(mut contain_guard) = contain.try_lock() {
+                        let _ = contain_guard.release_object(member_id);
+                    }
                 }
-            }
+            });
         }
 
         Ok(ScriptResult::Success(None))
@@ -3964,27 +3965,32 @@ impl ScriptAction for NamedExitAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let container_arc = unit_arc
+        let Some(container_id) = unit_arc
             .read()
             .ok()
-            .and_then(|unit_guard| unit_guard.get_container());
-
-        let Some(container_arc) = container_arc else {
+            .and_then(|unit_guard| unit_guard.get_container_id())
+        else {
             log::warn!("NamedExitAction: unit '{}' is not contained", unit_name);
             return Ok(ScriptResult::Success(None));
         };
 
-        let contain = container_arc.read().ok().and_then(|c| c.get_contain());
-        let Some(contain) = contain else {
+        let released = crate::object::registry::OBJECT_REGISTRY
+            .with_object(container_id, |c| {
+                if let Some(contain) = c.get_contain() {
+                    if let Ok(mut contain_guard) = contain.try_lock() {
+                        let _ = contain_guard.release_object(unit_id);
+                        return true;
+                    }
+                }
+                false
+            })
+            .unwrap_or(false);
+        if !released {
             log::warn!(
                 "NamedExitAction: container for '{}' has no contain module",
                 unit_name
             );
             return Ok(ScriptResult::Success(None));
-        };
-
-        if let Ok(mut contain_guard) = contain.try_lock() {
-            let _ = contain_guard.release_object(unit_id);
         }
 
         Ok(ScriptResult::Success(None))

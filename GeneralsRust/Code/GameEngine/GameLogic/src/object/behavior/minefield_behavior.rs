@@ -651,9 +651,10 @@ impl MinefieldBehavior {
             let clearing = other_object
                 .get_ai()
                 .and_then(|ai| {
-                    ai.lock()
-                        .ok()
-                        .map(|ai| ai.is_clearing_mines() && ai.get_goal_object().is_some())
+                    ai.lock().ok().map(|ai| {
+                        ai.is_clearing_mines()
+                            && ai.get_goal_object_id() != crate::common::INVALID_ID
+                    })
                 })
                 .unwrap_or(false);
             (
