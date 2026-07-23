@@ -932,6 +932,10 @@ pub struct Object {
     /// C++ ToppleUpdate residual (trees / crushable props).
     #[serde(default)]
     pub topple_data: Option<crate::game_logic::host_topple::HostToppleData>,
+    /// C++ StructureToppleUpdate residual (buildings fall after HP death).
+    #[serde(default)]
+    pub structure_topple_data:
+        Option<crate::game_logic::host_structure_topple::HostStructureToppleData>,
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
@@ -1537,6 +1541,7 @@ impl Object {
             crusher_level: 0,
             crushable_level: 255,
             topple_data: None,
+            structure_topple_data: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -1866,6 +1871,7 @@ impl Object {
             crusher_level: 0,
             crushable_level: 255,
             topple_data: None,
+            structure_topple_data: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -2319,6 +2325,84 @@ impl Object {
     /// C++ ActiveBody::onSubdualChange → setDisabled(DISABLED_SUBDUED).
     /// Structures stop production / attack while cooked; residual continuous
     /// while microwave keeps attacking (not full subdual accumulate/heal).
+
+    /// C++ StructureToppleUpdate::onDie / beginStructureTopple residual.
+    /// Call when a structure reaches lethal damage instead of instant destroy.
+    /// Returns true if structure topple was started (caller should not destroy yet).
+    pub fn begin_structure_topple(
+        &mut self,
+        current_frame: u32,
+        attacker_pos: Option<(f32, f32)>,
+    ) -> bool {
+        if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
+            return false;
+        }
+        if !crate::game_logic::host_structure_topple::is_structure_topple_candidate(
+            &self.template_name,
+            true,
+        ) {
+            return false;
+        }
+        if self
+            .structure_topple_data
+            .as_ref()
+            .map(|d| !d.is_standing())
+            .unwrap_or(false)
+        {
+            return true; // already toppling
+        }
+        let pos = self.get_position();
+        let (dx, dz) = match attacker_pos {
+            Some((ax, az)) => (pos.x - ax, pos.z - az),
+            None => (1.0, 0.0),
+        };
+        let mut data = crate::game_logic::host_structure_topple::HostStructureToppleData::default();
+        data.begin(current_frame, dx, dz, 0);
+        self.structure_topple_data = Some(data);
+        // C++ marks AI dead and deselects while building is still "alive" for fall.
+        self.selected = false;
+        self.status.selected = false;
+        self.set_ai_state(crate::game_logic::AIState::Idle);
+        // Keep a sliver of HP so generic destroy passes leave it alone until done.
+        if self.health.current <= 0.0 {
+            self.health.current = 0.01;
+        }
+        self.status.destroyed = false;
+        true
+    }
+
+    /// C++ StructureToppleUpdate::update residual. True when fall completes.
+    pub fn tick_structure_topple(&mut self, current_frame: u32) -> bool {
+        let Some(st) = self.structure_topple_data.as_mut() else {
+            return false;
+        };
+        if !st.tick(current_frame) {
+            return false;
+        }
+        // doToppleDoneStuff residual: finalize death.
+        self.health.current = 0.0;
+        self.status.destroyed = true;
+        self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+        true
+    }
+
+    /// Combined presentation lean (tree topple or structure topple).
+    pub fn presentation_topple_lean_radians(&self) -> f32 {
+        if let Some(st) = self.structure_topple_data.as_ref() {
+            if st.is_active()
+                || matches!(
+                    st.state,
+                    crate::game_logic::host_structure_topple::HostStructureToppleState::Done
+                )
+            {
+                return st.lean_radians;
+            }
+        }
+        self.topple_data
+            .as_ref()
+            .map(|t| t.lean_radians)
+            .unwrap_or(0.0)
+    }
 
     /// Attach residual ToppleUpdate when template is topple-capable.
     pub fn ensure_topple_data(&mut self) {
@@ -5517,7 +5601,7 @@ impl Object {
             let _ = other.take_damage_from_typed_death(
                 0.0,
                 Some(self.id),
-                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::combat::DamageType::Crush,
                 crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
             );
         }
@@ -5579,7 +5663,7 @@ impl Object {
             let _ = other.take_damage_from_typed_death(
                 PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
                 Some(self.id),
-                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::combat::DamageType::Crush,
                 crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
             );
         }
@@ -11542,6 +11626,36 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn structure_topple_on_lethal_damage() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("AmericaWarFactory");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Structure);
+        let mut b = Object::new(t, ObjectId(1), Team::USA);
+        b.health.current = 200.0;
+        assert!(b.begin_structure_topple(10, Some((0.0, 0.0))));
+        assert!(
+            b.structure_topple_data.as_ref().unwrap().is_active()
+                || !b.structure_topple_data.as_ref().unwrap().is_standing()
+        );
+        assert!(!b.status.destroyed);
+        let mut done = false;
+        for f in 10..800 {
+            if b.tick_structure_topple(f) {
+                done = true;
+                break;
+            }
+        }
+        assert!(done);
+        assert!(b.status.destroyed);
+        assert_eq!(
+            b.status.death_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::Toppled
+        );
+        assert!(b.presentation_topple_lean_radians() > 1.0);
     }
 
     #[test]
