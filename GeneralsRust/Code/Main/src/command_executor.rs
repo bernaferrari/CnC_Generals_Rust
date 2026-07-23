@@ -122,6 +122,18 @@ impl<'a> CommandExecutor<'a> {
             CommandType::AttackTeam { team, max_shots } => {
                 self.execute_attack_team(&command.selected_units, *team, *max_shots)
             }
+            CommandType::OverrideSpecialPowerDestination { location } => {
+                self.execute_override_special_power_destination(&command.selected_units, *location)
+            }
+            CommandType::SetWeaponSetFlag { flag, enabled } => {
+                self.execute_set_weapon_set_flag(&command.selected_units, *flag, *enabled)
+            }
+            CommandType::FollowWaypointPath { waypoints, exact } => {
+                self.execute_follow_waypoint_path(&command.selected_units, waypoints, *exact)
+            }
+            CommandType::Surrender { surrendered } => {
+                self.execute_surrender(&command.selected_units, *surrendered)
+            }
             CommandType::Deploy => self.execute_deploy(&command.selected_units),
             CommandType::Gather { target_id } => {
                 self.execute_gather(&command.selected_units, *target_id)
@@ -648,6 +660,155 @@ impl<'a> CommandExecutor<'a> {
         }
         if any {
             self.apply_player_stealth_mood_delay(units);
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::groupOverrideSpecialPowerDestination residual.
+    pub(crate) fn execute_override_special_power_destination(
+        &mut self,
+        units: &[ObjectId],
+        location: Vec3,
+    ) -> CommandResult {
+        if !location.x.is_finite() || !location.z.is_finite() {
+            return CommandResult::InvalidLocation;
+        }
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            // Only units with an active / ready special power path accept override.
+            // Host residual: always store; consumers of special power read it.
+            unit.set_special_power_overridable_destination(location, None);
+            any = true;
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::setWeaponSetFlag residual.
+    pub(crate) fn execute_set_weapon_set_flag(
+        &mut self,
+        units: &[ObjectId],
+        flag: u8,
+        enabled: bool,
+    ) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            if unit.set_weapon_set_flag(flag, enabled) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::groupFollowWaypointPath / Exact residual.
+    pub(crate) fn execute_follow_waypoint_path(
+        &mut self,
+        units: &[ObjectId],
+        waypoints: &[Vec3],
+        exact: bool,
+    ) -> CommandResult {
+        if waypoints.is_empty() {
+            return CommandResult::InvalidLocation;
+        }
+        for wp in waypoints {
+            if !wp.x.is_finite() || !wp.z.is_finite() {
+                return CommandResult::InvalidLocation;
+            }
+        }
+        let goal = *waypoints.last().unwrap();
+        let path: Vec<Vec3> = if exact {
+            waypoints.to_vec()
+        } else {
+            // Non-exact: still use full chain; pathfinder may smooth later.
+            waypoints.to_vec()
+        };
+        let mut any = false;
+        // Sort near-to-far to first waypoint (C++ path assignment order residual).
+        let mut movers: Vec<(ObjectId, f32)> = Vec::new();
+        let first = waypoints[0];
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() || !unit.can_move() {
+                continue;
+            }
+            if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || unit.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            let p = unit.get_position();
+            let dx = p.x - first.x;
+            let dz = p.z - first.z;
+            movers.push((unit_id, dx * dx + dz * dz));
+        }
+        movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        for (unit_id, _) in movers {
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.stop_attack();
+                unit.set_guard_position(None);
+                unit.set_guard_target(None);
+                unit.end_guard_retaliate();
+                unit.formation_id = 0;
+            }
+            if self.game_logic.assign_unit_path(
+                unit_id,
+                goal,
+                &path[..path.len().saturating_sub(1)],
+            ) {
+                any = true;
+            } else if self.path_to_goal_with_state(unit_id, goal, AIState::Moving) {
+                // Fallback: at least reach final waypoint.
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::groupSurrender residual.
+    pub(crate) fn execute_surrender(
+        &mut self,
+        units: &[ObjectId],
+        surrendered: bool,
+    ) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            unit.set_surrendered(surrendered);
+            any = true;
+        }
+        if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -1764,11 +1925,23 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .get_object(*id)
                 .map(|obj| obj.get_position()),
-            PowerTarget::None => units.first().and_then(|id| {
-                self.game_logic
-                    .get_object(*id)
-                    .map(|obj| obj.get_position())
-            }),
+            PowerTarget::None => {
+                // C++ overridable destination residual wins when set on caster.
+                units
+                    .iter()
+                    .find_map(|id| {
+                        self.game_logic
+                            .get_object(*id)
+                            .and_then(|o| o.special_power_override_destination)
+                    })
+                    .or_else(|| {
+                        units.first().and_then(|id| {
+                            self.game_logic
+                                .get_object(*id)
+                                .map(|obj| obj.get_position())
+                        })
+                    })
+            }
         };
 
         debug!(
@@ -5685,6 +5858,118 @@ mod group_move_tests {
                 "unit {id:?} goal {g:?} != {dest:?}"
             );
         }
+    }
+
+    #[test]
+    fn override_special_power_destination_stores() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("SP_O");
+        tpl.add_kind_of(KindOf::Structure);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(500.0);
+        logic.templates.insert("SP_O".to_string(), tpl);
+        let id = logic.create_object("SP_O", Team::USA, Vec3::ZERO).unwrap();
+        let loc = Vec3::new(100.0, 0.0, 50.0);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_override_special_power_destination(&[id], loc),
+                CommandResult::Success
+            );
+        }
+        let o = logic.get_object(id).unwrap();
+        assert_eq!(o.special_power_override_destination, Some(loc));
+    }
+
+    #[test]
+    fn set_weapon_set_flag_carbomb_and_upgrade() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("WS_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("WS_V".to_string(), tpl);
+        let id = logic.create_object("WS_V", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_set_weapon_set_flag(&[id], 2, true),
+                CommandResult::Success
+            );
+            assert_eq!(
+                exec.execute_set_weapon_set_flag(&[id], 0, true),
+                CommandResult::Success
+            );
+        }
+        let o = logic.get_object(id).unwrap();
+        assert!(o.weapon_set_carbomb);
+        assert!(o.weapon_set_player_upgrade);
+    }
+
+    #[test]
+    fn follow_waypoint_path_assigns_multi_point_path() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("WP_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("WP_V".to_string(), tpl);
+        let id = logic.create_object("WP_V", Team::USA, Vec3::ZERO).unwrap();
+        let wps = vec![
+            Vec3::new(10.0, 0.0, 0.0),
+            Vec3::new(20.0, 0.0, 10.0),
+            Vec3::new(30.0, 0.0, 0.0),
+        ];
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_follow_waypoint_path(&[id], &wps, true),
+                CommandResult::Success
+            );
+        }
+        let o = logic.get_object(id).unwrap();
+        assert!(
+            !o.movement.path.is_empty() || o.movement.target_position.is_some(),
+            "should have path or target"
+        );
+    }
+
+    #[test]
+    fn surrender_stops_and_flags_unit() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("SR_I");
+        tpl.add_kind_of(KindOf::Infantry);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("SR_I".to_string(), tpl);
+        let id = logic.create_object("SR_I", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_surrender(&[id], true), CommandResult::Success);
+        }
+        let o = logic.get_object(id).unwrap();
+        assert!(o.is_surrendered);
+        assert!(o.target.is_none());
     }
 
     #[test]

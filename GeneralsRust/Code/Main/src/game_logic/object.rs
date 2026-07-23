@@ -765,6 +765,12 @@ pub struct Object {
     /// C++ WEAPONSET_MINE_CLEARING_DETAIL residual (DozerAI / AIGroup::setMineClearingDetail).
     #[serde(default)]
     pub weapon_set_mine_clearing_detail: bool,
+    /// C++ WEAPONSET_CARBOMB residual.
+    #[serde(default)]
+    pub weapon_set_carbomb: bool,
+    /// C++ WEAPONSET_VEHICLE_HIJACK residual.
+    #[serde(default)]
+    pub weapon_set_vehicle_hijack: bool,
 
     /// Host residual: Battle Bus style transport (capacity 8 + fire + armed-riders).
     /// Distinct from generic Humvee transport residual for honesty counters.
@@ -808,6 +814,9 @@ pub struct Object {
     /// Remaining logic frames for emoticon (C++ duration frames).
     #[serde(default)]
     pub emoticon_frames_left: i32,
+    /// C++ AIUpdateInterface::setSurrendered residual.
+    #[serde(default)]
+    pub is_surrendered: bool,
 
     /// C++ Object::m_formationID residual (0 = NO_FORMATION_ID).
     pub formation_id: u32,
@@ -890,6 +899,12 @@ pub struct Object {
     /// A10 vs SpySatellite do not share one charge (C++ SpecialPowerModule style).
     #[serde(default)]
     pub special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
+    /// C++ SpecialPowerUpdateInterface overridable destination residual.
+    #[serde(default)]
+    pub special_power_override_destination: Option<Vec3>,
+    /// Which power currently accepts destination override (None = any/active).
+    #[serde(default)]
+    pub special_power_override_type: Option<crate::command_system::SpecialPowerType>,
 
     /// Host residual mine / demo-trap / timed demo-charge state.
     /// `None` for ordinary units/structures. Fail-closed: not full C++
@@ -1584,6 +1599,8 @@ impl Object {
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
             weapon_set_mine_clearing_detail: false,
+            weapon_set_carbomb: false,
+            weapon_set_vehicle_hijack: false,
             is_battle_bus_transport: false,
             is_technical_transport: false,
             is_combat_cycle_transport: false,
@@ -1595,6 +1612,7 @@ impl Object {
             prone_timer: 0.0,
             emoticon_name: String::new(),
             emoticon_frames_left: 0,
+            is_surrendered: false,
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
@@ -1623,6 +1641,8 @@ impl Object {
             special_power_cooldown,
             special_power_cooldown_remaining: 0.0,
             special_power_cooldowns: HashMap::new(),
+            special_power_override_destination: None,
+            special_power_override_type: None,
             mine_data: None,
             is_detector: false,
             detection_range: 0.0,
@@ -1889,6 +1909,8 @@ impl Object {
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
             weapon_set_mine_clearing_detail: false,
+            weapon_set_carbomb: false,
+            weapon_set_vehicle_hijack: false,
             is_battle_bus_transport: false,
             is_technical_transport: false,
             is_combat_cycle_transport: false,
@@ -1900,6 +1922,7 @@ impl Object {
             prone_timer: 0.0,
             emoticon_name: String::new(),
             emoticon_frames_left: 0,
+            is_surrendered: false,
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
@@ -1928,6 +1951,8 @@ impl Object {
             special_power_cooldown: 10.0,
             special_power_cooldown_remaining: 0.0,
             special_power_cooldowns: HashMap::new(),
+            special_power_override_destination: None,
+            special_power_override_type: None,
             mine_data: None,
             is_detector: false,
             detection_range: 0.0,
@@ -6269,6 +6294,44 @@ impl Object {
     }
 
     /// C++ Object::setWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL) residual.
+
+    /// C++ SpecialPowerUpdateInterface::setSpecialPowerOverridableDestination residual.
+    pub fn set_special_power_overridable_destination(
+        &mut self,
+        loc: Vec3,
+        power: Option<crate::command_system::SpecialPowerType>,
+    ) {
+        self.special_power_override_destination = Some(loc);
+        self.special_power_override_type = power;
+    }
+
+    pub fn clear_special_power_overridable_destination(&mut self) {
+        self.special_power_override_destination = None;
+        self.special_power_override_type = None;
+    }
+
+    /// C++ Object::setWeaponSetFlag residual (subset used by AIGroup).
+    /// `flag`: 0=PLAYER_UPGRADE, 1=MINE_CLEARING, 2=CARBOMB, 3=VEHICLE_HIJACK.
+    pub fn set_weapon_set_flag(&mut self, flag: u8, enabled: bool) -> bool {
+        match flag {
+            0 => {
+                self.weapon_set_player_upgrade = enabled;
+            }
+            1 => {
+                self.weapon_set_mine_clearing_detail = enabled;
+            }
+            2 => {
+                self.weapon_set_carbomb = enabled;
+            }
+            3 => {
+                self.weapon_set_vehicle_hijack = enabled;
+            }
+            _ => return false,
+        }
+        self.record_host_weapon_set();
+        true
+    }
+
     pub fn set_weapon_set_mine_clearing_detail(&mut self, enabled: bool) {
         self.weapon_set_mine_clearing_detail = enabled;
         self.record_host_weapon_set();
@@ -9791,6 +9854,16 @@ impl Object {
     }
 
     /// C++ Drawable::setEmoticon residual (duration in logic frames @ 30Hz).
+    pub fn set_surrendered(&mut self, surrendered: bool) {
+        self.is_surrendered = surrendered;
+        if surrendered {
+            self.stop_moving();
+            self.set_target(None);
+            self.set_force_attack(false);
+            self.set_ai_state(AIState::Idle);
+        }
+    }
+
     pub fn set_emoticon(&mut self, name: &str, duration_frames: i32) {
         if name.is_empty() || duration_frames <= 0 {
             self.emoticon_name.clear();
