@@ -836,6 +836,14 @@ pub struct Object {
     /// Slot held by the lock (PRIMARY=0, SECONDARY=1, TERTIARY=2).
     #[serde(default)]
     pub weapon_lock_slot: u8,
+    /// C++ Weapon::m_curBarrel residual (which fire bone / FX barrel).
+    pub weapon_cur_barrel: u8,
+    /// C++ WeaponTemplate::m_shotsPerBarrel residual (0/1 = single-barrel).
+    pub weapon_shots_per_barrel: u32,
+    /// C++ Drawable barrel count residual (mod wraps cur barrel).
+    pub weapon_barrel_count: u8,
+    /// C++ Weapon::m_numShotsForCurBarrel residual.
+    pub weapon_shots_left_on_barrel: u32,
 
     /// C++ Weapon PRE_ATTACK residual: target being wound up against.
     #[serde(default)]
@@ -1635,6 +1643,10 @@ impl Object {
             active_weapon_slot: 0,
             weapon_lock_type: WeaponLockType::NotLocked,
             weapon_lock_slot: 0,
+            weapon_cur_barrel: 0,
+            weapon_shots_per_barrel: 1,
+            weapon_barrel_count: 1,
+            weapon_shots_left_on_barrel: 1,
             pre_attack_target: None,
             pre_attack_ready_at: 0.0,
             consecutive_shot_target: None,
@@ -1952,6 +1964,10 @@ impl Object {
             active_weapon_slot: 0,
             weapon_lock_type: WeaponLockType::NotLocked,
             weapon_lock_slot: 0,
+            weapon_cur_barrel: 0,
+            weapon_shots_per_barrel: 1,
+            weapon_barrel_count: 1,
+            weapon_shots_left_on_barrel: 1,
             pre_attack_target: None,
             pre_attack_ready_at: 0.0,
             consecutive_shot_target: None,
@@ -8280,6 +8296,8 @@ impl Object {
             // C++ fireWeaponTemplate LeechRange activate residual.
             self.activate_leech_range_for_slot(slot);
             self.record_shot_at_target(target_id);
+            // C++ Weapon::m_numShotsForCurBarrel / m_curBarrel residual.
+            self.advance_weapon_barrel_after_shot();
             {
                 let (dmg, rng) = self
                     .weapon_slot(slot)
@@ -8391,6 +8409,22 @@ impl Object {
     }
 
     /// C++ Weapon::setLeechRangeActive residual for a weapon slot.
+
+    /// C++ Weapon barrel rotation residual after a shot.
+    /// Decrements shots on current barrel; when exhausted, advances `weapon_cur_barrel`.
+    pub fn advance_weapon_barrel_after_shot(&mut self) {
+        let spb = self.weapon_shots_per_barrel.max(1);
+        let barrels = self.weapon_barrel_count.max(1) as u32;
+        if self.weapon_shots_left_on_barrel == 0 {
+            self.weapon_shots_left_on_barrel = spb;
+        }
+        self.weapon_shots_left_on_barrel = self.weapon_shots_left_on_barrel.saturating_sub(1);
+        if self.weapon_shots_left_on_barrel == 0 {
+            self.weapon_cur_barrel = ((self.weapon_cur_barrel as u32 + 1) % barrels) as u8;
+            self.weapon_shots_left_on_barrel = spb;
+        }
+    }
+
     pub fn activate_leech_range_for_slot(&mut self, slot: u8) {
         let name = if slot == 1 {
             self.thing.template.secondary_weapon_name.as_deref().or(self
@@ -10674,6 +10708,28 @@ mod tests {
             atk.is_within_attack_range(&vic),
             "garrison RANGE 133% should cover 120 with base 100"
         );
+    }
+
+    #[test]
+    fn barrel_advances_after_shots_per_barrel() {
+        let vt = ThingTemplate::new("QuadCannon");
+        let mut o = Object::new(vt, ObjectId(1), Team::USA);
+        o.weapon_shots_per_barrel = 2;
+        o.weapon_barrel_count = 4;
+        o.weapon_shots_left_on_barrel = 2;
+        o.weapon_cur_barrel = 0;
+        o.advance_weapon_barrel_after_shot();
+        assert_eq!(o.weapon_cur_barrel, 0);
+        assert_eq!(o.weapon_shots_left_on_barrel, 1);
+        o.advance_weapon_barrel_after_shot();
+        assert_eq!(o.weapon_cur_barrel, 1);
+        assert_eq!(o.weapon_shots_left_on_barrel, 2);
+        for _ in 0..6 {
+            o.advance_weapon_barrel_after_shot();
+        }
+        // 1 + 6/2 = 4 barrels wrapped -> barrel 0 after 8 shots total from start of loop?
+        // started at barrel 1 after 2 shots; +6 shots = 3 more barrel advances -> barrel 0
+        assert_eq!(o.weapon_cur_barrel, 0);
     }
 
     #[test]
