@@ -275,12 +275,34 @@ impl BehaviorModule {
         }
     }
 
-    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        if self.object_id == crate::common::INVALID_ID {
+    pub fn get_object_id(&self) -> crate::common::ObjectID {
+        self.object_id
+    }
+
+    pub fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+    }
+
+    pub fn with_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
+    }
+
+    /// Short-lived Arc resolve; prefer `with_object` / `get_object_id`.
+    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     pub fn get_interface_mask() -> Int {

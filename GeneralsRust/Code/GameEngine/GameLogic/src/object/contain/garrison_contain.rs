@@ -667,76 +667,81 @@ impl GarrisonContain {
             .ok_or("exit object not found")?;
         self.remove_from_contain(exit_id, true)?;
 
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner) = owner_obj.read() {
-                let mut start_pos = *owner.get_position();
-                let mut end_pos = start_pos;
-                let exit_angle = owner.get_orientation();
+        let owner_id = self.get_object_id();
+        if owner_id != crate::common::INVALID_ID {
+            let Some((mut start_pos, mut end_pos, exit_angle, place_enclosing_early)) = self
+                .with_owner_object(|owner| {
+                    let mut start_pos = *owner.get_position();
+                    let mut end_pos = start_pos;
+                    let exit_angle = owner.get_orientation();
+                    let mut place_enclosing_early = false;
 
-                if matches!(
-                    self.evac_disposition,
-                    EvacDisposition::ToLeft | EvacDisposition::ToRight
-                ) {
-                    let scalar = if matches!(self.evac_disposition, EvacDisposition::ToLeft) {
-                        1.0
-                    } else {
-                        -1.0
-                    };
+                    if matches!(
+                        self.evac_disposition,
+                        EvacDisposition::ToLeft | EvacDisposition::ToRight
+                    ) {
+                        let scalar = if matches!(self.evac_disposition, EvacDisposition::ToLeft) {
+                            1.0
+                        } else {
+                            -1.0
+                        };
 
-                    let geom = owner.get_geometry_info();
-                    let half_length = geom.get_major_radius();
-                    let half_width = geom.get_minor_radius();
+                        let geom = owner.get_geometry_info();
+                        let half_length = geom.get_major_radius();
+                        let half_width = geom.get_minor_radius();
 
-                    let door_offset = Coord3D::new(
-                        get_game_logic_random_value_real(-half_length / 4.0, half_length / 4.0),
-                        get_game_logic_random_value_real(half_width / 2.0, half_width * 2.0)
-                            * scalar,
-                        0.0,
-                    );
-                    let walk_offset = Coord3D::new(
-                        get_game_logic_random_value_real(-half_length, half_length),
-                        half_width * 10.0 * scalar,
-                        0.0,
-                    );
+                        let door_offset = Coord3D::new(
+                            get_game_logic_random_value_real(-half_length / 4.0, half_length / 4.0),
+                            get_game_logic_random_value_real(half_width / 2.0, half_width * 2.0)
+                                * scalar,
+                            0.0,
+                        );
+                        let walk_offset = Coord3D::new(
+                            get_game_logic_random_value_real(-half_length, half_length),
+                            half_width * 10.0 * scalar,
+                            0.0,
+                        );
 
-                    let cos = exit_angle.cos();
-                    let sin = exit_angle.sin();
-                    start_pos.x += door_offset.x * cos - door_offset.y * sin;
-                    start_pos.y += door_offset.x * sin + door_offset.y * cos;
-                    end_pos.x += walk_offset.x * cos - walk_offset.y * sin;
-                    end_pos.y += walk_offset.x * sin + walk_offset.y * cos;
-                } else {
-                    if self.is_enclosing_container_for_any() {
-                        if let Ok(mut exit_guard) = exit_obj.write() {
-                            if let Err(err) = exit_guard.set_position(&start_pos) {
-                                log::debug!(
-                                    "GarrisonContain::exit_object set_position failed: {err}"
-                                );
-                            }
-                        }
+                        let cos = exit_angle.cos();
+                        let sin = exit_angle.sin();
+                        start_pos.x += door_offset.x * cos - door_offset.y * sin;
+                        start_pos.y += door_offset.x * sin + door_offset.y * cos;
+                        end_pos.x += walk_offset.x * cos - walk_offset.y * sin;
+                        end_pos.y += walk_offset.x * sin + walk_offset.y * cos;
+                    } else if self.is_enclosing_container_for_any() {
+                        place_enclosing_early = true;
                     }
-                }
 
-                if let Some(terrain) = TheTerrainLogic::get() {
-                    start_pos.z = terrain.get_ground_height(start_pos.x, start_pos.y, None);
-                    end_pos.z = terrain.get_ground_height(end_pos.x, end_pos.y, None);
-                }
+                    (start_pos, end_pos, exit_angle, place_enclosing_early)
+                })
+            else {
+                self.recalc_apparent_controlling_player()?;
+                return Ok(());
+            };
 
+            if place_enclosing_early {
                 if let Ok(mut exit_guard) = exit_obj.write() {
                     if let Err(err) = exit_guard.set_position(&start_pos) {
                         log::debug!("GarrisonContain::exit_object set_position failed: {err}");
                     }
-                    let _ = exit_guard.set_orientation(exit_angle);
                 }
+            }
 
-                if let Ok(exit_guard) = exit_obj.read() {
-                    if let Some(ai) = exit_guard.get_ai_update_interface() {
-                        ai.ai_follow_path(
-                            &[end_pos],
-                            Some(owner.get_id()),
-                            CommandSourceType::FromAi,
-                        );
-                    }
+            if let Some(terrain) = TheTerrainLogic::get() {
+                start_pos.z = terrain.get_ground_height(start_pos.x, start_pos.y, None);
+                end_pos.z = terrain.get_ground_height(end_pos.x, end_pos.y, None);
+            }
+
+            if let Ok(mut exit_guard) = exit_obj.write() {
+                if let Err(err) = exit_guard.set_position(&start_pos) {
+                    log::debug!("GarrisonContain::exit_object set_position failed: {err}");
+                }
+                let _ = exit_guard.set_orientation(exit_angle);
+            }
+
+            if let Ok(exit_guard) = exit_obj.read() {
+                if let Some(ai) = exit_guard.get_ai_update_interface() {
+                    ai.ai_follow_path(&[end_pos], Some(owner_id), CommandSourceType::FromAi);
                 }
             }
         }
@@ -1197,11 +1202,18 @@ impl GarrisonContain {
 
     /// Validate and pick exit rally point if possible
     fn validate_rally_point(&mut self) -> GameResult<()> {
-        let Some(owner_arc) = self.get_object() else {
+        let owner_id = self.get_object_id();
+        if owner_id == crate::common::INVALID_ID {
+            return Ok(());
+        }
+        let Some((owner_radius, owner_pos)) = self.with_owner_object(|owner_guard| {
+            (
+                owner_guard.get_geometry_info().get_bounding_circle_radius(),
+                *owner_guard.get_position(),
+            )
+        }) else {
             return Ok(());
         };
-        let owner_guard = owner_arc.read().map_err(|_| GameError::LockError)?;
-        let owner_id = owner_guard.get_id();
 
         if self.rally_valid {
             let mut result = Coord3D::default();
@@ -1228,14 +1240,14 @@ impl GarrisonContain {
         if !self.rally_valid {
             let mut options = FindPositionOptions::default();
             options.flags = FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS;
-            options.min_radius = owner_guard.get_geometry_info().get_bounding_circle_radius();
+            options.min_radius = owner_radius;
             options.max_radius = options.min_radius * 1.8;
             options.ignore_object_id = Some(owner_id);
             options.relationship_object_id = Some(owner_id);
 
             if let Some(partition) = ThePartitionManager::get() {
                 self.rally_valid = partition.find_position_around_with_options(
-                    owner_guard.get_position(),
+                    &owner_pos,
                     &options,
                     &mut self.exit_rally_point,
                 );
