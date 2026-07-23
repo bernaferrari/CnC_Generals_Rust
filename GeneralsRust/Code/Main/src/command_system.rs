@@ -70,6 +70,11 @@ pub enum CommandType {
     ForceAttackGround {
         location: Vec3,
     },
+    /// C++ AIGroup::groupAttackPosition residual (None loc = attack own position).
+    AttackPosition {
+        location: Option<Vec3>,
+        max_shots: i32,
+    },
     Stop,
     Guard {
         target: GuardTarget,
@@ -2264,6 +2269,14 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             })
         }
         "patrol" | "hunt" => Some(CommandType::Patrol),
+        "attackposition" => Some(CommandType::AttackPosition {
+            location: Some(glam::Vec3::ZERO),
+            max_shots: -1,
+        }),
+        "attackself" | "attackownposition" => Some(CommandType::AttackPosition {
+            location: None,
+            max_shots: -1,
+        }),
         "attitudesleep" | "sleep" | "holdfire" => Some(CommandType::AttitudeSleep),
         "attitudepassive" | "passive" | "defend" => Some(CommandType::AttitudePassive),
         "attitudenormal" | "normal" | "normalstance" => Some(CommandType::AttitudeNormal),
