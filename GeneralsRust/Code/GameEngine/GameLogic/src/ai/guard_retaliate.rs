@@ -969,13 +969,19 @@ impl StateImplementation for AIGuardRetaliateOuterState {
             return StateReturnType::Failure;
         };
 
-        let nemesis_id = self.base.get_nemesis_to_attack();
-        let nemesis = if nemesis_id != crate::common::INVALID_ID {
+        let mut nemesis_id = self.base.get_nemesis_to_attack();
+        if nemesis_id == crate::common::INVALID_ID {
+            nemesis_id = self
+                .base
+                .state()
+                .get_machine_goal_object_id()
+                .unwrap_or(crate::common::INVALID_ID);
+        }
+        let Some(nemesis) = (if nemesis_id != crate::common::INVALID_ID {
             get_legacy_object(nemesis_id)
         } else {
             None
-        };
-        let Some(nemesis) = nemesis.or_else(|| self.base.state().get_machine_goal_object()) else {
+        }) else {
             self.is_attacking = false;
             self.attack_machine = None;
             return StateReturnType::Success;
@@ -1046,13 +1052,15 @@ impl StateImplementation for AIGuardRetaliateOuterState {
             return StateReturnType::Success;
         };
 
-        if let Some(goal_obj) = self.base.state().get_machine_goal_object() {
-            if let Ok(goal_guard) = goal_obj.read() {
+        if let Some(goal_id) = self.base.state().get_machine_goal_object_id() {
+            if let Some(goal_pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(goal_id, |goal_guard| *goal_guard.get_position())
+            {
                 if let Ok(mut exit_guard) = self.exit_conditions.lock() {
                     let delta = Coord3D::new(
-                        exit_guard.center.x - goal_guard.get_position().x,
-                        exit_guard.center.y - goal_guard.get_position().y,
-                        exit_guard.center.z - goal_guard.get_position().z,
+                        exit_guard.center.x - goal_pos.x,
+                        exit_guard.center.y - goal_pos.y,
+                        exit_guard.center.z - goal_pos.z,
                     );
                     if let Some(owner) = self.base.state().get_machine_owner() {
                         let vision = owner
@@ -1215,22 +1223,24 @@ impl StateImplementation for AIGuardRetaliatePickUpCrateState {
         let Some(owner) = self.base.state().get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Some(goal) = self.base.state().get_machine_goal_object() else {
+        let Some(goal_id) = self.base.state().get_machine_goal_object_id() else {
             return StateReturnType::Success;
         };
 
         let Ok(owner_guard) = owner.read() else {
             return StateReturnType::Continue;
         };
-        let Ok(goal_guard) = goal.read() else {
+        let Some(dist_sqr) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
+                let owner_pos = owner_guard.get_position();
+                let goal_pos = goal_guard.get_position();
+                let dx = owner_pos.x - goal_pos.x;
+                let dy = owner_pos.y - goal_pos.y;
+                dx * dx + dy * dy
+            })
+        else {
             return StateReturnType::Success;
         };
-
-        let owner_pos = owner_guard.get_position();
-        let goal_pos = goal_guard.get_position();
-        let dx = owner_pos.x - goal_pos.x;
-        let dy = owner_pos.y - goal_pos.y;
-        let dist_sqr = dx * dx + dy * dy;
 
         if dist_sqr <= CRATE_PICKUP_RANGE_SQR {
             return StateReturnType::Success;
@@ -1274,13 +1284,19 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
             return StateReturnType::Failure;
         };
 
-        let mut nemesis = self.base.state().get_machine_goal_object();
-        if nemesis.is_none() {
-            let nemesis_id = self.base.get_nemesis_to_attack();
-            if nemesis_id != crate::common::INVALID_ID {
-                nemesis = get_legacy_object(nemesis_id);
-            }
+        let mut nemesis_id = self
+            .base
+            .state()
+            .get_machine_goal_object_id()
+            .unwrap_or(crate::common::INVALID_ID);
+        if nemesis_id == crate::common::INVALID_ID {
+            nemesis_id = self.base.get_nemesis_to_attack();
         }
+        let mut nemesis = if nemesis_id != crate::common::INVALID_ID {
+            get_legacy_object(nemesis_id)
+        } else {
+            None
+        };
 
         if nemesis.is_none() {
             if let Ok(owner_guard) = owner.read() {

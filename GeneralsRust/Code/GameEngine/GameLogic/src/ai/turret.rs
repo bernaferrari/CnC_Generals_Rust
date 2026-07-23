@@ -448,45 +448,44 @@ impl TurretAI {
 
     /// Calculate angle to target
     pub fn calculate_angle_to_target(&self, target_id: ObjectID) -> Option<f32> {
-        let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))?;
-        if let Some(owner_arc) = self.owner_object() {
-            if let (Ok(owner_ref), Ok(target_ref)) = (owner_arc.try_read(), target.try_read()) {
-                let owner_pos = owner_ref.get_position();
-                let target_pos = target_ref.get_position();
-
-                let dx = target_pos.x - owner_pos.x;
-                let dy = target_pos.y - owner_pos.y;
-
-                return Some(dy.atan2(dx));
-            }
+        if self.owner_id == crate::common::INVALID_ID {
+            return None;
         }
-        None
+        let owner_pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_ref| *owner_ref.get_position())?;
+        let target_pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |target_ref| *target_ref.get_position())?;
+        let dx = target_pos.x - owner_pos.x;
+        let dy = target_pos.y - owner_pos.y;
+        Some(dy.atan2(dx))
     }
 
     /// Calculate pitch to target
     pub fn calculate_pitch_to_target(&self, target_id: ObjectID) -> Option<f32> {
-        let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))?;
-        if let Some(owner_arc) = self.owner_object() {
-            if let (Ok(owner_ref), Ok(target_ref)) = (owner_arc.try_read(), target.try_read()) {
-                if !target_ref.is_kind_of(KindOf::Aircraft) && self.ground_unit_pitch != 0.0 {
-                    return Some(self.ground_unit_pitch);
-                }
-                let owner_pos = owner_ref.get_position();
-                let target_pos = target_ref.get_position();
-
-                let dx = target_pos.x - owner_pos.x;
-                let dy = target_pos.y - owner_pos.y;
-                let dz = target_pos.z - owner_pos.z;
-
-                let horizontal_dist = (dx * dx + dy * dy).sqrt();
-                if horizontal_dist > 0.0 {
-                    return Some(dz.atan2(horizontal_dist));
-                }
-            }
+        if self.owner_id == crate::common::INVALID_ID {
+            return None;
         }
-        None
+        let is_aircraft = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |target_ref| {
+                target_ref.is_kind_of(KindOf::Aircraft)
+            })
+            .unwrap_or(false);
+        if !is_aircraft && self.ground_unit_pitch != 0.0 {
+            return Some(self.ground_unit_pitch);
+        }
+        let owner_pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_ref| *owner_ref.get_position())?;
+        let target_pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |target_ref| *target_ref.get_position())?;
+        let dx = target_pos.x - owner_pos.x;
+        let dy = target_pos.y - owner_pos.y;
+        let dz = target_pos.z - owner_pos.z;
+        let horizontal_dist = (dx * dx + dy * dy).sqrt();
+        if horizontal_dist > 0.0 {
+            Some(dz.atan2(horizontal_dist))
+        } else {
+            None
+        }
     }
 
     /// Rotate turret towards desired angle
@@ -926,15 +925,16 @@ impl TurretAI {
     }
 
     pub fn is_owners_cur_weapon_on_turret(&self) -> bool {
-        let Some(owner) = self.owner_object() else {
+        if self.owner_id == crate::common::INVALID_ID {
             return false;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return false;
-        };
-        owner_guard
-            .get_current_weapon()
-            .map(|(_, slot)| self.is_weapon_slot_on_turret(slot))
+        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| {
+                owner_guard
+                    .get_current_weapon()
+                    .map(|(_, slot)| self.is_weapon_slot_on_turret(slot))
+                    .unwrap_or(false)
+            })
             .unwrap_or(false)
     }
 
@@ -1071,20 +1071,19 @@ impl TurretAI {
 
     /// Next frame to check idle mood target (matches C++ friend_getNextIdleMoodTargetFrame)
     pub fn friend_get_next_idle_mood_target_frame(&self) -> u32 {
-        let owner_arc = match self.owner_object() {
-            Some(owner) => owner,
-            None => return TheGameLogic::get_frame(),
-        };
-        let owner_guard = match owner_arc.read() {
-            Ok(guard) => guard,
-            Err(_) => return TheGameLogic::get_frame(),
-        };
-        if let Some(ai) = owner_guard.get_ai_update_interface() {
-            if let Ok(ai_guard) = ai.lock() {
-                return ai_guard.get_next_mood_check_time();
-            }
+        if self.owner_id == crate::common::INVALID_ID {
+            return TheGameLogic::get_frame();
         }
-        TheGameLogic::get_frame()
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(ai_guard) = ai.lock() {
+                        return ai_guard.get_next_mood_check_time();
+                    }
+                }
+                TheGameLogic::get_frame()
+            })
+            .unwrap_or_else(TheGameLogic::get_frame)
     }
 
     /// Check for idle mood target acquisition (matches C++ friend_checkForIdleMoodTarget)
