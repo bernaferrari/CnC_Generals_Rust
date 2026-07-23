@@ -218,6 +218,7 @@ pub mod host_strategy_center;
 mod host_structure_collapse;
 pub mod host_structure_economy_residual;
 mod host_structure_topple;
+mod host_sub_objects_upgrade;
 pub mod host_superweapon_kindof;
 pub mod host_supply_drop_zone;
 pub mod host_tank_hunter;
