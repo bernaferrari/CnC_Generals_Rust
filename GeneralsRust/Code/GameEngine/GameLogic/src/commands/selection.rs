@@ -1319,28 +1319,23 @@ impl ObjectLookup for RegistryObjectLookup {
 
     fn get_objects_in_region(&self, region: &IRegion2D) -> Vec<ObjectID> {
         OBJECT_REGISTRY
-            .get_all_objects()
+            .get_all_object_ids()
             .into_iter()
-            .filter_map(|obj| {
-                let guard = obj.read().ok()?;
-                let pos = guard.get_position();
-                let x = pos.x as Int;
-                let y = pos.y as Int;
-                if x >= region.lo.x && x <= region.hi.x && y >= region.lo.y && y <= region.hi.y {
-                    Some(guard.get_id())
-                } else {
-                    None
-                }
+            .filter(|&id| {
+                OBJECT_REGISTRY
+                    .with_object(id, |guard| {
+                        let pos = guard.get_position();
+                        let x = pos.x as Int;
+                        let y = pos.y as Int;
+                        x >= region.lo.x && x <= region.hi.x && y >= region.lo.y && y <= region.hi.y
+                    })
+                    .unwrap_or(false)
             })
             .collect()
     }
 
     fn get_all_objects(&self) -> Vec<ObjectID> {
-        OBJECT_REGISTRY
-            .get_all_objects()
-            .into_iter()
-            .filter_map(|obj| obj.read().ok().map(|guard| guard.get_id()))
-            .collect()
+        OBJECT_REGISTRY.get_all_object_ids()
     }
 
     fn get_object_position(&self, id: ObjectID) -> Option<Coord3D> {

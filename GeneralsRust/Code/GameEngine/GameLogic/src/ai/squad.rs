@@ -198,21 +198,23 @@ impl Squad {
 
     /// Get the center position of all objects in the squad
     pub fn get_center_position(&mut self) -> Option<Coord3D> {
-        let objects = self.get_all_objects();
-        if objects.is_empty() {
+        let ids = self.get_live_object_ids();
+        if ids.is_empty() {
             return None;
         }
 
         let mut center = Coord3D::new(0.0, 0.0, 0.0);
         let mut count = 0;
 
-        for obj in objects {
-            if let Ok(obj_ref) = obj.try_read() {
-                let pos = obj_ref.get_position();
-                center.x += pos.x;
-                center.y += pos.y;
-                center.z += pos.z;
-                count += 1;
+        for object_id in ids {
+            if let Some(obj) = self.find_object_by_id(object_id) {
+                if let Ok(obj_ref) = obj.try_read() {
+                    let pos = obj_ref.get_position();
+                    center.x += pos.x;
+                    center.y += pos.y;
+                    center.z += pos.z;
+                    count += 1;
+                }
             }
         }
 
@@ -228,8 +230,8 @@ impl Squad {
 
     /// Get the bounding box of all objects in the squad
     pub fn get_bounding_box(&mut self) -> Option<(Coord3D, Coord3D)> {
-        let objects = self.get_all_objects();
-        if objects.is_empty() {
+        let ids = self.get_live_object_ids();
+        if ids.is_empty() {
             return None;
         }
 
@@ -237,16 +239,18 @@ impl Squad {
         let mut max_pos = Coord3D::new(f32::MIN, f32::MIN, f32::MIN);
         let mut found_any = false;
 
-        for obj in objects {
-            if let Ok(obj_ref) = obj.try_read() {
-                let pos = obj_ref.get_position();
-                min_pos.x = min_pos.x.min(pos.x);
-                min_pos.y = min_pos.y.min(pos.y);
-                min_pos.z = min_pos.z.min(pos.z);
-                max_pos.x = max_pos.x.max(pos.x);
-                max_pos.y = max_pos.y.max(pos.y);
-                max_pos.z = max_pos.z.max(pos.z);
-                found_any = true;
+        for object_id in ids {
+            if let Some(obj) = self.find_object_by_id(object_id) {
+                if let Ok(obj_ref) = obj.try_read() {
+                    let pos = obj_ref.get_position();
+                    min_pos.x = min_pos.x.min(pos.x);
+                    min_pos.y = min_pos.y.min(pos.y);
+                    min_pos.z = min_pos.z.min(pos.z);
+                    max_pos.x = max_pos.x.max(pos.x);
+                    max_pos.y = max_pos.y.max(pos.y);
+                    max_pos.z = max_pos.z.max(pos.z);
+                    found_any = true;
+                }
             }
         }
 
@@ -259,7 +263,7 @@ impl Squad {
 
     /// Count live objects in the squad
     pub fn count_live_objects(&mut self) -> usize {
-        self.get_live_objects().len()
+        self.get_live_object_ids().len()
     }
 
     /// Get objects of a specific type from the squad
