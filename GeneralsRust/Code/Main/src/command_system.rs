@@ -85,6 +85,16 @@ pub enum CommandType {
     AttitudeNormal,
     AttitudeAggressive,
     Scatter,
+    /// C++ AIGroup::groupTightenToPosition residual — all units path to same point.
+    TightenToPosition {
+        destination: glam::Vec3,
+    },
+    /// C++ AIGroup::groupAttackTeam residual.
+    AttackTeam {
+        /// Team discriminant: 0=GLA, 1=USA, 2=China (Neutral ignored).
+        team: u8,
+        max_shots: i32,
+    },
     Deploy,
     Gather {
         target_id: ObjectId,
@@ -2111,6 +2121,13 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
     match key {
         "stop" => Some(CommandType::Stop),
         "scatter" => Some(CommandType::Scatter),
+        "tighten" | "tightentoposition" | "gatherclick" => Some(CommandType::TightenToPosition {
+            destination: glam::Vec3::ZERO,
+        }),
+        "attackteam" => Some(CommandType::AttackTeam {
+            team: 0,
+            max_shots: -1,
+        }),
         "deploy" => Some(CommandType::Deploy),
         "cheer" | "allcheer" | "groupcheer" => Some(CommandType::Cheer),
         "createformation" | "formation" => Some(CommandType::CreateFormation),
