@@ -3356,6 +3356,14 @@ impl<'a> CommandExecutor<'a> {
                         .game_logic
                         .activate_cash_hack(self.current_player_id, Some(unit_id));
                     // Always treat as success residual once activated (even 0 stolen).
+                } else if *power_type == SpecialPowerType::Defector {
+                    // C++ DefectorSpecialPower::doSpecialPowerAtObject residual.
+                    let PowerTarget::Object(tid) = target else {
+                        continue;
+                    };
+                    if !self.game_logic.activate_defector(unit_id, *tid) {
+                        continue;
+                    }
                 } else if *power_type == SpecialPowerType::BaikonurRocket {
                     // C++ BaikonurLaunchPower: no-loc → door; location → door + detonation.
                     match target {
