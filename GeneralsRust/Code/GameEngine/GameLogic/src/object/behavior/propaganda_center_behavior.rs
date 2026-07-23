@@ -149,13 +149,25 @@ impl PropagandaCenterBehavior {
         })
     }
 
+    fn get_object_id(&self) -> crate::common::ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+    }
+
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     fn clear_brainwashing_subject_if_match(&mut self, object_id: ObjectID) {
