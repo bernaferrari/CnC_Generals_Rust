@@ -2735,6 +2735,22 @@ fn seed_projectile_stream_name_for(name: &str) -> String {
     String::new()
 }
 
+/// C++ Weapon.ini MissileCallsOnDie / DieOnDetonate residual.
+pub fn host_die_on_detonate_for_weapon_name(name: &str) -> bool {
+    seed_die_on_detonate_for(name)
+}
+
+fn seed_die_on_detonate_for(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    // Retail missiles that call onDie after detonation residual.
+    (n.contains("scud") && n.contains("missile"))
+        || n.contains("tomahawk")
+        || (n.contains("rocket") && (n.contains("buggy") || n.contains("missile")))
+        || n.contains("stinger") && n.contains("missile")
+        || n.contains("patriot") && n.contains("missile")
+        || n.contains("inferno") && n.contains("cannon")
+}
+
 /// Look up the retail primary weapon template name for a host unit template.
 pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str> {
     match template_name {
@@ -5110,6 +5126,14 @@ mod tests {
         assert!(sec_last > 0.0, "secondary last_fire_time must advance");
     }
 
+    #[test]
+    fn die_on_detonate_seeds() {
+        assert!(host_die_on_detonate_for_weapon_name("ScudMissileWeapon"));
+        assert!(host_die_on_detonate_for_weapon_name("TomahawkMissile"));
+        assert!(!host_die_on_detonate_for_weapon_name(
+            "AmericaTankCrusaderGun"
+        ));
+    }
     #[test]
     fn projectile_stream_name_seeds() {
         assert_eq!(

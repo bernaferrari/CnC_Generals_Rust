@@ -14955,6 +14955,7 @@ impl GameLogic {
                 historic_bonus_count: 0,
                 historic_bonus_radius: 0.0,
                 historic_bonus_weapon: String::new(),
+                die_on_detonate: false,
             });
         }
 
@@ -17415,6 +17416,7 @@ impl GameLogic {
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
         });
                     }
                 }
@@ -63784,6 +63786,7 @@ mod tests {
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
         });
 
         // One fixed step runs drain + projectile update.
