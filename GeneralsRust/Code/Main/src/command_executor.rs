@@ -134,6 +134,17 @@ impl<'a> CommandExecutor<'a> {
             CommandType::Surrender { surrendered } => {
                 self.execute_surrender(&command.selected_units, *surrendered)
             }
+            CommandType::DoCommandButton { button } => {
+                self.execute_do_command_button(&command.selected_units, button, None, None)
+            }
+            CommandType::DoCommandButtonAtPosition { button, location } => self
+                .execute_do_command_button(&command.selected_units, button, Some(*location), None),
+            CommandType::DoCommandButtonAtObject { button, target } => {
+                self.execute_do_command_button(&command.selected_units, button, None, Some(*target))
+            }
+            CommandType::ExecuteRailedTransport => {
+                self.execute_railed_transport(&command.selected_units)
+            }
             CommandType::Deploy => self.execute_deploy(&command.selected_units),
             CommandType::Gather { target_id } => {
                 self.execute_gather(&command.selected_units, *target_id)
@@ -788,6 +799,165 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::groupDoCommandButton / AtPosition / AtObject residual.
+    /// Resolves retail button name → CommandType and re-dispatches on the group.
+    pub(crate) fn execute_do_command_button(
+        &mut self,
+        units: &[ObjectId],
+        button: &str,
+        location: Option<Vec3>,
+        target: Option<ObjectId>,
+    ) -> CommandResult {
+        use crate::command_system::{
+            command_type_from_button_name, CommandType, DropTarget, GuardTarget, ModifierKeys,
+            PowerTarget,
+        };
+        use std::time::SystemTime;
+
+        if button.trim().is_empty() {
+            return CommandResult::InvalidCommand;
+        }
+        let Some(mut ct) = command_type_from_button_name(button) else {
+            return CommandResult::InvalidCommand;
+        };
+
+        match &mut ct {
+            CommandType::MoveTo { destination, .. }
+            | CommandType::AttackMoveTo { destination }
+            | CommandType::ForceMoveTo { destination }
+            | CommandType::TightenToPosition { destination }
+            | CommandType::OverrideSpecialPowerDestination {
+                location: destination,
+            } => {
+                if let Some(loc) = location {
+                    *destination = loc;
+                }
+            }
+            CommandType::SetRallyPoint { location: loc } => {
+                if let Some(p) = location {
+                    *loc = p;
+                }
+            }
+            CommandType::Guard { target: gt, .. } => {
+                if let Some(tid) = target {
+                    *gt = GuardTarget::Object(tid);
+                } else if let Some(loc) = location {
+                    *gt = GuardTarget::Position(loc);
+                }
+            }
+            CommandType::Attack { target_id }
+            | CommandType::ForceAttackObject { target_id }
+            | CommandType::Enter { target_id }
+            | CommandType::CaptureBuilding { target_id }
+            | CommandType::Hijack { target_id }
+            | CommandType::Repair { target_id }
+            | CommandType::GetRepaired { target_id }
+            | CommandType::GetHealed { target_id }
+            | CommandType::Gather { target_id }
+            | CommandType::SnipeVehicle { target_id } => {
+                if let Some(tid) = target {
+                    *target_id = tid;
+                }
+            }
+            CommandType::ForceAttackGround { location: loc } => {
+                if let Some(p) = location {
+                    *loc = p;
+                }
+            }
+            CommandType::DoSpecialPower { target: pt, .. } => {
+                if let Some(tid) = target {
+                    *pt = PowerTarget::Object(tid);
+                } else if let Some(loc) = location {
+                    *pt = PowerTarget::Location(loc);
+                }
+            }
+            CommandType::CombatDrop { target: dt } => {
+                if let Some(tid) = target {
+                    *dt = DropTarget::Object(tid);
+                } else if let Some(loc) = location {
+                    *dt = DropTarget::Location(loc);
+                }
+            }
+            CommandType::FollowWaypointPath { waypoints, .. } => {
+                if let Some(loc) = location {
+                    if waypoints.is_empty() {
+                        waypoints.push(loc);
+                    }
+                }
+            }
+            CommandType::AttackArea { center, .. } => {
+                if let Some(loc) = location {
+                    *center = loc;
+                }
+            }
+            CommandType::DozerConstruct { location: loc, .. } => {
+                if let Some(p) = location {
+                    *loc = p;
+                }
+            }
+            _ => {}
+        }
+
+        let cmd = crate::command_system::GameCommand {
+            command_type: ct,
+            player_id: self.current_player_id,
+            command_id: 0,
+            timestamp: SystemTime::now(),
+            selected_units: units.to_vec(),
+            modifier_keys: ModifierKeys::default(),
+        };
+        match self.execute_command(cmd) {
+            Ok(r) => r,
+            Err(_) => CommandResult::InvalidCommand,
+        }
+    }
+
+    /// C++ AIGroup::groupExecuteRailedTransport residual.
+    /// Host: treat as evacuate + move along current path / dock exit for rail-capable containers.
+    pub(crate) fn execute_railed_transport(&mut self, units: &[ObjectId]) -> CommandResult {
+        // Residual: unload passengers then resume move if a path exists.
+        let mut any = false;
+        for &unit_id in units {
+            let is_railish = match self.game_logic.get_object(unit_id) {
+                Some(o) if o.is_alive() => {
+                    let n = o.template_name.to_ascii_lowercase();
+                    o.can_contain()
+                        || n.contains("train")
+                        || n.contains("rail")
+                        || n.contains("locomotive")
+                        || n.contains("car")
+                }
+                _ => false,
+            };
+            if !is_railish {
+                continue;
+            }
+            // Unload first (C++ railed transport executes embark/disembark sequence).
+            if matches!(self.execute_evacuate(&[unit_id]), CommandResult::Success) {
+                any = true;
+            }
+            // If still has a movement goal, keep moving.
+            let dest = self.game_logic.get_object(unit_id).and_then(|o| {
+                o.movement
+                    .path
+                    .last()
+                    .copied()
+                    .or(o.movement.target_position)
+            });
+            if let Some(dest) = dest {
+                if self.path_to_goal_with_state(unit_id, dest, AIState::Moving) {
+                    any = true;
+                }
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            // Fallback: plain evacuate for any selected containers.
+            self.execute_evacuate(units)
         }
     }
 
@@ -5946,6 +6116,70 @@ mod group_move_tests {
         assert!(
             !o.movement.path.is_empty() || o.movement.target_position.is_some(),
             "should have path or target"
+        );
+    }
+
+    #[test]
+    fn do_command_button_dispatches_stop() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("DC_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("DC_V".to_string(), tpl);
+        let id = logic.create_object("DC_V", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let u = logic.get_object_mut(id).unwrap();
+            u.set_ai_state(AIState::Moving);
+            u.set_target(Some(id));
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_do_command_button(&[id], "Command_Stop", None, None),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert!(
+            matches!(u.ai_state, AIState::Idle) || u.target.is_none() || !u.status.moving,
+            "stop should clear action state={:?} target={:?}",
+            u.ai_state,
+            u.target
+        );
+    }
+
+    #[test]
+    fn do_command_button_at_position_moves() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("DC_M");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("DC_M".to_string(), tpl);
+        let id = logic.create_object("DC_M", Team::USA, Vec3::ZERO).unwrap();
+        let dest = Vec3::new(55.0, 0.0, 10.0);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_do_command_button(&[id], "Command_AttackMove", Some(dest), None),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert!(
+            !u.movement.path.is_empty() || u.movement.target_position.is_some(),
+            "attack-move should path"
         );
     }
 
