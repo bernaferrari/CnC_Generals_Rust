@@ -8625,6 +8625,21 @@ impl Object {
                     })
                     .unwrap_or_default()
                 },
+                die_on_detonate: {
+                    let name = if slot == 1 {
+                        self.thing.template.secondary_weapon_name.as_deref().or(self
+                            .thing
+                            .template
+                            .primary_weapon_name
+                            .as_deref())
+                    } else {
+                        self.thing.template.primary_weapon_name.as_deref()
+                    };
+                    name.map(
+                        crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name,
+                    )
+                    .unwrap_or(false)
+                },
             });
             // C++ fireWeaponTemplate LeechRange activate residual.
             self.activate_leech_range_for_slot(slot);

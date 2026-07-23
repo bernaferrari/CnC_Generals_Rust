@@ -941,7 +941,89 @@ impl LaserSegmentUpload {
 
     /// Pack all beams from a presentation snapshot (preferred production path).
     pub fn pack_from_presentation(frame: &PresentationFrame) -> Self {
-        Self::pack_beams(&frame.laser_beams)
+        Self::pack_beams_with_projectile_streams(&frame.laser_beams, &frame.projectile_streams)
+    }
+
+    /// Pack laser beams and C++ ProjectileStreamUpdate residual point trails.
+    pub fn pack_beams_with_projectile_streams(
+        beams: &[PresentationLaserBeam],
+        streams: &[crate::presentation_frame::PresentationProjectileStream],
+    ) -> Self {
+        if beams.is_empty() && streams.iter().all(|s| s.points.len() < 2) {
+            return Self::empty();
+        }
+        let mut floats = Vec::new();
+        let mut segments_packed = 0u32;
+        for beam in beams {
+            for (i, seg) in beam.segments.iter().enumerate() {
+                let host = HostLaserLine3DSegment {
+                    start: seg.start,
+                    end: seg.end,
+                    width: seg.width,
+                    tile_factor: seg.tile_factor,
+                    scroll_offset: seg.scroll_offset,
+                };
+                let color = beam.inner_color;
+                let verts = segment_to_vertices(&host, color, i as f32);
+                for v in verts {
+                    floats.extend_from_slice(&v.to_floats());
+                }
+                segments_packed = segments_packed.saturating_add(1);
+            }
+        }
+        for stream in streams {
+            if stream.points.len() < 2 {
+                continue;
+            }
+            let (color, width) = projectile_stream_draw_style(&stream.stream_name);
+            for i in 0..stream.points.len() - 1 {
+                let host = HostLaserLine3DSegment {
+                    start: stream.points[i],
+                    end: stream.points[i + 1],
+                    width,
+                    tile_factor: 1.0,
+                    scroll_offset: (i as f32) * 0.05,
+                };
+                let verts = segment_to_vertices(&host, color, i as f32);
+                for v in verts {
+                    floats.extend_from_slice(&v.to_floats());
+                }
+                segments_packed = segments_packed.saturating_add(1);
+            }
+        }
+        if floats.is_empty() {
+            return Self::empty();
+        }
+        let vertex_bytes = f32_slice_to_bytes(&floats);
+        let vertices_packed = segments_packed.saturating_mul(LASER_VERTS_PER_SEGMENT as u32);
+        let bytes_packed = vertex_bytes.len() as u32;
+        let texture_name = beams
+            .first()
+            .map(|b| b.texture_name.clone())
+            .or_else(|| {
+                streams.first().map(|s| {
+                    if s.stream_name.to_ascii_lowercase().contains("flame") {
+                        "EXFlameStream".to_string()
+                    } else {
+                        PATRIOT_LASER_TEXTURE.to_string()
+                    }
+                })
+            })
+            .unwrap_or_else(|| PATRIOT_LASER_TEXTURE.to_string());
+        Self {
+            vertex_bytes,
+            honesty: LaserSegmentUploadHonesty {
+                beams_packed: beams.len() as u32,
+                segments_packed,
+                vertices_packed,
+                bytes_packed,
+                cpu_pack_ok: true,
+                has_geometry: segments_packed > 0,
+                texture_name,
+                gpu_upload_ready: false,
+                ..Default::default()
+            },
+        }
     }
 
     /// Pack presentation laser beams into one interleaved buffer.
@@ -989,6 +1071,24 @@ impl LaserSegmentUpload {
             },
         }
     }
+}
+
+/// Presentation color/width peel for projectile stream trails.
+fn projectile_stream_draw_style(stream_name: &str) -> ((f32, f32, f32, f32), f32) {
+    let n = stream_name.to_ascii_lowercase();
+    if n.contains("flame") || n.contains("dragon") {
+        return ((1.0, 0.45, 0.08, 0.9), 2.5);
+    }
+    if n.contains("toxin") {
+        return ((0.35, 0.9, 0.2, 0.85), 2.0);
+    }
+    if n.contains("microwave") {
+        return ((0.6, 0.2, 0.95, 0.8), 1.5);
+    }
+    if n.contains("cleanup") || n.contains("hazard") {
+        return ((0.4, 0.7, 1.0, 0.75), 1.8);
+    }
+    ((0.9, 0.9, 0.9, 0.7), 1.2)
 }
 
 fn segment_to_vertices(
@@ -1071,6 +1171,22 @@ mod tests {
         assert_eq!(pack.honesty.texture_name, PATRIOT_LASER_TEXTURE);
     }
 
+    #[test]
+    fn packs_projectile_stream_trail_segments() {
+        use crate::game_logic::ObjectId;
+        use crate::presentation_frame::PresentationProjectileStream;
+        let streams = vec![PresentationProjectileStream {
+            shooter_id: ObjectId(1),
+            stream_name: "DragonTankFlameStream".into(),
+            points: vec![(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (20.0, 0.0, 5.0)],
+            target_id: None,
+        }];
+        let pack = LaserSegmentUpload::pack_beams_with_projectile_streams(&[], &streams);
+        assert!(pack.honesty.cpu_pack_ok);
+        assert_eq!(pack.honesty.segments_packed, 2);
+        assert!(pack.honesty.has_geometry);
+        assert!(!pack.vertex_bytes.is_empty());
+    }
     #[test]
     fn packs_line3d_segments_with_expected_byte_layout() {
         let segs = build_patriot_laser_line3d_segments(
