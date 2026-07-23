@@ -1723,13 +1723,8 @@ impl ClassicState for TurretAIAimTurretState {
                                     let mut primary = false;
                                     if let Some(ai) = owner_guard.get_ai_update_interface() {
                                         if let Ok(ai_guard) = ai.lock() {
-                                            if let Some(goal) = ai_guard.get_goal_object() {
-                                                primary = goal
-                                                    .read()
-                                                    .ok()
-                                                    .map(|g| g.get_id() == target_guard.get_id())
-                                                    .unwrap_or(false);
-                                            }
+                                            primary = ai_guard.get_goal_object_id()
+                                                == target_guard.get_id();
                                         }
                                     }
                                     (rel, primary, can_attack, can_attack_target, team_changed)

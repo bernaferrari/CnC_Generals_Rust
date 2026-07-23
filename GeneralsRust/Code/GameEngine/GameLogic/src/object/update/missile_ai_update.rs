@@ -1129,8 +1129,13 @@ impl MissileAIUpdate {
     }
 
     fn current_goal_object(&self) -> Option<Arc<std::sync::RwLock<Object>>> {
-        self.current_ai_interface()
-            .and_then(|ai| ai.get_goal_object())
+        let ai = self.current_ai_interface()?;
+        let goal_id = ai.lock().ok()?.get_goal_object_id();
+        if goal_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
     }
 
     fn set_locomotor_acceleration_and_turn(&self, acceleration: Real, turn_rate: Real) {
