@@ -610,10 +610,8 @@ impl BattleBusSlowDeathBehavior {
         &mut self,
     ) -> Result<&mut SlowDeathBehavior, Box<dyn std::error::Error + Send + Sync>> {
         if self.base_behavior.is_none() {
-            let object = self.get_object()?;
             let base_data: Arc<dyn ModuleData> = self.module_data.base.clone();
-            let mut base = SlowDeathBehavior::new(object.clone(), base_data)?;
-            base.set_object(object);
+            let base = SlowDeathBehavior::new_with_object_id(self.object_id, base_data)?;
             self.base_behavior = Some(base);
         }
 
@@ -639,127 +637,104 @@ impl BattleBusSlowDeathBehavior {
         self.begin_base_slow_death(&damage_info)
     }
 
-    fn execute_fx_at_object(
+    fn execute_fx_at_object_id(
         &self,
         fx: &Arc<FXList>,
-        obj: &Arc<RwLock<GameObject>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let obj_guard = obj.read().map_err(|_| {
-            std::io::Error::other("BattleBusSlowDeathBehavior object read lock poisoned")
-        })?;
-        let position = *obj_guard.get_position();
-        drop(obj_guard);
-        fx.do_fx_at_position(&position)?;
-        Ok(())
+        fx.do_fx_obj_ids(self.object_id, None, None)
     }
 
-    fn execute_ocl_at_object(
+    fn execute_ocl_at_object_id(
         &self,
         ocl: &Arc<ObjectCreationList>,
-        obj: &Arc<RwLock<GameObject>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let obj_guard = obj.read().map_err(|_| {
-            std::io::Error::other("BattleBusSlowDeathBehavior object read lock poisoned")
-        })?;
-        let position = *obj_guard.get_position();
-        drop(obj_guard);
-        ocl.create_at_position(&position, self.object_id)?;
-        Ok(())
+        let position = self
+            .with_object(|obj_guard| *obj_guard.get_position())
+            .ok_or_else(|| {
+                std::io::Error::other("BattleBusSlowDeathBehavior missing owning object")
+            })?;
+        ocl.create_at_position(&position, self.object_id)
     }
 
     fn damage_passengers(
         &self,
-        obj: &Arc<RwLock<GameObject>>,
         damage_percent: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let obj_guard = obj.read().map_err(|_| {
-            std::io::Error::other("BattleBusSlowDeathBehavior object read lock poisoned")
-        })?;
-        if let Some(contain) = obj_guard.get_contain() {
-            let contain_guard = contain.lock().map_err(|_| {
-                std::io::Error::other("BattleBusSlowDeathBehavior contain lock poisoned")
-            })?;
-            let passengers = contain_guard.get_contained_objects().to_vec();
-            drop(contain_guard);
+        let Some(passengers_opt) = self.with_object(|obj_guard| {
+            obj_guard.get_contain().and_then(|contain| {
+                contain
+                    .lock()
+                    .ok()
+                    .map(|g| g.get_contained_objects().to_vec())
+            })
+        }) else {
+            return Ok(());
+        };
+        let Some(passengers) = passengers_opt else {
+            return Ok(());
+        };
 
-            for passenger_id in passengers {
-                let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id) else {
-                    continue;
-                };
-                let mut passenger_guard = passenger.write().map_err(|_| {
-                    std::io::Error::other(
-                        "BattleBusSlowDeathBehavior passenger write lock poisoned",
-                    )
-                })?;
-                if let Some(body) = passenger_guard.get_body_module() {
-                    let max_health = body
-                        .lock()
-                        .map_err(|_| {
-                            std::io::Error::other("BattleBusSlowDeathBehavior body lock poisoned")
-                        })?
-                        .get_max_health();
-                    let damage_amount = max_health * damage_percent;
-                    let mut damage_info = DamageInfo::new();
-                    damage_info.input.amount = damage_amount;
-                    damage_info.input.damage_type = DamageType::Unresistable;
-                    damage_info.input.death_type = DeathType::Normal;
-                    damage_info.sync_from_input();
-                    passenger_guard.attempt_damage(&mut damage_info)?;
-                }
+        for passenger_id in passengers {
+            let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id) else {
+                continue;
+            };
+            let mut passenger_guard = passenger.write().map_err(|_| {
+                std::io::Error::other("BattleBusSlowDeathBehavior passenger write lock poisoned")
+            })?;
+            if let Some(body) = passenger_guard.get_body_module() {
+                let max_health = body
+                    .lock()
+                    .map_err(|_| {
+                        std::io::Error::other("BattleBusSlowDeathBehavior body lock poisoned")
+                    })?
+                    .get_max_health();
+                let damage_amount = max_health * damage_percent;
+                let mut damage_info = DamageInfo::new();
+                damage_info.input.amount = damage_amount;
+                damage_info.input.damage_type = DamageType::Unresistable;
+                damage_info.input.death_type = DeathType::Normal;
+                damage_info.sync_from_input();
+                passenger_guard.attempt_damage(&mut damage_info)?;
             }
         }
         Ok(())
     }
 
-    fn has_hit_ground(
-        &self,
-        obj: &Arc<RwLock<GameObject>>,
-    ) -> Result<Bool, Box<dyn std::error::Error + Send + Sync>> {
-        let obj_guard = obj.read().map_err(|_| {
-            std::io::Error::other("BattleBusSlowDeathBehavior object read lock poisoned")
-        })?;
-        Ok(!obj_guard.is_above_terrain())
+    fn has_hit_ground(&self) -> Result<Bool, Box<dyn std::error::Error + Send + Sync>> {
+        self.with_object(|obj_guard| !obj_guard.is_above_terrain())
+            .ok_or_else(|| {
+                std::io::Error::other("BattleBusSlowDeathBehavior missing owning object").into()
+            })
     }
 
-    fn finish_first_death(
-        &mut self,
-        obj: &Arc<RwLock<GameObject>>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn finish_first_death(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(fx) = &self.module_data.fx_hit_ground {
-            self.execute_fx_at_object(fx, obj)?;
+            self.execute_fx_at_object_id(fx)?;
         }
         if let Some(ocl) = &self.module_data.ocl_hit_ground {
-            self.execute_ocl_at_object(ocl, obj)?;
+            self.execute_ocl_at_object_id(ocl)?;
         }
 
         self.is_in_first_death = false;
 
-        {
-            let mut obj_guard = obj.write().map_err(|_| {
-                std::io::Error::other("BattleBusSlowDeathBehavior object write lock poisoned")
-            })?;
+        let _ = self.with_object_mut(|obj_guard| {
             obj_guard.set_model_condition_state(ModelConditionFlags::SECOND_LIFE);
             obj_guard.set_disabled(DisabledType::Held);
-        }
+        });
 
-        {
-            let obj_guard = obj.read().map_err(|_| {
-                std::io::Error::other("BattleBusSlowDeathBehavior object read lock poisoned")
-            })?;
+        let _ = self.with_object(|obj_guard| {
             if let Some(ai) = obj_guard.get_ai() {
-                let mut ai_guard = ai.lock().map_err(|_| {
-                    std::io::Error::other("BattleBusSlowDeathBehavior AI lock poisoned")
-                })?;
-                ai_guard.ai_idle()?;
+                if let Ok(mut ai_guard) = ai.lock() {
+                    let _ = ai_guard.ai_idle();
+                }
             }
             if let Some(physics) = obj_guard.get_physics() {
-                let mut physics_guard = physics.lock().map_err(|_| {
-                    std::io::Error::other("BattleBusSlowDeathBehavior physics lock poisoned")
-                })?;
-                physics_guard.clear_acceleration();
-                physics_guard.scrub_velocity_2d(0.0);
+                if let Ok(mut physics_guard) = physics.lock() {
+                    physics_guard.clear_acceleration();
+                    physics_guard.scrub_velocity_2d(0.0);
+                }
             }
-        }
+        });
 
         Ok(())
     }
@@ -781,7 +756,6 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
         &mut self,
         damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let object = self.get_object()?;
         let data = &self.module_data;
         self.last_damage_info = Some(damage_info.clone());
 
@@ -793,49 +767,34 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
 
             // C++ lines 128-130: First do the special effects
             if let Some(fx) = &data.fx_start_undeath {
-                self.execute_fx_at_object(fx, &object)?;
+                self.execute_fx_at_object_id(fx)?;
             }
             if let Some(ocl) = &data.ocl_start_undeath {
-                self.execute_ocl_at_object(ocl, &object)?;
+                self.execute_ocl_at_object_id(ocl)?;
             }
 
-            // C++ lines 132-136: Stop what we were doing (AI idle)
-            {
-                let obj_guard = object.read().map_err(|_| {
-                    std::io::Error::other("BattleBusSlowDeathBehavior object read lock poisoned")
-                })?;
+            let throw_force = data.throw_force;
+            // C++ lines 132-151: AI idle + physics throw
+            let _ = self.with_object(|obj_guard| {
                 if let Some(ai) = obj_guard.get_ai() {
-                    let mut ai_guard = ai.lock().map_err(|_| {
-                        std::io::Error::other("BattleBusSlowDeathBehavior AI lock poisoned")
-                    })?;
-                    ai_guard.ai_idle()?;
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        let _ = ai_guard.ai_idle();
+                    }
                 }
-            }
-
-            // C++ lines 138-151: Physics - stop and throw into air
-            {
-                let obj_guard = object.read().map_err(|_| {
-                    std::io::Error::other("BattleBusSlowDeathBehavior object read lock poisoned")
-                })?;
                 if let Some(physics) = obj_guard.get_physics() {
-                    let mut physics_guard = physics.lock().map_err(|_| {
-                        std::io::Error::other("BattleBusSlowDeathBehavior physics lock poisoned")
-                    })?;
-                    // C++ line 141: clearAcceleration
-                    physics_guard.clear_acceleration();
-                    // C++ line 142: scrubVelocity2D(0)
-                    physics_guard.scrub_velocity_2d(0.0);
-                    // C++ lines 145-149: Apply throw force
-                    let throw_velocity = Coord3D::new(0.0, 0.0, data.throw_force);
-                    physics_guard.apply_shock(&throw_velocity);
-                    // C++ line 150: applyRandomRotation
-                    physics_guard.apply_random_rotation();
+                    if let Ok(mut physics_guard) = physics.lock() {
+                        physics_guard.clear_acceleration();
+                        physics_guard.scrub_velocity_2d(0.0);
+                        let throw_velocity = Coord3D::new(0.0, 0.0, throw_force);
+                        physics_guard.apply_shock(&throw_velocity);
+                        physics_guard.apply_random_rotation();
+                    }
                 }
-            }
+            });
 
             // C++ lines 153-155: Hit those inside for some damage
             if data.percent_damage_to_passengers > 0.0 {
-                self.damage_passengers(&object, data.percent_damage_to_passengers)?;
+                self.damage_passengers(data.percent_damage_to_passengers)?;
             }
 
             TheGameLogic::set_wake_frame(self.object_id, UpdateSleepTime::None);
@@ -904,18 +863,20 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
 impl BattleBusSlowDeathBehavior {
     fn current_contain_count(
         &self,
-        obj: &Arc<RwLock<GameObject>>,
     ) -> Result<Option<usize>, Box<dyn std::error::Error + Send + Sync>> {
-        let obj_guard = obj.read().map_err(|_| {
-            std::io::Error::other("BattleBusSlowDeathBehavior object read lock poisoned")
-        })?;
-        let Some(contain) = obj_guard.get_contain() else {
-            return Ok(None);
+        let Some(count) = self.with_object(|obj_guard| {
+            obj_guard.get_contain().and_then(|contain| {
+                contain
+                    .lock()
+                    .ok()
+                    .map(|contain_guard| contain_guard.get_contained_count())
+            })
+        }) else {
+            return Err(
+                std::io::Error::other("BattleBusSlowDeathBehavior missing owning object").into(),
+            );
         };
-        let contain_guard = contain.lock().map_err(|_| {
-            std::io::Error::other("BattleBusSlowDeathBehavior contain lock poisoned")
-        })?;
-        Ok(Some(contain_guard.get_contained_count()))
+        Ok(count)
     }
 }
 
@@ -925,13 +886,12 @@ impl BattleBusSlowDeathBehavior {
 
 impl UpdateModuleInterface for BattleBusSlowDeathBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let object = self.get_object()?;
         let empty_hulk_destruction_delay = self.module_data.empty_hulk_destruction_delay;
         let now = self.get_current_frame();
 
         if self.is_in_first_death {
-            if now > self.ground_check_frame && self.has_hit_ground(&object)? {
-                self.finish_first_death(&object)?;
+            if now > self.ground_check_frame && self.has_hit_ground()? {
+                self.finish_first_death()?;
                 if empty_hulk_destruction_delay == 0 {
                     return Ok(crate::modules::UPDATE_SLEEP_FOREVER);
                 }
@@ -945,7 +905,7 @@ impl UpdateModuleInterface for BattleBusSlowDeathBehavior {
             return UpdateModuleInterface::update(base);
         }
 
-        let Some(contain_count) = self.current_contain_count(&object)? else {
+        let Some(contain_count) = self.current_contain_count()? else {
             return Ok(crate::modules::UPDATE_SLEEP_FOREVER);
         };
 
@@ -955,10 +915,9 @@ impl UpdateModuleInterface for BattleBusSlowDeathBehavior {
                 return Ok(UpdateSleepTime::Frames(EMPTY_HULK_CHECK_DELAY));
             }
             if now > self.penalty_death_frame {
-                let mut obj_guard = object.write().map_err(|_| {
-                    std::io::Error::other("BattleBusSlowDeathBehavior object write lock poisoned")
-                })?;
-                obj_guard.kill(Some(DamageType::Penalty), Some(DeathType::Extra4));
+                let _ = self.with_object_mut(|obj_guard| {
+                    obj_guard.kill(Some(DamageType::Penalty), Some(DeathType::Extra4));
+                });
                 return Ok(crate::modules::UPDATE_SLEEP_FOREVER);
             }
             return Ok(UpdateSleepTime::Frames(EMPTY_HULK_CHECK_DELAY));

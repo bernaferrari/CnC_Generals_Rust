@@ -562,7 +562,15 @@ impl SlowDeathBehavior {
     const BOUNCED: u32 = 3;
 
     pub fn new(
-        _thing: Arc<RwLock<Object>>,
+        thing: Arc<RwLock<Object>>,
+        module_data: Arc<dyn ModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let object_id = thing.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+        Self::new_with_object_id(object_id, module_data)
+    }
+
+    pub fn new_with_object_id(
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = {
@@ -577,7 +585,6 @@ impl SlowDeathBehavior {
             return Err("ProbabilityModifier must be >= 1".into());
         }
 
-        let object_id = _thing.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
         Ok(Self {
             object_id,
             module_data: Arc::new(data),
