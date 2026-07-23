@@ -462,11 +462,12 @@ impl SpecialPowerModuleInterface for FuelAirBombPower {
         }
 
         self.owner_player_id = Some(player_id);
-        if let Some(owner) = self.resolve_owner_object() {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return ActivationResult::Disabled;
-                }
+        if let Some(owner_id) = self.resolve_owner_object_id() {
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |owner_guard| owner_guard.is_disabled())
+                .unwrap_or(false)
+            {
+                return ActivationResult::Disabled;
             }
         }
 
