@@ -4640,6 +4640,25 @@ impl Object {
         self.record_host_combat_attack();
     }
 
+    /// C++ Weapon::getMaxShotCount residual: 0 means cannot fire more.
+    /// Host uses -1 as unlimited (also accepts C++ NO_MAX_SHOTS_LIMIT).
+    #[inline]
+    pub fn has_max_shots_remaining(&self) -> bool {
+        self.max_shots_to_fire != 0
+    }
+
+    /// C++ `--m_maxShotCount` residual after a successful discharge.
+    pub fn consume_max_shot_count(&mut self) {
+        const NO_MAX: i32 =
+            crate::game_logic::host_ai_path_combat_residual_wave105::NO_MAX_SHOTS_LIMIT;
+        if self.max_shots_to_fire == -1 || self.max_shots_to_fire == NO_MAX {
+            return;
+        }
+        if self.max_shots_to_fire > 0 {
+            self.max_shots_to_fire -= 1;
+        }
+    }
+
     /// C++ AIUpdateInterface::requestPath residual (fail-closed straight path).
     ///
     /// Sets waiting_for_path briefly, installs single-waypoint path to dest.
@@ -7805,6 +7824,11 @@ impl Object {
         target_is_infantry: bool,
         target_has_faerie_fire: bool,
     ) -> bool {
+        // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
+        if !self.has_max_shots_remaining() {
+            return false;
+        }
+
         // C++ canFireWeapon residual: jammed / disabled units cannot discharge.
         if self.status.weapons_jammed || self.is_disabled() {
             return false;
@@ -8298,6 +8322,8 @@ impl Object {
             self.record_shot_at_target(target_id);
             // C++ Weapon::m_numShotsForCurBarrel / m_curBarrel residual.
             self.advance_weapon_barrel_after_shot();
+            // C++ --m_maxShotCount residual.
+            self.consume_max_shot_count();
             {
                 let (dmg, rng) = self
                     .weapon_slot(slot)
@@ -10730,6 +10756,37 @@ mod tests {
         // 1 + 6/2 = 4 barrels wrapped -> barrel 0 after 8 shots total from start of loop?
         // started at barrel 1 after 2 shots; +6 shots = 3 more barrel advances -> barrel 0
         assert_eq!(o.weapon_cur_barrel, 0);
+    }
+
+    #[test]
+    fn max_shots_to_fire_blocks_after_budget() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+        let mut tmpl = ThingTemplate::new("MaxShot");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
+        let tgt = Object::new(tmpl, ObjectId(2), Team::GLA);
+        atk.set_position(Vec3::ZERO);
+        atk.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 0.0,
+            projectile_speed: 999_000.0,
+            ..Weapon::default()
+        });
+        atk.set_max_shots_to_fire(2);
+        assert!(atk.fire_at(tgt.id, 1.0));
+        assert_eq!(atk.max_shots_to_fire, 1);
+        assert!(atk.fire_at(tgt.id, 2.0));
+        assert_eq!(atk.max_shots_to_fire, 0);
+        assert!(!atk.fire_at(tgt.id, 3.0));
+        atk.set_max_shots_to_fire(-1);
+        assert!(atk.fire_at(tgt.id, 4.0));
+        assert_eq!(atk.max_shots_to_fire, -1);
     }
 
     #[test]
