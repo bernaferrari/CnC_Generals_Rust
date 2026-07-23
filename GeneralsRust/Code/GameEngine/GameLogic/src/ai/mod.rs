@@ -887,39 +887,47 @@ impl AiGroup {
     }
 
     pub fn is_idle(&self) -> bool {
+        // C++ AIGroup::isIdle — every AI member idle or effectively dead.
+        let mut is_idle = true;
         for obj_id in &self.member_list {
-            let Some(ai) = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
-                .flatten()
-            else {
+            let member = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
+                let ai = obj_guard.get_ai_update_interface()?;
+                let Ok(ai_guard) = ai.lock() else {
+                    return None;
+                };
+                Some(ai_guard.is_idle() || obj_guard.is_effectively_dead())
+            });
+            let Some(Some(member_idle)) = member else {
                 continue;
             };
-            let Ok(ai_guard) = ai.lock() else {
-                continue;
-            };
-            if !ai_guard.is_idle() {
+            is_idle = member_idle;
+            if !is_idle {
                 return false;
             }
         }
-        true
+        is_idle
     }
 
     pub fn is_busy(&self) -> bool {
+        // C++ AIGroup::isBusy — every AI member busy and alive; empty → true.
+        let mut is_busy = true;
         for obj_id in &self.member_list {
-            let Some(ai) = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
-                .flatten()
-            else {
+            let member = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
+                let ai = obj_guard.get_ai_update_interface()?;
+                let Ok(ai_guard) = ai.lock() else {
+                    return None;
+                };
+                Some(ai_guard.is_busy() && !obj_guard.is_effectively_dead())
+            });
+            let Some(Some(member_busy)) = member else {
                 continue;
             };
-            let Ok(ai_guard) = ai.lock() else {
-                continue;
-            };
-            if ai_guard.is_busy() {
-                return true;
+            is_busy = member_busy;
+            if !is_busy {
+                return false;
             }
         }
-        false
+        is_busy
     }
 
     pub fn get_speed(&mut self) -> Real {
