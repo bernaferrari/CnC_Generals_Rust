@@ -2104,93 +2104,147 @@ impl JetAIUpdate {
             self.untargetable_expire_frame = 0;
         }
 
-        if let Some(obj) = self.get_object() {
-            if let Ok(mut guard) = obj.write() {
-                if guard.test_status(crate::common::ObjectStatusTypes::OBJECT_STATUS_IS_ATTACKING) {
-                    self.attack_loco_expire_frame =
-                        now.saturating_add(self.data.attack_loco_persist_time);
-                    self.attackers_miss_expire_frame =
-                        now.saturating_add(self.data.attackers_miss_persist_time);
-                }
+        // Snapshot attack status, then apply expire timers on self.
+        if self
+            .with_object(|guard| {
+                guard.test_status(crate::common::ObjectStatusTypes::OBJECT_STATUS_IS_ATTACKING)
+            })
+            .unwrap_or(false)
+        {
+            self.attack_loco_expire_frame = now.saturating_add(self.data.attack_loco_persist_time);
+            self.attackers_miss_expire_frame =
+                now.saturating_add(self.data.attackers_miss_persist_time);
+        }
 
-                let mut min_height = self.data.min_height;
-                let producer_id = guard.get_producer_id();
+        let mut min_height = self.data.min_height;
+        if let Some(producer_id) = self.with_object(|guard| guard.get_producer_id()) {
+            if producer_id != INVALID_ID {
                 let _ = OBJECT_REGISTRY.with_object(producer_id, |air_guard| {
                     air_guard.with_parking_place_behavior(|pp| {
                         min_height += pp.get_landing_deck_height_offset();
                     });
                 });
+            }
+        }
 
-                if let Some(drawable) = guard.get_drawable() {
-                    let state_active = self.state_machine.state.is_some();
-                    let need_min_height = state_active
-                        || !guard.is_above_terrain()
-                        || !self.get_flag(JetFlag::AllowAirLoco)
-                        || guard.test_status(crate::common::ObjectStatusTypes::DeckHeightOffset);
-                    if need_min_height {
-                        let height = if guard.is_above_terrain() {
-                            guard.get_height_above_terrain()
-                        } else {
-                            0.0
-                        };
-                        if height < min_height {
-                            let offset = Matrix3D::from_translation(glam::Vec3::new(
-                                0.0,
-                                0.0,
-                                min_height - height,
-                            ));
-                            drawable.set_instance_matrix(Some(&offset));
-                        } else {
-                            drawable.set_instance_matrix(None);
-                        }
+        let state_active = self.state_machine.state.is_some();
+        let allow_air_loco = self.get_flag(JetFlag::AllowAirLoco);
+        let takeoff = self.get_flag(JetFlag::TakeoffInProgress);
+        let landing = self.get_flag(JetFlag::LandingInProgress);
+        let afterburners_on = self.afterburners_on;
+        let engines_on = self.engines_on;
+
+        let engine_decision = self.with_object_mut(|guard| {
+            if let Some(drawable) = guard.get_drawable() {
+                let need_min_height = state_active
+                    || !guard.is_above_terrain()
+                    || !allow_air_loco
+                    || guard.test_status(crate::common::ObjectStatusTypes::DeckHeightOffset);
+                if need_min_height {
+                    let height = if guard.is_above_terrain() {
+                        guard.get_height_above_terrain()
+                    } else {
+                        0.0
+                    };
+                    if height < min_height {
+                        let offset = Matrix3D::from_translation(glam::Vec3::new(
+                            0.0,
+                            0.0,
+                            min_height - height,
+                        ));
+                        drawable.set_instance_matrix(Some(&offset));
                     } else {
                         drawable.set_instance_matrix(None);
                     }
+                } else {
+                    drawable.set_instance_matrix(None);
                 }
+            }
 
-                if let Some(physics) = guard.get_physics() {
-                    if let Ok(phys_guard) = physics.lock() {
-                        let speed = phys_guard.get_velocity().length();
-                        let should_enable = speed > 0.0 && self.get_flag(JetFlag::AllowAirLoco);
-                        if should_enable != self.afterburners_on {
-                            self.friend_enable_afterburners(&mut guard, should_enable);
-                        }
-                        if should_enable {
-                            guard.set_model_condition_state(ModelConditionFlags::JETEXHAUST);
-                        } else {
-                            guard.clear_model_condition_state(ModelConditionFlags::JETEXHAUST);
-                        }
+            let mut afterburner_toggle = None;
+            if let Some(physics) = guard.get_physics() {
+                if let Ok(phys_guard) = physics.lock() {
+                    let speed = phys_guard.get_velocity().length();
+                    let should_enable = speed > 0.0 && allow_air_loco;
+                    if should_enable != afterburners_on {
+                        afterburner_toggle = Some(should_enable);
+                    }
+                    if should_enable {
+                        guard.set_model_condition_state(ModelConditionFlags::JETEXHAUST);
+                    } else {
+                        guard.clear_model_condition_state(ModelConditionFlags::JETEXHAUST);
                     }
                 }
+            }
 
-                if !guard.is_kind_of(crate::common::KindOf::ProducedAtHelipad) {
-                    let waiting_for_path = guard
-                        .get_ai_update_interface()
-                        .and_then(|ai| {
-                            ai.lock()
-                                .ok()
-                                .map(|ai_guard| ai_guard.is_waiting_for_path())
-                        })
-                        .unwrap_or(false);
+            let mut engine_toggle = None;
+            if !guard.is_kind_of(crate::common::KindOf::ProducedAtHelipad) {
+                let waiting_for_path = guard
+                    .get_ai_update_interface()
+                    .and_then(|ai| {
+                        ai.lock()
+                            .ok()
+                            .map(|ai_guard| ai_guard.is_waiting_for_path())
+                    })
+                    .unwrap_or(false);
+                if guard.get_drawable().is_some() {
+                    let should_enable = takeoff
+                        || landing
+                        || guard.is_significantly_above_terrain()
+                        || guard.is_moving()
+                        || waiting_for_path;
+                    if should_enable && !engines_on {
+                        engine_toggle = Some(true);
+                    } else if !should_enable && engines_on {
+                        engine_toggle = Some(false);
+                    }
+                }
+            }
+
+            (afterburner_toggle, engine_toggle)
+        });
+
+        if let Some((afterburner_toggle, engine_toggle)) = engine_decision {
+            if let Some(enable) = afterburner_toggle {
+                // friend_enable_afterburners needs &mut self + &mut Object; split ID path.
+                let _ = self.with_object_mut(|obj| {
+                    if enable {
+                        obj.set_model_condition_state(ModelConditionFlags::JETAFTERBURNER);
+                    } else {
+                        obj.clear_model_condition_state(ModelConditionFlags::JETAFTERBURNER);
+                    }
+                });
+                if enable {
+                    if !self.afterburner_sound.is_currently_playing()
+                        && !self.afterburner_sound.event_name.is_empty()
+                    {
+                        self.afterburner_sound.set_object_id(self.object_id);
+                        if let Some(audio) = TheAudio::get() {
+                            let handle = audio.add_audio_event(&self.afterburner_sound);
+                            self.afterburner_sound.set_playing_handle(handle);
+                        }
+                    }
+                    self.afterburners_on = true;
+                } else {
+                    if self.afterburner_sound.is_currently_playing() {
+                        if let Some(audio) = TheAudio::get() {
+                            audio.remove_audio_event(self.afterburner_sound.get_playing_handle());
+                        }
+                        self.afterburner_sound.set_playing_handle(0);
+                    }
+                    self.afterburners_on = false;
+                }
+            }
+
+            if let Some(enable) = engine_toggle {
+                let _ = self.with_object_mut(|guard| {
                     if let Some(drawable) = guard.get_drawable() {
-                        let should_enable = self.get_flag(JetFlag::TakeoffInProgress)
-                            || self.get_flag(JetFlag::LandingInProgress)
-                            || guard.is_significantly_above_terrain()
-                            || guard.is_moving()
-                            || waiting_for_path;
-                        if should_enable && !self.engines_on {
-                            if let Ok(mut drawable_guard) = drawable.write() {
-                                drawable_guard.enable_ambient_sound_from_script(true);
-                                self.engines_on = true;
-                            }
-                        } else if !should_enable && self.engines_on {
-                            if let Ok(mut drawable_guard) = drawable.write() {
-                                drawable_guard.enable_ambient_sound_from_script(false);
-                                self.engines_on = false;
-                            }
+                        if let Ok(mut drawable_guard) = drawable.write() {
+                            drawable_guard.enable_ambient_sound_from_script(enable);
                         }
                     }
-                }
+                });
+                self.engines_on = enable;
             }
         }
 

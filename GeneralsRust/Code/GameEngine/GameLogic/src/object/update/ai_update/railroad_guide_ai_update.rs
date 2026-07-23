@@ -1016,10 +1016,6 @@ impl RailroadBehavior {
         };
 
         // Partition relationship checks still need a short-lived owner Arc.
-        let Some(obj_arc) = self.get_object() else {
-            return;
-        };
-
         let close_carriage = if self.trailer_id != INVALID_ID {
             Some(self.trailer_id)
         } else {
@@ -1031,15 +1027,15 @@ impl RailroadBehavior {
                     let Some(module) = candidate.find_update_module("RailroadBehavior") else {
                         return false;
                     };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        return false;
-                    };
-                    module.with_module(|module| {
-                        module.get_train_control_interface().is_some_and(|train| {
-                            !train.has_ever_been_hitched()
-                                && candidate.get_relationship_to(&*obj_guard)
-                                    == ObjectRelationship::Ally
+                    let allied = self
+                        .with_object(|obj_guard| {
+                            candidate.get_relationship_to(obj_guard) == ObjectRelationship::Ally
                         })
+                        .unwrap_or(false);
+                    module.with_module(|module| {
+                        module
+                            .get_train_control_interface()
+                            .is_some_and(|train| !train.has_ever_been_hitched() && allied)
                     })
                 })
             })
@@ -1067,9 +1063,7 @@ impl RailroadBehavior {
 
         if let Some(first_carriage) = first_carriage {
             if let Ok(mut carriage_guard) = first_carriage.write() {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    carriage_guard.set_producer(Some(&*obj_guard));
-                }
+                carriage_guard.set_producer_id(owner_id);
                 self.trailer_id = carriage_guard.get_id();
             }
 
@@ -1208,10 +1202,6 @@ impl RailroadBehavior {
         };
 
         // Producer assignment and ally checks still need a short-lived owner Arc.
-        let Some(obj_arc) = self.get_object() else {
-            return;
-        };
-
         let close_carriage = if self.trailer_id != INVALID_ID {
             Some(self.trailer_id)
         } else {
@@ -1221,15 +1211,15 @@ impl RailroadBehavior {
                         return false;
                     }
                     if let Some(module) = candidate.find_update_module("RailroadBehavior") {
-                        let Ok(obj_guard) = obj_arc.read() else {
-                            return false;
-                        };
-                        return module.with_module(|module| {
-                            module.get_train_control_interface().is_some_and(|train| {
-                                !train.has_ever_been_hitched()
-                                    && candidate.get_relationship_to(&*obj_guard)
-                                        == ObjectRelationship::Ally
+                        let allied = self
+                            .with_object(|obj_guard| {
+                                candidate.get_relationship_to(obj_guard) == ObjectRelationship::Ally
                             })
+                            .unwrap_or(false);
+                        return module.with_module(|module| {
+                            module
+                                .get_train_control_interface()
+                                .is_some_and(|train| !train.has_ever_been_hitched() && allied)
                         });
                     }
                     false
@@ -1240,9 +1230,7 @@ impl RailroadBehavior {
         if let Some(close_id) = close_carriage {
             if let Some(close) = TheGameLogic::find_object_by_id(close_id) {
                 if let Ok(mut close_guard) = close.write() {
-                    if let Ok(obj_guard) = obj_arc.read() {
-                        close_guard.set_producer(Some(&*obj_guard));
-                    }
+                    close_guard.set_producer_id(owner_id);
                     self.trailer_id = close_guard.get_id();
                 }
                 if let Ok(close_guard) = close.read() {

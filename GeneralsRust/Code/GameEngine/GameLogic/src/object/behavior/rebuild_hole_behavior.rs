@@ -245,21 +245,29 @@ impl RebuildHoleBehavior {
         }
     }
 
-    fn spawn_worker_and_construct(
-        &mut self,
-        hole: &Object,
-        reconstructing: Option<Arc<RwLock<Object>>>,
-    ) {
+    fn spawn_worker_and_construct(&mut self, reconstructing: Option<Arc<RwLock<Object>>>) {
         let Some(worker_template) = self.resolve_worker_template() else {
             return;
         };
+
+        let Some((hole_pos, hole_orient, hole_team, hole_player_id)) = self.with_object(|hole| {
+            (
+                *hole.get_position(),
+                hole.get_orientation(),
+                hole.get_team(),
+                hole.get_controlling_player_id(),
+            )
+        }) else {
+            return;
+        };
+        let hole_id = self.get_object_id();
 
         let factory = match TheThingFactory::get() {
             Ok(factory) => factory,
             Err(_) => return,
         };
 
-        let worker_result = if let Some(team_arc) = hole.get_team() {
+        let worker_result = if let Some(team_arc) = hole_team.clone() {
             if let Ok(team_guard) = team_arc.read() {
                 factory.new_object(worker_template, &*team_guard)
             } else {
@@ -282,7 +290,7 @@ impl RebuildHoleBehavior {
         self.worker_id = worker_id;
 
         if let Ok(mut worker_guard) = worker_arc.write() {
-            let _ = worker_guard.set_position(hole.get_position());
+            let _ = worker_guard.set_position(&hole_pos);
             worker_guard.set_status(
                 ObjectStatusMaskType::from_status(ObjectStatusTypes::Unselectable),
                 true,
@@ -315,7 +323,7 @@ impl RebuildHoleBehavior {
                 return;
             };
 
-            let new_building = if let Some(team_arc) = hole.get_team() {
+            let new_building = if let Some(team_arc) = hole_team.clone() {
                 if let Ok(team_guard) = team_arc.read() {
                     factory.new_object(rebuild_template.clone(), &*team_guard)
                 } else {
@@ -337,11 +345,11 @@ impl RebuildHoleBehavior {
             }
 
             if let Ok(mut guard) = new_building_arc.write() {
-                let _ = guard.set_position(hole.get_position());
-                if let Err(err) = guard.set_orientation(hole.get_orientation()) {
+                let _ = guard.set_position(&hole_pos);
+                if let Err(err) = guard.set_orientation(hole_orient) {
                     log::debug!("RebuildHoleBehavior::set_orientation failed: {err}");
                 }
-                guard.set_producer(Some(hole));
+                guard.set_producer_id(hole_id);
                 if let Ok(worker_guard) = worker_arc.read() {
                     guard.set_builder(Some(&*worker_guard));
                 } else {
@@ -357,7 +365,7 @@ impl RebuildHoleBehavior {
                 if let Some(ai) = worker_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.try_lock() {
                         let total_build_frames = {
-                            let player_opt = hole.get_controlling_player_id().and_then(|id| {
+                            let player_opt = hole_player_id.and_then(|id| {
                                 let player_list = crate::player::player_list();
                                 let list = player_list.read().ok()?;
                                 list.get_player(id as i32).cloned()
@@ -415,7 +423,7 @@ impl RebuildHoleBehavior {
         self.reconstructing_id = recon_id;
 
         if let Ok(mut guard) = reconstructing_arc.write() {
-            guard.set_producer(Some(hole));
+            guard.set_producer_id(hole_id);
         }
 
         let _ = self.with_object_mut(|hole_guard| {
@@ -429,53 +437,50 @@ impl RebuildHoleBehavior {
         };
     }
 
-    fn handle_healing(&self, hole: &Object) {
-        let Some(body) = hole.get_body_module() else {
-            return;
-        };
-        let health = body.get_health();
-        let max_health = body.get_max_health();
-        if health >= max_health {
-            return;
-        }
+    fn handle_healing(&self) {
+        let hole_id = self.get_object_id();
+        let _ = self.with_object(|hole| {
+            let Some(body) = hole.get_body_module() else {
+                return;
+            };
+            let health = body.get_health();
+            let max_health = body.get_max_health();
+            if health >= max_health {
+                return;
+            }
 
-        let amount = (self.module_data.hole_health_regen_percent_per_second
-            / LOGICFRAMES_PER_SECOND as f32)
-            * max_health;
-        if amount <= 0.0 {
-            return;
-        }
+            let amount = (self.module_data.hole_health_regen_percent_per_second
+                / LOGICFRAMES_PER_SECOND as f32)
+                * max_health;
+            if amount <= 0.0 {
+                return;
+            }
 
-        let mut healing_info =
-            DamageInfo::with_simple(amount, hole.get_id(), DamageType::Healing, DeathType::None);
-        healing_info.sync_from_input();
-        let _ = body.attempt_healing(&mut healing_info);
+            let mut healing_info =
+                DamageInfo::with_simple(amount, hole_id, DamageType::Healing, DeathType::None);
+            healing_info.sync_from_input();
+            let _ = body.attempt_healing(&mut healing_info);
+        });
     }
 
-    fn finish_reconstruction(
-        &mut self,
-        hole: &Object,
-        reconstructing: &Object,
-        worker: Option<&Object>,
-    ) {
-        let _ = transfer_object_name(hole.get_name(), reconstructing.get_id());
+    fn finish_reconstruction(&mut self, reconstructing_id: ObjectID, worker_id: ObjectID) {
+        let _ = self.with_object(|hole| {
+            let _ = transfer_object_name(hole.get_name(), reconstructing_id);
+        });
 
-        if let Some(worker_obj) = worker {
-            let _ = TheGameLogic::destroy_object(worker_obj);
+        if worker_id != INVALID_ID {
+            let _ = TheGameLogic::destroy_object_by_id(worker_id);
         }
 
-        let _ = TheGameLogic::destroy_object(hole);
+        let _ = TheGameLogic::destroy_object_by_id(self.get_object_id());
     }
 }
 
 impl UpdateModuleInterface for RebuildHoleBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(hole_arc) = self.get_object() else {
+        if self.get_object_id() == INVALID_ID {
             return Ok(UpdateSleepTime::Forever);
-        };
-        let Ok(hole_guard) = hole_arc.read() else {
-            return Ok(UpdateSleepTime::None);
-        };
+        }
 
         let mut worker_arc = None;
         if self.worker_id != INVALID_ID {
@@ -505,25 +510,24 @@ impl UpdateModuleInterface for RebuildHoleBehavior {
         if worker_arc.is_none() && self.worker_wait_counter > 0 {
             self.worker_wait_counter = self.worker_wait_counter.saturating_sub(1);
             if self.worker_wait_counter == 0 {
-                self.spawn_worker_and_construct(&*hole_guard, reconstructing_arc.clone());
+                self.spawn_worker_and_construct(reconstructing_arc.clone());
             }
         }
 
-        self.handle_healing(&*hole_guard);
+        self.handle_healing();
 
         if let Some(reconstructing_arc) = reconstructing_arc.as_ref() {
-            if let Ok(reconstructing_guard) = reconstructing_arc.read() {
-                if !reconstructing_guard
-                    .get_status_bits()
-                    .test(ObjectStatusTypes::UnderConstruction)
-                {
-                    let worker_obj = worker_arc.as_ref().and_then(|w| w.read().ok());
-                    self.finish_reconstruction(
-                        &*hole_guard,
-                        &*reconstructing_guard,
-                        worker_obj.as_deref(),
-                    );
-                }
+            let done = reconstructing_arc
+                .read()
+                .ok()
+                .map(|reconstructing_guard| {
+                    !reconstructing_guard
+                        .get_status_bits()
+                        .test(ObjectStatusTypes::UnderConstruction)
+                })
+                .unwrap_or(false);
+            if done {
+                self.finish_reconstruction(self.reconstructing_id, self.worker_id);
             }
         }
 
