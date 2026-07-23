@@ -179,6 +179,9 @@ pub struct RenderableObject {
     pub team_color: [f32; 4],
     pub position: Vec3,
     pub orientation: f32,
+    /// C++ ToppleUpdate lean residual (radians fallen about fall axis).
+    #[serde(default)]
+    pub topple_lean_radians: f32,
     /// Current movement order destination (host Movement::target_position).
     pub move_destination: Option<Vec3>,
     /// Host Object::target_location residual (script/order point).
@@ -488,6 +491,8 @@ pub struct UnitRenderInput {
     pub team_color: [f32; 4],
     pub position: Vec3,
     pub orientation: f32,
+    /// C++ ToppleUpdate lean residual for mesh tilt.
+    pub topple_lean_radians: f32,
     pub selected: bool,
     pub selection_radius: f32,
     /// C++ Drawable selection flash envelope residual frames remaining.
@@ -523,6 +528,7 @@ impl UnitRenderInput {
             team_color: ro.team_color,
             position: ro.position,
             orientation: ro.orientation,
+            topple_lean_radians: ro.topple_lean_radians,
             selected: ro.selected,
             selection_radius: ro.selection_radius.max(5.0),
             selection_flash_remaining: ro.selection_flash_remaining,
@@ -543,8 +549,15 @@ impl UnitRenderInput {
         } else {
             1.0
         };
+        let lean = if self.topple_lean_radians.is_finite() {
+            self.topple_lean_radians
+        } else {
+            0.0
+        };
+        // C++ ToppleUpdate tilts mesh while falling; residual pitch about local X.
         glam::Mat4::from_translation(self.position)
             * glam::Mat4::from_rotation_y(self.orientation)
+            * glam::Mat4::from_rotation_x(lean)
             * glam::Mat4::from_scale(glam::Vec3::splat(scale))
     }
 
@@ -2360,6 +2373,11 @@ impl PresentationFrame {
                 // Use accessors so presentation matches authoritative transform state.
                 position: pos,
                 orientation: obj.get_orientation(),
+                topple_lean_radians: obj
+                    .topple_data
+                    .as_ref()
+                    .map(|t| t.lean_radians)
+                    .unwrap_or(0.0),
                 move_destination: obj.movement.target_position,
                 target_location: obj.target_location,
                 guard_target: obj.guard_target,
@@ -7260,6 +7278,7 @@ mod tests {
             team_color: [1.0, 1.0, 1.0, 1.0],
             position: Vec3::new(10.0, 0.0, 20.0),
             orientation: 0.0,
+            topple_lean_radians: 0.0,
             selected: false,
             selection_radius: 5.0,
             selection_flash_remaining: 0,
