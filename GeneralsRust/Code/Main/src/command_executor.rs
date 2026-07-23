@@ -921,6 +921,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // C++ findWaypointFollowingCapableWeapon residual for attack-move path.
+                if let Some(slot) = unit.find_waypoint_following_capable_weapon_slot() {
+                    unit.set_active_weapon_slot(slot);
+                }
                 unit.is_attack_path = true;
                 unit.set_ai_state(AIState::AttackMoving);
             }

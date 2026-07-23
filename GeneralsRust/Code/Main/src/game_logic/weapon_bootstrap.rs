@@ -2681,6 +2681,37 @@ pub fn ensure_host_weapon_store() -> usize {
     added
 }
 
+/// C++ Weapon.ini ShowsAmmoPips residual.
+pub fn host_shows_ammo_pips_for_weapon_name(name: &str) -> bool {
+    seed_shows_ammo_pips_for(name)
+}
+
+fn seed_shows_ammo_pips_for(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    // Aircraft missile/clip residual + raptor/comet/aurora style.
+    (n.contains("raptor") && n.contains("missile"))
+        || (n.contains("mig") && n.contains("missile"))
+        || n.contains("stealthjet")
+        || n.contains("aurora")
+        || (n.contains("missile") && (n.contains("jet") || n.contains("aircraft")))
+        || n.contains("scud") && n.contains("launcher")
+}
+
+/// C++ Weapon.ini CapableOfFollowingWaypoints residual.
+pub fn host_capable_of_following_waypoint_for_weapon_name(name: &str) -> bool {
+    seed_capable_of_following_waypoint_for(name)
+}
+
+fn seed_capable_of_following_waypoint_for(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    // Cruise / guided residual weapons that C++ marks CapableOfFollowingWaypoints.
+    n.contains("scud")
+        || n.contains("tomahawk")
+        || n.contains("cruise")
+        || n.contains("particlecannon")
+        || n.contains("nuke") && n.contains("missile")
+}
+
 /// Look up the retail primary weapon template name for a host unit template.
 pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str> {
     match template_name {
@@ -5056,6 +5087,21 @@ mod tests {
         assert!(sec_last > 0.0, "secondary last_fire_time must advance");
     }
 
+    #[test]
+    fn shows_ammo_pips_and_waypoint_seeds() {
+        assert!(host_shows_ammo_pips_for_weapon_name(
+            "AmericaJetRaptorMissileWeapon"
+        ));
+        assert!(!host_shows_ammo_pips_for_weapon_name(
+            "AmericaTankCrusaderGun"
+        ));
+        assert!(host_capable_of_following_waypoint_for_weapon_name(
+            "ScudStormWeapon"
+        ));
+        assert!(!host_capable_of_following_waypoint_for_weapon_name(
+            "AmericaTankCrusaderGun"
+        ));
+    }
     #[test]
     fn play_fx_when_stealthed_and_allow_garrisoned_seeds() {
         assert!(!host_play_fx_when_stealthed_for_weapon_name(
