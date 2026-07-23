@@ -23,6 +23,8 @@ pub enum DamageType {
     Status,
     /// C++ DAMAGE_KILL_PILOT residual (vehicle unmanned; no HP).
     KillPilot,
+    /// C++ DAMAGE_DISARM residual (safe mine clear without detonation).
+    Disarm,
 }
 
 /// Armor types
