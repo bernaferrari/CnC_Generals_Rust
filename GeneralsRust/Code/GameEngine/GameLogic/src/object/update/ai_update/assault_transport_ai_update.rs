@@ -423,25 +423,7 @@ impl AssaultTransportAIUpdate {
 
                             if let Ok(ai_guard) = member_ai.lock() {
                                 if !ai_guard.is_moving() {
-                                    if let Some(goal) = ai_guard.get_goal_object() {
-                                        if let Ok(goal_guard) = goal.read() {
-                                            if goal_guard.get_id() != self.designated_target {
-                                                drop(goal_guard);
-                                                drop(ai_guard);
-                                                if let Some(target) = legacy_target.as_ref() {
-                                                    member_ai.ai_attack_object(
-                                                        target
-                                                            .read()
-                                                            .ok()
-                                                            .map(|g| g.get_id())
-                                                            .unwrap_or(0),
-                                                        NO_MAX_SHOTS_LIMIT,
-                                                        CommandSourceType::FromAi,
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    } else {
+                                    if ai_guard.get_goal_object_id() != self.designated_target {
                                         drop(ai_guard);
                                         if let Some(target) = legacy_target.as_ref() {
                                             member_ai.ai_attack_object(

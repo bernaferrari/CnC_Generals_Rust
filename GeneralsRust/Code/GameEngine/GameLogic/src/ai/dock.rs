@@ -256,27 +256,28 @@ impl AIDockMachine {
 
     /// Stops the state machine & disables it in preparation for deleting it.
     pub fn halt(&mut self) -> Result<(), String> {
-        let goal_object = self
+        let goal_object_id = self
             .state_machine
             .lock()
             .map_err(|_| "Failed to lock dock state machine".to_string())?
-            .get_goal_object();
+            .get_goal_object_id();
 
         // Sanity check
-        if let Some(goal_obj) = goal_object {
+        if goal_object_id != crate::common::INVALID_ID {
             let owner = self
                 .state_machine
                 .lock()
                 .map_err(|_| "Failed to lock dock state machine".to_string())?
                 .get_owner()
                 .ok_or_else(|| "Dock machine missing owner".to_string())?;
+            let owner_id = owner.read().map(|g| g.get_id()).unwrap_or(0);
 
-            goal_obj
-                .lock()
-                .map_err(|_| "Failed to lock goal object".to_string())?
-                .with_dock_update_interface(|dock| {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
-                        .into_string_err()
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(goal_object_id, |goal| {
+                    goal.with_dock_update_interface(|dock| {
+                        dock.cancel_dock(owner_id).into_string_err()
+                    })
+                    .unwrap_or(Ok(()))
                 })
                 .unwrap_or(Ok(()))?;
         }
