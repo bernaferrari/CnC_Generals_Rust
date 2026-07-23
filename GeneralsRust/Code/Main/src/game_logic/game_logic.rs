@@ -7144,6 +7144,15 @@ impl GameLogic {
                 // C++ ToppleUpdate::update residual (trees / crushable props).
                 topple_kill = obj.tick_topple();
                 // C++ StructureToppleUpdate::update residual (buildings).
+                if !topple_kill
+                    && obj
+                        .slow_death
+                        .as_ref()
+                        .map(|s| s.is_active())
+                        .unwrap_or(false)
+                {
+                    topple_kill = obj.tick_slow_death(self.frame);
+                }
                 if !topple_kill && obj.structure_collapse_data.is_some() {
                     topple_kill = obj.tick_structure_collapse(self.frame);
                 }
@@ -22117,12 +22126,51 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
-        // C++ StructureToppleUpdate::onDie residual: buildings fall before remove.
+        // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
         if self.try_begin_structure_topple_instead_of_destroy(id, killer) {
+            return;
+        }
+        // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
+        if self.try_begin_slow_death_instead_of_destroy(id, killer) {
             return;
         }
         self.objects_to_destroy
             .push_back(DestructionEvent { id, killer });
+    }
+
+    fn try_begin_slow_death_instead_of_destroy(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+    ) -> bool {
+        let frame = self.frame;
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        // Already finished slow death → allow destroy.
+        if obj
+            .slow_death
+            .as_ref()
+            .map(|s| s.is_done())
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        // Mid slow death → keep deferring.
+        if obj
+            .slow_death
+            .as_ref()
+            .map(|s| s.is_active())
+            .unwrap_or(false)
+        {
+            let _ = killer;
+            return true;
+        }
+        if obj.begin_slow_death(frame) {
+            let _ = killer;
+            return true;
+        }
+        false
     }
 
     /// If `id` is a standing structure topple candidate, start fall and defer destroy.
@@ -82066,6 +82114,42 @@ mod tests {
             "ranger should be crushed under topple sweep, hp={}",
             ranger.health.current
         );
+    }
+
+    #[test]
+    fn slow_death_defers_infantry_destruction() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaInfantryRanger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("AmericaInfantryRanger".into(), t);
+        let id = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        logic.mark_object_for_destruction(id, None);
+        assert!(
+            logic.objects.get(&id).unwrap().slow_death.is_some(),
+            "slow death should start"
+        );
+        assert!(logic.objects_to_destroy.iter().all(|e| e.id != id));
+        let mut finished = false;
+        for _ in 0..400 {
+            logic.frame = logic.frame.saturating_add(1);
+            if let Some(o) = logic.objects.get_mut(&id) {
+                if o.tick_slow_death(logic.frame) {
+                    finished = true;
+                    break;
+                }
+            }
+        }
+        assert!(finished);
+        logic.mark_object_for_destruction(id, None);
+        assert!(logic.objects_to_destroy.iter().any(|e| e.id == id));
     }
 
     #[test]
