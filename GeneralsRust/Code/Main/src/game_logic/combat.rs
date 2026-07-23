@@ -87,6 +87,8 @@ pub struct Projectile {
     pub historic_bonus_count: i32,
     pub historic_bonus_radius: f32,
     pub historic_bonus_weapon: String,
+    /// C++ Weapon.ini MissileCallsOnDie residual.
+    pub die_on_detonate: bool,
 }
 
 impl Projectile {
@@ -135,6 +137,7 @@ impl Projectile {
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
         }
     }
 
@@ -304,6 +307,8 @@ pub struct PendingProjectile {
     pub historic_bonus_count: i32,
     pub historic_bonus_radius: f32,
     pub historic_bonus_weapon: String,
+    /// C++ MissileCallsOnDie residual.
+    pub die_on_detonate: bool,
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
@@ -436,6 +441,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.historic_bonus_count = p.historic_bonus_count;
             proj.historic_bonus_radius = p.historic_bonus_radius;
             proj.historic_bonus_weapon = p.historic_bonus_weapon.clone();
+            proj.die_on_detonate = p.die_on_detonate;
             proj.projectile_collides = p.projectile_collides;
         }
     }
@@ -720,7 +726,11 @@ impl CombatSystem {
                             position: impact,
                             damage: projectile.damage,
                             damage_type: projectile.damage_type,
-                            death_type: projectile.death_type,
+                            death_type: if projectile.die_on_detonate {
+                                crate::game_logic::host_usa_pilot::HostDeathType::Detonated
+                            } else {
+                                projectile.death_type
+                            },
                             radius: projectile.explosion_radius,
                             shooter_id: projectile.shooter_id,
                             secondary_damage: projectile.secondary_damage,
@@ -744,7 +754,11 @@ impl CombatSystem {
                             position: impact,
                             damage: projectile.damage,
                             damage_type: projectile.damage_type,
-                            death_type: projectile.death_type,
+                            death_type: if projectile.die_on_detonate {
+                                crate::game_logic::host_usa_pilot::HostDeathType::Detonated
+                            } else {
+                                projectile.death_type
+                            },
                         });
                     }
                     if !projectile.detonation_fx_name.is_empty()
@@ -775,7 +789,11 @@ impl CombatSystem {
                                     position: impact,
                                     damage: projectile.damage,
                                     damage_type: projectile.damage_type,
-                                    death_type: projectile.death_type,
+                                    death_type: if projectile.die_on_detonate {
+                                        crate::game_logic::host_usa_pilot::HostDeathType::Detonated
+                                    } else {
+                                        projectile.death_type
+                                    },
                                     radius: projectile.explosion_radius,
                                     shooter_id: projectile.shooter_id,
                                     secondary_damage: projectile.secondary_damage,
@@ -799,7 +817,11 @@ impl CombatSystem {
                                     position: impact,
                                     damage: projectile.damage,
                                     damage_type: projectile.damage_type,
-                                    death_type: projectile.death_type,
+                                    death_type: if projectile.die_on_detonate {
+                                        crate::game_logic::host_usa_pilot::HostDeathType::Detonated
+                                    } else {
+                                        projectile.death_type
+                                    },
                                 });
                             }
                             if !projectile.detonation_fx_name.is_empty()
@@ -827,7 +849,11 @@ impl CombatSystem {
                                 position: impact,
                                 damage: projectile.damage,
                                 damage_type: projectile.damage_type,
-                                death_type: projectile.death_type,
+                                death_type: if projectile.die_on_detonate {
+                                    crate::game_logic::host_usa_pilot::HostDeathType::Detonated
+                                } else {
+                                    projectile.death_type
+                                },
                                 radius: projectile.explosion_radius,
                                 shooter_id: projectile.shooter_id,
                                 secondary_damage: projectile.secondary_damage,
@@ -1054,7 +1080,11 @@ impl CombatSystem {
                         position: projectile.position,
                         damage: projectile.damage,
                         damage_type: projectile.damage_type,
-                        death_type: projectile.death_type,
+                        death_type: if projectile.die_on_detonate {
+                            crate::game_logic::host_usa_pilot::HostDeathType::Detonated
+                        } else {
+                            projectile.death_type
+                        },
                     });
                 }
             }
@@ -1067,7 +1097,11 @@ impl CombatSystem {
                 position: projectile.target_position,
                 damage: projectile.damage,
                 damage_type: projectile.damage_type,
-                death_type: projectile.death_type,
+                death_type: if projectile.die_on_detonate {
+                    crate::game_logic::host_usa_pilot::HostDeathType::Detonated
+                } else {
+                    projectile.death_type
+                },
                 radius: projectile.explosion_radius,
                 shooter_id: projectile.shooter_id,
             });
@@ -1566,6 +1600,7 @@ mod tests {
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
         });
         // Need a dummy target for drain to resolve? target_pos is Some so OK.
         drain_pending_projectiles(&mut combat, &objects);
@@ -1891,6 +1926,7 @@ mod tests {
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
         });
         drain_pending_projectiles(&mut combat, &objects);
         let snaps: Vec<_> = combat.projectiles_snapshot();
@@ -1955,6 +1991,7 @@ mod tests {
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
         });
         drain_pending_projectiles(&mut combat, &objects);
         let snaps: Vec<_> = combat.projectiles_snapshot();
@@ -2001,6 +2038,7 @@ mod tests {
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
         });
         drain_pending_projectiles(&mut combat2, &objects);
         let snaps2: Vec<_> = combat2.projectiles_snapshot();

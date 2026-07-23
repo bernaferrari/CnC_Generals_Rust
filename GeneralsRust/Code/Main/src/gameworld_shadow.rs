@@ -17615,6 +17615,7 @@ mod tests {
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
         });
         // Not yet in combat system.
         let mut logic = GameLogic::new();
@@ -17685,6 +17686,7 @@ mod tests {
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
         });
         assert!(
             host_fire_spawn_log::drain().is_empty(),
