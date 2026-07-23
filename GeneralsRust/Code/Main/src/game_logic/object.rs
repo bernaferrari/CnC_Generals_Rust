@@ -7367,6 +7367,73 @@ impl Object {
     ///
     /// Maps `weapon_fire_status` + active slot onto ModelConditionFlags bits
     /// (ALLOW_SURRENDER-off layout: PREATTACK_A=35 .. RELOADING_C=46).
+
+    /// C++ Object::getAmmoPipShowingInfo residual.
+    ///
+    /// Returns `(clip_size, remaining_ammo)` for the first ShowsAmmoPips weapon.
+    pub fn get_ammo_pip_showing_info(&self) -> Option<(u32, u32)> {
+        use crate::game_logic::weapon_bootstrap::host_shows_ammo_pips_for_weapon_name;
+        for slot in [0u8, 1u8] {
+            let Some(w) = self.weapon_slot(slot) else {
+                continue;
+            };
+            let name = if slot == 1 {
+                self.thing.template.secondary_weapon_name.as_deref().or(self
+                    .thing
+                    .template
+                    .primary_weapon_name
+                    .as_deref())
+            } else {
+                self.thing.template.primary_weapon_name.as_deref()
+            };
+            let Some(n) = name else {
+                continue;
+            };
+            if !host_shows_ammo_pips_for_weapon_name(n) {
+                continue;
+            }
+            let total = if w.clip_size > 0 {
+                w.clip_size
+            } else {
+                w.ammo.unwrap_or(0)
+            };
+            if total == 0 {
+                continue;
+            }
+            let full = w.ammo.unwrap_or(total).min(total);
+            return Some((total, full));
+        }
+        None
+    }
+
+    /// C++ Object::findWaypointFollowingCapableWeapon residual (slot index).
+    ///
+    /// Scans SECONDARY then PRIMARY (C++ WEAPONSLOT_COUNT-1 .. PRIMARY).
+    pub fn find_waypoint_following_capable_weapon_slot(&self) -> Option<u8> {
+        use crate::game_logic::weapon_bootstrap::host_capable_of_following_waypoint_for_weapon_name;
+        for slot in [1u8, 0u8] {
+            let Some(_w) = self.weapon_slot(slot) else {
+                continue;
+            };
+            let name = if slot == 1 {
+                self.thing.template.secondary_weapon_name.as_deref().or(self
+                    .thing
+                    .template
+                    .primary_weapon_name
+                    .as_deref())
+            } else {
+                self.thing.template.primary_weapon_name.as_deref()
+            };
+            if name
+                .map(host_capable_of_following_waypoint_for_weapon_name)
+                .unwrap_or(false)
+            {
+                return Some(slot);
+            }
+        }
+        None
+    }
+
     pub fn sync_weapon_model_conditions_from_status(&mut self) {
         use crate::game_logic::host_enum_table_residual::{
             MC_BIT_BETWEEN_FIRING_SHOTS_A, MC_BIT_BETWEEN_FIRING_SHOTS_B,
@@ -11004,6 +11071,33 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn ammo_pip_and_waypoint_weapon_helpers() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut tmpl = ThingTemplate::new("Raptor");
+        tmpl.primary_weapon_name = Some("AmericaJetRaptorMissileWeapon".into());
+        tmpl.secondary_weapon_name = Some("ScudStormWeapon".into());
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut o = Object::new(tmpl, ObjectId(3), Team::USA);
+        o.weapon = Some(Weapon {
+            damage: 50.0,
+            range: 200.0,
+            reload_time: 1.0,
+            clip_size: 4,
+            ammo: Some(2),
+            ..Weapon::default()
+        });
+        o.secondary_weapon = Some(Weapon {
+            damage: 100.0,
+            range: 500.0,
+            reload_time: 5.0,
+            ..Weapon::default()
+        });
+        assert_eq!(o.get_ammo_pip_showing_info(), Some((4, 2)));
+        assert_eq!(o.find_waypoint_following_capable_weapon_slot(), Some(1));
     }
 
     #[test]
