@@ -28,6 +28,16 @@ pub const STRUCTURE_TOPPLE_DELAY_MIN: u32 = 0;
 pub const STRUCTURE_TOPPLE_DELAY_MAX: u32 = 0;
 /// Waiting-for-done frames residual (brief settle).
 pub const STRUCTURE_TOPPLE_DONE_DELAY_FRAMES: u32 = 1;
+/// C++ THETA_CEILING — crush only when remaining angle to ground ≤ this.
+pub const STRUCTURE_TOPPLE_THETA_CEILING: f32 = std::f32::consts::PI / 6.0;
+/// C++ WEAPON_SPACING_PERPENDICULAR residual.
+pub const STRUCTURE_TOPPLE_WEAPON_SPACING: f32 = 25.0;
+/// Residual crush damage per sample (fail-closed vs full WeaponTemplate).
+pub const STRUCTURE_TOPPLE_CRUSH_DAMAGE: f32 = 99999.0;
+/// Default building height residual when geometry missing.
+pub const STRUCTURE_TOPPLE_DEFAULT_HEIGHT: f32 = 40.0;
+/// Default facing half-width residual.
+pub const STRUCTURE_TOPPLE_DEFAULT_FACING_WIDTH: f32 = 20.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum HostStructureToppleState {
@@ -53,6 +63,12 @@ pub struct HostStructureToppleData {
     pub done_frame: u32,
     /// Presentation lean (radians) — mirrors tree topple lean field consumers.
     pub lean_radians: f32,
+    /// C++ m_lastCrushedLocation residual (distance along fall already crushed).
+    pub last_crushed_location: f32,
+    /// Building height residual for crush projection.
+    pub building_height: f32,
+    /// Facing half-width residual for crush line.
+    pub facing_width: f32,
 }
 
 impl Default for HostStructureToppleData {
@@ -68,6 +84,9 @@ impl Default for HostStructureToppleData {
             structural_decay: STRUCTURE_TOPPLE_DECAY_DEFAULT,
             done_frame: 0,
             lean_radians: 0.0,
+            last_crushed_location: 0.0,
+            building_height: STRUCTURE_TOPPLE_DEFAULT_HEIGHT,
+            facing_width: STRUCTURE_TOPPLE_DEFAULT_FACING_WIDTH,
         }
     }
 }
@@ -105,6 +124,7 @@ impl HostStructureToppleData {
         self.topple_velocity = 0.0;
         self.accumulated_angle = 0.0;
         self.lean_radians = 0.0;
+        self.last_crushed_location = 0.0;
         self.structural_integrity = STRUCTURE_TOPPLE_INTEGRITY_DEFAULT;
         self.state = HostStructureToppleState::WaitingForStart;
     }
@@ -176,9 +196,114 @@ pub fn is_structure_topple_candidate(template_name: &str, is_structure: bool) ->
     true
 }
 
+/// World-space crush sample from structure topple sweep.
+#[derive(Debug, Clone, Copy)]
+pub struct StructureToppleCrushSample {
+    pub x: f32,
+    pub z: f32,
+    pub damage: f32,
+}
+
+impl HostStructureToppleData {
+    /// Remaining angle to ground (C++ theta passed to applyCrushingDamage).
+    pub fn remaining_theta(&self) -> f32 {
+        (std::f32::consts::FRAC_PI_2 - self.accumulated_angle).max(0.0)
+    }
+
+    /// C++ applyCrushingDamage residual: samples along fall direction when near ground.
+    /// Updates `last_crushed_location`. Returns empty if theta still above ceiling.
+    pub fn take_crush_sweep_samples(
+        &mut self,
+        building_x: f32,
+        building_z: f32,
+    ) -> Vec<StructureToppleCrushSample> {
+        let theta = self.remaining_theta();
+        if theta > STRUCTURE_TOPPLE_THETA_CEILING
+            && self.state == HostStructureToppleState::Toppling
+        {
+            return Vec::new();
+        }
+        // When WaitingForDone / just hit ground, force final sweep (theta≈0).
+        let theta = if matches!(
+            self.state,
+            HostStructureToppleState::WaitingForDone | HostStructureToppleState::Done
+        ) {
+            0.0
+        } else {
+            theta
+        };
+        if self.state == HostStructureToppleState::Toppling
+            && theta > STRUCTURE_TOPPLE_THETA_CEILING
+        {
+            return Vec::new();
+        }
+
+        let height = self.building_height.max(1.0);
+        // maxDistance = height * (1 - sin(theta))
+        let max_distance = height * (1.0 - theta.sin()).max(0.0);
+        if max_distance <= self.last_crushed_location + 1e-3 {
+            return Vec::new();
+        }
+
+        let mut samples = Vec::new();
+        let topple_angle = self.dir_y.atan2(self.dir_x);
+        let cos_t = topple_angle.cos();
+        let sin_t = topple_angle.sin();
+        let facing = self.facing_width.max(1.0);
+        let px = -sin_t; // perpendicular to topple dir
+        let pz = cos_t;
+
+        // C++: for (j = last; j < maxDistance; j += spacing) doDamageLine; then final at max.
+        let mut j = self.last_crushed_location;
+        while j < max_distance {
+            let jcos = j * cos_t;
+            let jsin = j * sin_t;
+            for k in [-1.0_f32, 0.0, 1.0] {
+                samples.push(StructureToppleCrushSample {
+                    x: building_x + jcos + px * facing * k,
+                    z: building_z + jsin + pz * facing * k,
+                    damage: STRUCTURE_TOPPLE_CRUSH_DAMAGE,
+                });
+            }
+            let next = j + STRUCTURE_TOPPLE_WEAPON_SPACING;
+            if next >= max_distance {
+                if (max_distance - j).abs() > 1e-3 {
+                    let jcos = max_distance * cos_t;
+                    let jsin = max_distance * sin_t;
+                    for k in [-1.0_f32, 0.0, 1.0] {
+                        samples.push(StructureToppleCrushSample {
+                            x: building_x + jcos + px * facing * k,
+                            z: building_z + jsin + pz * facing * k,
+                            damage: STRUCTURE_TOPPLE_CRUSH_DAMAGE,
+                        });
+                    }
+                }
+                break;
+            }
+            j = next;
+        }
+        self.last_crushed_location = max_distance;
+        samples
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crush_sweep_emits_near_ground() {
+        let mut t = HostStructureToppleData::default();
+        t.begin(0, 1.0, 0.0, 0);
+        t.state = HostStructureToppleState::Toppling;
+        t.accumulated_angle = 0.1;
+        assert!(t.take_crush_sweep_samples(0.0, 0.0).is_empty());
+        t.accumulated_angle = std::f32::consts::FRAC_PI_2 - 0.1;
+        t.last_crushed_location = 0.0;
+        let s = t.take_crush_sweep_samples(0.0, 0.0);
+        assert!(!s.is_empty(), "expected crush samples near ground");
+        assert!(s.iter().all(|p| p.damage > 0.0));
+    }
 
     #[test]
     fn structure_topple_reaches_done() {
