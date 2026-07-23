@@ -936,27 +936,34 @@ impl GarrisonContain {
         };
 
         let contain_count = self.base.get_contain_count() as usize;
-        let contained_objects = self.base.get_contained_items_list().unwrap_or_default();
+        let contained_ids = self.base.get_contained_object_ids().to_vec();
         let mut hide_garrison = false;
         let mut rider_team: Option<Arc<RwLock<Team>>> = None;
 
         if contain_count > 0 {
-            if let Some(first) = contained_objects.first() {
-                if let Ok(rider) = first.read() {
-                    let detected = rider.test_status(ObjectStatusTypes::Detected);
-                    let stealth_count = contained_objects
-                        .iter()
-                        .filter_map(|obj| obj.read().ok())
-                        .filter(|guard| {
-                            guard.test_status(ObjectStatusTypes::Stealthed)
-                                && !guard.test_status(ObjectStatusTypes::Detected)
-                        })
-                        .count();
-                    hide_garrison = !detected && stealth_count == contain_count;
+            if let Some(&first_id) = contained_ids.first() {
+                if let Some(first) = TheGameLogic::find_object_by_id(first_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(first_id))
+                {
+                    if let Ok(rider) = first.read() {
+                        let detected = rider.test_status(ObjectStatusTypes::Detected);
+                        let stealth_count = contained_ids
+                            .iter()
+                            .filter(|&&id| {
+                                crate::object::registry::OBJECT_REGISTRY
+                                    .with_object(id, |guard| {
+                                        guard.test_status(ObjectStatusTypes::Stealthed)
+                                            && !guard.test_status(ObjectStatusTypes::Detected)
+                                    })
+                                    .unwrap_or(false)
+                            })
+                            .count();
+                        hide_garrison = !detected && stealth_count == contain_count;
 
-                    rider_team = rider
-                        .get_controlling_player()
-                        .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()));
+                        rider_team = rider.get_controlling_player().and_then(|player| {
+                            player.read().ok().and_then(|p| p.get_default_team())
+                        });
+                    }
                 }
             }
         }
@@ -981,29 +988,36 @@ impl GarrisonContain {
                 if let Some(drawable) = owner_guard.get_drawable() {
                     let mut set_model_garrisoned = false;
                     if contain_count > 0 {
-                        if let Some(first) = contained_objects.first() {
-                            if let Ok(occupant) = first.read() {
-                                let detected = occupant.test_status(ObjectStatusTypes::Detected);
-                                let local_player = ThePlayerList()
-                                    .read()
-                                    .ok()
-                                    .and_then(|list| list.get_local_player().cloned());
-                                let apparent = local_player
-                                    .as_ref()
-                                    .and_then(|local| local.read().ok())
-                                    .and_then(|local| {
-                                        self.get_apparent_controlling_player(Some(&local))
-                                    });
-                                let controlling = owner_guard.get_controlling_player();
-                                if detected
-                                    || (apparent.is_some()
-                                        && controlling.is_some()
-                                        && Arc::ptr_eq(
-                                            apparent.as_ref().unwrap(),
-                                            controlling.as_ref().unwrap(),
-                                        ))
-                                {
-                                    set_model_garrisoned = true;
+                        if let Some(&first_id) = contained_ids.first() {
+                            if let Some(first) =
+                                TheGameLogic::find_object_by_id(first_id).or_else(|| {
+                                    crate::object::registry::OBJECT_REGISTRY.get_object(first_id)
+                                })
+                            {
+                                if let Ok(occupant) = first.read() {
+                                    let detected =
+                                        occupant.test_status(ObjectStatusTypes::Detected);
+                                    let local_player = ThePlayerList()
+                                        .read()
+                                        .ok()
+                                        .and_then(|list| list.get_local_player().cloned());
+                                    let apparent = local_player
+                                        .as_ref()
+                                        .and_then(|local| local.read().ok())
+                                        .and_then(|local| {
+                                            self.get_apparent_controlling_player(Some(&local))
+                                        });
+                                    let controlling = owner_guard.get_controlling_player();
+                                    if detected
+                                        || (apparent.is_some()
+                                            && controlling.is_some()
+                                            && Arc::ptr_eq(
+                                                apparent.as_ref().unwrap(),
+                                                controlling.as_ref().unwrap(),
+                                            ))
+                                    {
+                                        set_model_garrisoned = true;
+                                    }
                                 }
                             }
                         }
@@ -1307,7 +1321,15 @@ impl GarrisonContain {
     /// Update effects (muzzle flashes, etc.)
     fn update_effects(&mut self) -> GameResult<()> {
         let current_frame = TheGameLogic::get_frame();
-        let contained_objects = self.base.get_contained_items_list()?;
+        let contained_objects: Vec<_> = self
+            .base
+            .get_contained_object_ids()
+            .iter()
+            .filter_map(|&id| {
+                TheGameLogic::find_object_by_id(id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            })
+            .collect();
 
         // Check for objects that fired last frame and create muzzle flash
         for obj in &contained_objects {
@@ -1589,7 +1611,15 @@ impl GarrisonContain {
 
     /// Add valid objects to garrison points
     fn add_valid_objects_to_garrison_points(&mut self) -> GameResult<()> {
-        let contained_objects = self.base.get_contained_items_list()?;
+        let contained_objects: Vec<_> = self
+            .base
+            .get_contained_object_ids()
+            .iter()
+            .filter_map(|&id| {
+                TheGameLogic::find_object_by_id(id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            })
+            .collect();
 
         for obj in contained_objects {
             if let Ok(contained) = obj.read() {
@@ -1684,7 +1714,15 @@ impl GarrisonContain {
         }
 
         let condition_index = self.find_condition_index();
-        let contained_objects = self.base.get_contained_items_list()?;
+        let contained_objects: Vec<_> = self
+            .base
+            .get_contained_object_ids()
+            .iter()
+            .filter_map(|&id| {
+                TheGameLogic::find_object_by_id(id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            })
+            .collect();
 
         for obj in contained_objects {
             if let Ok(contained) = obj.read() {
@@ -1786,19 +1824,20 @@ impl GarrisonContain {
         if !self.station_garrison_points_initialized {
             self.load_station_garrison_points()?;
         }
-        let contained_objects = self.base.get_contained_items_list()?;
-        for obj in contained_objects {
-            let Ok(contained) = obj.read() else {
-                continue;
-            };
+        let contained_ids = self.base.get_contained_object_ids().to_vec();
+        for object_id in contained_ids {
             let mut found = false;
             for station in &self.station_point_list {
-                if station.occupant_id == Some(contained.get_id()) {
-                    if let Ok(mut guard) = obj.write() {
-                        if let Err(err) = guard.set_position(&station.position) {
-                            log::debug!(
-                                "GarrisonContain::position_objects_at_station_garrison_points set_position failed: {err}"
-                            );
+                if station.occupant_id == Some(object_id) {
+                    if let Some(obj) = TheGameLogic::find_object_by_id(object_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+                    {
+                        if let Ok(mut guard) = obj.write() {
+                            if let Err(err) = guard.set_position(&station.position) {
+                                log::debug!(
+                                    "GarrisonContain::position_objects_at_station_garrison_points set_position failed: {err}"
+                                );
+                            }
                         }
                     }
                     found = true;
@@ -1807,18 +1846,25 @@ impl GarrisonContain {
             }
 
             if !found {
-                if self.pick_a_station_for_me(&contained) {
-                    for station in &self.station_point_list {
-                        if station.occupant_id == Some(contained.get_id()) {
-                            if let Ok(mut guard) = obj.write() {
-                                if let Err(err) = guard.set_position(&station.position) {
-                                    log::debug!(
-                                        "GarrisonContain::position_objects_at_station_garrison_points set_position failed: {err}"
-                                    );
+                if let Some(obj) = TheGameLogic::find_object_by_id(object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+                {
+                    if let Ok(contained) = obj.read() {
+                        if self.pick_a_station_for_me(&contained) {
+                            drop(contained);
+                            for station in &self.station_point_list {
+                                if station.occupant_id == Some(object_id) {
+                                    if let Ok(mut guard) = obj.write() {
+                                        if let Err(err) = guard.set_position(&station.position) {
+                                            log::debug!(
+                                                "GarrisonContain::position_objects_at_station_garrison_points set_position failed: {err}"
+                                            );
+                                        }
+                                    }
+                                    found = true;
+                                    break;
                                 }
                             }
-                            found = true;
-                            break;
                         }
                     }
                 }
