@@ -4416,7 +4416,10 @@ impl ClassicState for AIMoveToState {
         self.ambient_playing_handle = 0;
 
         // If we have a goal object, move to it, otherwise move to goal position (C++ line 2022)
-        if let Some(goal_obj) = self.base.get_machine_goal_object() {
+        if let Some(goal_obj) = self.base.get_machine_goal_object_id().and_then(|id| {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        }) {
             let goal_guard = goal_obj
                 .read()
                 .map_err(|_| "goal object lock poisoned".to_string())?;
@@ -4518,7 +4521,10 @@ impl ClassicState for AIMoveToState {
         }
 
         let mut goal_moved = false;
-        if let Some(goal_obj) = self.base.get_machine_goal_object() {
+        if let Some(goal_obj) = self.base.get_machine_goal_object_id().and_then(|id| {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        }) {
             let goal_guard = goal_obj
                 .read()
                 .map_err(|_| "goal object lock poisoned".to_string())?;
@@ -6183,9 +6189,12 @@ impl ClassicState for AIAttackObjectState {
         }
 
         // C++ lines 5505-5516: Get victim, check dead
-        let target = self
+        let target_id = self
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
+            .ok_or_else(|| "attack object state missing goal object".to_string())?;
+        let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
             .ok_or_else(|| "attack object state missing goal object".to_string())?;
         self.target_id = target.read().map(|g| g.get_id()).unwrap_or(INVALID_ID);
 
@@ -6870,10 +6879,13 @@ impl ClassicState for AIPickUpCrateState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let goal = self
+        let goal_id = self
             .base
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
+            .ok_or_else(|| "pick up crate missing goal object".to_string())?;
+        let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
             .ok_or_else(|| "pick up crate missing goal object".to_string())?;
 
         if let Ok(goal_guard) = goal.read() {
@@ -7372,7 +7384,10 @@ impl ClassicState for AIGuardState {
             guard_machine.set_area_to_guard(Some(polygon.clone()));
             let center = polygon.get_center_point();
             guard_machine.set_target_position_to_guard(&center);
-        } else if let Some(target) = self.base.get_machine_goal_object() {
+        } else if let Some(target) = self.base.get_machine_goal_object_id().and_then(|id| {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        }) {
             guard_machine.set_target_to_guard(Some(&target));
         } else if let Some(pos) = self.base.get_machine_goal_position() {
             guard_machine.set_target_position_to_guard(&pos);
@@ -7498,7 +7513,10 @@ impl ClassicState for AIGuardRetaliateState {
             guard_machine.set_target_position_to_guard(owner_guard.get_position());
         }
 
-        if let Some(goal) = self.base.get_machine_goal_object() {
+        if let Some(goal) = self.base.get_machine_goal_object_id().and_then(|id| {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        }) {
             if let Ok(goal_guard) = goal.try_read() {
                 guard_machine.set_nemesis_id(goal_guard.get_id());
             }
@@ -8227,10 +8245,13 @@ impl ClassicState for AIEnterState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "enter state missing machine owner".to_string())?;
-        let goal = self
+        let goal_id = self
             .base
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
+            .ok_or_else(|| "enter state missing goal object".to_string())?;
+        let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
             .ok_or_else(|| "enter state missing goal object".to_string())?;
 
         {
@@ -8282,10 +8303,13 @@ impl ClassicState for AIEnterState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "enter state missing machine owner".to_string())?;
-        let goal = self
+        let goal_id = self
             .base
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
+            .ok_or_else(|| "enter state missing goal object".to_string())?;
+        let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
             .ok_or_else(|| "enter state missing goal object".to_string())?;
 
         {
@@ -8470,9 +8494,12 @@ impl ClassicState for AIExitState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "exit state missing machine owner".to_string())?;
-        let goal = self
+        let goal_id = self
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
+            .ok_or_else(|| "exit state missing goal object".to_string())?;
+        let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
             .ok_or_else(|| "exit state missing goal object".to_string())?;
 
         let owner_guard = owner
@@ -8499,9 +8526,12 @@ impl ClassicState for AIExitState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "exit state missing machine owner".to_string())?;
-        let goal = self
+        let goal_id = self
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
+            .ok_or_else(|| "exit state missing goal object".to_string())?;
+        let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
             .ok_or_else(|| "exit state missing goal object".to_string())?;
 
         let owner_guard = owner
@@ -8622,9 +8652,12 @@ impl ClassicState for AIExitInstantlyState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "exit instantly state missing machine owner".to_string())?;
-        let goal = self
+        let goal_id = self
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
+            .ok_or_else(|| "exit instantly state missing goal object".to_string())?;
+        let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
             .ok_or_else(|| "exit instantly state missing goal object".to_string())?;
 
         let owner_guard = owner
@@ -8967,8 +9000,11 @@ fn want_to_squish_target_state(base: &State) -> Result<bool, String> {
     let owner = base
         .get_machine_owner()
         .ok_or_else(|| "attack condition missing owner".to_string())?;
-    let target = base
-        .get_machine_goal_object()
+    let target_id = base
+        .get_machine_goal_object_id()
+        .ok_or_else(|| "attack condition missing target".to_string())?;
+    let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
         .ok_or_else(|| "attack condition missing target".to_string())?;
     let owner_guard = owner
         .lock()
@@ -9020,8 +9056,11 @@ fn cannot_possibly_attack_object_state(
     let owner = base
         .get_machine_owner()
         .ok_or_else(|| "attack condition missing owner".to_string())?;
-    let target = base
-        .get_machine_goal_object()
+    let target_id = base
+        .get_machine_goal_object_id()
+        .ok_or_else(|| "attack condition missing target".to_string())?;
+    let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
         .ok_or_else(|| "attack condition missing target".to_string())?;
     let owner_guard = owner
         .lock()
@@ -9460,7 +9499,15 @@ impl ClassicState for AIAttackAimAtTargetState {
                             if contain_guard.is_enclosing_container_for(&*owner_guard) {
                                 used_contain = true;
                                 if self.attacking_object {
-                                    if let Some(target) = self.base.get_machine_goal_object() {
+                                    if let Some(target) =
+                                        self.base.get_machine_goal_object_id().and_then(|id| {
+                                            crate::helpers::TheGameLogic::find_object_by_id(id)
+                                                .or_else(|| {
+                                                    crate::object::registry::OBJECT_REGISTRY
+                                                        .get_object(id)
+                                                })
+                                        })
+                                    {
                                         in_range = contain_guard.attempt_best_fire_point_position(
                                             owner.read().map(|g| g.get_id()).unwrap_or(0),
                                             weapon,
@@ -9483,9 +9530,12 @@ impl ClassicState for AIAttackAimAtTargetState {
         }
 
         if self.attacking_object {
-            let target = self
+            let target_id = self
                 .base
-                .get_machine_goal_object()
+                .get_machine_goal_object_id()
+                .ok_or_else(|| "attack aim missing target".to_string())?;
+            let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
                 .ok_or_else(|| "attack aim missing target".to_string())?;
             let target_guard = target
                 .lock()
@@ -9571,9 +9621,12 @@ impl ClassicState for AIAttackAimAtTargetState {
         }
 
         let target_pos = if self.attacking_object {
-            let target = self
+            let target_id = self
                 .base
-                .get_machine_goal_object()
+                .get_machine_goal_object_id()
+                .ok_or_else(|| "attack aim missing target".to_string())?;
+            let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
                 .ok_or_else(|| "attack aim missing target".to_string())?;
             let target_guard = target
                 .lock()
@@ -9643,7 +9696,10 @@ impl ClassicState for AIAttackAimAtTargetState {
 
         if rel_angle.abs() < aim_delta {
             if self.attacking_object {
-                if let Some(target) = self.base.get_machine_goal_object() {
+                if let Some(target) = self.base.get_machine_goal_object_id().and_then(|id| {
+                    crate::helpers::TheGameLogic::find_object_by_id(id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+                }) {
                     if let Ok(target_guard) = target.lock() {
                         if let Some(ai) = target_guard.get_ai_update_interface() {
                             if let Ok(mut ai_guard) = ai.lock() {
@@ -9661,7 +9717,10 @@ impl ClassicState for AIAttackAimAtTargetState {
 
         if owner_guard.is_disabled_by_type(DisabledType::Held) {
             let in_range = if self.attacking_object {
-                if let Some(target) = self.base.get_machine_goal_object() {
+                if let Some(target) = self.base.get_machine_goal_object_id().and_then(|id| {
+                    crate::helpers::TheGameLogic::find_object_by_id(id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+                }) {
                     if let Ok(target_guard) = target.read() {
                         weapon.is_within_attack_range(
                             owner_guard.get_id(),
@@ -9780,7 +9839,10 @@ impl ClassicState for AIAttackFireWeaponState {
             .lock()
             .map_err(|_| "attack fire owner lock poisoned".to_string())?;
 
-        let victim = self.base.get_machine_goal_object();
+        let victim = self.base.get_machine_goal_object_id().and_then(|id| {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        });
         if self.attacking_object {
             if let Some(victim_obj) = victim.as_ref() {
                 if let Ok(victim_guard) = victim_obj.read() {
@@ -9851,7 +9913,10 @@ impl ClassicState for AIAttackFireWeaponState {
                     let mut should_continue = false;
                     let mut victim_player = None;
                     let mut victim_pos = None;
-                    if let Some(target) = self.base.get_machine_goal_object() {
+                    if let Some(target) = self.base.get_machine_goal_object_id().and_then(|id| {
+                        crate::helpers::TheGameLogic::find_object_by_id(id)
+                            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+                    }) {
                         if let Ok(target_guard) = target.read() {
                             victim_player = target_guard.get_controlling_player_id();
                             should_continue = target_guard.is_destroyed()
@@ -10168,7 +10233,12 @@ impl AIAttackPursueTargetState {
 
         self.approach_timestamp = TheGameLogic::get_frame();
 
-        let Some(victim) = self.base.base.get_machine_goal_object() else {
+        let Some(victim_id) = self.base.base.get_machine_goal_object_id() else {
+            return Ok(false);
+        };
+        let Some(victim) = crate::helpers::TheGameLogic::find_object_by_id(victim_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(victim_id))
+        else {
             return Ok(false);
         };
         let victim_guard = victim
@@ -10232,7 +10302,12 @@ impl AIAttackPursueTargetState {
 
         self.stop_if_in_range = false;
 
-        let Some(victim) = self.base.base.get_machine_goal_object() else {
+        let Some(victim_id) = self.base.base.get_machine_goal_object_id() else {
+            return Ok(StateReturnType::Failure);
+        };
+        let Some(victim) = crate::helpers::TheGameLogic::find_object_by_id(victim_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(victim_id))
+        else {
             return Ok(StateReturnType::Failure);
         };
         {
@@ -10398,7 +10473,12 @@ impl ClassicState for AIAttackPursueTargetState {
         self.prev_victim_pos = Coord3D::new(0.0, 0.0, 0.0);
         self.approach_timestamp = 0u32.wrapping_sub(ATTACK_MIN_RECOMPUTE_TIME);
 
-        let Some(victim) = self.base.base.get_machine_goal_object() else {
+        let Some(victim_id) = self.base.base.get_machine_goal_object_id() else {
+            return Ok(StateReturnType::Success);
+        };
+        let Some(victim) = crate::helpers::TheGameLogic::find_object_by_id(victim_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(victim_id))
+        else {
             return Ok(StateReturnType::Success);
         };
         let victim_guard = victim
@@ -10551,7 +10631,10 @@ impl AIAttackApproachTargetState {
 
         self.approach_timestamp = TheGameLogic::get_frame();
 
-        if let Some(victim) = self.base.base.get_machine_goal_object() {
+        if let Some(victim) = self.base.base.get_machine_goal_object_id().and_then(|id| {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        }) {
             let victim_guard = victim
                 .read()
                 .map_err(|_| "attack approach victim lock poisoned".to_string())?;
@@ -10638,7 +10721,10 @@ impl AIAttackApproachTargetState {
 
         self.stop_if_in_range = false;
 
-        if let Some(victim) = self.base.base.get_machine_goal_object() {
+        if let Some(victim) = self.base.base.get_machine_goal_object_id().and_then(|id| {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        }) {
             {
                 let owner_guard = owner
                     .lock()
@@ -10796,7 +10882,10 @@ impl ClassicState for AIAttackApproachTargetState {
         self.prev_victim_pos = Coord3D::new(0.0, 0.0, 0.0);
         self.approach_timestamp = 0u32.wrapping_sub(ATTACK_MIN_RECOMPUTE_TIME);
 
-        if let Some(victim) = self.base.base.get_machine_goal_object() {
+        if let Some(victim) = self.base.base.get_machine_goal_object_id().and_then(|id| {
+            crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        }) {
             let victim_guard = victim
                 .read()
                 .map_err(|_| "attack approach victim lock poisoned".to_string())?;
@@ -10901,7 +10990,10 @@ impl ClassicState for AIAttackApproachTargetState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack approach missing owner".to_string())?;
             let keep_following = if let Ok(owner_guard) = owner.read() {
-                if let Some(victim) = self.base.base.get_machine_goal_object() {
+                if let Some(victim) = self.base.base.get_machine_goal_object_id().and_then(|id| {
+                    crate::helpers::TheGameLogic::find_object_by_id(id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+                }) {
                     if let Ok(victim_guard) = victim.read() {
                         !owner_guard.is_kind_of(KindOf::Immobile)
                             && !victim_guard.is_kind_of(KindOf::Immobile)
