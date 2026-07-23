@@ -1839,23 +1839,18 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
             return Ok(self.calc_sleep_time());
         }
 
-        let Some(obj) = self.get_object() else {
+        if self.get_object_id() == INVALID_ID {
             return Ok(UPDATE_SLEEP_FOREVER);
-        };
+        }
 
         if !self.active {
             return Ok(self.calc_sleep_time());
         }
 
-        let ai = {
-            let Ok(obj_guard) = obj.read() else {
-                self.on_exit(false);
-                return Ok(self.calc_sleep_time());
-            };
-            obj_guard.get_ai_update_interface()
-        };
-
-        let Some(ai) = ai else {
+        let Some(ai) = self
+            .with_object(|obj_guard| obj_guard.get_ai_update_interface())
+            .flatten()
+        else {
             self.on_exit(false);
             return Ok(self.calc_sleep_time());
         };
