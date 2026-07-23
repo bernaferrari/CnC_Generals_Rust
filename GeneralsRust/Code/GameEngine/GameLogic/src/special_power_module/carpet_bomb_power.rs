@@ -192,15 +192,21 @@ impl CarpetBombPower {
         self.owner_player_id = Some(player_id);
         self.bombs_dropped.clear();
 
+        let owner_id = self
+            .resolve_owner_object_id()
+            .ok_or_else(|| "Carpet Bomb requires an owning object".to_string())?;
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |g| g.is_disabled())
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
         let owner = self
             .resolve_owner_object()
             .ok_or_else(|| "Carpet Bomb requires an owning object".to_string())?;
         let owner_guard = owner
             .read()
-            .map_err(|_| "Carpet bomb owner lock poisoned".to_string())?;
-        if owner_guard.is_disabled() {
-            return Ok(());
-        }
+            .map_err(|_| "owner lock poisoned".to_string())?;
 
         let mut target_coord = targeting.position;
         if let Some(target_id) = targeting.target_object {

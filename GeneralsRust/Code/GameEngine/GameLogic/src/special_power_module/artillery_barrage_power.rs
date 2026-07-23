@@ -207,15 +207,21 @@ impl ArtilleryBarragePower {
             .ok_or_else(|| "Artillery Barrage has no OCL configured".to_string())?;
         let ocl = TheObjectCreationListStore::find_object_creation_list(ocl_name.as_str())
             .ok_or_else(|| format!("OCL '{}' not found for artillery barrage", ocl_name))?;
+        let owner_id = self
+            .resolve_owner_object_id()
+            .ok_or_else(|| "Artillery Barrage requires an owning object".to_string())?;
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |g| g.is_disabled())
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
         let owner = self
             .resolve_owner_object()
             .ok_or_else(|| "Artillery Barrage requires an owning object".to_string())?;
         let owner_guard = owner
             .read()
-            .map_err(|_| "Artillery barrage owner lock poisoned".to_string())?;
-        if owner_guard.is_disabled() {
-            return Ok(());
-        }
+            .map_err(|_| "owner lock poisoned".to_string())?;
 
         if self.data.adjust_position_to_passable {
             if let Some(partition) = ThePartitionManager::get() {
@@ -305,16 +311,28 @@ impl ArtilleryBarragePower {
             .ok_or_else(|| "Artillery Barrage has no OCL configured".to_string())?;
         let ocl = TheObjectCreationListStore::find_object_creation_list(ocl_name.as_str())
             .ok_or_else(|| format!("OCL '{}' not found for artillery barrage", ocl_name))?;
+        let owner_id = self
+            .resolve_owner_object_id()
+            .ok_or_else(|| "Artillery Barrage requires an owning object".to_string())?;
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |g| g.is_disabled())
+            .unwrap_or(false)
+        {
+            self.pending_shells = 0;
+            return Ok(());
+        }
+        let owner = self
+            .resolve_owner_object()
+            .ok_or_else(|| "Artillery Barrage requires an owning object".to_string())?;
+        let owner_guard = owner
+            .read()
+            .map_err(|_| "owner lock poisoned".to_string())?;
         let owner = self
             .resolve_owner_object()
             .ok_or_else(|| "Artillery Barrage requires an owning object".to_string())?;
         let owner_guard = owner
             .read()
             .map_err(|_| "Artillery barrage owner lock poisoned".to_string())?;
-        if owner_guard.is_disabled() {
-            self.pending_shells = 0;
-            return Ok(());
-        }
 
         let ctx = live_creation_context();
         while self.pending_shells > 0

@@ -1394,7 +1394,12 @@ impl AIStateMachine {
     }
 
     pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.base.get_goal_object()
+        let id = self.base.get_goal_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     pub fn get_goal_object_id(&self) -> crate::common::ObjectID {
