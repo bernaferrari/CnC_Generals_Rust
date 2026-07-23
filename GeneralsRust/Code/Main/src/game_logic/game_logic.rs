@@ -14920,6 +14920,7 @@ impl GameLogic {
                     obj.guard_position,
                     obj.guard_target,
                     obj.guard_radius,
+                    obj.guard_mode,
                     obj.can_move(),
                     obj.can_attack(),
                     obj.health.current,
@@ -14938,6 +14939,7 @@ impl GameLogic {
                 guard_position,
                 guard_target,
                 guard_radius,
+                guard_mode,
                 can_move,
                 can_attack,
                 health_current,
@@ -14958,15 +14960,57 @@ impl GameLogic {
                 AIState::GuardingArea => {
                     let anchor = guard_position.unwrap_or(position);
                     let radius = guard_radius.max(GUARD_MIN_RADIUS);
+                    // C++ GuardMode residual (AIGuard.cpp):
+                    // Normal — pursue outside (wider acquire).
+                    // WithoutPursuit — no outer chase; engage only inside radius.
+                    // FlyingUnitsOnly — PartitionFilterIsFlying on acquire.
+                    let acquire_radius = match guard_mode {
+                        crate::game_logic::GuardMode::Normal => radius * 1.5,
+                        _ => radius,
+                    };
 
                     if can_attack {
-                        if let Some((enemy_id, _)) =
-                            crate::ai_decisions::AIDecisionSystem::find_nearest_enemy(
-                                self, anchor, team, radius,
-                            )
-                        {
-                            self.engage_target_decision_aware(object_id, enemy_id);
-                            continue;
+                        let flying_only =
+                            matches!(guard_mode, crate::game_logic::GuardMode::FlyingUnitsOnly);
+                        let without_pursuit =
+                            matches!(guard_mode, crate::game_logic::GuardMode::WithoutPursuit);
+                        // Prefer nearest legal enemy around the guard anchor.
+                        let mut best: Option<(ObjectId, f32)> = None;
+                        for (cand_id, cand) in self.objects.iter() {
+                            if !cand.is_alive() || !cand.is_targetable_by_enemy_of(team) {
+                                continue;
+                            }
+                            if flying_only
+                                && !(cand.is_kind_of(KindOf::Aircraft)
+                                    || cand.object_type == ObjectType::Aircraft)
+                            {
+                                continue;
+                            }
+                            let d = anchor.distance(cand.get_position());
+                            if d > acquire_radius {
+                                continue;
+                            }
+                            if without_pursuit && d > radius {
+                                continue;
+                            }
+                            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                                best = Some((*cand_id, d));
+                            }
+                        }
+                        if let Some((enemy_id, _)) = best {
+                            // WithoutPursuit: if we already left the bubble, return home first.
+                            if without_pursuit && position.distance(anchor) > radius {
+                                if can_move {
+                                    self.path_approach_with_state(
+                                        object_id,
+                                        anchor,
+                                        AIState::GuardingArea,
+                                    );
+                                }
+                            } else {
+                                self.engage_target_decision_aware(object_id, enemy_id);
+                                continue;
+                            }
                         }
                     }
 

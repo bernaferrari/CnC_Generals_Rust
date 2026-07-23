@@ -51,6 +51,7 @@ fn guard_command_payload_round_trips_through_game_command() {
     let command = GameCommand {
         command_type: CommandType::Guard {
             target: GuardTarget::Position(target_position),
+            mode: crate::game_logic::GuardMode::Normal,
         },
         player_id: 3,
         command_id: 42,
@@ -66,6 +67,7 @@ fn guard_command_payload_round_trips_through_game_command() {
     match &command.command_type {
         CommandType::Guard {
             target: GuardTarget::Position(position),
+            mode: crate::game_logic::GuardMode::Normal,
         } => assert_eq!(*position, target_position),
         other => panic!("expected guard command, got {other:?}"),
     }

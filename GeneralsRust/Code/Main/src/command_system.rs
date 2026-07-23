@@ -73,6 +73,9 @@ pub enum CommandType {
     Stop,
     Guard {
         target: GuardTarget,
+        /// C++ GuardMode residual (default Normal).
+        #[serde(default)]
+        mode: crate::game_logic::GuardMode,
     },
     /// Patrol residual: units wander and auto-engage nearby enemies.
     Patrol,
@@ -2090,9 +2093,20 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "setrallypoint" => Some(CommandType::SetRallyPoint {
             location: glam::Vec3::ZERO, // filled by dispatch
         }),
-        "guard" => Some(CommandType::Guard {
+        "guard" | "guardarea" | "guardposition" => Some(CommandType::Guard {
             target: GuardTarget::Position(glam::Vec3::ZERO),
+            mode: crate::game_logic::GuardMode::Normal,
         }),
+        "guardwithoutpursuit" | "guard_without_pursuit" => Some(CommandType::Guard {
+            target: GuardTarget::Position(glam::Vec3::ZERO),
+            mode: crate::game_logic::GuardMode::WithoutPursuit,
+        }),
+        "guardflying" | "guardflyingunits" | "guardflyingunitsonly" | "guard_flying_units_only" => {
+            Some(CommandType::Guard {
+                target: GuardTarget::Position(glam::Vec3::ZERO),
+                mode: crate::game_logic::GuardMode::FlyingUnitsOnly,
+            })
+        }
         "patrol" | "hunt" => Some(CommandType::Patrol),
         "attitudesleep" | "sleep" | "holdfire" => Some(CommandType::AttitudeSleep),
         "attitudepassive" | "passive" | "defend" => Some(CommandType::AttitudePassive),
