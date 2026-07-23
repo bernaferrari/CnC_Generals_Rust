@@ -133,14 +133,44 @@ impl TechBuildingBehavior {
         })
     }
 
+    fn get_object_id(&self) -> crate::common::ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(
+        &self,
+        f: impl FnOnce(&Object) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, f)
+            .ok_or_else(|| "Object not found".into())
+    }
+
+    fn with_object_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Object) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(id, f)
+            .ok_or_else(|| "Object not found".into())
+    }
+
     fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
-        (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .ok_or("Object not set".into())
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            .ok_or_else(|| "Object not found".into())
     }
 
     /// Handle capture events (when ownership changes)
@@ -157,44 +187,31 @@ impl TechBuildingBehavior {
 
 impl UpdateModuleInterface for TechBuildingBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let object = self.get_object()?;
         let data = &self.module_data;
 
         // Update our model condition for the captured status
-        let captured = {
-            let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-            let controlling_player = obj_guard.get_controlling_player();
+        let is_playable_side = self
+            .with_object(|obj_guard| {
+                obj_guard
+                    .get_controlling_player()
+                    .and_then(|player| player.read().ok().map(|p| p.is_playable_side()))
+            })?
+            .unwrap_or(false);
 
-            if let Some(player) = controlling_player {
-                let player_guard = player.read().map_err(|_| "Failed to read player")?;
-                let is_playable_side = player_guard.is_playable_side();
-                drop(player_guard);
-                drop(obj_guard);
-
-                if is_playable_side {
-                    let mut obj_guard = object.write().map_err(|_| "Failed to write object")?;
-                    obj_guard.set_model_condition_state(ModelConditionFlags::CAPTURED);
-                    drop(obj_guard);
-                    true
-                } else {
-                    let mut obj_guard = object.write().map_err(|_| "Failed to write object")?;
-                    obj_guard.clear_model_condition_state(ModelConditionFlags::CAPTURED);
-                    drop(obj_guard);
-                    false
-                }
+        self.with_object_mut(|obj_guard| {
+            if is_playable_side {
+                obj_guard.set_model_condition_state(ModelConditionFlags::CAPTURED);
             } else {
-                drop(obj_guard);
-                let mut obj_guard = object.write().map_err(|_| "Failed to write object")?;
                 obj_guard.clear_model_condition_state(ModelConditionFlags::CAPTURED);
-                drop(obj_guard);
-                false
             }
-        };
+        })?;
+        let captured = is_playable_side;
 
         // If we have a pulse fx, and are owned, sleep only a little while, otherwise sleep forever
         if let Some(pulse_fx) = &data.pulse_fx {
             if data.pulse_fx_rate > 0 && captured {
                 // Play the pulse FX
+                let object = self.get_object()?;
                 pulse_fx.do_fx_obj(&object, None)?;
                 return Ok(UpdateSleepTime::from_u32(data.pulse_fx_rate));
             }
@@ -210,32 +227,22 @@ impl DieModuleInterface for TechBuildingBehavior {
         &mut self,
         _damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let object = self.get_object()?;
-
         // Put us on the team of the neutral player so no player has any bonus from us
-        {
-            let mut obj_guard = object.write().map_err(|_| "Failed to write object")?;
-            obj_guard.clear_model_condition_state(ModelConditionFlags::CAPTURED);
+        let neutral_team = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_neutral_player())
+            .and_then(|neutral| neutral.read().ok().and_then(|n| n.get_default_team()));
 
-            // Set to neutral team
-            let neutral_player = player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_neutral_player());
-            if let Some(neutral) = neutral_player {
-                let neutral_guard = neutral
-                    .read()
-                    .map_err(|_| "Failed to read neutral player")?;
-                let default_team = neutral_guard.get_default_team();
-                drop(neutral_guard);
-
-                if let Some(team) = default_team {
+        self.with_object_mut(
+            |obj_guard| -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                obj_guard.clear_model_condition_state(ModelConditionFlags::CAPTURED);
+                if let Some(team) = neutral_team.clone() {
                     obj_guard.set_team(Some(team))?;
                 }
-            }
-
-            drop(obj_guard);
-        }
+                Ok(())
+            },
+        )??;
 
         Ok(())
     }
