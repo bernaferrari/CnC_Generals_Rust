@@ -92,6 +92,7 @@ pub mod host_angry_mob;
 pub mod host_armor_residual;
 pub mod host_aurora_bomb;
 pub mod host_avenger;
+mod host_baikonur_launch;
 pub mod host_base_defense;
 pub mod host_battle_bus;
 pub mod host_battlemaster;
