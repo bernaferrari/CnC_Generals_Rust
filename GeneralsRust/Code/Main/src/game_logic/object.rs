@@ -952,6 +952,10 @@ pub struct Object {
     /// C++ BoneFXDamage residual.
     #[serde(default)]
     pub bone_fx_damage: Option<crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData>,
+    /// C++ PoisonedBehavior residual.
+    #[serde(default)]
+    pub poisoned_behavior:
+        Option<crate::game_logic::host_poisoned_behavior::HostPoisonedBehaviorData>,
     /// C++ FireWeaponWhenDamagedBehavior residual.
     #[serde(default)]
     pub fire_weapon_when_damaged:
@@ -1613,6 +1617,7 @@ impl Object {
             wave_guide_data: None,
             fire_weapon_when_dead_fired: false,
             bone_fx_damage: None,
+            poisoned_behavior: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
@@ -1963,6 +1968,7 @@ impl Object {
             wave_guide_data: None,
             fire_weapon_when_dead_fired: false,
             bone_fx_damage: None,
+            poisoned_behavior: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
@@ -2263,6 +2269,62 @@ impl Object {
 
     pub fn is_kind_of(&self, kind: KindOf) -> bool {
         self.thing.is_kind_of(kind)
+    }
+
+    /// C++ PoisonedBehavior::onDamage residual.
+    pub fn notify_poisoned_on_damage(
+        &mut self,
+        current_frame: u32,
+        damage_type: crate::game_logic::combat::DamageType,
+        damage_dealt: f32,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) {
+        use crate::game_logic::host_poisoned_behavior::{
+            is_poison_damage_type, HostPoisonedBehaviorData,
+        };
+        if !is_poison_damage_type(damage_type) || damage_dealt <= 0.0 {
+            return;
+        }
+        if self.poisoned_behavior.is_none() {
+            self.poisoned_behavior = Some(HostPoisonedBehaviorData::default());
+        }
+        if let Some(p) = self.poisoned_behavior.as_mut() {
+            p.start_poisoned_effects(current_frame, damage_dealt, death_type);
+        }
+    }
+
+    /// C++ PoisonedBehavior::onHealing residual.
+    pub fn clear_poisoned_on_healing(&mut self) {
+        if let Some(p) = self.poisoned_behavior.as_mut() {
+            p.stop_poisoned_effects();
+        }
+    }
+
+    /// C++ PoisonedBehavior::update residual. Returns DoT damage to apply.
+    pub fn tick_poisoned_behavior(
+        &mut self,
+        current_frame: u32,
+    ) -> Option<(f32, crate::game_logic::host_usa_pilot::HostDeathType)> {
+        let alive = !self.status.destroyed
+            && !self.status.effectively_dead
+            && !self.status.keep_as_rubble
+            && self.health.is_alive();
+        let Some(p) = self.poisoned_behavior.as_mut() else {
+            return None;
+        };
+        let dmg = p.tick(current_frame);
+        if p.should_stop(current_frame) && alive {
+            p.stop_poisoned_effects();
+        }
+        dmg
+    }
+
+    /// Presentation: poisoned tint residual.
+    pub fn is_poison_tinted(&self) -> bool {
+        self.poisoned_behavior
+            .as_ref()
+            .map(|p| p.tint_poisoned)
+            .unwrap_or(false)
     }
 
     pub fn is_alive(&self) -> bool {
@@ -7072,6 +7134,8 @@ impl Object {
             if self.status.destroyed || !self.is_alive() {
                 return false;
             }
+            // C++ PoisonedBehavior::onHealing residual (heal path).
+            self.clear_poisoned_on_healing();
             // amount is heal strength; negative ignored by heal().
             self.heal(damage.max(0.0));
             // Optional: record healer without treating as hostile damage source.
@@ -7229,6 +7293,11 @@ impl Object {
             destroyed
         };
 
+        // C++ PoisonedBehavior::onDamage residual.
+        if actual_damage > 0.0 {
+            let frame = crate::game_logic::host_historic_bonus::logic_frame();
+            self.notify_poisoned_on_damage(frame, damage_type, actual_damage, death_type);
+        }
         // C++ FireWeaponWhenDamagedBehavior::onDamage residual (frame filled by GameLogic).
         if actual_damage > 0.0
             && !matches!(
@@ -7862,6 +7931,8 @@ impl Object {
         if self.status.destroyed {
             return;
         }
+        // C++ PoisonedBehavior::onHealing residual.
+        self.clear_poisoned_on_healing();
         let before = self.health.current;
         if amount <= 0.0 || !amount.is_finite() {
             return;
@@ -12455,6 +12526,61 @@ mod tests {
         );
         assert!(inf.front_crushed && inf.back_crushed);
         assert!(!inf.is_alive() || inf.health.current <= 0.0);
+    }
+
+    #[test]
+    fn poisoned_behavior_dots_after_toxin() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_historic_bonus;
+        let mut t = ThingTemplate::new("TestInfantry");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(201), Team::USA);
+        o.health.current = 100.0;
+        o.health.maximum = 100.0;
+        host_historic_bonus::set_logic_frame(10);
+        let _ = o.take_damage_from_typed(20.0, None, DamageType::Toxin);
+        // HP reduced by initial hit
+        let after_hit = o.health.current;
+        assert!(after_hit < 100.0);
+        assert!(o
+            .poisoned_behavior
+            .as_ref()
+            .map(|p| p.is_active())
+            .unwrap_or(false));
+        assert!(o.is_poison_tinted());
+        // Advance DoT ticks
+        host_historic_bonus::set_logic_frame(20);
+        let mut total_dot = 0.0;
+        for f in 11..100 {
+            if let Some((d, _)) = o.tick_poisoned_behavior(f) {
+                total_dot += d;
+                let _ = o.take_damage_from_typed_death(
+                    d,
+                    None,
+                    DamageType::Unresistable,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
+                );
+            }
+        }
+        assert!(total_dot > 0.0, "poison DoT must tick");
+        assert!(o.health.current < after_hit || !o.is_alive());
+    }
+
+    #[test]
+    fn healing_clears_poison() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_historic_bonus;
+        let mut t = ThingTemplate::new("TestInfantry");
+        t.set_health(100.0);
+        let mut o = Object::new(t, ObjectId(202), Team::USA);
+        o.health.current = 80.0;
+        o.health.maximum = 100.0;
+        host_historic_bonus::set_logic_frame(5);
+        let _ = o.take_damage_from_typed(10.0, None, DamageType::Toxin);
+        assert!(o.is_poison_tinted());
+        o.heal(5.0);
+        assert!(!o.is_poison_tinted());
     }
 
     #[test]
