@@ -29,8 +29,12 @@ impl RegistryStore {
         self.objects.remove(&id);
     }
 
-    fn get(&mut self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+    fn get(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         self.objects.get(&id).cloned()
+    }
+
+    fn contains(&self, id: ObjectID) -> bool {
+        self.objects.contains_key(&id)
     }
 
     fn clear(&mut self) {
@@ -66,10 +70,19 @@ impl ObjectRegistry {
 
     /// Retrieve a strong reference to an object by identifier.
     pub fn get_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        if let Ok(mut guard) = self.store.write() {
+        if let Ok(guard) = self.store.read() {
             guard.get(id)
         } else {
             None
+        }
+    }
+
+    /// True when `id` is currently registered (no Arc clone).
+    pub fn contains(&self, id: ObjectID) -> bool {
+        if let Ok(guard) = self.store.read() {
+            guard.contains(id)
+        } else {
+            false
         }
     }
 
