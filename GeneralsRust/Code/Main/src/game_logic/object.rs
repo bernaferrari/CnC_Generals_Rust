@@ -964,6 +964,19 @@ pub struct Object {
     /// Pending death audio residual.
     #[serde(default)]
     pub pending_death_audio: Option<String>,
+    /// C++ CreateObjectDie residual.
+    #[serde(default)]
+    pub create_object_die:
+        Option<crate::game_logic::host_create_object_die::HostCreateObjectDieData>,
+    /// Pending spawn templates from CreateObjectDie (drained by GameLogic).
+    #[serde(default)]
+    pub pending_create_object_die_spawns: Vec<String>,
+    /// C++ TransferPreviousHealth residual snapshot (max - previous health).
+    #[serde(default)]
+    pub create_object_die_transfer_damage: f32,
+    /// C++ LifetimeUpdate residual.
+    #[serde(default)]
+    pub lifetime_update: Option<crate::game_logic::host_lifetime_update::HostLifetimeUpdateData>,
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
@@ -1578,6 +1591,10 @@ impl Object {
             fx_list_die: None,
             pending_death_fx: None,
             pending_death_audio: None,
+            create_object_die: None,
+            pending_create_object_die_spawns: Vec::new(),
+            create_object_die_transfer_damage: 0.0,
+            lifetime_update: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -1916,6 +1933,10 @@ impl Object {
             fx_list_die: None,
             pending_death_fx: None,
             pending_death_audio: None,
+            create_object_die: None,
+            pending_create_object_die_spawns: Vec::new(),
+            create_object_die_transfer_damage: 0.0,
+            lifetime_update: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -2487,6 +2508,74 @@ impl Object {
     }
 
     /// Attach FireWeaponWhenDamaged residual when template peels match.
+
+    pub fn ensure_create_object_die(&mut self) {
+        if self.create_object_die.is_some() {
+            return;
+        }
+        if let Some(cfg) =
+            crate::game_logic::host_create_object_die::create_object_die_config_for_template(
+                &self.template_name,
+            )
+        {
+            self.create_object_die = Some(cfg);
+        }
+    }
+
+    pub fn ensure_lifetime_update(&mut self, current_frame: u32) {
+        if self.lifetime_update.is_some() {
+            return;
+        }
+        if let Some(msec) =
+            crate::game_logic::host_lifetime_update::lifetime_msec_for_template(&self.template_name)
+        {
+            self.lifetime_update = Some(
+                crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_msec(
+                    current_frame,
+                    msec,
+                ),
+            );
+        }
+    }
+
+    /// C++ CreateObjectDie::onDie residual — queues spawn templates.
+    pub fn fire_create_object_die(&mut self) {
+        self.ensure_create_object_die();
+        let Some(cod) = self.create_object_die.as_mut() else {
+            return;
+        };
+        let transfer = cod.transfer_previous_health;
+        if let Some(spawns) = cod.on_die() {
+            self.pending_create_object_die_spawns = spawns;
+            if transfer {
+                // previous health residual ≈ current before death; use max-current.
+                let max_h = self.health.maximum.max(self.max_health).max(1.0);
+                let prev = self.health.current.max(0.0);
+                self.create_object_die_transfer_damage = (max_h - prev).max(0.0);
+            }
+        }
+    }
+
+    pub fn take_pending_create_object_die_spawns(&mut self) -> (Vec<String>, f32, bool) {
+        let spawns = std::mem::take(&mut self.pending_create_object_die_spawns);
+        let dmg = self.create_object_die_transfer_damage;
+        self.create_object_die_transfer_damage = 0.0;
+        let transfer = self
+            .create_object_die
+            .as_ref()
+            .map(|c| c.transfer_previous_health)
+            .unwrap_or(false);
+        (spawns, dmg, transfer)
+    }
+
+    /// C++ LifetimeUpdate residual. True when object should die this frame.
+    pub fn tick_lifetime_update(&mut self, current_frame: u32) -> bool {
+        self.ensure_lifetime_update(current_frame);
+        self.lifetime_update
+            .as_ref()
+            .map(|l| l.tick(current_frame))
+            .unwrap_or(false)
+    }
 
     pub fn ensure_transition_damage_fx(&mut self) {
         if self.transition_damage_fx.is_some() {
@@ -4284,6 +4373,7 @@ impl Object {
             && !matches!(old_state, HostBodyDamageType::Rubble)
         {
             self.fire_fx_list_die();
+            self.fire_create_object_die();
         }
         let mut bits = host_apply_body_damage_model_bits(self.model_condition_bits, state);
         // Motion / combat residual bits from ObjectStatus.
@@ -11914,6 +12004,41 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn create_object_die_queues_spawns() {
+        use crate::game_logic::host_create_object_die::HostCreateObjectDieData;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("GLASneakAttackTunnelNetworkStart");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Structure);
+        let mut o = Object::new(t, ObjectId(1), Team::GLA);
+        o.create_object_die = Some(HostCreateObjectDieData {
+            ocl_name: "OCL_CreateSneakAttackTunnel".into(),
+            spawn_templates: vec!["GLASneakAttackTunnelNetwork".into()],
+            transfer_previous_health: true,
+            fired: false,
+        });
+        o.health.current = 0.0;
+        o.status.destroyed = true;
+        o.refresh_model_condition_bits();
+        let (spawns, dmg, transfer) = o.take_pending_create_object_die_spawns();
+        assert_eq!(spawns, vec!["GLASneakAttackTunnelNetwork".to_string()]);
+        assert!(transfer);
+        assert!(dmg >= 0.0);
+    }
+
+    #[test]
+    fn lifetime_update_expires() {
+        use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
+        use crate::game_logic::{Team, ThingTemplate};
+        let mut t = ThingTemplate::new("PoisonFieldMedium");
+        t.set_health(10.0);
+        let mut o = Object::new(t, ObjectId(2), Team::Neutral);
+        o.lifetime_update = Some(HostLifetimeUpdateData::from_delay_frames(0, 3));
+        assert!(!o.tick_lifetime_update(2));
+        assert!(o.tick_lifetime_update(3));
     }
 
     #[test]
