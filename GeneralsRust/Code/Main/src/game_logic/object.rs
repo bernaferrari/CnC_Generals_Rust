@@ -583,6 +583,8 @@ pub struct Object {
     /// C++ AIUpdate m_isAttackPath residual.
     #[serde(default)]
     pub is_attack_path: bool,
+    /// C++ exact waypoint path residual (no pathfind smoothing).
+    pub is_exact_path: bool,
     /// C++ m_isApproachPath residual.
     #[serde(default)]
     pub is_approach_path: bool,
@@ -1542,6 +1544,7 @@ impl Object {
             speed_limit_z: 999999.0,
             group_speed_factor: 1.0,
             is_attack_path: false,
+            is_exact_path: false,
             is_approach_path: false,
             is_safe_path: false,
             requested_victim_id: None,
@@ -1852,6 +1855,7 @@ impl Object {
             speed_limit_z: 999999.0,
             group_speed_factor: 1.0,
             is_attack_path: false,
+            is_exact_path: false,
             is_approach_path: false,
             is_safe_path: false,
             requested_victim_id: None,
@@ -4384,6 +4388,7 @@ impl Object {
         self.requested_victim_id = None;
         self.record_host_ai_request();
         self.is_attack_path = false;
+        self.is_exact_path = false;
         self.is_approach_path = false;
         self.record_host_locomotor();
         self.is_safe_path = false;
