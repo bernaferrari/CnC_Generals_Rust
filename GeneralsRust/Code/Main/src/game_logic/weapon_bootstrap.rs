@@ -2775,6 +2775,17 @@ pub fn host_weapon_is_kill_pilot_damage(name: &str) -> bool {
         || n.contains("sniperrifle")
 }
 
+/// C++ Weapon.ini DamageType=DISARM residual (Dozer/Worker mine clear).
+pub fn host_weapon_is_disarm_damage(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("minedisarm")
+        || n.contains("mine_disarm")
+        || n.contains("disarming")
+        || n.contains("disarmweapon")
+        || (n.contains("dozer") && n.contains("mine"))
+        || (n.contains("worker") && n.contains("mine"))
+}
+
 /// C++ Weapon.ini DamageStatusType residual name (OBJECT_STATUS bit name).
 pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static str> {
     if !host_weapon_is_status_damage(name) {
@@ -5167,6 +5178,12 @@ mod tests {
         assert!(sec_last > 0.0, "secondary last_fire_time must advance");
     }
 
+    #[test]
+    fn disarm_damage_peel() {
+        assert!(host_weapon_is_disarm_damage("DozerMineDisarmingWeapon"));
+        assert!(host_weapon_is_disarm_damage("WorkerMineDisarmingWeapon"));
+        assert!(!host_weapon_is_disarm_damage("AmericaTankCrusaderGun"));
+    }
     #[test]
     fn kill_pilot_damage_peel() {
         assert!(host_weapon_is_kill_pilot_damage(

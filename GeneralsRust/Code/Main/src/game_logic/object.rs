@@ -2315,6 +2315,35 @@ impl Object {
     /// Structures stop production / attack while cooked; residual continuous
     /// while microwave keeps attacking (not full subdual accumulate/heal).
 
+    /// Residual mine / demo-trap / booby identity for DAMAGE_DISARM targeting.
+    pub fn is_disarmable_mine(&self) -> bool {
+        use crate::game_logic::host_mines::can_clear_mine_kind;
+        if let Some(md) = self.mine_data.as_ref() {
+            return !md.detonated && can_clear_mine_kind(md.kind);
+        }
+        // Name peel residual when mine_data not attached yet.
+        let n = self.template_name.to_ascii_lowercase();
+        n.contains("mine")
+            || n.contains("demotrap")
+            || n.contains("booby")
+            || self.status.booby_trapped
+    }
+
+    /// C++ LandMineInterface::disarm residual (safe clear, no splash).
+    pub fn disarm_mine_safe(&mut self) -> bool {
+        if !self.is_disarmable_mine() {
+            return false;
+        }
+        if let Some(md) = self.mine_data.as_mut() {
+            md.detonated = true;
+            md.proximity_enabled = false;
+            md.detonate_at_frame = None;
+        }
+        self.health.current = 0.0;
+        self.status.destroyed = true;
+        true
+    }
+
     /// C++ ActiveBody::isSubdued residual (`currentSubdual >= maxHealth`).
     #[inline]
     pub fn is_subdued(&self) -> bool {
@@ -6048,6 +6077,11 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     ) -> bool {
+        // C++ DAMAGE_DISARM residual: destroy mine without detonation splash.
+        if matches!(damage_type, crate::game_logic::combat::DamageType::Disarm) {
+            let _ = (source, death_type, damage);
+            return self.disarm_mine_safe();
+        }
         // C++ DAMAGE_KILL_PILOT residual: unmanned vehicle, no HP damage.
         if matches!(
             damage_type,
@@ -7125,6 +7159,25 @@ impl Object {
 
         if !target_is_air && !weapon.can_target_ground {
             return false;
+        }
+        // C++ DAMAGE_DISARM estimate residual: only mines/demo/booby are valid.
+        {
+            let wname = match slot {
+                Some(1) => self.thing.template.secondary_weapon_name.as_deref().or(self
+                    .thing
+                    .template
+                    .primary_weapon_name
+                    .as_deref()),
+                _ => self.thing.template.primary_weapon_name.as_deref(),
+            };
+            if wname
+                .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
+                .unwrap_or(false)
+            {
+                if !target.is_disarmable_mine() {
+                    return false;
+                }
+            }
         }
 
         // C++ parity (Weapon::isWithinAttackRange): check both minimum
@@ -11312,6 +11365,43 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn disarm_damage_clears_mine_without_hp_on_tank() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_mines::{HostMineData, HostMineKind};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut mt = ThingTemplate::new("Mine");
+        mt.set_health(10.0);
+        let mut mine = Object::new(mt, ObjectId(1), Team::GLA);
+        mine.mine_data = Some(HostMineData {
+            kind: HostMineKind::LandMine,
+            trigger_range: 10.0,
+            detonation_damage: 100.0,
+            detonation_radius: 20.0,
+            secondary_damage: 0.0,
+            secondary_radius: 0.0,
+            demo_trap_profile: Default::default(),
+            proximity_enabled: true,
+            demo_trap_mode: crate::game_logic::host_mines::DemoTrapMode::Proximity,
+            detonated: false,
+            detonate_at_frame: None,
+            attached_to: None,
+            producer_id: None,
+        });
+        mine.health.current = 10.0;
+        assert!(mine.take_damage_from_typed(1.0, None, DamageType::Disarm));
+        assert!(mine.status.destroyed);
+        assert!(mine.mine_data.as_ref().unwrap().detonated);
+
+        let mut tt = ThingTemplate::new("Tank");
+        tt.set_health(100.0);
+        tt.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(tt, ObjectId(2), Team::USA);
+        tank.health.current = 100.0;
+        assert!(!tank.take_damage_from_typed(50.0, None, DamageType::Disarm));
+        assert!((tank.health.current - 100.0).abs() < 1e-3);
     }
 
     #[test]
