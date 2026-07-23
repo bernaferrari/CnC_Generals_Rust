@@ -304,6 +304,8 @@ pub struct RenderableObject {
     pub ammo_pip_total: u32,
     /// Remaining rounds for the ShowsAmmoPips weapon.
     pub ammo_pip_full: u32,
+    /// C++ getMostPercentReadyToFireAnyWeapon residual (0..100).
+    pub weapon_ready_percent: u32,
     /// Primary weapon air/ground targeting residual.
     pub weapon_can_target_air: bool,
     pub weapon_can_target_ground: bool,
@@ -2486,6 +2488,10 @@ impl PresentationFrame {
                     .unwrap_or(u32::MAX),
                 ammo_pip_total: obj.get_ammo_pip_showing_info().map(|(t, _)| t).unwrap_or(0),
                 ammo_pip_full: obj.get_ammo_pip_showing_info().map(|(_, f)| f).unwrap_or(0),
+                weapon_ready_percent: {
+                    let now = crate::game_logic::host_historic_bonus::logic_frame() as f32 / 30.0;
+                    obj.get_most_percent_ready_to_fire_any_weapon(now)
+                },
                 weapon_can_target_air: obj
                     .weapon
                     .as_ref()
