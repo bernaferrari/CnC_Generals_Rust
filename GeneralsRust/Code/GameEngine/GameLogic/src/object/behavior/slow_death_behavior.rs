@@ -765,57 +765,65 @@ impl UpdateModuleInterface for SlowDeathBehavior {
 
         // Handle flung objects (C++ lines 390-429)
         if (self.flags & (1 << Self::FLUNG_INTO_AIR)) != 0 {
-            let object = self.get_object()?;
             if (self.flags & (1 << Self::BOUNCED)) == 0 {
                 // Keep extending timers while airborne
                 self.sink_frame += 1;
                 self.midpoint_frame += 1;
                 self.destruction_frame += 1;
 
-                let mut obj_write = object.write().map_err(|e| format!("Lock error: {}", e))?;
+                let sink_rate = data.sink_rate;
+                let outcome = self.with_object_mut(
+                    |obj_write| -> Result<u8, Box<dyn std::error::Error + Send + Sync>> {
+                        if !obj_write.is_above_terrain() {
+                            obj_write.clear_and_set_model_condition_flags(
+                                MAKE_MODELCONDITION_MASK!(MODELCONDITION_EXPLODED_FLAILING),
+                                MAKE_MODELCONDITION_MASK!(MODELCONDITION_EXPLODED_BOUNCING),
+                            )?;
+                            return Ok(1); // bounced
+                        }
 
-                if !obj_write.is_above_terrain() {
-                    // Object has landed - transition to bouncing
-                    obj_write.clear_and_set_model_condition_flags(
-                        MAKE_MODELCONDITION_MASK!(MODELCONDITION_EXPLODED_FLAILING),
-                        MAKE_MODELCONDITION_MASK!(MODELCONDITION_EXPLODED_BOUNCING),
-                    )?;
-                    self.flags |= 1 << Self::BOUNCED;
-                }
+                        if let Some(physics) = obj_write.get_physics() {
+                            let tree_id = physics.get_last_collidee();
+                            if tree_id != INVALID_ID {
+                                if let Some(tree) = TheGameLogic::find_object_by_id(tree_id) {
+                                    if tree.is_kind_of(KindOf::Shrubbery) {
+                                        obj_write.set_disabled(DisabledType::Held);
+                                        obj_write.clear_model_condition_flags(
+                                            MAKE_MODELCONDITION_MASK!(
+                                                MODELCONDITION_EXPLODED_FLAILING
+                                            ),
+                                        )?;
+                                        obj_write.clear_model_condition_flags(
+                                            MAKE_MODELCONDITION_MASK!(
+                                                MODELCONDITION_EXPLODED_BOUNCING
+                                            ),
+                                        )?;
+                                        obj_write.set_model_condition_flags(
+                                            MAKE_MODELCONDITION_MASK!(MODELCONDITION_PARACHUTING),
+                                        )?;
 
-                // Check for collision with trees (C++ lines 406-424)
-                if let Some(physics) = obj_write.get_physics() {
-                    let tree_id = physics.get_last_collidee();
-                    if tree_id != INVALID_ID {
-                        if let Some(tree) = TheGameLogic::find_object_by_id(tree_id) {
-                            if tree.is_kind_of(KindOf::Shrubbery) {
-                                // Caught in tree - disable and sink faster
-                                obj_write.set_disabled(DisabledType::Held);
-                                obj_write.clear_model_condition_flags(
-                                    MAKE_MODELCONDITION_MASK!(MODELCONDITION_EXPLODED_FLAILING),
-                                )?;
-                                obj_write.clear_model_condition_flags(
-                                    MAKE_MODELCONDITION_MASK!(MODELCONDITION_EXPLODED_BOUNCING),
-                                )?;
-                                obj_write.set_model_condition_flags(MAKE_MODELCONDITION_MASK!(
-                                    MODELCONDITION_PARACHUTING
-                                ))?;
+                                        let mut pos = *obj_write.get_position();
+                                        pos.z -= sink_rate * 50.0;
+                                        obj_write.set_position(&pos)?;
 
-                                // Sink faster when caught in tree
-                                let mut pos = *obj_write.get_position();
-                                pos.z -= data.sink_rate * 50.0;
-                                obj_write.set_position(&pos)?;
-
-                                if !obj_write.is_above_terrain() {
-                                    // Caught in tree and hit ground - destroy object (C++ line 420)
-                                    let obj_id = obj_write.get_id();
-                                    drop(obj_write);
-                                    crate::helpers::TheGameLogic::remove_object(obj_id);
-                                    return Ok(UPDATE_SLEEP_NONE);
+                                        if !obj_write.is_above_terrain() {
+                                            return Ok(2); // destroy
+                                        }
+                                    }
                                 }
                             }
                         }
+                        Ok(0)
+                    },
+                )??;
+
+                match outcome {
+                    1 => self.flags |= 1 << Self::BOUNCED,
+                    2 => {
+                        crate::helpers::TheGameLogic::remove_object(self.get_object_id());
+                        return Ok(UPDATE_SLEEP_NONE);
                     }
+                    _ => {}
                 }
             }
         }
@@ -883,13 +891,12 @@ impl DieModuleInterface for SlowDeathBehavior {
             return Ok(());
         }
 
-        let object = self.get_object()?;
-        let obj_write = object.write().map_err(|e| format!("Lock error: {}", e))?;
-
         // Calculate total probability from all applicable slow death behaviors (C++ lines 475-484)
-        let mut total_probability: Int = 0;
-        let behavior_modules = obj_write.get_behavior_modules();
+        let behavior_modules = self
+            .with_object(|obj| obj.get_behavior_modules())
+            .map_err(|e| format!("Lock error: {e}"))?;
 
+        let mut total_probability: Int = 0;
         for module in behavior_modules.iter() {
             if let Ok(mut module_guard) = module.lock() {
                 if let Some(sdu) = module_guard.get_slow_death_behavior_interface() {
@@ -914,8 +921,6 @@ impl DieModuleInterface for SlowDeathBehavior {
                     if sdu.is_die_applicable(damage_info) {
                         roll -= sdu.get_probability_modifier(damage_info);
                         if roll <= 0 {
-                            // This behavior was selected - begin slow death
-                            drop(obj_write);
                             sdu.begin_slow_death(damage_info)?;
                             return Ok(());
                         }
@@ -1024,80 +1029,83 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
             self.accelerated_time_scale = time_scale;
         }
 
-        // Fling / model-condition work still needs a short-lived owner Arc.
-        let object = self.get_object()?;
-        let mut obj_write = object.write().map_err(|e| format!("Lock error: {}", e))?;
-
         // Handle fling force (C++ lines 247-301)
+        let mut flung = false;
         if data.fling_force > 0.0 {
-            // Release held objects (e.g., stinger soldiers) (C++ lines 251-261)
-            if obj_write.is_disabled_by_type(DisabledType::Held) {
-                // Matches C++ lines 255-260: Find SlavedUpdate and release via onSlaverDie
-                let mut handled = false;
-                if let Some(result) = obj_write
-                    .with_slaved_update_interface(|slaved| slaved.on_slaver_die(Some(damage_info)))
-                {
-                    let _ = result;
-                    handled = true;
-                }
+            let fling_force = data.fling_force;
+            let fling_force_var = data.fling_force_variance;
+            let fling_pitch = data.fling_pitch;
+            let fling_pitch_var = data.fling_pitch_variance;
+            flung = self.with_object_mut(
+                |obj_write| -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+                    if obj_write.is_disabled_by_type(DisabledType::Held) {
+                        let mut handled = false;
+                        if let Some(result) = obj_write.with_slaved_update_interface(|slaved| {
+                            slaved.on_slaver_die(Some(damage_info))
+                        }) {
+                            let _ = result;
+                            handled = true;
+                        }
 
-                if !handled {
-                    if let Some(slave_module) = obj_write.find_update_behavior("SlavedUpdate") {
-                        if let Ok(mut slave_guard) = slave_module.lock() {
-                            if let Some(slaved) = slave_guard.get_slaved_update_interface() {
-                                let _ = slaved.on_slaver_die(Some(damage_info));
+                        if !handled {
+                            if let Some(slave_module) =
+                                obj_write.find_update_behavior("SlavedUpdate")
+                            {
+                                if let Ok(mut slave_guard) = slave_module.lock() {
+                                    if let Some(slaved) = slave_guard.get_slaved_update_interface()
+                                    {
+                                        let _ = slaved.on_slaver_die(Some(damage_info));
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }
 
-            if let Some(physics) = obj_write.get_physics_mut() {
-                // Ensure minimum altitude (C++ lines 266-274)
-                const MIN_ALTITUDE: Real = 1.0;
-                let altitude = obj_write.get_height_above_terrain();
-                if altitude < MIN_ALTITUDE {
-                    let mut pos = *obj_write.get_position();
-                    pos.z += MIN_ALTITUDE;
-                    obj_write.set_position(&pos)?;
-                }
+                    if let Some(physics) = obj_write.get_physics_mut() {
+                        const MIN_ALTITUDE: Real = 1.0;
+                        let altitude = obj_write.get_height_above_terrain();
+                        if altitude < MIN_ALTITUDE {
+                            let mut pos = *obj_write.get_position();
+                            pos.z += MIN_ALTITUDE;
+                            obj_write.set_position(&pos)?;
+                        }
 
-                // Calculate and apply random force (C++ lines 276-281)
-                let force = Self::calc_random_force(
-                    data.fling_force,
-                    data.fling_force + data.fling_force_variance,
-                    data.fling_pitch,
-                    data.fling_pitch + data.fling_pitch_variance,
-                );
+                        let force = Self::calc_random_force(
+                            fling_force,
+                            fling_force + fling_force_var,
+                            fling_pitch,
+                            fling_pitch + fling_pitch_var,
+                        );
 
-                physics.set_allow_to_fall(true);
-                physics.apply_force(&force);
-                physics.set_extra_bounciness(-1.0); // No bouncing
-                physics.set_extra_friction(-3.0 * SECONDS_PER_LOGICFRAME_REAL); // Reduce friction
-                physics.set_allow_bouncing(true);
+                        physics.set_allow_to_fall(true);
+                        physics.apply_force(&force);
+                        physics.set_extra_bounciness(-1.0);
+                        physics.set_extra_friction(-3.0 * SECONDS_PER_LOGICFRAME_REAL);
+                        physics.set_allow_bouncing(true);
 
-                // Set orientation and model state (C++ lines 284-287)
-                let orientation = force.y.atan2(force.x);
-                physics.set_angles(orientation, 0.0, 0.0);
-                obj_write.set_model_condition_flags(MAKE_MODELCONDITION_MASK!(
-                    MODELCONDITION_EXPLODED_FLAILING
-                ))?;
+                        let orientation = force.y.atan2(force.x);
+                        physics.set_angles(orientation, 0.0, 0.0);
+                        obj_write.set_model_condition_flags(MAKE_MODELCONDITION_MASK!(
+                            MODELCONDITION_EXPLODED_FLAILING
+                        ))?;
+                        return Ok(true);
+                    }
+                    Ok(false)
+                },
+            )??;
+            if flung {
                 self.flags |= 1 << Self::FLUNG_INTO_AIR;
             }
         }
 
-        // Get object ID before dropping the lock
-        let obj_id = obj_write.get_id();
+        let obj_id = self.get_object_id();
         let when_to_wake = self
             .sink_frame
             .min(self.destruction_frame)
             .min(self.midpoint_frame);
 
-        // Drop the write lock before calling external functions
-        drop(obj_write);
-
         // Wake immediately for physics updates (C++ line 289)
-        if (self.flags & (1 << Self::FLUNG_INTO_AIR)) != 0 {
+        if flung {
             crate::helpers::TheGameLogic::set_wake_frame(obj_id, crate::modules::UPDATE_SLEEP_NONE);
         } else {
             // Set wake timing if not flung (C++ lines 294-300)
