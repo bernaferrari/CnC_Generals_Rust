@@ -1784,6 +1784,12 @@ pub struct GameLogic {
     dozer_bored_mine_clear_events: u32,
     /// C++ RebuildHoleExposeDie spawn residual events.
     rebuild_hole_spawns: u32,
+    /// C++ SupplyWarehouseCreate::onCreate residual registers.
+    supply_create_warehouse_registers: u32,
+    /// C++ SupplyCenterCreate::onBuildComplete residual registers.
+    supply_create_center_registers: u32,
+    /// C++ GenerateMinefieldBehavior structure mine placements.
+    structure_minefield_placements: u32,
     /// C++ RebuildHoleBehavior reconstruct residual events.
     rebuild_hole_reconstructs: u32,
     rebuild_hole_workers: u32,
@@ -3069,6 +3075,9 @@ impl GameLogic {
             dozer_bored_repair_events: 0,
             dozer_bored_mine_clear_events: 0,
             rebuild_hole_spawns: 0,
+            supply_create_warehouse_registers: 0,
+            supply_create_center_registers: 0,
+            structure_minefield_placements: 0,
             rebuild_hole_reconstructs: 0,
             rebuild_hole_workers: 0,
             rebuild_hole_heals: 0,
@@ -3488,6 +3497,9 @@ impl GameLogic {
         self.dozer_bored_repair_events = 0;
         self.dozer_bored_mine_clear_events = 0;
         self.rebuild_hole_spawns = 0;
+        self.supply_create_warehouse_registers = 0;
+        self.supply_create_center_registers = 0;
+        self.structure_minefield_placements = 0;
         self.rebuild_hole_reconstructs = 0;
         self.rebuild_hole_workers = 0;
         self.rebuild_hole_heals = 0;
@@ -6333,6 +6345,8 @@ impl GameLogic {
         // C++ parity: when a structure finishes construction, release any dozers
         // that were constructing it — set them to Idle.
         for &completed_id in &completed_structures {
+            // C++ SupplyCenterCreate::onBuildComplete residual.
+            self.on_supply_center_build_complete(completed_id);
             for obj in self.objects.values_mut() {
                 if obj.ai_state == AIState::Constructing
                     && obj.target == Some(completed_id)
@@ -10019,7 +10033,7 @@ impl GameLogic {
 
         // Relationship residual: ENEMIES required unless force / mine.
         let enemies = source.team != victim.team;
-        let is_mine = false; // KindOf::Mine residual pending full matrix
+        let is_mine = false; // KindOf::Projectile residual pending full matrix
         if !enemies && !force && !(is_mine && source.team != victim.team) {
             // Player command rejects non-enemies; AI/script may continue.
             if from_player {
@@ -22061,6 +22075,9 @@ impl GameLogic {
             // C++ SpecialPowerModule StartsPaused=Yes residual (pauseCountdown TRUE on create).
             self.init_starts_paused_special_powers(id);
 
+            // C++ SupplyWarehouseCreate::onCreate residual — StartingBoxes.
+            self.init_supply_warehouse_create(id);
+
             // Residual honesty: Emperor innate propaganda counts as install on spawn.
             if emperor_spawn {
                 self.overlord_addons.record_propaganda_install();
@@ -23324,6 +23341,9 @@ impl GameLogic {
                 }
             }
         }
+
+        // C++ GenerateMinefieldBehavior::upgradeImplementation residual.
+        let _mines = self.place_structure_minefield_for_upgrade(object_id, upgrade);
 
         // C++ GrantScienceUpgrade residual.
         if let Some(science) =
@@ -36496,6 +36516,81 @@ impl GameLogic {
     }
 
     /// C++ SpecialPowerModule ctor path: StartsPaused → pauseCountdown(TRUE).
+
+    /// C++ SupplyWarehouseCreate::onCreate residual.
+    fn init_supply_warehouse_create(&mut self, object_id: ObjectId) {
+        use crate::game_logic::host_structure_economy_residual::starting_supplies_for_template;
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        let Some(supplies) = starting_supplies_for_template(&obj.template_name) else {
+            return;
+        };
+        // Only seed if empty (map may already set amount).
+        if obj.stored_resources.supplies == 0 {
+            obj.set_stored_supplies(supplies);
+        }
+        self.supply_create_warehouse_registers =
+            self.supply_create_warehouse_registers.saturating_add(1);
+    }
+
+    /// C++ SupplyCenterCreate::onBuildComplete residual honesty counter.
+    fn on_supply_center_build_complete(&mut self, object_id: ObjectId) {
+        use crate::game_logic::host_upgrades::is_supply_center_template;
+        let Some(obj) = self.objects.get(&object_id) else {
+            return;
+        };
+        if obj.is_kind_of(KindOf::SupplyCenter) || is_supply_center_template(&obj.template_name) {
+            self.supply_create_center_registers =
+                self.supply_create_center_registers.saturating_add(1);
+        }
+    }
+
+    /// C++ GenerateMinefieldBehavior::upgradeImplementation residual.
+    fn place_structure_minefield_for_upgrade(&mut self, object_id: ObjectId, upgrade: &str) -> u32 {
+        use crate::game_logic::host_mines::{
+            is_china_mines_upgrade, structure_minefield_positions, CHINA_STANDARD_MINE_TEMPLATE,
+            CHINA_STRUCTURE_MINE_RING_COUNT, CHINA_STRUCTURE_MINE_RING_RADIUS,
+        };
+        if !is_china_mines_upgrade(upgrade) {
+            return 0;
+        }
+        let Some(obj) = self.objects.get(&object_id) else {
+            return 0;
+        };
+        if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
+            return 0;
+        }
+        let team = obj.team;
+        let pos = obj.get_position();
+        // Ensure mine template exists.
+        if !self.templates.contains_key(CHINA_STANDARD_MINE_TEMPLATE) {
+            let mut m = ThingTemplate::new(CHINA_STANDARD_MINE_TEMPLATE);
+            m.set_health(1.0);
+            m.add_kind_of(KindOf::Projectile);
+            self.templates
+                .insert(CHINA_STANDARD_MINE_TEMPLATE.to_string(), m);
+        }
+        let spots = structure_minefield_positions(
+            pos,
+            CHINA_STRUCTURE_MINE_RING_COUNT,
+            CHINA_STRUCTURE_MINE_RING_RADIUS,
+        );
+        let mut placed = 0u32;
+        for spot in spots {
+            if let Some(mid) = self.create_object(CHINA_STANDARD_MINE_TEMPLATE, team, spot) {
+                if let Some(mine) = self.objects.get_mut(&mid) {
+                    // Residual: mark as mine kind if available.
+                    let _ = mine;
+                }
+                placed = placed.saturating_add(1);
+            }
+        }
+        self.structure_minefield_placements =
+            self.structure_minefield_placements.saturating_add(placed);
+        placed
+    }
+
     fn init_starts_paused_special_powers(&mut self, object_id: ObjectId) {
         use crate::command_system::SpecialPowerType as P;
         use crate::game_logic::host_upgrade_module_residuals::power_starts_paused;
@@ -58885,6 +58980,53 @@ mod tests {
     /// C++ SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate::doDisableAttack
     /// setDisabledUntil(DISABLED_EMP, now + DisabledDuration=30000ms).
     /// Fail-closed: not full OCL bomb / spheroid drawable / spark particles.
+
+    #[test]
+    fn supply_warehouse_create_seeds_starting_boxes() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("SupplyWarehouse");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Harvestable);
+        logic.templates.insert("SupplyWarehouse".into(), t);
+        let id = logic
+            .create_object("SupplyWarehouse", Team::Neutral, glam::Vec3::ZERO)
+            .unwrap();
+        let supplies = logic.objects.get(&id).unwrap().stored_resources.supplies;
+        assert_eq!(supplies, 400 * 75, "StartingBoxes 400 × $75");
+        assert!(logic.supply_create_warehouse_registers >= 1);
+    }
+
+    #[test]
+    fn china_mines_upgrade_places_structure_minefield() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("ChinaBarracks");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("ChinaBarracks".into(), t);
+        let id = logic
+            .create_object(
+                "ChinaBarracks",
+                Team::China,
+                glam::Vec3::new(100.0, 0.0, 100.0),
+            )
+            .unwrap();
+        let before = logic.objects.len();
+        logic.apply_upgrade_to_object(id, "Upgrade_ChinaMines");
+        let after = logic.objects.len();
+        assert!(
+            after >= before + 8,
+            "mine ring should place 8 mines, before={before} after={after}"
+        );
+        assert!(logic.structure_minefield_placements >= 8);
+        let mines = logic
+            .objects
+            .values()
+            .filter(|o| o.template_name == "ChinaStandardMine")
+            .count();
+        assert!(mines >= 8, "mines={mines}");
+    }
 
     #[test]
     fn sub_objects_upgrade_bomb_truck_bio_load() {

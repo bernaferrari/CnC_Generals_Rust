@@ -698,6 +698,43 @@ pub fn honesty_structure_economy_residual_pack_wave83() -> bool {
         && honesty_command_center_residual_pack_wave83()
 }
 
+// ---------------------------------------------------------------------------
+// SupplyWarehouseCreate / SupplyCenterCreate residuals
+// ---------------------------------------------------------------------------
+
+/// C++ SupplyWarehouseCreate::onCreate — register warehouse with starting boxes.
+pub fn starting_boxes_for_supply_template(template_name: &str) -> Option<u32> {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("supplypilesmall") || n.contains("supply_pile_small") {
+        return Some(SUPPLY_PILE_SMALL_STARTING_BOXES as u32);
+    }
+    if n.contains("supplypile") || n.contains("supply_pile") {
+        return Some(SUPPLY_PILE_STARTING_BOXES as u32);
+    }
+    if n.contains("supplydock") || n.contains("supply_dock") {
+        return Some(SUPPLY_DOCK_STARTING_BOXES as u32);
+    }
+    if n.contains("supplywarehouse")
+        || n.contains("supply_warehouse")
+        || n.contains("supplystash")
+        || n.contains("supply_stash")
+        || is_supply_warehouse_template(template_name)
+    {
+        // Stash is GLA dropoff not source — only warehouse/pile/dock get boxes.
+        if n.contains("stash") {
+            return None;
+        }
+        return Some(SUPPLY_WAREHOUSE_STARTING_BOXES as u32);
+    }
+    None
+}
+
+/// Convert starting boxes to host stored_supplies residual (boxes × value).
+pub fn starting_supplies_for_template(template_name: &str) -> Option<u32> {
+    starting_boxes_for_supply_template(template_name)
+        .map(|boxes| (boxes as u32).saturating_mul(VALUE_PER_SUPPLY_BOX as u32))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -742,5 +779,22 @@ mod tests {
     #[test]
     fn structure_economy_residual_pack_wave83_combined() {
         assert!(honesty_structure_economy_residual_pack_wave83());
+    }
+
+    #[test]
+    fn starting_boxes_warehouse_400() {
+        assert_eq!(
+            starting_boxes_for_supply_template("SupplyWarehouse"),
+            Some(400)
+        );
+        assert_eq!(
+            starting_supplies_for_template("SupplyWarehouse"),
+            Some(400 * 75)
+        );
+        assert_eq!(
+            starting_boxes_for_supply_template("SupplyPileSmall"),
+            Some(50)
+        );
+        assert!(starting_boxes_for_supply_template("AmericaSupplyCenter").is_none());
     }
 }
