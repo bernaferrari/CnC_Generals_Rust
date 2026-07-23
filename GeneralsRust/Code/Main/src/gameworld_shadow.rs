@@ -7289,6 +7289,7 @@ pub fn shadow_session_after_host_tick(
     let spawn_events = crate::game_logic::host_spawn_log::drain();
     let destroy_events = crate::game_logic::host_destroy_log::drain();
     let attack_events = crate::game_logic::host_attack_log::drain();
+    let _fire_loop_events = crate::game_logic::host_fire_sound_loop_log::drain();
     let status_events = crate::game_logic::host_status_log::drain();
     let veterancy_events = crate::game_logic::host_veterancy_log::drain();
     let move_events = crate::game_logic::host_move_log::drain();

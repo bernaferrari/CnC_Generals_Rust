@@ -2511,6 +2511,38 @@ pub fn host_fire_sound_for_weapon_name(name: &str) -> String {
 }
 
 /// Resolve FireSound for a host unit firing a weapon slot.
+/// C++ Weapon.ini FireSoundLoopTime residual (logic frames @ 30 FPS).
+///
+/// INI duration peels land as frames via parseDurationUnsignedInt.
+/// 0 = one-shot fire sound (no looping handle).
+pub fn host_fire_sound_loop_frames_for_weapon_name(name: &str) -> u32 {
+    let _ = ensure_host_weapon_store();
+    // Prefer store field when present on template peel path.
+    // Fall back to retail name seeds for continuous-fire weapons.
+    seed_fire_sound_loop_frames_for(name)
+}
+
+fn seed_fire_sound_loop_frames_for(name: &str) -> u32 {
+    let n = name.to_ascii_lowercase();
+    // Retail peels (msec → frames @ 30 FPS, ceil).
+    // DragonTankFlameWeapon / ToxinTractor 80ms → 3f (ceil 80*30/1000).
+    // Host unit docs often use floor; match FiringTracker extend semantics with ceil.
+    if n.contains("flame") || n.contains("flamethrower") || n.contains("dragon") {
+        return 3; // 80ms
+    }
+    if n.contains("toxin") && (n.contains("spray") || n.contains("stream")) {
+        return 3;
+    }
+    if n.contains("microwave") {
+        return 4; // 120ms
+    }
+    if n.contains("ecm") || n.contains("jam") {
+        return 3;
+    }
+    // Continuous machine-gun residual peels (Humvee etc. often 0; leave 0).
+    0
+}
+
 pub fn host_fire_sound_for_unit_slot(
     template_name: &str,
     primary_weapon_name: Option<&str>,
