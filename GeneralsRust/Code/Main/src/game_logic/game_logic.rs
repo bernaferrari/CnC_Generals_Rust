@@ -23211,6 +23211,37 @@ impl GameLogic {
                 obj.set_weapon_bonus_player_upgrade(true);
                 self.upgrade_module_residuals.record_weapon_bonus(upgrade);
             }
+            // C++ WeaponSetUpgrade residual → WEAPONSET_PLAYER_UPGRADE.
+            if crate::game_logic::host_upgrade_module_residuals::is_weapon_set_upgrade(upgrade) {
+                obj.set_weapon_set_flag(0, true);
+                self.upgrade_module_residuals.record_weapon_set(upgrade);
+            }
+            // C++ ArmorUpgrade residual → ARMORSET_PLAYER_UPGRADE (+ ChemSuit decal).
+            if crate::game_logic::host_upgrade_module_residuals::is_armor_upgrade(upgrade) {
+                obj.set_armor_set_player_upgrade(true);
+                if crate::game_logic::host_upgrade_module_residuals::is_chemical_suits_upgrade(
+                    upgrade,
+                ) {
+                    obj.set_terrain_decal_chemsuit(true);
+                }
+                self.upgrade_module_residuals.record_armor_set(upgrade);
+            }
+            // C++ LocomotorSetUpgrade residual → setLocomotorUpgrade(true) + speed peels.
+            if crate::game_logic::host_upgrade_module_residuals::is_locomotor_set_upgrade(upgrade) {
+                obj.set_locomotor_upgrade(true);
+                if let Some(speed) =
+                    crate::game_logic::host_upgrade_module_residuals::locomotor_upgrade_speed(
+                        upgrade,
+                        &obj.template_name,
+                    )
+                {
+                    // Host residual: raise movement max speed when peel known.
+                    obj.movement.max_speed = obj.movement.max_speed.max(speed);
+                    obj.movement.max_speed_damaged =
+                        obj.movement.max_speed_damaged.max(speed * 0.5);
+                }
+                self.upgrade_module_residuals.record_locomotor_set(upgrade);
+            }
             // C++ UnpauseSpecialPowerUpgrade residual.
             if let Some(power) =
                 crate::game_logic::host_upgrade_module_residuals::unpause_power_for_upgrade(upgrade)
@@ -58775,6 +58806,61 @@ mod tests {
     /// C++ SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate::doDisableAttack
     /// setDisabledUntil(DISABLED_EMP, now + DisabledDuration=30000ms).
     /// Fail-closed: not full OCL bomb / spheroid drawable / spark particles.
+
+    #[test]
+    fn weapon_set_upgrade_sets_player_upgrade_flag() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaInfantryRanger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("AmericaInfantryRanger".into(), t);
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        assert!(!logic.objects.get(&id).unwrap().weapon_set_player_upgrade);
+        logic.apply_upgrade_to_object(id, "Upgrade_AmericaRangerFlashBangGrenade");
+        assert!(logic.objects.get(&id).unwrap().weapon_set_player_upgrade);
+        assert!(logic.upgrade_module_residuals.weapon_set_applications > 0);
+    }
+
+    #[test]
+    fn armor_upgrade_sets_armor_set_and_chemsuit_decal() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaInfantryRanger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("AmericaInfantryRanger".into(), t);
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        logic.apply_upgrade_to_object(id, "Upgrade_AmericaChemicalSuits");
+        let o = logic.objects.get(&id).unwrap();
+        assert!(o.armor_set_player_upgrade);
+        assert!(o.terrain_decal_chemsuit);
+    }
+
+    #[test]
+    fn locomotor_set_upgrade_worker_shoes_speed() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("GLAInfantryWorker");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("GLAInfantryWorker".into(), t);
+        let id = logic
+            .create_object("GLAInfantryWorker", Team::GLA, glam::Vec3::ZERO)
+            .unwrap();
+        logic.apply_upgrade_to_object(id, "Upgrade_GLAWorkerShoes");
+        let o = logic.objects.get(&id).unwrap();
+        assert!(o.locomotor_upgrade);
+        assert!(
+            o.movement.max_speed >= 30.0,
+            "WorkerShoes speed residual, got {}",
+            o.movement.max_speed
+        );
+    }
 
     #[test]
     fn cost_modifier_upgrade_reduces_vehicle_cost() {

@@ -199,6 +199,9 @@ pub struct HostUpgradeModuleResidualLog {
     pub cost_modifier_applications: u32,
     pub unpause_applications: u32,
     pub weapon_bonus_applications: u32,
+    pub weapon_set_applications: u32,
+    pub armor_set_applications: u32,
+    pub locomotor_set_applications: u32,
     pub last_upgrade: String,
 }
 
@@ -215,10 +218,25 @@ impl HostUpgradeModuleResidualLog {
         self.weapon_bonus_applications = self.weapon_bonus_applications.saturating_add(1);
         self.last_upgrade = upgrade.to_string();
     }
+    pub fn record_weapon_set(&mut self, upgrade: &str) {
+        self.weapon_set_applications = self.weapon_set_applications.saturating_add(1);
+        self.last_upgrade = upgrade.to_string();
+    }
+    pub fn record_armor_set(&mut self, upgrade: &str) {
+        self.armor_set_applications = self.armor_set_applications.saturating_add(1);
+        self.last_upgrade = upgrade.to_string();
+    }
+    pub fn record_locomotor_set(&mut self, upgrade: &str) {
+        self.locomotor_set_applications = self.locomotor_set_applications.saturating_add(1);
+        self.last_upgrade = upgrade.to_string();
+    }
     pub fn honesty_ok(&self) -> bool {
         self.cost_modifier_applications
             .saturating_add(self.unpause_applications)
             .saturating_add(self.weapon_bonus_applications)
+            .saturating_add(self.weapon_set_applications)
+            .saturating_add(self.armor_set_applications)
+            .saturating_add(self.locomotor_set_applications)
             > 0
     }
 }
@@ -241,6 +259,93 @@ pub fn tokens_from_kindof(k: KindOf) -> Vec<&'static str> {
     let _ = k;
     Vec::new()
 }
+
+// ---------------------------------------------------------------------------
+// WeaponSetUpgrade / ArmorUpgrade / LocomotorSetUpgrade residuals
+// ---------------------------------------------------------------------------
+
+/// C++ `WeaponSetUpgrade::upgradeImplementation` → `setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE)`.
+pub fn is_weapon_set_upgrade(upgrade: &str) -> bool {
+    let n = upgrade.to_ascii_lowercase();
+    // Retail WeaponSetUpgrade TriggeredBy peels (non-exhaustive playability set).
+    n.contains("flashbang")
+        || n.contains("sentrydronegun")
+        || n.contains("scorpionrocket")
+        || n.contains("comancherocket")
+        || n.contains("rocketpods")
+        || n.contains("blacknapalm")
+        || n.contains("tacticalnukemig")
+        || n.contains("buggyammo")
+        || n.contains("armthemob")
+        || n.contains("anthrax")
+        || n.contains("autoloader")
+        || n.contains("quadcannonsnipe")
+        || n.contains("suicidebomb")
+        // AdvancedTraining also has WeaponSetUpgrade on some units
+        || n.contains("advancedtraining")
+}
+
+/// C++ `ArmorUpgrade::upgradeImplementation` → `setArmorSetFlag(ARMORSET_PLAYER_UPGRADE)`.
+pub fn is_armor_upgrade(upgrade: &str) -> bool {
+    let n = upgrade.to_ascii_lowercase();
+    n.contains("chemicalsuits")
+        || n.contains("compositearmor")
+        || n.contains("countermeasures")
+        || n.contains("fortifiedstructure")
+        || n.contains("chinasmines")
+        || n.contains("chinaempmines")
+        || (n.contains("mines") && n.contains("china"))
+        // AdvancedTraining also ArmorUpgrade on some USA units
+        || n.contains("advancedtraining")
+}
+
+/// Chemical suits unique terrain decal residual.
+pub fn is_chemical_suits_upgrade(upgrade: &str) -> bool {
+    upgrade.to_ascii_lowercase().contains("chemicalsuits")
+}
+
+/// C++ `LocomotorSetUpgrade::upgradeImplementation` → `AIUpdate::setLocomotorUpgrade(true)`.
+pub fn is_locomotor_set_upgrade(upgrade: &str) -> bool {
+    let n = upgrade.to_ascii_lowercase();
+    n.contains("workershoes")
+        || n.contains("nucleartanks")
+        || n.contains("autoloader")
+        || n.contains("veterancy_heroic")
+        || n.contains("heroic")
+}
+
+/// Retail LocomotorSetUpgrade speed residual peels (template family → new max speed).
+/// Returns None when upgrade does not change a known speed peel for this template.
+pub fn locomotor_upgrade_speed(upgrade: &str, template_name: &str) -> Option<f32> {
+    let u = upgrade.to_ascii_lowercase();
+    let t = template_name.to_ascii_lowercase();
+    if u.contains("workershoes") {
+        if t.contains("worker") {
+            // FastHuman 25 → WorkerShoesLocomotor 30
+            return Some(30.0);
+        }
+        return None;
+    }
+    if u.contains("nucleartanks") {
+        use crate::game_logic::host_nuclear_tanks::{
+            is_nuclear_tanks_eligible, nuclear_tanks_residual_speed,
+        };
+        if is_nuclear_tanks_eligible(template_name) {
+            return Some(nuclear_tanks_residual_speed(template_name));
+        }
+        return None;
+    }
+    if u.contains("autoloader") {
+        // Tank general Battlemaster autoloader locomotor residual — keep current if unknown.
+        if t.contains("battlemaster") {
+            return Some(35.0);
+        }
+    }
+    None
+}
+
+/// C++ ARMORSET_PLAYER_UPGRADE residual ordinal (ArmorSetType.h).
+pub const ARMORSET_PLAYER_UPGRADE: u8 = 1; // after ARMORSET_VETERAN=0 in residual peel; host uses bool
 
 #[cfg(test)]
 mod tests {
@@ -291,5 +396,25 @@ mod tests {
     #[test]
     fn player_upgrade_bit_is_stable() {
         assert_eq!(player_upgrade_weapon_bonus_bit(), 5);
+    }
+
+    #[test]
+    fn weapon_set_upgrade_peels() {
+        assert!(is_weapon_set_upgrade(
+            "Upgrade_AmericaRangerFlashBangGrenade"
+        ));
+        assert!(is_weapon_set_upgrade("Upgrade_GLAScorpionRocket"));
+        assert!(!is_weapon_set_upgrade("Upgrade_CostReduction"));
+    }
+
+    #[test]
+    fn armor_and_locomotor_peels() {
+        assert!(is_armor_upgrade("Upgrade_AmericaChemicalSuits"));
+        assert!(is_chemical_suits_upgrade("Upgrade_AmericaChemicalSuits"));
+        assert!(is_locomotor_set_upgrade("Upgrade_GLAWorkerShoes"));
+        assert_eq!(
+            locomotor_upgrade_speed("Upgrade_GLAWorkerShoes", "GLAInfantryWorker"),
+            Some(30.0)
+        );
     }
 }
