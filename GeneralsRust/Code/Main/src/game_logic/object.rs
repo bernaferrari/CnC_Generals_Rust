@@ -766,6 +766,12 @@ pub struct Object {
     /// Host residual: C++ WEAPONSET_PLAYER_UPGRADE flag on this object.
     /// Battle Bus uses this when armed riders are present.
     pub weapon_set_player_upgrade: bool,
+    /// C++ WEAPONBONUSCONDITION_PLAYER_UPGRADE residual (WeaponBonusUpgrade).
+    #[serde(default)]
+    pub weapon_bonus_player_upgrade: bool,
+    /// C++ SpecialPowerModule m_pausedCount>0 residual (StartsPaused / pauseCountdown).
+    #[serde(default)]
+    pub special_power_paused: std::collections::HashSet<crate::command_system::SpecialPowerType>,
     /// C++ WEAPONSET_MINE_CLEARING_DETAIL residual (DozerAI / AIGroup::setMineClearingDetail).
     #[serde(default)]
     pub weapon_set_mine_clearing_detail: bool,
@@ -1768,6 +1774,8 @@ impl Object {
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
+            weapon_bonus_player_upgrade: false,
+            special_power_paused: std::collections::HashSet::new(),
             weapon_set_mine_clearing_detail: false,
             weapon_set_carbomb: false,
             weapon_set_vehicle_hijack: false,
@@ -2121,6 +2129,8 @@ impl Object {
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
+            weapon_bonus_player_upgrade: false,
+            special_power_paused: std::collections::HashSet::new(),
             weapon_set_mine_clearing_detail: false,
             weapon_set_carbomb: false,
             weapon_set_vehicle_hijack: false,
@@ -10347,12 +10357,53 @@ impl Object {
         if !self.is_alive() || self.is_disabled() {
             return false;
         }
+        // C++ SpecialPowerModule::isReady requires m_pausedCount == 0.
+        if self.special_power_paused.contains(power) {
+            return false;
+        }
         let remaining = self
             .special_power_cooldowns
             .get(power)
             .copied()
             .unwrap_or(0.0);
         remaining <= 0.0
+    }
+
+    /// C++ SpecialPowerModule::pauseCountdown residual.
+    pub fn pause_special_power_countdown(&mut self, power: &SpecialPowerType, pause: bool) {
+        if pause {
+            self.special_power_paused.insert(power.clone());
+        } else {
+            self.special_power_paused.remove(power);
+            // Unpause starts / continues recharge: if no cooldown entry, begin full reload.
+            // Start/continue recharge residual after final unpause.
+            let mut cd =
+                crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+                    power,
+                )
+                .unwrap_or(0.0);
+            if cd <= 0.0 {
+                cd = if self.special_power_cooldown > 0.0 {
+                    self.special_power_cooldown
+                } else {
+                    // StartsPaused peels without ReloadTime residual default to 1s.
+                    1.0
+                };
+            }
+            self.special_power_cooldowns
+                .entry(power.clone())
+                .and_modify(|r| {
+                    if *r <= 0.0 {
+                        *r = cd;
+                    }
+                })
+                .or_insert(cd);
+        }
+    }
+
+    /// C++ Object::setWeaponBonusCondition(PLAYER_UPGRADE) residual.
+    pub fn set_weapon_bonus_player_upgrade(&mut self, enabled: bool) {
+        self.weapon_bonus_player_upgrade = enabled;
     }
 
     /// C++ SpecialPowerModule::startPowerRecharge residual (non-SharedNSync path).

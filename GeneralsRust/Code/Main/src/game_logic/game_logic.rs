@@ -305,6 +305,9 @@ pub struct Player {
     /// C++ Player::m_cashBountyPercent — fraction of victim build cost awarded on kill.
     /// 0.0 = disabled; retail tiers 0.05 / 0.10 / 0.20.
     pub cash_bounty_percent: f32,
+    /// C++ Player::m_kindOfPercentProductionChangeList residual (CostModifierUpgrade).
+    pub kind_of_production_cost_changes:
+        Vec<crate::game_logic::host_upgrade_module_residuals::KindOfProductionCostChange>,
     /// Radar residual count (C++ Player::m_radarCount).
     /// Providers: CommandCenter / RadarVan residual ownership path.
     pub radar_count: i32,
@@ -353,6 +356,7 @@ impl Player {
             start_position: -1,
             alliance_team: -1,
             cash_bounty_percent: 0.0,
+            kind_of_production_cost_changes: Vec::new(),
             radar_count: 0,
             radar_disabled: false,
             logical_retaliation_mode_enabled: false,
@@ -479,6 +483,23 @@ impl Player {
     pub fn force_set_cash_bounty(&mut self, percentage: f32) {
         self.cash_bounty_percent = percentage.max(0.0);
         self.record_host_progress();
+    }
+
+    /// C++ Player::getProductionCostChangeBasedOnKindOf residual.
+    pub fn production_cost_factor(&self, kind_tokens: &[&str]) -> f32 {
+        crate::game_logic::host_upgrade_module_residuals::production_cost_factor_for_kindof(
+            &self.kind_of_production_cost_changes,
+            kind_tokens,
+        )
+    }
+
+    /// C++ Player::addKindOfProductionCostChange residual.
+    pub fn add_kind_of_production_cost_change(&mut self, kind_of: &str, percent: f32) {
+        crate::game_logic::host_upgrade_module_residuals::add_kind_of_production_cost_change(
+            &mut self.kind_of_production_cost_changes,
+            kind_of,
+            percent,
+        );
     }
 
     pub fn record_host_progress(&self) {
@@ -1158,6 +1179,9 @@ pub struct GameLogic {
     /// Host DefectorSpecialPower residual.
     defector_special:
         crate::game_logic::host_defector_special_power::HostDefectorSpecialPowerRegistry,
+    /// Host CostModifier/Unpause/WeaponBonus upgrade module residuals.
+    upgrade_module_residuals:
+        crate::game_logic::host_upgrade_module_residuals::HostUpgradeModuleResidualLog,
 
     /// Host China Frenzy ("Rage") residual — temporary ally attack buff in radius.
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
@@ -2747,6 +2771,7 @@ impl GameLogic {
             baikonur_launches:
                 crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry::new(),
             defector_special: crate::game_logic::host_defector_special_power::HostDefectorSpecialPowerRegistry::new(),
+            upgrade_module_residuals: crate::game_logic::host_upgrade_module_residuals::HostUpgradeModuleResidualLog::default(),
             frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
             battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry::new(),
             emergency_repairs:
@@ -3179,6 +3204,9 @@ impl GameLogic {
             crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry::new();
         self.defector_special =
             crate::game_logic::host_defector_special_power::HostDefectorSpecialPowerRegistry::new();
+        self.upgrade_module_residuals =
+            crate::game_logic::host_upgrade_module_residuals::HostUpgradeModuleResidualLog::default(
+            );
         self.frenzies.clear();
         self.cleanup_areas.clear();
         self.base_defense_residual_fires = 0;
@@ -22023,6 +22051,9 @@ impl GameLogic {
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
             self.inherit_team_ai_defaults(id);
 
+            // C++ SpecialPowerModule StartsPaused=Yes residual (pauseCountdown TRUE on create).
+            self.init_starts_paused_special_powers(id);
+
             // Residual honesty: Emperor innate propaganda counts as install on spawn.
             if emperor_spawn {
                 self.overlord_addons.record_propaganda_install();
@@ -23158,7 +23189,7 @@ impl GameLogic {
 
     /// Apply an upgrade tag to an object.
     /// Mirrors C++ behavior where upgrades are persistent object state, not display-name edits.
-    pub fn apply_upgrade_to_object(&mut self, object_id: ObjectId, upgrade: &str) {
+    pub(crate) fn apply_upgrade_to_object(&mut self, object_id: ObjectId, upgrade: &str) {
         use crate::game_logic::host_overlord_addons::{
             is_bunker_addon_upgrade, is_gattling_addon_upgrade, is_overlord_family_host,
             is_propaganda_addon_upgrade,
@@ -23175,6 +23206,22 @@ impl GameLogic {
                 &mut obj.model_condition_bits,
                 upgrade,
             );
+            // C++ WeaponBonusUpgrade residual.
+            if crate::game_logic::host_upgrade_module_residuals::is_weapon_bonus_upgrade(upgrade) {
+                obj.set_weapon_bonus_player_upgrade(true);
+                self.upgrade_module_residuals.record_weapon_bonus(upgrade);
+            }
+            // C++ UnpauseSpecialPowerUpgrade residual.
+            if let Some(power) =
+                crate::game_logic::host_upgrade_module_residuals::unpause_power_for_upgrade(upgrade)
+            {
+                for p in
+                    crate::game_logic::host_upgrade_module_residuals::unpause_power_family(power)
+                {
+                    obj.pause_special_power_countdown(&p, false);
+                }
+                self.upgrade_module_residuals.record_unpause(upgrade);
+            }
             if is_overlord_family_host(&obj.template_name) {
                 if is_gattling_addon_upgrade(upgrade) {
                     obj.install_overlord_gattling_addon();
@@ -23203,6 +23250,19 @@ impl GameLogic {
             self.overlord_addons.record_propaganda_install();
         }
         let _ = installed_bunker;
+
+        // C++ CostModifierUpgrade residual — player KindOf production cost change.
+        if let Some((kind, percent)) =
+            crate::game_logic::host_upgrade_module_residuals::cost_modifier_for_upgrade(upgrade)
+        {
+            let team = self.objects.get(&object_id).map(|o| o.team);
+            if let Some(team) = team {
+                if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
+                    player.add_kind_of_production_cost_change(kind, percent);
+                    self.upgrade_module_residuals.record_cost(upgrade);
+                }
+            }
+        }
     }
 
     /// Select objects for a player
@@ -36325,6 +36385,83 @@ impl GameLogic {
         true
     }
 
+    /// C++ SpecialPowerModule ctor path: StartsPaused → pauseCountdown(TRUE).
+    fn init_starts_paused_special_powers(&mut self, object_id: ObjectId) {
+        use crate::command_system::SpecialPowerType as P;
+        use crate::game_logic::host_upgrade_module_residuals::power_starts_paused;
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        let name = obj.template_name.to_ascii_lowercase();
+        let candidates = [
+            P::RangerCaptureBuilding,
+            P::RedGuardCaptureBuilding,
+            P::RebelCaptureBuilding,
+            P::RadarScan,
+            P::HelixNapalmBomb,
+        ];
+        for power in candidates {
+            if !power_starts_paused(&power) {
+                continue;
+            }
+            let relevant = match power {
+                P::RangerCaptureBuilding => {
+                    name.contains("ranger")
+                        || name.contains("redguard")
+                        || name.contains("rebel")
+                        || name.contains("colonelburton")
+                        || name.contains("jarmen")
+                        || name.contains("pathfinder")
+                }
+                P::RedGuardCaptureBuilding => {
+                    name.contains("redguard") || name.contains("minigunner")
+                }
+                P::RebelCaptureBuilding => {
+                    name.contains("rebel") || name.contains("hijacker") || name.contains("saboteur")
+                }
+                P::RadarScan => name.contains("radarvan") || name.contains("radar_van"),
+                P::HelixNapalmBomb => name.contains("helix"),
+                _ => false,
+            };
+            if relevant {
+                obj.pause_special_power_countdown(&power, true);
+            }
+        }
+    }
+
+    /// C++ ThingTemplate::calcCostToBuild KindOf production-cost-change residual.
+    pub fn modified_build_cost_supplies(
+        &self,
+        player_id: u32,
+        template_name: &str,
+        base_supplies: u32,
+    ) -> u32 {
+        use crate::game_logic::host_upgrade_module_residuals::{
+            apply_production_cost_factor, kindof_cost_tokens,
+        };
+        let Some(player) = self.players.get(&player_id) else {
+            return base_supplies;
+        };
+        let (is_vehicle, is_infantry, is_aircraft, is_structure) = self
+            .templates
+            .get(template_name)
+            .map(|t| {
+                (
+                    t.is_kind_of(crate::game_logic::KindOf::Vehicle),
+                    t.is_kind_of(crate::game_logic::KindOf::Infantry),
+                    t.is_kind_of(crate::game_logic::KindOf::Aircraft),
+                    t.is_kind_of(crate::game_logic::KindOf::Structure),
+                )
+            })
+            .unwrap_or((false, false, false, false));
+        let tokens = kindof_cost_tokens(is_vehicle, is_infantry, is_aircraft, is_structure);
+        if tokens.is_empty() {
+            return base_supplies;
+        }
+        let factor = player.production_cost_factor(&tokens);
+        apply_production_cost_factor(base_supplies, factor)
+    }
+
     pub fn honesty_baikonur_ok(&self) -> bool {
         self.baikonur_launches.honesty_host_path_ok()
     }
@@ -48847,7 +48984,14 @@ impl GameLogic {
         };
         let has_prereq = has_prereq && science_ok;
         let has_money = match self.get_player_by_team(team) {
-            Some(p) => p.resources.supplies >= template.build_cost.supplies,
+            Some(p) => {
+                let cost = self.modified_build_cost_supplies(
+                    p.id,
+                    template_name,
+                    template.build_cost.supplies,
+                );
+                p.resources.supplies >= cost
+            }
             None => false,
         };
         let _ = CANMAKE_OK;
@@ -48913,7 +49057,23 @@ impl GameLogic {
                 return false;
             };
             let player_id = player.id;
-            if !player.spend_resources(&template.build_cost) {
+            let base = template.build_cost.supplies;
+            let mod_supplies = {
+                let factor = player.production_cost_factor(
+                    &crate::game_logic::host_upgrade_module_residuals::kindof_cost_tokens(
+                        template.is_kind_of(crate::game_logic::KindOf::Vehicle),
+                        template.is_kind_of(crate::game_logic::KindOf::Infantry),
+                        template.is_kind_of(crate::game_logic::KindOf::Aircraft),
+                        template.is_kind_of(crate::game_logic::KindOf::Structure),
+                    ),
+                );
+                crate::game_logic::host_upgrade_module_residuals::apply_production_cost_factor(
+                    base, factor,
+                )
+            };
+            let mut cost = template.build_cost.clone();
+            cost.supplies = mod_supplies;
+            if !player.spend_resources(&cost) {
                 // Race residual: money spent between can_make and charge.
                 self.try_eva_insufficient_funds(player_id);
                 return false;
@@ -58615,6 +58775,82 @@ mod tests {
     /// C++ SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate::doDisableAttack
     /// setDisabledUntil(DISABLED_EMP, now + DisabledDuration=30000ms).
     /// Fail-closed: not full OCL bomb / spheroid drawable / spark particles.
+
+    #[test]
+    fn cost_modifier_upgrade_reduces_vehicle_cost() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        let pid = 1u32;
+        let mut b = ThingTemplate::new("CostPad");
+        b.set_health(500.0);
+        b.add_kind_of(KindOf::Structure);
+        logic.templates.insert("CostPad".into(), b);
+        let mut tank_t = ThingTemplate::new("TestTank");
+        tank_t.set_health(200.0);
+        tank_t.add_kind_of(KindOf::Vehicle);
+        tank_t.build_cost.supplies = 1000;
+        logic.templates.insert("TestTank".into(), tank_t);
+
+        let pad = logic
+            .create_object("CostPad", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        assert_eq!(
+            logic.modified_build_cost_supplies(pid, "TestTank", 1000),
+            1000
+        );
+        logic.apply_upgrade_to_object(pad, "Upgrade_CostReduction");
+        assert_eq!(
+            logic.modified_build_cost_supplies(pid, "TestTank", 1000),
+            900
+        );
+        assert!(logic.upgrade_module_residuals.honesty_ok());
+    }
+
+    #[test]
+    fn weapon_bonus_upgrade_sets_player_upgrade_condition() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("GLATankScorpion");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("GLATankScorpion".into(), t);
+        let id = logic
+            .create_object("GLATankScorpion", Team::GLA, glam::Vec3::ZERO)
+            .unwrap();
+        assert!(!logic.objects.get(&id).unwrap().weapon_bonus_player_upgrade);
+        logic.apply_upgrade_to_object(id, "Upgrade_GLAAPRockets");
+        assert!(logic.objects.get(&id).unwrap().weapon_bonus_player_upgrade);
+    }
+
+    #[test]
+    fn unpause_special_power_upgrade_enables_capture() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaInfantryRanger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("AmericaInfantryRanger".into(), t);
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        assert!(
+            !logic.is_special_power_ready_for(id, &SpecialPowerType::RangerCaptureBuilding),
+            "capture must start paused"
+        );
+        logic.apply_upgrade_to_object(id, "Upgrade_InfantryCaptureBuilding");
+        let obj = logic.objects.get(&id).unwrap();
+        assert!(!obj
+            .special_power_paused
+            .contains(&SpecialPowerType::RangerCaptureBuilding));
+        let rem = obj
+            .special_power_cooldowns
+            .get(&SpecialPowerType::RangerCaptureBuilding)
+            .copied()
+            .unwrap_or(0.0);
+        assert!(rem > 0.0, "unpause starts recharge, rem={rem}");
+    }
 
     #[test]
     fn defector_special_power_defects_enemy() {
