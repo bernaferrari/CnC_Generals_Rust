@@ -330,11 +330,7 @@ impl ConvertToCarBombCrateCollide {
 
         // Require AI goal match to avoid accidental conversion.
         if let Some(ai) = obj_guard.get_ai_update_interface() {
-            let goal_id = ai
-                .lock()
-                .ok()
-                .and_then(|ai_guard| ai_guard.get_goal_object())
-                .and_then(|goal| goal.read().ok().map(|goal_guard| goal_guard.get_id()));
+            let goal_id = ai.lock().ok().map(|ai_guard| ai_guard.get_goal_object_id());
             if goal_id != Some(other_id) {
                 return Ok(false);
             }
