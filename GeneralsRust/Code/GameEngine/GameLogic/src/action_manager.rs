@@ -933,12 +933,8 @@ impl TheActionManager {
                 if let Ok(builder_guard) = builder.read() {
                     if let Some(ai) = builder_guard.get_ai_update_interface() {
                         if let Ok(ai_guard) = ai.lock() {
-                            if let Some(goal) = ai_guard.get_goal_object() {
-                                if let Ok(goal_guard) = goal.read() {
-                                    if goal_guard.get_id() == object_being_constructed.get_id() {
-                                        return false;
-                                    }
-                                }
+                            if ai_guard.get_goal_object_id() == object_being_constructed.get_id() {
+                                return false;
                             }
                         }
                     }

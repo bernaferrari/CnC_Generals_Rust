@@ -1564,10 +1564,18 @@ fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
         };
 
         if let Some(ai) = tunnel_guard.get_ai_update_interface() {
-            if let Some(victim) = ai.get_goal_object() {
-                if let Ok(victim_guard) = victim.read() {
-                    if owner_guard.relationship_to(&victim_guard) == Relationship::Enemies {
-                        return Some(victim_guard.get_id());
+            if let Ok(ai_guard) = ai.lock() {
+                let victim_id = ai_guard.get_goal_object_id();
+                if victim_id != crate::common::INVALID_ID {
+                    if let Some(is_enemy) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                        victim_id,
+                        |victim_guard| {
+                            owner_guard.relationship_to(victim_guard) == Relationship::Enemies
+                        },
+                    ) {
+                        if is_enemy {
+                            return Some(victim_id);
+                        }
                     }
                 }
             }
