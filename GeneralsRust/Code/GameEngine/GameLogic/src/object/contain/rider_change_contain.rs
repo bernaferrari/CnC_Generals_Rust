@@ -1108,9 +1108,8 @@ impl RiderChangeContain {
         if !self
             .base
             .base
-            .get_contained_items_list()?
-            .iter()
-            .any(|obj| obj.read().ok().map(|g| g.get_id()) == Some(rider_id))
+            .get_contained_object_ids()
+            .contains(&rider_id)
         {
             return Ok(());
         }
@@ -1162,19 +1161,12 @@ impl RiderChangeContain {
             self.evacuate_existing_payload_via_owner_ai();
         }
 
-        let contained_items = self.base.base.get_contained_items_list()?;
-        for existing in contained_items {
-            if Arc::ptr_eq(&existing, &rider) {
+        let contained_ids = self.base.base.get_contained_object_ids().to_vec();
+        for existing_id in contained_ids {
+            if existing_id == obj_id {
                 continue;
             }
-            let _ = self.remove_from_contain(
-                existing
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-                true,
-            );
+            let _ = self.remove_from_contain(existing_id, true);
         }
 
         self.transfer_selection_to_owner_on_entry(was_selected);
