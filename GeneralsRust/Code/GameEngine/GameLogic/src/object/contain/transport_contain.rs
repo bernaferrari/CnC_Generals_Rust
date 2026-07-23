@@ -373,8 +373,18 @@ impl TransportContain {
     /// Check if this container is valid for the given object
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         // Check if object is contained in a zero-slot container (parachute)
-        let actual_obj = if let Some(container_arc) = obj.get_container() {
-            if container_arc.is_special_zero_slot_container() {
+        let actual_obj = if let Some(container_id) = obj.get_container_id() {
+            let is_zero_slot = crate::object::registry::OBJECT_REGISTRY
+                .with_object(container_id, |container| {
+                    if let Some(contain) = container.get_contain() {
+                        if let Ok(contain_guard) = contain.lock() {
+                            return contain_guard.get_max_capacity() == 0;
+                        }
+                    }
+                    false
+                })
+                .unwrap_or(false);
+            if is_zero_slot {
                 // Get first object inside the zero-slot container
                 // For now, just use the original object since we can't easily
                 // get a reference to the contained object

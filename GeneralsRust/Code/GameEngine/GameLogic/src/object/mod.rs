@@ -2947,21 +2947,18 @@ impl Object {
     /// without touching the global `GameLogic` instance directly.
     pub(crate) fn on_destroy_internal(&mut self) {
         // C++ counterpart releases containment before running module onDelete.
-        if let Some(container_arc) = self.get_container() {
-            if let Ok(container_read) = container_arc.read() {
-                if let Some(contain_module) = container_read.get_contain() {
-                    if let Ok(mut contain_guard) = contain_module.lock() {
-                        let _ = contain_guard.release_object(self.id);
+        if let Some(container_id) = self.get_container_id() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                container_id,
+                |container_read| {
+                    if let Some(contain_module) = container_read.get_contain() {
+                        if let Ok(mut contain_guard) = contain_module.lock() {
+                            let _ = contain_guard.release_object(self.id);
+                        }
                     }
-                }
-            }
-            let _ = self.on_removed_from(
-                container_arc
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(INVALID_ID),
+                },
             );
+            let _ = self.on_removed_from(container_id);
         }
 
         self.upgrade_module_handles.clear();
@@ -4140,27 +4137,20 @@ impl Object {
         pos: &Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let source_bonus_flags = self.weapon_bonus_condition;
-        let container_bonus_flags = if let Some(container_arc) = self.get_container() {
-            if let Ok(container) = container_arc.try_read() {
-                if let Some(contain_module) = &container.contain {
-                    if let Ok(contain) = contain_module.try_lock() {
-                        if contain.passes_weapon_bonus_to_passengers() {
-                            Some(container.weapon_bonus_condition)
-                        } else {
-                            None
+        let container_bonus_flags = self.get_container_id().and_then(|container_id| {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(container_id, |container| {
+                    if let Some(contain_module) = &container.contain {
+                        if let Ok(contain) = contain_module.try_lock() {
+                            if contain.passes_weapon_bonus_to_passengers() {
+                                return Some(container.weapon_bonus_condition);
+                            }
                         }
-                    } else {
-                        None
                     }
-                } else {
                     None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+                })
+                .flatten()
+        });
 
         let mut weapon_set = std::mem::take(&mut self.weapon_set);
         let weapon_result = (|| {
@@ -4208,27 +4198,20 @@ impl Object {
         pos: &Coord3D,
     ) -> Result<(), ObjectError> {
         let source_bonus_flags = self.weapon_bonus_condition;
-        let container_bonus_flags = if let Some(container_arc) = self.get_container() {
-            if let Ok(container) = container_arc.try_read() {
-                if let Some(contain_module) = &container.contain {
-                    if let Ok(contain) = contain_module.try_lock() {
-                        if contain.passes_weapon_bonus_to_passengers() {
-                            Some(container.weapon_bonus_condition)
-                        } else {
-                            None
+        let container_bonus_flags = self.get_container_id().and_then(|container_id| {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(container_id, |container| {
+                    if let Some(contain_module) = &container.contain {
+                        if let Ok(contain) = contain_module.try_lock() {
+                            if contain.passes_weapon_bonus_to_passengers() {
+                                return Some(container.weapon_bonus_condition);
+                            }
                         }
-                    } else {
-                        None
                     }
-                } else {
                     None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+                })
+                .flatten()
+        });
 
         let mut weapon_set = std::mem::take(&mut self.weapon_set);
         let weapon_result = (|| {
@@ -7460,27 +7443,20 @@ impl Object {
         let source_bonus_flags = self.weapon_bonus_condition;
 
         // Get container bonus flags if we're in a transport (matches C++ Weapon.cpp lines 1804-1810)
-        let container_bonus_flags = if let Some(container_arc) = self.get_container() {
-            if let Ok(container) = container_arc.try_read() {
-                if let Some(contain_module) = &container.contain {
-                    if let Ok(contain) = contain_module.try_lock() {
-                        if contain.passes_weapon_bonus_to_passengers() {
-                            Some(container.weapon_bonus_condition)
-                        } else {
-                            None
+        let container_bonus_flags = self.get_container_id().and_then(|container_id| {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(container_id, |container| {
+                    if let Some(contain_module) = &container.contain {
+                        if let Ok(contain) = contain_module.try_lock() {
+                            if contain.passes_weapon_bonus_to_passengers() {
+                                return Some(container.weapon_bonus_condition);
+                            }
                         }
-                    } else {
-                        None
                     }
-                } else {
                     None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+                })
+                .flatten()
+        });
 
         // Get current frame from game logic
         let current_frame = crate::helpers::TheGameLogic::get_frame();
@@ -8214,15 +8190,21 @@ impl Object {
             return;
         }
 
-        if let Some(container) = self.get_container() {
-            if let Ok(container_guard) = container.read() {
-                if let Some(contain) = container_guard.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        if !contain_guard.is_garrisonable() {
-                            return;
-                        }
-                    }
-                }
+        if let Some(container_id) = self.get_container_id() {
+            let not_garrisonable = crate::object::registry::OBJECT_REGISTRY
+                .with_object(container_id, |container_guard| {
+                    let Some(contain) = container_guard.get_contain() else {
+                        return false;
+                    };
+                    contain
+                        .lock()
+                        .ok()
+                        .map(|contain_guard| !contain_guard.is_garrisonable())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if not_garrisonable {
+                return;
             }
         }
 

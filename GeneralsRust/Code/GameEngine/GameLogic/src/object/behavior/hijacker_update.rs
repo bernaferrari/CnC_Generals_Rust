@@ -200,15 +200,18 @@ impl UpdateModuleInterface for HijackerUpdate {
                     })
                 }) {
                     if let Ok(hijacker_guard) = hijacker_arc.read() {
-                        if let Some(container_arc) = hijacker_guard.get_container() {
-                            if let Ok(container_guard) = container_arc.read() {
-                                if let Some(contain_arc) = container_guard.get_contain() {
-                                    if let Ok(mut contain_guard) = contain_arc.lock() {
-                                        let _ =
-                                            contain_guard.release_object(hijacker_guard.get_id());
+                        if let Some(container_id) = hijacker_guard.get_container_id() {
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                                container_id,
+                                |container_guard| {
+                                    if let Some(contain_arc) = container_guard.get_contain() {
+                                        if let Ok(mut contain_guard) = contain_arc.lock() {
+                                            let _ = contain_guard
+                                                .release_object(hijacker_guard.get_id());
+                                        }
                                     }
-                                }
-                            }
+                                },
+                            );
                         }
                     }
                     if let Ok(mut hijacker_guard) = hijacker_arc.write() {
