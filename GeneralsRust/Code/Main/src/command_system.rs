@@ -161,6 +161,23 @@ pub enum CommandType {
     },
     /// C++ AIGroup::groupGoProne residual.
     GoProne,
+    /// C++ AIGroup::setWeaponLockForGroup residual.
+    SetWeaponLock {
+        slot: u8,
+        /// 0=NotLocked, 1=Temporary, 2=Permanent (WeaponLockType).
+        lock_type: u8,
+    },
+    /// C++ AIGroup::releaseWeaponLockForGroup residual.
+    ReleaseWeaponLock {
+        /// 1=Temporary, 2=Permanent.
+        lock_type: u8,
+    },
+    /// C++ AIGroup::groupSetEmoticon residual.
+    SetEmoticon {
+        name: String,
+        /// Duration in logic frames.
+        duration_frames: i32,
+    },
     /// C++ AIGroup::groupAttackArea residual — attack enemies inside radius around point.
     AttackArea {
         center: glam::Vec3,
@@ -2173,6 +2190,17 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             Some(CommandType::SetMineClearingDetail { enabled: false })
         }
         "goprone" | "prone" | "hitthedirt" => Some(CommandType::GoProne),
+        "setweaponlock" | "weaponlock" | "lockweapon" => Some(CommandType::SetWeaponLock {
+            slot: 1,      // default secondary lock residual
+            lock_type: 2, // permanent
+        }),
+        "releaseweaponlock" | "unlockweapon" => {
+            Some(CommandType::ReleaseWeaponLock { lock_type: 2 })
+        }
+        "setemoticon" | "emoticon" => Some(CommandType::SetEmoticon {
+            name: "Emoticon_Smile".into(),
+            duration_frames: 90, // 3s @ 30Hz
+        }),
         "attackarea" => Some(CommandType::AttackArea {
             center: glam::Vec3::ZERO,
             radius: 150.0,

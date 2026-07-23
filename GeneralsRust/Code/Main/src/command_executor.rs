@@ -187,6 +187,16 @@ impl<'a> CommandExecutor<'a> {
                 self.execute_set_mine_clearing_detail(&command.selected_units, *enabled)
             }
             CommandType::GoProne => self.execute_go_prone(&command.selected_units),
+            CommandType::SetWeaponLock { slot, lock_type } => {
+                self.execute_set_weapon_lock(&command.selected_units, *slot, *lock_type)
+            }
+            CommandType::ReleaseWeaponLock { lock_type } => {
+                self.execute_release_weapon_lock(&command.selected_units, *lock_type)
+            }
+            CommandType::SetEmoticon {
+                name,
+                duration_frames,
+            } => self.execute_set_emoticon(&command.selected_units, name, *duration_frames),
             CommandType::AttackArea { center, radius } => {
                 self.execute_attack_area(&command.selected_units, *center, *radius)
             }
@@ -2652,6 +2662,92 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    /// C++ AIGroup::setWeaponLockForGroup residual.
+    pub(crate) fn execute_set_weapon_lock(
+        &mut self,
+        units: &[ObjectId],
+        slot: u8,
+        lock_type_code: u8,
+    ) -> CommandResult {
+        use crate::game_logic::WeaponLockType;
+        let lock_type = match lock_type_code {
+            1 => WeaponLockType::LockedTemporarily,
+            2 => WeaponLockType::LockedPermanently,
+            _ => WeaponLockType::NotLocked,
+        };
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            if unit.set_weapon_lock(slot, lock_type) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::releaseWeaponLockForGroup residual.
+    pub(crate) fn execute_release_weapon_lock(
+        &mut self,
+        units: &[ObjectId],
+        lock_type_code: u8,
+    ) -> CommandResult {
+        use crate::game_logic::WeaponLockType;
+        let lock_type = match lock_type_code {
+            1 => WeaponLockType::LockedTemporarily,
+            _ => WeaponLockType::LockedPermanently,
+        };
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            unit.release_weapon_lock(lock_type);
+            any = true;
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::groupSetEmoticon residual.
+    pub(crate) fn execute_set_emoticon(
+        &mut self,
+        units: &[ObjectId],
+        name: &str,
+        duration_frames: i32,
+    ) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            unit.set_emoticon(name, duration_frames);
+            any = true;
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
     /// C++ AIGroup::groupGoProne residual.
     pub(crate) fn execute_go_prone(&mut self, units: &[ObjectId]) -> CommandResult {
         // Retail infantry prone window residual (~2s).
@@ -4461,10 +4557,18 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_switch_weapons(&mut self, units: &[ObjectId]) -> CommandResult {
+        use crate::game_logic::WeaponLockType;
         let mut any = false;
         for &unit_id in units {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.active_weapon_slot ^= 1;
+                // C++ switch weapons: toggle slot and permanently lock the chosen one
+                // when a secondary exists; otherwise flip active slot residual.
+                let next = unit.active_weapon_slot ^ 1;
+                if unit.weapon_slot(next).is_some() {
+                    let _ = unit.set_weapon_lock(next, WeaponLockType::LockedPermanently);
+                } else {
+                    unit.set_active_weapon_slot(next);
+                }
                 unit.set_ai_state(AIState::SpecialAbility);
                 any = true;
             }
@@ -5351,6 +5455,83 @@ mod group_move_tests {
             logic.is_object_being_sold(s)
                 || logic.get_object(s).map(|o| o.status.sold).unwrap_or(false)
         );
+    }
+
+    #[test]
+    fn weapon_lock_forces_slot_and_release() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon, WeaponLockType};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("WL_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("WL_V".to_string(), tpl);
+        let id = logic.create_object("WL_V", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let u = logic.get_object_mut(id).unwrap();
+            u.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            });
+            u.secondary_weapon = Some(Weapon {
+                damage: 5.0,
+                range: 80.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_set_weapon_lock(&[id], 1, 2),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert_eq!(u.weapon_lock_type, WeaponLockType::LockedPermanently);
+        assert_eq!(u.weapon_lock_slot, 1);
+        assert_eq!(u.active_weapon_slot, 1);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_release_weapon_lock(&[id], 2),
+                CommandResult::Success
+            );
+        }
+        assert_eq!(
+            logic.get_object(id).unwrap().weapon_lock_type,
+            WeaponLockType::NotLocked
+        );
+    }
+
+    #[test]
+    fn set_emoticon_stores_name_and_duration() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("EM_U");
+        tpl.add_kind_of(KindOf::Infantry);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("EM_U".to_string(), tpl);
+        let id = logic.create_object("EM_U", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_set_emoticon(&[id], "Emoticon_Alert", 60),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert_eq!(u.emoticon_name, "Emoticon_Alert");
+        assert_eq!(u.emoticon_frames_left, 60);
     }
 
     #[test]
