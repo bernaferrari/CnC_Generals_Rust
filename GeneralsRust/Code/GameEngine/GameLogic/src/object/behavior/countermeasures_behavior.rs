@@ -560,22 +560,21 @@ impl CountermeasuresBehavior {
             return Ok(None);
         };
 
-        let object = self.get_object()?;
-        let (spawn_pos, owner_angle, team_arc, unit_dir, owner_velocity) = {
-            let obj_guard = object.read().map_err(|_| BehaviorError::ModuleDisabled)?;
-            let pos = *obj_guard.get_position();
-            let angle_base = obj_guard.get_orientation();
-            let team = obj_guard
-                .get_controlling_player()
-                .and_then(|player| player.read().ok()?.get_default_team())
-                .or_else(|| obj_guard.get_team());
-            let unit_dir = obj_guard.get_unit_direction_vector_2d();
-            let velocity = obj_guard
-                .get_physics()
-                .and_then(|physics| physics.lock().ok().map(|phys| phys.get_velocity()))
-                .unwrap_or_else(|| Vec3D::new(0.0, 0.0, 0.0));
-            (pos, angle_base, team, unit_dir, velocity)
-        };
+        let (spawn_pos, owner_angle, team_arc, unit_dir, owner_velocity) =
+            self.with_object(|obj_guard| {
+                let pos = *obj_guard.get_position();
+                let angle_base = obj_guard.get_orientation();
+                let team = obj_guard
+                    .get_controlling_player()
+                    .and_then(|player| player.read().ok()?.get_default_team())
+                    .or_else(|| obj_guard.get_team());
+                let unit_dir = obj_guard.get_unit_direction_vector_2d();
+                let velocity = obj_guard
+                    .get_physics()
+                    .and_then(|physics| physics.lock().ok().map(|phys| phys.get_velocity()))
+                    .unwrap_or_else(|| Vec3D::new(0.0, 0.0, 0.0));
+                (pos, angle_base, team, unit_dir, velocity)
+            })?;
 
         let Some(team_arc) = team_arc else {
             return Ok(None);
@@ -681,15 +680,28 @@ impl CountermeasuresBehavior {
         }
     }
 
-    fn get_object(&self) -> BehaviorResult<Arc<RwLock<GameObject>>> {
-        if self.object_id == OBJECT_INVALID_ID {
-            return Err(BehaviorError::ObjectNotFound {
-                id: OBJECT_INVALID_ID,
-            });
+    fn owner_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(&self, f: impl FnOnce(&GameObject) -> R) -> BehaviorResult<R> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return Err(BehaviorError::ObjectNotFound { id });
         }
         OBJECT_REGISTRY
-            .get_object(self.object_id)
-            .ok_or(BehaviorError::ObjectNotFound { id: self.object_id })
+            .with_object(id, f)
+            .ok_or(BehaviorError::ObjectNotFound { id })
+    }
+
+    fn get_object(&self) -> BehaviorResult<Arc<RwLock<GameObject>>> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return Err(BehaviorError::ObjectNotFound { id });
+        }
+        OBJECT_REGISTRY
+            .get_object(id)
+            .ok_or(BehaviorError::ObjectNotFound { id })
     }
 
     fn get_current_frame(&self) -> UnsignedInt {

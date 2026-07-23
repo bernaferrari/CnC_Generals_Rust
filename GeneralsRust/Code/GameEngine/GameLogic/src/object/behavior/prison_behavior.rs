@@ -232,51 +232,48 @@ impl PrisonBehavior {
     }
 
     fn pick_visual_location(&self) -> Coord3D {
-        let Some(owner) = self.get_object() else {
-            return Coord3D::ZERO;
-        };
+        self.with_object(|owner_guard| {
+            let mut picked = *owner_guard.get_position();
+            let yard_positions = owner_guard.get_multi_logical_bone_position(
+                self.module_data.prison_yard_bone_prefix.as_str(),
+                16,
+            );
 
-        let Ok(owner_guard) = owner.read() else {
-            return Coord3D::ZERO;
-        };
+            if yard_positions.len() >= 3 {
+                let mut region = Region2D {
+                    lo_x: yard_positions[0].x,
+                    lo_y: yard_positions[0].y,
+                    hi_x: yard_positions[0].x,
+                    hi_y: yard_positions[0].y,
+                };
 
-        let mut picked = *owner_guard.get_position();
-        let yard_positions = owner_guard
-            .get_multi_logical_bone_position(self.module_data.prison_yard_bone_prefix.as_str(), 16);
+                for pos in &yard_positions[1..] {
+                    region.lo_x = region.lo_x.min(pos.x);
+                    region.lo_y = region.lo_y.min(pos.y);
+                    region.hi_x = region.hi_x.max(pos.x);
+                    region.hi_y = region.hi_y.max(pos.y);
+                }
 
-        if yard_positions.len() >= 3 {
-            let mut region = Region2D {
-                lo_x: yard_positions[0].x,
-                lo_y: yard_positions[0].y,
-                hi_x: yard_positions[0].x,
-                hi_y: yard_positions[0].y,
-            };
+                picked.x = region.lo_x + region.width() * 0.5;
+                picked.y = region.lo_y + region.height() * 0.5;
 
-            for pos in &yard_positions[1..] {
-                region.lo_x = region.lo_x.min(pos.x);
-                region.lo_y = region.lo_y.min(pos.y);
-                region.hi_x = region.hi_x.max(pos.x);
-                region.hi_y = region.hi_y.max(pos.y);
-            }
-
-            picked.x = region.lo_x + region.width() * 0.5;
-            picked.y = region.lo_y + region.height() * 0.5;
-
-            let max_tries = 32;
-            for _ in 0..max_tries {
-                let loc = Coord3D::new(
-                    crate::GameLogicRandomValueReal!(region.lo_x, region.hi_x),
-                    crate::GameLogicRandomValueReal!(region.lo_y, region.hi_y),
-                    picked.z,
-                );
-                if point_inside_area_2d(&loc, &yard_positions) {
-                    picked = loc;
-                    break;
+                let max_tries = 32;
+                for _ in 0..max_tries {
+                    let loc = Coord3D::new(
+                        crate::GameLogicRandomValueReal!(region.lo_x, region.hi_x),
+                        crate::GameLogicRandomValueReal!(region.lo_y, region.hi_y),
+                        picked.z,
+                    );
+                    if point_inside_area_2d(&loc, &yard_positions) {
+                        picked = loc;
+                        break;
+                    }
                 }
             }
-        }
 
-        picked
+            picked
+        })
+        .unwrap_or(Coord3D::ZERO)
     }
 
     fn add_visual(&mut self, obj: &Object) {

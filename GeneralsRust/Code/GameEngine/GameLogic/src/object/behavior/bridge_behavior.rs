@@ -619,13 +619,8 @@ impl BridgeBehavior {
             return Ok(());
         }
 
-        let me = self.get_object()?;
-        let (position, team) = {
-            let me_read = me
-                .read()
-                .map_err(|e| format!("bridge object lock poisoned: {}", e))?;
-            (*me_read.get_position(), me_read.get_team())
-        };
+        let (position, team) =
+            self.with_object(|me_read| (*me_read.get_position(), me_read.get_team()))?;
 
         let Some(team_arc) = team else {
             return Ok(());
@@ -664,25 +659,16 @@ impl BridgeBehavior {
         self.scaffold_object_id_list.clear();
         self.scaffold_present = false;
 
-        let allow_passable = {
-            let me = self.get_object()?;
-            let me_read = me
-                .read()
-                .map_err(|e| format!("bridge object lock poisoned: {}", e))?;
-            match me_read.get_body_module() {
-                Some(body) => match body.lock() {
-                    Ok(body_guard) => body_guard.get_damage_state() != BodyDamageType::Rubble,
-                    Err(_) => false,
-                },
-                None => false,
-            }
-        };
+        let allow_passable = self.with_object(|me_read| match me_read.get_body_module() {
+            Some(body) => match body.lock() {
+                Ok(body_guard) => body_guard.get_damage_state() != BodyDamageType::Rubble,
+                Err(_) => false,
+            },
+            None => false,
+        })?;
         if allow_passable {
-            let me = self.get_object()?;
-            let me_read = me
-                .read()
-                .map_err(|e| format!("bridge object lock poisoned: {}", e))?;
-            if let Some(bridge) = self.find_bridge_at_position(me_read.get_position())? {
+            let pos = self.with_object(|me_read| *me_read.get_position())?;
+            if let Some(bridge) = self.find_bridge_at_position(&pos)? {
                 self.update_bridge_pathfinding(&bridge, true);
             }
         }
@@ -752,11 +738,7 @@ impl BridgeBehavior {
 
         self.resolve_module_resources();
 
-        let me = self.get_object()?;
-        let me_read = me
-            .read()
-            .map_err(|e| format!("bridge object lock poisoned: {}", e))?;
-        let position = me_read.get_position();
+        let position = self.with_object(|me_read| *me_read.get_position())?;
 
         // Find bridge at our position
         if let Some(bridge) = self.find_bridge_at_position(&position)? {
@@ -998,12 +980,7 @@ impl BridgeBehavior {
     fn handle_objects_on_bridge_on_die(
         &mut self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let me = self.get_object()?;
-        let me_read = me
-            .read()
-            .map_err(|e| format!("bridge object lock poisoned: {}", e))?;
-        let bridge_pos = *me_read.get_position();
-        drop(me_read);
+        let bridge_pos = self.with_object(|me_read| *me_read.get_position())?;
 
         let Some(bridge) = self.find_bridge_at_position(&bridge_pos)? else {
             return Ok(());
@@ -1252,13 +1229,7 @@ impl BridgeBehavior {
             + support_geometry.get_max_height_below_position();
 
         let bridge_info = bridge.get_bridge_info();
-        let center = {
-            let me = self.get_object()?;
-            let me_read = me
-                .read()
-                .map_err(|e| format!("bridge object lock poisoned: {}", e))?;
-            *me_read.get_position()
-        };
+        let center = { self.with_object(|me_read| *me_read.get_position())? };
 
         let left_start = (bridge_info.from_left + bridge_info.from_right) * 0.5;
         let right_start = (bridge_info.to_left + bridge_info.to_right) * 0.5;
@@ -1461,15 +1432,46 @@ impl BridgeBehavior {
     }
 
     /// Get the object this behavior belongs to
+    fn owner_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(
+        &self,
+        f: impl FnOnce(&GameObject) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return Err("BridgeBehavior missing owning object id".into());
+        }
+        OBJECT_REGISTRY
+            .with_object(id, f)
+            .ok_or_else(|| "BridgeBehavior owning object not found".into())
+    }
+
+    fn with_object_mut<R>(
+        &self,
+        f: impl FnOnce(&mut GameObject) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return Err("BridgeBehavior missing owning object id".into());
+        }
+        OBJECT_REGISTRY
+            .with_object_mut(id, f)
+            .ok_or_else(|| "BridgeBehavior owning object not found".into())
+    }
+
     fn get_object(
         &self,
     ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
-        if self.object_id == OBJECT_INVALID_ID {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
             return Err("BridgeBehavior missing owning object id".into());
         }
-        OBJECT_REGISTRY.get_object(self.object_id).ok_or_else(|| {
-            format!("BridgeBehavior object {} not registered", self.object_id).into()
-        })
+        OBJECT_REGISTRY
+            .get_object(id)
+            .ok_or_else(|| "BridgeBehavior owning object not found".into())
     }
 
     /// Get current game frame
@@ -1524,11 +1526,11 @@ impl BridgeBehavior {
 
         if xfer.get_xfer_mode() == XferMode::Load {
             if let Ok(mut terrain) = THE_TERRAIN_LOGIC.write() {
-                if let Ok(me) = self.get_object() {
-                    if let Ok(me_read) = me.read() {
-                        if let Some(bridge) = terrain.find_bridge_at_mut(me_read.get_position()) {
-                            bridge.set_bridge_object_id(me_read.get_id());
-                        }
+                if let Ok((pos, id)) =
+                    self.with_object(|me_read| (*me_read.get_position(), me_read.get_id()))
+                {
+                    if let Some(bridge) = terrain.find_bridge_at_mut(&pos) {
+                        bridge.set_bridge_object_id(id);
                     }
                 }
             }
@@ -1540,15 +1542,11 @@ impl BridgeBehavior {
 
         if xfer.get_xfer_mode() == XferMode::Load {
             if let Ok(mut terrain) = THE_TERRAIN_LOGIC.write() {
-                if let Ok(me) = self.get_object() {
-                    if let Ok(me_read) = me.read() {
-                        if let Some(bridge) = terrain.find_bridge_at_mut(me_read.get_position()) {
-                            for (index, tower_id) in self.tower_id.iter().copied().enumerate() {
-                                if let Some(tower_type) =
-                                    terrain_bridge_tower_type_from_index(index)
-                                {
-                                    bridge.set_tower_object_id(tower_id, tower_type);
-                                }
+                if let Ok(pos) = self.with_object(|me_read| *me_read.get_position()) {
+                    if let Some(bridge) = terrain.find_bridge_at_mut(&pos) {
+                        for (index, tower_id) in self.tower_id.iter().copied().enumerate() {
+                            if let Some(tower_type) = terrain_bridge_tower_type_from_index(index) {
+                                bridge.set_tower_object_id(tower_id, tower_type);
                             }
                         }
                     }
@@ -1601,27 +1599,26 @@ impl DamageModuleInterface for BridgeBehavior {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.resolve_fx()?;
 
-        let me = self.get_object()?;
-        let me_read = me
-            .read()
-            .map_err(|e| format!("bridge object lock poisoned: {}", e))?;
-        let me_id = me_read.get_id();
-        let body = match me_read.get_body_module() {
-            Some(body) => body,
-            None => return Ok(()),
-        };
-
-        let max_health = body
-            .lock()
-            .map_err(|_| "BridgeBehavior::on_damage body lock poisoned")?
-            .get_max_health();
+        let me_id = self.owner_object_id();
+        let max_health = self.with_object(
+            |me_read| -> Result<f32, Box<dyn std::error::Error + Send + Sync>> {
+                let body = match me_read.get_body_module() {
+                    Some(body) => body,
+                    None => return Ok(0.0),
+                };
+                let max_health = body
+                    .lock()
+                    .map_err(|_| "BridgeBehavior::on_damage body lock poisoned")?
+                    .get_max_health();
+                Ok(max_health)
+            },
+        )??;
         if max_health <= 0.0 {
             return Ok(());
         }
 
         let damage_percentage = damage_info.amount / max_health;
         let source_id = damage_info.source_id;
-        drop(me_read);
 
         let source_is_bridge_tower = OBJECT_REGISTRY
             .with_object(source_id, |guard| guard.is_kind_of(KindOf::BridgeTower))
@@ -1676,26 +1673,25 @@ impl DamageModuleInterface for BridgeBehavior {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.resolve_fx()?;
 
-        let me = self.get_object()?;
-        let me_read = me
-            .read()
-            .map_err(|e| format!("bridge object lock poisoned: {}", e))?;
-        let body = match me_read.get_body_module() {
-            Some(body) => body,
-            None => return Ok(()),
-        };
-
-        let max_health = body
-            .lock()
-            .map_err(|_| "BridgeBehavior::on_healing body lock poisoned")?
-            .get_max_health();
+        let max_health = self.with_object(
+            |me_read| -> Result<f32, Box<dyn std::error::Error + Send + Sync>> {
+                let body = match me_read.get_body_module() {
+                    Some(body) => body,
+                    None => return Ok(0.0),
+                };
+                let max_health = body
+                    .lock()
+                    .map_err(|_| "BridgeBehavior::on_healing body lock poisoned")?
+                    .get_max_health();
+                Ok(max_health)
+            },
+        )??;
         if max_health <= 0.0 {
             return Ok(());
         }
 
         let healing_percentage = damage_info.amount / max_health;
         let source_id = damage_info.source_id;
-        drop(me_read);
 
         let source_is_bridge_tower = OBJECT_REGISTRY
             .with_object(source_id, |guard| guard.is_kind_of(KindOf::BridgeTower))
@@ -1730,6 +1726,7 @@ impl DamageModuleInterface for BridgeBehavior {
                     let Ok(mut tower_write) = tower_arc.write() else {
                         continue;
                     };
+                    let me = self.get_object()?;
                     let source_guard = me.read().map_err(|_| "bridge lock poisoned")?;
                     let _ = tower_write
                         .attempt_healing(healing_percentage * tower_max, Some(&*source_guard));
@@ -1767,12 +1764,7 @@ impl DamageModuleInterface for BridgeBehavior {
             return Ok(());
         }
 
-        let me = self.get_object()?;
-        let me_read = me
-            .read()
-            .map_err(|e| format!("bridge lock poisoned: {}", e))?;
-        let position = *me_read.get_position(); // Copy the Coord3D value
-        drop(me_read);
+        let position = self.with_object(|me_read| *me_read.get_position())?;
 
         let bridge = self.find_bridge_at_position(&position)?;
         let bridge_template = if let Some(ref bridge_ref) = bridge {
