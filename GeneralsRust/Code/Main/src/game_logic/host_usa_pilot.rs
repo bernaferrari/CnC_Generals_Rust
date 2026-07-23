@@ -156,6 +156,7 @@ impl HostDeathType {
             H::Radiation => Self::Detonated,
             H::EMP => Self::Normal,
             H::Falling => Self::Splatted,
+            H::Crush => Self::Crushed,
             H::Bullet
             | H::Unresistable
             | H::Status

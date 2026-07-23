@@ -203,6 +203,7 @@ pub mod host_terrorist;
 pub mod host_thing_factory_module_xfer_residual;
 pub mod host_timing_shell_residual;
 pub mod host_tomahawk;
+mod host_topple;
 pub mod host_toxin_tractor;
 pub mod host_troop_crawler;
 pub mod host_tunnel_network;
