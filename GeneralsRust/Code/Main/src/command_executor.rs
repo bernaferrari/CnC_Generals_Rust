@@ -92,8 +92,12 @@ impl<'a> CommandExecutor<'a> {
                 self.execute_force_attack(&command.selected_units, *target_id)
             }
             CommandType::ForceAttackGround { location } => {
-                self.execute_attack_ground(&command.selected_units, *location)
+                self.execute_attack_ground(&command.selected_units, Some(*location), -1)
             }
+            CommandType::AttackPosition {
+                location,
+                max_shots,
+            } => self.execute_attack_ground(&command.selected_units, *location, *max_shots),
             CommandType::Stop => self.execute_stop(&command.selected_units),
             CommandType::Guard { target, mode } => {
                 self.execute_guard(&command.selected_units, target, *mode)
@@ -1482,22 +1486,147 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    fn execute_attack_ground(&mut self, units: &[ObjectId], location: Vec3) -> CommandResult {
-        let mut any_attacker = false;
+    /// C++ AIGroup::isIdle residual — every member idle or effectively dead.
+    pub(crate) fn group_is_idle(&self, units: &[ObjectId]) -> bool {
+        let mut saw = false;
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            saw = true;
+            if o.is_alive() && !matches!(o.ai_state, AIState::Idle) {
+                return false;
+            }
+        }
+        saw
+    }
+
+    /// C++ AIGroup::isBusy residual — every living member is non-idle/busy.
+    pub(crate) fn group_is_busy(&self, units: &[ObjectId]) -> bool {
+        let mut saw = false;
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() {
+                continue;
+            }
+            saw = true;
+            // Host residual: busy = not idle (C++ AIUpdateInterface::isBusy is narrower).
+            if matches!(o.ai_state, AIState::Idle) {
+                return false;
+            }
+        }
+        saw
+    }
+
+    /// C++ AIGroup::isGroupAiDead residual — every member effectively dead.
+    pub(crate) fn group_is_ai_dead(&self, units: &[ObjectId]) -> bool {
+        if units.is_empty() {
+            return true;
+        }
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if o.is_alive() {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// C++ AIGroup::groupAttackPosition residual.
+    /// `location` None → each unit attacks its own position.
+    /// Orders fire-capable passengers when container allows passenger fire.
+    pub(crate) fn execute_attack_ground(
+        &mut self,
+        units: &[ObjectId],
+        location: Option<Vec3>,
+        max_shots: i32,
+    ) -> CommandResult {
+        let mut any = false;
+        let mut extra_passengers: Vec<ObjectId> = Vec::new();
+
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if unit.can_attack() {
-                    unit.set_force_attack(true);
-                    unit.set_target_location(Some(location));
-                    unit.set_ai_state(AIState::AttackingGround);
-                    any_attacker = true;
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            // Collect fire-capable passengers (garrison residual).
+            if unit.passengers_allowed_to_fire {
+                for p in unit.contained_units() {
+                    extra_passengers.push(p);
                 }
             }
         }
-        if any_attacker {
+
+        let mut all_units: Vec<ObjectId> = units.to_vec();
+        for p in extra_passengers {
+            if !all_units.contains(&p) {
+                all_units.push(p);
+            }
+        }
+
+        for &unit_id in &all_units {
+            let attack_pos = match location {
+                Some(loc) => {
+                    if !loc.x.is_finite() || !loc.z.is_finite() {
+                        continue;
+                    }
+                    loc
+                }
+                None => match self.game_logic.get_object(unit_id) {
+                    Some(u) if u.is_alive() => u.get_position(),
+                    _ => continue,
+                },
+            };
+
+            let can = match self.game_logic.get_object(unit_id) {
+                Some(u) if u.is_alive() => {
+                    u.can_attack()
+                        || u.weapon.is_some()
+                        || u.is_kind_of(crate::game_logic::KindOf::Structure)
+                }
+                _ => false,
+            };
+            // Structures/garrisons may still get the order even if can_attack is soft-false.
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                if !unit.is_alive() {
+                    continue;
+                }
+                unit.set_target(None);
+                unit.set_force_attack(true);
+                unit.set_max_shots_to_fire(max_shots);
+                unit.set_target_location(Some(attack_pos));
+                unit.set_ai_state(AIState::AttackingGround);
+                any = true;
+            }
+            // Face/path residual: movable units approach the ground point if far.
+            let need_approach = self.game_logic.get_object(unit_id).and_then(|unit| {
+                if !unit.can_move() {
+                    return None;
+                }
+                let pos = unit.get_position();
+                let dist = (pos.x - attack_pos.x).hypot(pos.z - attack_pos.z);
+                let range = unit.weapon.as_ref().map(|w| w.range).unwrap_or(50.0);
+                if dist > range.max(20.0) {
+                    Some(attack_pos)
+                } else {
+                    None
+                }
+            });
+            if let Some(dest) = need_approach {
+                let _ = self.path_to_goal_with_state(unit_id, dest, AIState::AttackingGround);
+            }
+        }
+
+        if any {
             CommandResult::Success
         } else {
-            CommandResult::CannotAttackTarget
+            CommandResult::InvalidCommand
         }
     }
 
@@ -6254,6 +6383,98 @@ mod group_move_tests {
             !o.movement.path.is_empty() || o.movement.target_position.is_some(),
             "should have path or target"
         );
+    }
+
+    #[test]
+    fn attack_position_own_location_and_max_shots() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("AP_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.add_kind_of(KindOf::Attackable);
+        tpl.set_health(200.0);
+        logic.templates.insert("AP_V".to_string(), tpl);
+        let id = logic
+            .create_object("AP_V", Team::USA, Vec3::new(5.0, 0.0, 7.0))
+            .unwrap();
+        {
+            let u = logic.get_object_mut(id).unwrap();
+            u.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_attack_ground(&[id], None, 3),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert_eq!(u.ai_state, AIState::AttackingGround);
+        assert_eq!(u.max_shots_to_fire, 3);
+        assert!(u.force_attack);
+    }
+
+    #[test]
+    fn group_idle_busy_dead_queries() {
+        use super::CommandExecutor;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("GQ_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("GQ_V".to_string(), tpl);
+        let a = logic.create_object("GQ_V", Team::USA, Vec3::ZERO).unwrap();
+        let b = logic
+            .create_object("GQ_V", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let exec = CommandExecutor::new(&mut logic, 0);
+            assert!(exec.group_is_idle(&[a, b]));
+            assert!(!exec.group_is_busy(&[a, b]));
+            assert!(!exec.group_is_ai_dead(&[a, b]));
+        }
+        logic
+            .get_object_mut(a)
+            .unwrap()
+            .set_ai_state(AIState::Moving);
+        {
+            let exec = CommandExecutor::new(&mut logic, 0);
+            assert!(!exec.group_is_idle(&[a, b]));
+            // busy requires ALL living busy
+            assert!(!exec.group_is_busy(&[a, b]));
+        }
+        logic
+            .get_object_mut(b)
+            .unwrap()
+            .set_ai_state(AIState::Moving);
+        {
+            let exec = CommandExecutor::new(&mut logic, 0);
+            assert!(exec.group_is_busy(&[a, b]));
+        }
+        logic.get_object_mut(a).unwrap().health.current = 0.0;
+        logic.get_object_mut(b).unwrap().health.current = 0.0;
+        // mark dead properly if needed
+        for id in [a, b] {
+            if let Some(o) = logic.get_object_mut(id) {
+                o.status.destroyed = true;
+            }
+        }
+        {
+            let exec = CommandExecutor::new(&mut logic, 0);
+            assert!(exec.group_is_ai_dead(&[a, b]));
+        }
     }
 
     #[test]
