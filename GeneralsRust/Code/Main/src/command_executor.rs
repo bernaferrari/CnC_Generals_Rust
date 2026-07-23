@@ -786,7 +786,7 @@ impl<'a> CommandExecutor<'a> {
         exact: bool,
         as_team: bool,
     ) -> CommandResult {
-        let _ = exact; // path points are used fully; pathfinder may smooth later.
+        // `exact` → assign_unit_path_exact (C++ AIFollowWaypointPathExactState).
         if waypoints.is_empty() {
             return CommandResult::InvalidLocation;
         }
@@ -878,7 +878,13 @@ impl<'a> CommandExecutor<'a> {
                     unit.formation_id = 0;
                 }
             }
-            if self.game_logic.assign_unit_path(unit_id, goal, via) {
+            // C++ AIFollowWaypointPathExact vs smoothed follow residual.
+            let ok = if exact {
+                self.game_logic.assign_unit_path_exact(unit_id, goal, via)
+            } else {
+                self.game_logic.assign_unit_path(unit_id, goal, via)
+            };
+            if ok {
                 any = true;
             } else if self.path_to_goal_with_state(unit_id, goal, AIState::Moving) {
                 any = true;
@@ -1532,6 +1538,106 @@ impl<'a> CommandExecutor<'a> {
     const DISTANCE_REQUIRES_GROUP: f32 = 200.0;
     /// C++ AIData::m_minDistanceForGroup residual.
     const MIN_DISTANCE_FOR_GROUP: f32 = 40.0;
+
+    /// C++ AIGroup::getSpecialPowerSourceObject residual —
+    /// first living member that can execute `power_type`.
+    pub(crate) fn special_power_source_object(
+        &self,
+        units: &[ObjectId],
+        power_type: &crate::command_system::SpecialPowerType,
+    ) -> Option<ObjectId> {
+        // C++ walks members for SpecialPowerModule matching template.
+        // Host: prefer explicit cooldown/module map entry, then ready gate.
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() {
+                continue;
+            }
+            if o.special_power_cooldowns.contains_key(power_type) {
+                return Some(id);
+            }
+        }
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() {
+                continue;
+            }
+            // Only accept ready-for when the unit advertises special powers.
+            if o.special_power_ready
+                && self.game_logic.is_special_power_ready_for(id, power_type)
+                && (o.is_kind_of(crate::game_logic::KindOf::Structure)
+                    || o.template_name.to_ascii_lowercase().contains("general")
+                    || !o.special_power_cooldowns.is_empty())
+            {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    /// C++ AIGroup::getCommandButtonSourceObject residual —
+    /// first living member that can act on `command` capability.
+    pub(crate) fn command_button_source_object(
+        &self,
+        units: &[ObjectId],
+        command: &crate::command_system::CommandType,
+    ) -> Option<ObjectId> {
+        use crate::command_system::CommandType;
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() {
+                continue;
+            }
+            let ok = match command {
+                CommandType::Attack { .. }
+                | CommandType::AttackObject { .. }
+                | CommandType::ForceAttackObject { .. }
+                | CommandType::AttackPosition { .. }
+                | CommandType::ForceAttackGround { .. }
+                | CommandType::AttackMoveTo { .. }
+                | CommandType::AttackFollowWaypointPath { .. } => {
+                    // Prefer a member that actually carries a weapon module.
+                    o.weapon.is_some()
+                }
+                CommandType::Move { .. }
+                | CommandType::MoveTo { .. }
+                | CommandType::ForceMoveTo { .. }
+                | CommandType::FollowWaypointPath { .. }
+                | CommandType::Scatter { .. }
+                | CommandType::Guard { .. } => o.can_move(),
+                CommandType::Stop => true,
+                CommandType::Evacuate | CommandType::MoveToAndEvacuate { .. } => {
+                    o.can_contain() || !o.contained_units().is_empty()
+                }
+                CommandType::DoSpecialPower { power_type, .. } => {
+                    self.game_logic.is_special_power_ready_for(id, power_type)
+                        || o.special_power_cooldowns.contains_key(power_type)
+                }
+                CommandType::Sell { .. } | CommandType::ToggleOvercharge => {
+                    o.is_kind_of(crate::game_logic::KindOf::Structure)
+                }
+                CommandType::HackInternet => {
+                    o.can_move() || o.template_name.to_ascii_lowercase().contains("hacker")
+                }
+                CommandType::GetRepaired { .. } | CommandType::GetHealed { .. } => o.can_move(),
+                CommandType::CreateFormation => o.can_move(),
+                _ => {
+                    // Fall open: any living selectable member.
+                    o.is_kind_of(crate::game_logic::KindOf::Selectable) || o.can_move()
+                }
+            };
+            if ok {
+                return Some(id);
+            }
+        }
+        None
+    }
 
     /// C++ AIGroup::getCount residual.
     pub(crate) fn group_count(&self, units: &[ObjectId]) -> usize {
@@ -6851,6 +6957,116 @@ mod group_move_tests {
         assert_eq!(u.ai_state, AIState::AttackingGround);
         assert_eq!(u.max_shots_to_fire, 3);
         assert!(u.force_attack);
+    }
+
+    #[test]
+    fn exact_waypoint_path_sets_exact_flag_and_path() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("EX_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("EX_V".to_string(), tpl);
+        let id = logic.create_object("EX_V", Team::USA, Vec3::ZERO).unwrap();
+        let wps = vec![
+            Vec3::new(10.0, 0.0, 0.0),
+            Vec3::new(20.0, 0.0, 5.0),
+            Vec3::new(40.0, 0.0, 0.0),
+        ];
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_follow_waypoint_path(&[id], &wps, true, false),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert!(u.is_exact_path, "exact follow must stamp is_exact_path");
+        assert!(
+            u.movement.path.len() >= 2,
+            "exact path keeps waypoints: {:?}",
+            u.movement.path
+        );
+        // Intermediate point should be present (exact, not collapsed).
+        let has_mid = u
+            .movement
+            .path
+            .iter()
+            .any(|p| (p.x - 20.0).abs() < 1.0 && (p.z - 5.0).abs() < 1.0);
+        assert!(
+            has_mid,
+            "exact path retains mid waypoint {:?}",
+            u.movement.path
+        );
+    }
+
+    #[test]
+    fn special_power_and_command_button_source_object() {
+        use super::CommandExecutor;
+        use crate::command_system::{CommandType, SpecialPowerType};
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut move_t = ThingTemplate::new("SRC_M");
+        move_t.add_kind_of(KindOf::Vehicle);
+        move_t.add_kind_of(KindOf::Selectable);
+        move_t.set_health(100.0);
+        logic.templates.insert("SRC_M".to_string(), move_t);
+        let mut atk_t = ThingTemplate::new("SRC_A");
+        atk_t.add_kind_of(KindOf::Vehicle);
+        atk_t.add_kind_of(KindOf::Selectable);
+        atk_t.set_health(100.0);
+        logic.templates.insert("SRC_A".to_string(), atk_t);
+        let mover = logic.create_object("SRC_M", Team::USA, Vec3::ZERO).unwrap();
+        let attacker = logic
+            .create_object("SRC_A", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let a = logic.get_object_mut(attacker).unwrap();
+            a.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            });
+            a.special_power_cooldowns
+                .insert(SpecialPowerType::SpySatellite, 0.0);
+        }
+        // Ensure mover has no weapon / no SP map entry.
+        {
+            let m = logic.get_object_mut(mover).unwrap();
+            m.weapon = None;
+            m.special_power_cooldowns.clear();
+        }
+        let exec = CommandExecutor::new(&mut logic, 0);
+        let sp =
+            exec.special_power_source_object(&[mover, attacker], &SpecialPowerType::SpySatellite);
+        assert_eq!(
+            sp,
+            Some(attacker),
+            "SP source should be attacker with cooldown map; mover={mover:?} attacker={attacker:?} sp={sp:?}"
+        );
+        let src = exec.command_button_source_object(
+            &[mover, attacker],
+            &CommandType::AttackObject { target_id: mover },
+        );
+        assert_eq!(
+            src,
+            Some(attacker),
+            "attack button source needs weapon; src={src:?}"
+        );
+        let move_src = exec.command_button_source_object(
+            &[mover, attacker],
+            &CommandType::Move {
+                destination: Vec3::new(1.0, 0.0, 0.0),
+            },
+        );
+        assert!(move_src.is_some());
     }
 
     #[test]
