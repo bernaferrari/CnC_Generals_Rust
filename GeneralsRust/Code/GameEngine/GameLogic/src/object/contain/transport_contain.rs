@@ -634,41 +634,44 @@ impl TransportContain {
 
         if self.module_data.health_regen != 0.0 {
             let owner = self.get_object();
-            let contained = self.base.get_contained_items_list()?;
-            for object in contained {
-                let needs_healing = object
-                    .read()
-                    .ok()
-                    .and_then(|guard| guard.get_body_module())
-                    .and_then(|body| {
-                        body.lock().ok().map(|body_guard| {
-                            body_guard.get_health() < body_guard.get_max_health()
-                                && body_guard.get_max_health() > 0.0
+            for object_id in self.base.get_contained_object_ids().to_vec() {
+                if let Some(object) = TheGameLogic::find_object_by_id(object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+                {
+                    let needs_healing = object
+                        .read()
+                        .ok()
+                        .and_then(|guard| guard.get_body_module())
+                        .and_then(|body| {
+                            body.lock().ok().map(|body_guard| {
+                                body_guard.get_health() < body_guard.get_max_health()
+                                    && body_guard.get_max_health() > 0.0
+                            })
                         })
-                    })
-                    .unwrap_or(false);
-                if !needs_healing {
-                    continue;
-                }
+                        .unwrap_or(false);
+                    if !needs_healing {
+                        continue;
+                    }
 
-                let Some(max_health) = object
-                    .read()
-                    .ok()
-                    .and_then(|guard| guard.get_body_module())
-                    .and_then(|body| {
-                        body.lock()
-                            .ok()
-                            .map(|body_guard| body_guard.get_max_health())
-                    })
-                else {
-                    continue;
-                };
-                let regen = max_health * self.module_data.health_regen / 100.0
-                    * SECONDS_PER_LOGICFRAME_REAL;
-                if let Ok(mut object_guard) = object.write() {
-                    let source_guard = owner.as_ref().and_then(|owner| owner.read().ok());
-                    let source_ref = source_guard.as_deref();
-                    let _ = object_guard.attempt_healing(regen, source_ref);
+                    let Some(max_health) = object
+                        .read()
+                        .ok()
+                        .and_then(|guard| guard.get_body_module())
+                        .and_then(|body| {
+                            body.lock()
+                                .ok()
+                                .map(|body_guard| body_guard.get_max_health())
+                        })
+                    else {
+                        continue;
+                    };
+                    let regen = max_health * self.module_data.health_regen / 100.0
+                        * SECONDS_PER_LOGICFRAME_REAL;
+                    if let Ok(mut object_guard) = object.write() {
+                        let source_guard = owner.as_ref().and_then(|owner| owner.read().ok());
+                        let source_ref = source_guard.as_deref();
+                        let _ = object_guard.attempt_healing(regen, source_ref);
+                    }
                 }
             }
         }
@@ -886,31 +889,34 @@ impl TransportContain {
             let mut any_rider_has_viable_weapon = false;
 
             // Check all riders for viable weapons
-            let rider_list = self.base.get_contained_items_list()?;
-            for rider_obj in rider_list {
-                if let Ok(rider) = rider_obj.read() {
-                    // Only infantry can have viable weapons for this purpose
-                    if !rider.is_kind_of(KindOf::Infantry) {
-                        continue;
-                    }
+            for rider_id in self.base.get_contained_object_ids().to_vec() {
+                if let Some(rider_obj) = TheGameLogic::find_object_by_id(rider_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                {
+                    if let Ok(rider) = rider_obj.read() {
+                        // Only infantry can have viable weapons for this purpose
+                        if !rider.is_kind_of(KindOf::Infantry) {
+                            continue;
+                        }
 
-                    // Check all weapon slots
-                    for weapon_slot in [
-                        crate::weapon::WeaponSlotType::Primary,
-                        crate::weapon::WeaponSlotType::Secondary,
-                        crate::weapon::WeaponSlotType::Tertiary,
-                    ] {
-                        if let Some(weapon) = rider.get_weapon_in_slot(weapon_slot) {
-                            // Weapon must be non-contact and damage-dealing
-                            if !weapon.is_contact_weapon() && weapon.is_damage_weapon() {
-                                any_rider_has_viable_weapon = true;
-                                break;
+                        // Check all weapon slots
+                        for weapon_slot in [
+                            crate::weapon::WeaponSlotType::Primary,
+                            crate::weapon::WeaponSlotType::Secondary,
+                            crate::weapon::WeaponSlotType::Tertiary,
+                        ] {
+                            if let Some(weapon) = rider.get_weapon_in_slot(weapon_slot) {
+                                // Weapon must be non-contact and damage-dealing
+                                if !weapon.is_contact_weapon() && weapon.is_damage_weapon() {
+                                    any_rider_has_viable_weapon = true;
+                                    break;
+                                }
                             }
                         }
-                    }
 
-                    if any_rider_has_viable_weapon {
-                        break;
+                        if any_rider_has_viable_weapon {
+                            break;
+                        }
                     }
                 }
             }
@@ -1060,12 +1066,7 @@ impl TransportContain {
             return Ok(());
         };
 
-        if !self
-            .base
-            .get_contained_items_list()?
-            .iter()
-            .any(|candidate| candidate.read().ok().map(|g| g.get_id()) == Some(obj_id))
-        {
+        if !self.base.get_contained_object_ids().contains(&obj_id) {
             let _ = expose_stealth_units;
             return Ok(());
         }
@@ -1313,12 +1314,7 @@ impl ContainModuleInterface for TransportContain {
         &mut self,
         expose_stealth: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let object_ids: Vec<_> = self
-            .base
-            .get_contained_items_list()?
-            .iter()
-            .filter_map(|obj| obj.read().ok().map(|g| g.get_id()))
-            .collect();
+        let object_ids: Vec<_> = self.base.get_contained_object_ids().to_vec();
         for obj_id in object_ids {
             self.remove_from_contain(obj_id, expose_stealth)?;
         }
@@ -1329,32 +1325,30 @@ impl ContainModuleInterface for TransportContain {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let objects = self.base.get_contained_items_list()?;
-        for obj in objects {
-            let obj_id = obj
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
+        let object_ids = self.base.get_contained_object_ids().to_vec();
+        for obj_id in object_ids {
             self.remove_from_contain(obj_id, true)?;
-            if let Ok(mut guard) = obj.write() {
-                let _ = guard.attempt_damage(damage_info);
+            if let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            {
+                if let Ok(mut guard) = obj.write() {
+                    let _ = guard.attempt_damage(damage_info);
+                }
             }
         }
         Ok(())
     }
 
     fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let objects = self.base.get_contained_items_list()?;
-        for obj in objects {
-            let obj_id = obj
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
+        let object_ids = self.base.get_contained_object_ids().to_vec();
+        for obj_id in object_ids {
             self.remove_from_contain(obj_id, true)?;
-            if let Ok(mut guard) = obj.write() {
-                guard.kill(None, None);
+            if let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            {
+                if let Ok(mut guard) = obj.write() {
+                    guard.kill(None, None);
+                }
             }
         }
         Ok(())
