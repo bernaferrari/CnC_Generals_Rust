@@ -154,14 +154,44 @@ impl SupplyWarehouseCripplingBehavior {
         })
     }
 
+    fn get_object_id(&self) -> crate::common::ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(
+        &self,
+        f: impl FnOnce(&Object) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, f)
+            .ok_or_else(|| "Object not found".into())
+    }
+
+    fn with_object_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Object) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(id, f)
+            .ok_or_else(|| "Object not found".into())
+    }
+
     fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
-        (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .ok_or_else(|| "Object not set".into())
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            .ok_or_else(|| "Object not found".into())
     }
 
     /// Reset our ability to heal timer, as we took damage
@@ -179,27 +209,21 @@ impl SupplyWarehouseCripplingBehavior {
 
     /// Disable our object (when crippled)
     fn start_crippled_effects(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let object = self.get_object()?;
-        let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-
-        obj_guard.with_dock_update_interface(|dock| {
-            let _ = dock.set_dock_crippled(true);
-        });
-
-        drop(obj_guard);
+        self.with_object(|obj_guard| {
+            obj_guard.with_dock_update_interface(|dock| {
+                let _ = dock.set_dock_crippled(true);
+            });
+        })?;
         Ok(())
     }
 
     /// Enable our object (when healed from crippled state)
     fn stop_crippled_effects(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let object = self.get_object()?;
-        let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-
-        obj_guard.with_dock_update_interface(|dock| {
-            let _ = dock.set_dock_crippled(false);
-        });
-
-        drop(obj_guard);
+        self.with_object(|obj_guard| {
+            obj_guard.with_dock_update_interface(|dock| {
+                let _ = dock.set_dock_crippled(false);
+            });
+        })?;
         Ok(())
     }
 }
@@ -208,30 +232,24 @@ impl UpdateModuleInterface for SupplyWarehouseCripplingBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         // Suppression is handled by sleeping the module, so if we're here, it's time to heal
         let data = &self.module_data;
-        let object = self.get_object()?;
         let now = TheGameLogic::get_frame();
 
         self.next_healing_frame = now + data.self_heal_delay;
 
         // Attempt healing
-        {
-            let mut obj_guard = object.write().map_err(|_| "Failed to write object")?;
-            obj_guard.attempt_healing(data.self_heal_amount, None)?;
-            drop(obj_guard);
-        }
+        self.with_object_mut(|obj_guard| obj_guard.attempt_healing(data.self_heal_amount, None))??;
 
         // Check if we're at full health
-        let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-        let is_at_full_health = if let Some(body) = obj_guard.get_body_module() {
-            let body_guard = body.lock().map_err(|_| "Failed to lock body module")?;
-            let current_health = body_guard.get_health();
-            let max_health = body_guard.get_max_health();
-            drop(body_guard);
-            current_health >= max_health
-        } else {
-            false
-        };
-        drop(obj_guard);
+        let is_at_full_health = self
+            .with_object(|obj_guard| {
+                if let Some(body) = obj_guard.get_body_module() {
+                    let body_guard = body.lock().ok()?;
+                    Some(body_guard.get_health() >= body_guard.get_max_health())
+                } else {
+                    Some(false)
+                }
+            })?
+            .unwrap_or(false);
 
         if is_at_full_health {
             // Sleep forever if at full health - can't heal anymore
