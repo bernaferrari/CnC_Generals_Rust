@@ -950,6 +950,7 @@ pub fn map_host_damage_type(dt: crate::game_logic::combat::DamageType) -> Damage
         H::EMP => DamageType::Microwave,
         H::Unresistable => DamageType::Unresistable,
         H::Falling => DamageType::Falling,
+        H::Status => DamageType::Status,
     }
 }
 
@@ -1008,9 +1009,9 @@ pub fn map_store_damage_type(
         G::Radiation => H::Radiation,
         G::Microwave => H::EMP,
         G::Falling => H::Falling,
+        G::Status => H::Status,
         G::Unresistable
         | G::Healing
-        | G::Status
         | G::Hack
         | G::Surrender
         | G::Deploy
@@ -1049,7 +1050,13 @@ pub fn host_damage_type_for_weapon_name(name: &str) -> crate::game_logic::combat
     })
     .ok()
     .flatten();
-    dt.unwrap_or(crate::game_logic::combat::DamageType::Bullet)
+    if let Some(d) = dt {
+        return d;
+    }
+    if crate::game_logic::weapon_bootstrap::host_weapon_is_status_damage(name) {
+        return crate::game_logic::combat::DamageType::Status;
+    }
+    crate::game_logic::combat::DamageType::Bullet
 }
 
 /// Look up Weapon.ini DeathType residual by weapon template name.
