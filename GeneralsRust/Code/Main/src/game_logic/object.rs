@@ -1003,6 +1003,10 @@ pub struct Object {
     /// 0=base/slow, 1=mean (200% RoF), 2=fast (300% RoF).
     #[serde(default)]
     pub continuous_fire_level: u8,
+    /// C++ WeaponTemplate::m_continuousFireOneShotsNeeded residual (u32::MAX = off).
+    pub continuous_fire_one_shots: u32,
+    /// C++ WeaponTemplate::m_continuousFireTwoShotsNeeded residual.
+    pub continuous_fire_two_shots: u32,
     /// Absolute host frame until which coast keeps spin-up (0 = none).
     #[serde(default)]
     pub continuous_fire_coast_until_frame: u32,
@@ -1676,6 +1680,8 @@ impl Object {
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
+            continuous_fire_one_shots: u32::MAX,
+            continuous_fire_two_shots: u32::MAX,
             continuous_fire_coast_until_frame: 0,
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
@@ -1988,6 +1994,8 @@ impl Object {
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
+            continuous_fire_one_shots: u32::MAX,
+            continuous_fire_two_shots: u32::MAX,
             continuous_fire_coast_until_frame: 0,
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
@@ -2777,6 +2785,14 @@ impl Object {
         // C++ WEAPONBONUSCONDITION_GARRISONED residual (GameData RANGE 133%).
         if self.contained_by.is_some() {
             range *= 1.33;
+        }
+        // C++ CONTINUOUS_FIRE_MEAN / FAST WeaponBonus ROF residual
+        // (GameData defaults MEAN 200%, FAST 300%). Level set by FiringTracker
+        // / gattling ramp residuals on Object::continuous_fire_level.
+        match self.continuous_fire_level {
+            1 => rof *= 2.0,
+            2 => rof *= 3.0,
+            _ => {}
         }
 
         (damage, range, rof.max(0.01), pre_attack.max(0.01))
@@ -7604,6 +7620,41 @@ impl Object {
         // PER_SHOT: force next fire_at to re-arm delay by clearing ready stamp into the past.
         self.pre_attack_ready_at = 0.0;
         self.record_host_combat_attack();
+        self.update_continuous_fire_after_shot(target_id);
+    }
+
+    /// C++ FiringTracker continuous-fire MEAN/FAST residual (non-gattling path).
+    /// Gattling buildings/tanks may overwrite level via specialized advance helpers.
+    pub fn update_continuous_fire_after_shot(&mut self, target_id: ObjectId) {
+        let one = self.continuous_fire_one_shots;
+        let two = self.continuous_fire_two_shots;
+        if one == 0 || one == u32::MAX {
+            return;
+        }
+        let c = self.consecutive_shots_at_target;
+        self.continuous_fire_victim = target_id.0;
+        self.continuous_fire_consecutive = c;
+        let level = self.continuous_fire_level;
+        self.continuous_fire_level = if level == 1 {
+            if c < one {
+                0
+            } else if two != u32::MAX && c > two {
+                2
+            } else {
+                1
+            }
+        } else if level == 2 {
+            if two != u32::MAX && c < two {
+                0
+            } else {
+                2
+            }
+        } else if c > one {
+            1
+        } else {
+            0
+        };
+        self.record_host_continuous_fire();
     }
 
     /// Fire at target. `target_is_infantry` selects ScatterRadiusVsInfantry residual.
@@ -10476,6 +10527,40 @@ mod tests {
             resolve_host_death_type(None, DamageType::Toxin),
             HostDeathType::Poisoned
         );
+    }
+
+    #[test]
+    fn continuous_fire_mean_rof_after_threshold() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("CF_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("CF_V".to_string(), tpl);
+        let id = logic.create_object("CF_V", Team::USA, Vec3::ZERO).unwrap();
+        let tgt = ObjectId(42);
+        {
+            let a = logic.get_object_mut(id).unwrap();
+            a.continuous_fire_one_shots = 2;
+            a.continuous_fire_two_shots = 5;
+            assert_eq!(a.continuous_fire_level, 0);
+            a.record_shot_at_target(tgt);
+            a.record_shot_at_target(tgt);
+            assert_eq!(a.continuous_fire_level, 0); // need consecutive > 2
+            a.record_shot_at_target(tgt);
+            assert_eq!(a.continuous_fire_level, 1);
+            let (_, _, rof, _) = a.weapon_bonus_fields();
+            assert!((rof - 2.0).abs() < 0.01, "MEAN ROF 200% got {rof}");
+            for _ in 0..3 {
+                a.record_shot_at_target(tgt);
+            }
+            assert_eq!(a.continuous_fire_level, 2);
+            let (_, _, rof2, _) = a.weapon_bonus_fields();
+            assert!((rof2 - 3.0).abs() < 0.01, "FAST ROF 300% got {rof2}");
+        }
     }
 
     #[test]
