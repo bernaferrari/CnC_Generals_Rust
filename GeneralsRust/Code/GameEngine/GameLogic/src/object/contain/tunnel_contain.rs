@@ -125,10 +125,9 @@ impl TunnelContain {
         let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Contain object not found")?;
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-
-        if let Some(controlling_player) = owner_read.get_controlling_player() {
+        if let Some(controlling_player) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        {
             let mut player_guard = controlling_player
                 .write()
                 .map_err(|_| "Player lock poisoned")?;
@@ -198,11 +197,8 @@ impl TunnelContain {
         let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Contain object not found")?;
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-
-        // Trigger onRemoving event for the container
-        if let Some(contain) = owner_read.get_contain() {
+        let owner_id = self.owner_object_id()?;
+        if let Some(contain) = self.with_owner_object(|owner_read| owner_read.get_contain())? {
             let obj_read = obj.read().map_err(|_| "Object lock poisoned")?;
             contain.on_removing(&*obj_read);
         }
@@ -210,17 +206,13 @@ impl TunnelContain {
         // Trigger onRemovedFrom event for the object being removed
         {
             let mut obj_write = obj.write().map_err(|_| "Object lock poisoned")?;
-            obj_write.on_removed_from(
-                owner
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-            )?;
+            obj_write.on_removed_from(owner_id)?;
         }
 
         // Remove from tunnel network if still valid
-        if let Some(controlling_player) = owner_read.get_controlling_player() {
+        if let Some(controlling_player) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        {
             let player_read = controlling_player
                 .read()
                 .map_err(|_| "Player lock poisoned")?;
@@ -254,37 +246,34 @@ impl TunnelContain {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> GameResult<()> {
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-
-        if let Some(controlling_player) = owner_read.get_controlling_player() {
+        if let Some(controlling_player) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        {
             let player_read = controlling_player
                 .read()
                 .map_err(|_| "Player lock poisoned")?;
             drop(player_read);
-            drop(owner_read);
-
             // Iterate from beginning after each loop to handle cascade deletions
             // (Matches C++ Patch 1.01 fix - November 6, 2003, lines 103-111)
             loop {
                 let next_obj = {
-                    let owner = self.get_object()?;
-                    let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-                    owner_read.get_controlling_player().and_then(|player| {
-                        player.read().ok().and_then(|player_read| {
-                            player_read.get_tunnel_system().and_then(|tunnel_system| {
-                                tunnel_system
-                                    .get_contained_item_ids()
-                                    .first()
-                                    .copied()
-                                    .and_then(|id| {
-                                        TheGameLogic::find_object_by_id(id).or_else(|| {
-                                            crate::object::registry::OBJECT_REGISTRY.get_object(id)
+                    self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+                        .and_then(|player| {
+                            player.read().ok().and_then(|player_read| {
+                                player_read.get_tunnel_system().and_then(|tunnel_system| {
+                                    tunnel_system
+                                        .get_contained_item_ids()
+                                        .first()
+                                        .copied()
+                                        .and_then(|id| {
+                                            TheGameLogic::find_object_by_id(id).or_else(|| {
+                                                crate::object::registry::OBJECT_REGISTRY
+                                                    .get_object(id)
+                                            })
                                         })
-                                    })
+                                })
                             })
                         })
-                    })
                 };
                 let Some(obj) = next_obj else {
                     break;
@@ -307,10 +296,9 @@ impl TunnelContain {
     /// Kill all contained objects.
     /// Matches C++ TunnelContain::killAllContained (TunnelContain.cpp:126-141)
     pub fn kill_all_contained(&mut self) -> GameResult<()> {
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-
-        if let Some(controlling_player) = owner_read.get_controlling_player() {
+        if let Some(controlling_player) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        {
             let player_read = controlling_player
                 .read()
                 .map_err(|_| "Player lock poisoned")?;
@@ -320,8 +308,6 @@ impl TunnelContain {
                 Vec::new()
             };
             drop(player_read);
-            drop(owner_read);
-
             for object_id in object_ids {
                 self.remove_from_contain(object_id, true)?;
                 if let Some(obj) = TheGameLogic::find_object_by_id(object_id)
@@ -393,9 +379,7 @@ impl TunnelContain {
         }
 
         // Place object at container position
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-        let position = *owner_read.get_position();
+        let position = self.with_owner_object(|owner_read| *owner_read.get_position())?;
         obj_guard.set_position(&position)?;
 
         // Show drawable
@@ -423,10 +407,9 @@ impl TunnelContain {
     /// Handle selling the tunnel entrance.
     /// Matches C++ TunnelContain::onSelling (TunnelContain.cpp:211-234)
     pub fn on_selling(&mut self) -> GameResult<()> {
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-
-        if let Some(controlling_player) = owner_read.get_controlling_player() {
+        if let Some(controlling_player) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        {
             let player_read = controlling_player
                 .read()
                 .map_err(|_| "Player lock poisoned")?;
@@ -435,19 +418,18 @@ impl TunnelContain {
             if let Some(tunnel_system) = player_read.get_tunnel_system() {
                 if tunnel_system.get_tunnel_count() == 1 {
                     drop(player_read);
-                    drop(owner_read);
                     self.remove_all_contained(false)?;
                 }
             }
 
             // Unregister after the kick out to prevent cave-in kill (matches C++ lines 227-233)
             if self.is_currently_registered {
-                let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
+                let owner_id = self.owner_object_id()?;
                 let mut player_write = controlling_player
                     .write()
                     .map_err(|_| "Player lock poisoned")?;
                 if let Some(tunnel_system_mut) = player_write.get_tunnel_system_mut() {
-                    tunnel_system_mut.on_tunnel_destroyed_id(owner_read.get_id())?;
+                    tunnel_system_mut.on_tunnel_destroyed_id(owner_id)?;
                 }
                 self.is_currently_registered = false;
             }
@@ -459,23 +441,22 @@ impl TunnelContain {
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
         loop {
             let next_obj = {
-                let owner = self.get_object()?;
-                let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-                owner_read.get_controlling_player().and_then(|player| {
-                    player.read().ok().and_then(|player_read| {
-                        player_read.get_tunnel_system().and_then(|tunnel_system| {
-                            tunnel_system
-                                .get_contained_item_ids()
-                                .first()
-                                .copied()
-                                .and_then(|id| {
-                                    TheGameLogic::find_object_by_id(id).or_else(|| {
-                                        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+                self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+                    .and_then(|player| {
+                        player.read().ok().and_then(|player_read| {
+                            player_read.get_tunnel_system().and_then(|tunnel_system| {
+                                tunnel_system
+                                    .get_contained_item_ids()
+                                    .first()
+                                    .copied()
+                                    .and_then(|id| {
+                                        TheGameLogic::find_object_by_id(id).or_else(|| {
+                                            crate::object::registry::OBJECT_REGISTRY.get_object(id)
+                                        })
                                     })
-                                })
+                            })
                         })
                     })
-                })
             };
             let Some(obj) = next_obj else {
                 break;
@@ -497,16 +478,16 @@ impl TunnelContain {
         }
 
         self.need_to_run_on_build_complete = false;
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-
-        if let Some(controlling_player) = owner_read.get_controlling_player() {
+        if let Some(controlling_player) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        {
             let mut player_write = controlling_player
                 .write()
                 .map_err(|_| "Player lock poisoned")?;
             player_write.init_tunnel_tracker();
+            let owner_id = self.owner_object_id()?;
             if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-                tunnel_system.on_tunnel_created_id(owner_read.get_id())?;
+                tunnel_system.on_tunnel_created_id(owner_id)?;
                 self.is_currently_registered = true;
             }
         }
@@ -522,18 +503,21 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-        if !self.base.is_die_applicable(&*owner_read, damage_info) {
+        let die_applicable = self
+            .with_owner_object(|owner_read| self.base.is_die_applicable(owner_read, damage_info))?;
+        if !die_applicable {
             return Ok(());
         }
 
-        if let Some(controlling_player) = owner_read.get_controlling_player() {
+        if let Some(controlling_player) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        {
             let mut player_write = controlling_player
                 .write()
                 .map_err(|_| "Player lock poisoned")?;
+            let owner_id = self.owner_object_id()?;
             if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-                tunnel_system.on_tunnel_destroyed_id(owner_read.get_id())?;
+                tunnel_system.on_tunnel_destroyed_id(owner_id)?;
                 self.is_currently_registered = false;
             }
         }
@@ -548,14 +532,15 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-        if let Some(controlling_player) = owner_read.get_controlling_player() {
+        if let Some(controlling_player) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        {
             let mut player_write = controlling_player
                 .write()
                 .map_err(|_| "Player lock poisoned")?;
+            let owner_id = self.owner_object_id()?;
             if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-                tunnel_system.on_tunnel_destroyed_id(owner_read.get_id())?;
+                tunnel_system.on_tunnel_destroyed_id(owner_id)?;
                 self.is_currently_registered = false;
             }
         }
@@ -601,36 +586,62 @@ impl TunnelContain {
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
         self.base.update()?;
 
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
-        if let Some(controlling_player) = owner_read.get_controlling_player() {
-            let mut player_write = controlling_player
-                .write()
-                .map_err(|_| "Player lock poisoned")?;
-            if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-                tunnel_system.heal_objects(self.module_data.frames_for_full_heal)?;
+        if let Some(controlling_player) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        {
+            {
+                let mut player_write = controlling_player
+                    .write()
+                    .map_err(|_| "Player lock poisoned")?;
+                if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                    tunnel_system.heal_objects(self.module_data.frames_for_full_heal)?;
+                }
+            }
 
-                if let Some(body) = owner_read.get_body_module() {
-                    if let Ok(body_guard) = body.lock() {
-                        if let Some(info) = body_guard.get_last_damage_info() {
-                            let frame = get_current_frame()?;
-                            if body_guard
-                                .get_last_damage_timestamp()
-                                .saturating_add(crate::common::LOGICFRAMES_PER_SECOND)
-                                > frame
-                            {
-                                if let Some(attacker) =
-                                    TheGameLogic::find_object_by_id(info.input.source_id)
-                                {
-                                    if let Ok(attacker_guard) = attacker.read() {
-                                        if owner_read.get_relationship_to(&*attacker_guard)
-                                            == ObjectRelationship::Enemy
-                                        {
-                                            tunnel_system.update_nemesis(Some(&*attacker_guard))?;
-                                        }
-                                    }
-                                }
-                            }
+            let nemesis_id =
+                self.with_owner_object(|owner_read| -> GameResult<Option<ObjectID>> {
+                    let Some(body) = owner_read.get_body_module() else {
+                        return Ok(None);
+                    };
+                    let Ok(body_guard) = body.lock() else {
+                        return Ok(None);
+                    };
+                    let Some(info) = body_guard.get_last_damage_info() else {
+                        return Ok(None);
+                    };
+                    let frame = get_current_frame()?;
+                    if body_guard
+                        .get_last_damage_timestamp()
+                        .saturating_add(crate::common::LOGICFRAMES_PER_SECOND)
+                        <= frame
+                    {
+                        return Ok(None);
+                    }
+                    let Some(attacker) = TheGameLogic::find_object_by_id(info.input.source_id)
+                    else {
+                        return Ok(None);
+                    };
+                    let Ok(attacker_guard) = attacker.read() else {
+                        return Ok(None);
+                    };
+                    if owner_read.get_relationship_to(&*attacker_guard) == ObjectRelationship::Enemy
+                    {
+                        Ok(Some(attacker_guard.get_id()))
+                    } else {
+                        Ok(None)
+                    }
+                })??;
+
+            if let Some(nemesis_id) = nemesis_id {
+                if let Some(attacker) = TheGameLogic::find_object_by_id(nemesis_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(nemesis_id))
+                {
+                    if let Ok(attacker_guard) = attacker.read() {
+                        let mut player_write = controlling_player
+                            .write()
+                            .map_err(|_| "Player lock poisoned")?;
+                        if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                            tunnel_system.update_nemesis(Some(&*attacker_guard))?;
                         }
                     }
                 }
@@ -644,18 +655,19 @@ impl TunnelContain {
     /// Matches C++ TunnelContain::scatterToNearbyPosition (TunnelContain.cpp:273-300)
     #[allow(dead_code)]
     fn scatter_to_nearby_position(&self, obj: &mut Object) -> GameResult<()> {
-        let owner = self.get_object()?;
-        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
+        let (min_radius, container_pos) = self.with_owner_object(|owner_read| {
+            (
+                owner_read.get_geometry_info().get_bounding_circle_radius(),
+                *owner_read.get_position(),
+            )
+        })?;
 
         // Pick random angle (matches C++ lines 288)
         let angle = get_game_logic_random_value_real(0.0, 2.0 * PI);
 
         // Calculate scatter radius (matches C++ lines 292-295)
-        let min_radius = owner_read.get_geometry_info().get_bounding_circle_radius();
         let max_radius = min_radius + min_radius / 2.0;
         let dist = get_game_logic_random_value_real(min_radius, max_radius);
-
-        let container_pos = *owner_read.get_position();
 
         // Calculate new position (matches C++ lines 297-299)
         let mut pos = Coord3D::new(
@@ -674,10 +686,29 @@ impl TunnelContain {
         Ok(())
     }
 
-    /// Get the owning object
+    /// Owner ObjectID for short-lived registry resolves.
+    fn owner_object_id(&self) -> GameResult<ObjectID> {
+        let id = self.base.get_object_id();
+        if id == crate::common::INVALID_ID {
+            Err("TunnelContain owner object no longer exists".into())
+        } else {
+            Ok(id)
+        }
+    }
+
+    /// Borrow the owning object for one operation via ObjectID.
+    fn with_owner_object<R>(&self, f: impl FnOnce(&Object) -> R) -> GameResult<R> {
+        let id = self.owner_object_id()?;
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, f)
+            .ok_or_else(|| "TunnelContain owner object no longer exists".into())
+    }
+
+    /// Get the owning object (short-lived Arc; prefer `with_owner_object`).
     fn get_object(&self) -> GameResult<Arc<RwLock<Object>>> {
-        self.base
-            .get_object()
+        let id = self.owner_object_id()?;
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
             .ok_or_else(|| "TunnelContain owner object no longer exists".into())
     }
 }
@@ -801,16 +832,14 @@ impl ContainModuleInterface for TunnelContain {
     }
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
-        if let Ok(owner) = self.get_object() {
-            if let Ok(owner_read) = owner.read() {
-                if let Some(controlling_player) = owner_read.get_controlling_player() {
-                    if let Ok(player_read) = controlling_player.read() {
-                        if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                            return tunnel_system
-                                .is_valid_container_for(obj, check_capacity)
-                                .unwrap_or(false);
-                        }
-                    }
+        if let Ok(Some(controlling_player)) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())
+        {
+            if let Ok(player_read) = controlling_player.read() {
+                if let Some(tunnel_system) = player_read.get_tunnel_system() {
+                    return tunnel_system
+                        .is_valid_container_for(obj, check_capacity)
+                        .unwrap_or(false);
                 }
             }
         }
@@ -892,16 +921,14 @@ impl ContainModuleInterface for TunnelContain {
 impl ContainerInterface for TunnelContain {
     fn can_contain(&self, obj: &Object) -> bool {
         // Delegate to tunnel tracker validation
-        if let Ok(owner) = self.get_object() {
-            if let Ok(owner_read) = owner.read() {
-                if let Some(controlling_player) = owner_read.get_controlling_player() {
-                    if let Ok(player_read) = controlling_player.read() {
-                        if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                            return tunnel_system
-                                .is_valid_container_for(obj, true)
-                                .unwrap_or(false);
-                        }
-                    }
+        if let Ok(Some(controlling_player)) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())
+        {
+            if let Ok(player_read) = controlling_player.read() {
+                if let Some(tunnel_system) = player_read.get_tunnel_system() {
+                    return tunnel_system
+                        .is_valid_container_for(obj, true)
+                        .unwrap_or(false);
                 }
             }
         }
@@ -917,17 +944,15 @@ impl ContainerInterface for TunnelContain {
     }
 
     fn get_usage(&self) -> (u32, u32) {
-        if let Ok(owner) = self.get_object() {
-            if let Ok(owner_read) = owner.read() {
-                if let Some(controlling_player) = owner_read.get_controlling_player() {
-                    if let Ok(player_read) = controlling_player.read() {
-                        if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                            let current = tunnel_system.get_contain_count().unwrap_or(0);
-                            let max = tunnel_system.get_contain_max().unwrap_or(-1);
-                            let max_u32 = if max < 0 { u32::MAX } else { max as u32 };
-                            return (current, max_u32);
-                        }
-                    }
+        if let Ok(Some(controlling_player)) =
+            self.with_owner_object(|owner_read| owner_read.get_controlling_player())
+        {
+            if let Ok(player_read) = controlling_player.read() {
+                if let Some(tunnel_system) = player_read.get_tunnel_system() {
+                    let current = tunnel_system.get_contain_count().unwrap_or(0);
+                    let max = tunnel_system.get_contain_max().unwrap_or(-1);
+                    let max_u32 = if max < 0 { u32::MAX } else { max as u32 };
+                    return (current, max_u32);
                 }
             }
         }
