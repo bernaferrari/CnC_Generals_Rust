@@ -242,6 +242,12 @@ pub struct RenderableObject {
     pub production_door_phase: u8,
     /// C++ BodyDamageType residual ordinal (0 pristine .. 3 rubble).
     pub body_damage_state: u8,
+    /// C++ TransitionDamageFX / FXListDie residual name frozen at snapshot.
+    #[serde(default)]
+    pub damage_fx_name: Option<String>,
+    /// C++ FXListDie death FX residual name.
+    #[serde(default)]
+    pub death_fx_name: Option<String>,
     /// C++ DeathType residual name for death FX (empty when alive).
     pub death_type_name: String,
     pub under_construction: bool,
@@ -2479,6 +2485,11 @@ impl PresentationFrame {
                     };
                     state as u8
                 },
+                damage_fx_name: obj
+                    .pending_transition_damage_fx
+                    .last()
+                    .and_then(|e| e.fx_name.clone()),
+                death_fx_name: obj.pending_death_fx.clone(),
                 death_type_name: if obj.status.destroyed || !obj.is_alive() {
                     obj.status.death_type.as_name().to_string()
                 } else {

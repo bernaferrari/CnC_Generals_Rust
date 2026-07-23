@@ -947,6 +947,23 @@ pub struct Object {
     /// Pending reaction weapon name from last onDamage residual (drained by GameLogic).
     #[serde(default)]
     pub pending_fire_when_damaged_weapon: Option<String>,
+    /// C++ TransitionDamageFX residual.
+    #[serde(default)]
+    pub transition_damage_fx:
+        Option<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxData>,
+    /// Pending transition FX events (drained by GameLogic / presentation).
+    #[serde(default)]
+    pub pending_transition_damage_fx:
+        Vec<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent>,
+    /// C++ FXListDie residual.
+    #[serde(default)]
+    pub fx_list_die: Option<crate::game_logic::host_fx_list_die::HostFxListDieData>,
+    /// Pending death FX name residual.
+    #[serde(default)]
+    pub pending_death_fx: Option<String>,
+    /// Pending death audio residual.
+    #[serde(default)]
+    pub pending_death_audio: Option<String>,
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
@@ -1556,6 +1573,11 @@ impl Object {
             structure_collapse_data: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
+            transition_damage_fx: None,
+            pending_transition_damage_fx: Vec::new(),
+            fx_list_die: None,
+            pending_death_fx: None,
+            pending_death_audio: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -1889,6 +1911,11 @@ impl Object {
             structure_collapse_data: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
+            transition_damage_fx: None,
+            pending_transition_damage_fx: Vec::new(),
+            fx_list_die: None,
+            pending_death_fx: None,
+            pending_death_audio: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -2460,6 +2487,64 @@ impl Object {
     }
 
     /// Attach FireWeaponWhenDamaged residual when template peels match.
+
+    pub fn ensure_transition_damage_fx(&mut self) {
+        if self.transition_damage_fx.is_some() {
+            return;
+        }
+        let is_structure = self.is_kind_of(crate::game_logic::KindOf::Structure);
+        let is_vehicle = self.is_kind_of(crate::game_logic::KindOf::Vehicle);
+        if let Some(cfg) =
+            crate::game_logic::host_transition_damage_fx::transition_damage_fx_config_for_template(
+                &self.template_name,
+                is_structure,
+                is_vehicle,
+            )
+        {
+            self.transition_damage_fx = Some(cfg);
+        }
+    }
+
+    pub fn ensure_fx_list_die(&mut self) {
+        if self.fx_list_die.is_some() {
+            return;
+        }
+        if let Some(cfg) = crate::game_logic::host_fx_list_die::fx_list_die_config_for_template(
+            &self.template_name,
+        ) {
+            self.fx_list_die = Some(cfg);
+        }
+    }
+
+    pub fn take_pending_transition_damage_fx(
+        &mut self,
+    ) -> Vec<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent> {
+        std::mem::take(&mut self.pending_transition_damage_fx)
+    }
+
+    pub fn take_pending_death_fx_audio(&mut self) -> (Option<String>, Option<String>) {
+        (
+            self.pending_death_fx.take(),
+            self.pending_death_audio.take(),
+        )
+    }
+
+    /// C++ FXListDie::onDie residual.
+    pub fn fire_fx_list_die(&mut self) {
+        self.ensure_fx_list_die();
+        let Some(fx) = self.fx_list_die.as_mut() else {
+            return;
+        };
+        if let Some((f, a)) = fx.on_die() {
+            if self.pending_death_fx.is_none() {
+                self.pending_death_fx = f;
+            }
+            if self.pending_death_audio.is_none() {
+                self.pending_death_audio = a;
+            }
+        }
+    }
+
     pub fn ensure_fire_weapon_when_damaged(&mut self) {
         if self.fire_weapon_when_damaged.is_some() {
             return;
@@ -4177,6 +4262,7 @@ impl Object {
         };
         let health = self.health.current;
         let max_h = self.health.maximum.max(0.0);
+        let old_state = self.body_damage_state;
         let state = if self.status.destroyed || health <= 0.0 {
             HostBodyDamageType::Rubble
         } else {
@@ -4184,6 +4270,21 @@ impl Object {
         };
         self.body_damage_state = state;
         crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
+        // C++ TransitionDamageFX::onBodyDamageStateChange residual.
+        self.ensure_transition_damage_fx();
+        if let Some(cfg) = self.transition_damage_fx.as_ref() {
+            if let Some(ev) = crate::game_logic::host_transition_damage_fx::transition_event(
+                cfg, old_state, state,
+            ) {
+                self.pending_transition_damage_fx.push(ev);
+            }
+        }
+        // C++ FXListDie when entering rubble / destroyed.
+        if matches!(state, HostBodyDamageType::Rubble)
+            && !matches!(old_state, HostBodyDamageType::Rubble)
+        {
+            self.fire_fx_list_die();
+        }
         let mut bits = host_apply_body_damage_model_bits(self.model_condition_bits, state);
         // Motion / combat residual bits from ObjectStatus.
         if self.status.moving {
@@ -11813,6 +11914,48 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn transition_damage_fx_queues_on_worse_state() {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxData;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("AmericaWarFactory");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Structure);
+        let mut o = Object::new(t, ObjectId(1), Team::USA);
+        o.health.current = 100.0;
+        o.health.maximum = 100.0;
+        o.transition_damage_fx = Some(HostTransitionDamageFxData::generic_structure_residual());
+        o.body_damage_state = HostBodyDamageType::Pristine;
+        o.health.current = 40.0; // damaged
+        o.refresh_model_condition_bits();
+        assert_eq!(o.body_damage_state, HostBodyDamageType::Damaged);
+        let ev = o.take_pending_transition_damage_fx();
+        assert!(!ev.is_empty());
+        assert_eq!(ev[0].new_state, HostBodyDamageType::Damaged.ordinal());
+    }
+
+    #[test]
+    fn fx_list_die_queues_on_rubble() {
+        use crate::game_logic::host_fx_list_die::HostFxListDieData;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("AmericaTankCrusader");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(2), Team::USA);
+        o.fx_list_die = Some(HostFxListDieData {
+            death_fx: Some("FX_VehicleDie".into()),
+            death_audio: Some("VehicleDestroyed".into()),
+            ..Default::default()
+        });
+        o.health.current = 0.0;
+        o.status.destroyed = true;
+        o.refresh_model_condition_bits();
+        let (fx, audio) = o.take_pending_death_fx_audio();
+        assert_eq!(fx.as_deref(), Some("FX_VehicleDie"));
+        assert_eq!(audio.as_deref(), Some("VehicleDestroyed"));
     }
 
     #[test]
