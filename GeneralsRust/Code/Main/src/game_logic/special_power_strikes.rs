@@ -4971,7 +4971,7 @@ impl HostSuperweaponKind {
             // Continuous beam residual: no one-shot impact blast
             // (damage via HostParticleBeamField pulses — DamagePerSecond 400).
             HostSuperweaponKind::ParticleCannon => 0.0,
-            // Retail NeutronMissileSlowDeath Blast6MaxDamage.
+            // Retail NeutronMissileSlowDeath Blast6MaxDamage (scheduled residual).
             HostSuperweaponKind::NuclearMissile => 3500.0,
             // Retail AnthraxBombWeapon PrimaryDamage (impact blast only).
             HostSuperweaponKind::AnthraxBomb => 200.0,
@@ -5773,6 +5773,18 @@ pub struct HostStrikeImpactPlan {
 
 /// Residual radiation field spawned by NuclearMissile impact
 /// (`OCL_NukeRadiationField` / `NukeRadiationFieldWeapon` residual).
+/// Epicenter metadata for a NeutronMissileSlowDeath residual field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostNeutronSlowDeathMeta {
+    pub id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub position: Vec3,
+    pub parent_strike_id: u32,
+    pub scorch_size: f32,
+    pub fx_list: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostRadiationField {
     pub id: u32,
@@ -6725,11 +6737,17 @@ pub struct HostSpecialPowerStrikeRegistry {
     activated_this_frame: Vec<u32>,
     /// Active residual radiation fields (NuclearMissile impact residual).
     radiation_fields: Vec<HostRadiationField>,
+    /// C++ NeutronMissileSlowDeathBehavior multi-blast residual fields.
+    neutron_slow_death_fields:
+        Vec<crate::game_logic::host_neutron_missile_slow_death::HostNeutronMissileSlowDeathData>,
+    neutron_slow_death_meta: Vec<HostNeutronSlowDeathMeta>,
     next_radiation_id: u32,
     /// Radiation fields spawned this frame (honesty / presentation drain).
     radiation_spawned_this_frame: Vec<u32>,
     /// Lifetime count of radiation fields spawned (survives prune; honesty).
     radiation_fields_spawned_total: u32,
+    next_neutron_slow_death_id: u32,
+    neutron_slow_death_spawned_total: u32,
     /// Lifetime radiation damage applications (honesty after field expiry).
     radiation_damage_applications_total: u32,
     /// Active residual toxin fields (AnthraxBomb impact residual).
@@ -6793,9 +6811,13 @@ impl HostSpecialPowerStrikeRegistry {
             completed_this_frame: Vec::new(),
             activated_this_frame: Vec::new(),
             radiation_fields: Vec::new(),
+            neutron_slow_death_fields: Vec::new(),
+            neutron_slow_death_meta: Vec::new(),
             next_radiation_id: 1,
             radiation_spawned_this_frame: Vec::new(),
             radiation_fields_spawned_total: 0,
+            next_neutron_slow_death_id: 1,
+            neutron_slow_death_spawned_total: 0,
             radiation_damage_applications_total: 0,
             toxin_fields: Vec::new(),
             next_toxin_id: 1,
@@ -6825,10 +6847,14 @@ impl HostSpecialPowerStrikeRegistry {
         self.completed_this_frame.clear();
         self.activated_this_frame.clear();
         self.radiation_fields.clear();
+        self.neutron_slow_death_fields.clear();
+        self.neutron_slow_death_meta.clear();
         self.radiation_spawned_this_frame.clear();
         self.next_id = 1;
         self.next_radiation_id = 1;
         self.radiation_fields_spawned_total = 0;
+        self.next_neutron_slow_death_id = 1;
+        self.neutron_slow_death_spawned_total = 0;
         self.radiation_damage_applications_total = 0;
         self.toxin_fields.clear();
         self.toxin_spawned_this_frame.clear();
@@ -7508,6 +7534,10 @@ impl HostSpecialPowerStrikeRegistry {
         scud_tier: ScudStormAnthraxTier,
         a10_tier: A10StrikeScienceTier,
     ) -> f32 {
+        // Instant one-shot suppressed: multi-blast residual applies Blast6.
+        if kind == HostSuperweaponKind::NuclearMissile {
+            return 0.0;
+        }
         if kind == HostSuperweaponKind::ScudStorm {
             if distance <= SCUD_STORM_PRIMARY_RADIUS {
                 return scud_tier.primary_damage();
@@ -8008,6 +8038,8 @@ impl HostSpecialPowerStrikeRegistry {
         }
         if let Some((source, team, pos, impact_frame)) = spawn_radiation {
             self.spawn_radiation_field(source, team, pos, impact_frame, strike_id);
+            // C++ NeutronMissileSlowDeathBehavior activates with the nuke impact.
+            self.spawn_neutron_slow_death_field(source, team, pos, impact_frame, strike_id);
         }
         if let Some((source, team, pos, impact_frame)) = spawn_toxin {
             self.spawn_toxin_field(source, team, pos, impact_frame, strike_id);
@@ -8038,6 +8070,67 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// Spawn a residual radiation field at `position` (NuclearMissile impact).
+
+    /// C++ NeutronMissileSlowDeathBehavior activation residual at impact.
+    pub fn spawn_neutron_slow_death_field(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+    ) -> u32 {
+        use crate::game_logic::host_neutron_missile_slow_death::{
+            HostNeutronMissileSlowDeathData, NEUTRON_FX_LIST, NEUTRON_SCORCH_MARK_SIZE,
+        };
+        let id = self.next_neutron_slow_death_id;
+        self.next_neutron_slow_death_id = self.next_neutron_slow_death_id.saturating_add(1).max(1);
+        self.neutron_slow_death_fields
+            .push(HostNeutronMissileSlowDeathData::begin(spawn_frame));
+        self.neutron_slow_death_meta.push(HostNeutronSlowDeathMeta {
+            id,
+            source_object,
+            source_team,
+            position,
+            parent_strike_id,
+            scorch_size: NEUTRON_SCORCH_MARK_SIZE,
+            fx_list: NEUTRON_FX_LIST.into(),
+        });
+        self.neutron_slow_death_spawned_total =
+            self.neutron_slow_death_spawned_total.saturating_add(1);
+        id
+    }
+
+    pub fn neutron_slow_death_field_count(&self) -> usize {
+        self.neutron_slow_death_fields.len()
+    }
+
+    pub fn neutron_slow_death_spawned_total(&self) -> u32 {
+        self.neutron_slow_death_spawned_total
+    }
+
+    pub fn neutron_slow_death_meta(&self) -> &[HostNeutronSlowDeathMeta] {
+        &self.neutron_slow_death_meta
+    }
+
+    pub fn neutron_slow_death_fields_mut_for_tick(
+        &mut self,
+    ) -> Vec<crate::game_logic::host_neutron_missile_slow_death::HostNeutronMissileSlowDeathData>
+    {
+        std::mem::take(&mut self.neutron_slow_death_fields)
+    }
+
+    pub fn restore_neutron_slow_death_fields(
+        &mut self,
+        fields: Vec<
+            crate::game_logic::host_neutron_missile_slow_death::HostNeutronMissileSlowDeathData,
+        >,
+        metas: Vec<HostNeutronSlowDeathMeta>,
+    ) {
+        self.neutron_slow_death_fields = fields;
+        self.neutron_slow_death_meta = metas;
+    }
+
     pub fn spawn_radiation_field(
         &mut self,
         source_object: ObjectId,
@@ -12043,18 +12136,15 @@ mod tests {
 
         let plans = reg.plan_due_impacts(180, &objects);
         assert_eq!(plans.len(), 1);
-        // Blast residual hits ALLIES ENEMIES NEUTRALS (retail RadiusDamageAffects).
-        assert_eq!(plans[0].hits.len(), 2);
-        assert!(plans[0]
-            .hits
-            .iter()
-            .any(|h| h.target_id == ObjectId(2) && (h.damage - 3500.0).abs() < 0.1));
-        assert!(plans[0]
-            .hits
-            .iter()
-            .any(|h| h.target_id == ObjectId(3) && (h.damage - 3500.0).abs() < 0.1));
+        // Instant blast suppressed — NeutronMissileSlowDeath multi-blast residual
+        // applies Blast6MaxDamage on schedule (max_damage honesty stays 3500).
+        assert!(
+            plans[0].hits.iter().all(|h| h.damage == 0.0),
+            "nuclear instant impact damage deferred to multi-blast residual"
+        );
+        assert!((HostSuperweaponKind::NuclearMissile.max_damage() - 3500.0).abs() < 0.1);
 
-        reg.record_impact_complete(id, 7000.0, 2, 1);
+        reg.record_impact_complete(id, 0.0, 0, 0);
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::NuclearMissile));
         assert!(reg.honesty_radiation_ok());
         assert!(reg.honesty_host_path_ok(HostSuperweaponKind::NuclearMissile));

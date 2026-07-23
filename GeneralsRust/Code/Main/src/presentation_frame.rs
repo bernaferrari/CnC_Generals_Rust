@@ -2441,6 +2441,9 @@ impl PresentationFrame {
                         host_apply_body_damage_model_bits, host_calc_body_damage_state,
                         HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
                     };
+                    use crate::game_logic::host_neutron_missile_slow_death::{
+                        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+                    };
                     let destroyed = obj.status.destroyed || !obj.is_alive();
                     let state = if destroyed {
                         HostBodyDamageType::Rubble
@@ -2448,6 +2451,13 @@ impl PresentationFrame {
                         host_calc_body_damage_state(obj.health.current, obj.health.maximum.max(0.0))
                     };
                     bits = host_apply_body_damage_model_bits(bits, state);
+
+                    if obj.front_crushed {
+                        bits |= 1u128 << MC_BIT_FRONTCRUSHED;
+                    }
+                    if obj.back_crushed {
+                        bits |= 1u128 << MC_BIT_BACKCRUSHED;
+                    }
                     if obj.status.moving {
                         bits |= 1u128 << MC_BIT_MOVING;
                     } else {

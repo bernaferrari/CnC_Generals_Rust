@@ -2251,10 +2251,39 @@ impl Object {
     }
 
     pub fn is_alive(&self) -> bool {
-        !self.status.destroyed
-            && !self.status.effectively_dead
-            && !self.status.keep_as_rubble
-            && self.health.is_alive()
+        if self.status.destroyed
+            || self.status.effectively_dead
+            || self.status.keep_as_rubble
+            || !self.health.is_alive()
+        {
+            return false;
+        }
+        // C++ effectively-dead during SlowDeath / air crash sequences.
+        if self
+            .slow_death
+            .as_ref()
+            .map(|s| s.is_active())
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        if self
+            .jet_slow_death
+            .as_ref()
+            .map(|j| j.is_active())
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        if self
+            .helicopter_slow_death
+            .as_ref()
+            .map(|h| h.is_active())
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        true
     }
 
     pub fn get_health_percentage(&self) -> f32 {
@@ -6303,9 +6332,12 @@ impl Object {
                 CrushTarget::TotalCrush => {
                     other.front_crushed = true;
                     other.back_crushed = true;
+                    other.record_host_crush_vision();
                 }
                 CrushTarget::NoCrush => {}
             }
+            // C++ CrushDie::onDie model condition residual.
+            other.apply_crush_die_model_conditions();
             let _ = other.take_damage_from_typed_death(
                 PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
                 Some(self.id),
@@ -7320,6 +7352,22 @@ impl Object {
             None => (false, 255u8),
         };
         crate::game_logic::host_building_type_log::record(self.id, is_building, ordinal);
+    }
+
+    /// C++ CrushDie model condition FRONTCRUSHED/BACKCRUSHED residual.
+    pub fn apply_crush_die_model_conditions(&mut self) {
+        use crate::game_logic::host_neutron_missile_slow_death::{
+            MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+        };
+        // Clear then set like C++ clearAndSetModelConditionFlags.
+        self.model_condition_bits &= !(1u128 << MC_BIT_FRONTCRUSHED);
+        self.model_condition_bits &= !(1u128 << MC_BIT_BACKCRUSHED);
+        if self.front_crushed {
+            self.model_condition_bits |= 1u128 << MC_BIT_FRONTCRUSHED;
+        }
+        if self.back_crushed {
+            self.model_condition_bits |= 1u128 << MC_BIT_BACKCRUSHED;
+        }
     }
 
     pub fn record_host_crush_vision(&self) {
@@ -12316,6 +12364,25 @@ mod tests {
         o.set_position(glam::Vec3::new(0.0, 3.0, 0.0));
         assert!(o.tick_height_die(3, 0.0));
         assert!(o.status.destroyed);
+    }
+
+    #[test]
+    fn crush_die_sets_model_condition_bits() {
+        use crate::game_logic::host_neutron_missile_slow_death::{
+            MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("TestInfantry");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(4), Team::USA);
+        o.front_crushed = true;
+        o.apply_crush_die_model_conditions();
+        assert_ne!(o.model_condition_bits & (1u128 << MC_BIT_FRONTCRUSHED), 0);
+        assert_eq!(o.model_condition_bits & (1u128 << MC_BIT_BACKCRUSHED), 0);
+        o.back_crushed = true;
+        o.apply_crush_die_model_conditions();
+        assert_ne!(o.model_condition_bits & (1u128 << MC_BIT_BACKCRUSHED), 0);
     }
 
     #[test]
