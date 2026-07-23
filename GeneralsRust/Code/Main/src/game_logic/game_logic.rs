@@ -10574,11 +10574,7 @@ impl GameLogic {
         };
 
         if fired {
-            if let Some(u) = self.objects.get_mut(&unit_id) {
-                if u.max_shots_to_fire > 0 {
-                    u.max_shots_to_fire = u.max_shots_to_fire.saturating_sub(1);
-                }
-            }
+            // max_shots_to_fire decremented inside Object::fire_at_ex (Weapon::m_maxShotCount).
             AttackFireResult::Success
         } else {
             // fire_at false: either pre-attack armed or cannot fire.
@@ -10610,6 +10606,9 @@ impl GameLogic {
             return false;
         }
         if !atk.can_fire(current_time) {
+            return false;
+        }
+        if !atk.has_max_shots_remaining() {
             return false;
         }
         if !atk.is_within_attack_range(vic) {
