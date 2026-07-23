@@ -300,6 +300,10 @@ pub struct RenderableObject {
     pub weapon_reload_time: f32,
     /// Primary weapon ammo residual (`u32::MAX` = unlimited).
     pub weapon_ammo: u32,
+    /// C++ getAmmoPipShowingInfo residual (0 = no ShowsAmmoPips weapon).
+    pub ammo_pip_total: u32,
+    /// Remaining rounds for the ShowsAmmoPips weapon.
+    pub ammo_pip_full: u32,
     /// Primary weapon air/ground targeting residual.
     pub weapon_can_target_air: bool,
     pub weapon_can_target_ground: bool,
@@ -2480,6 +2484,8 @@ impl PresentationFrame {
                     .as_ref()
                     .map(|w| w.ammo.unwrap_or(u32::MAX))
                     .unwrap_or(u32::MAX),
+                ammo_pip_total: obj.get_ammo_pip_showing_info().map(|(t, _)| t).unwrap_or(0),
+                ammo_pip_full: obj.get_ammo_pip_showing_info().map(|(_, f)| f).unwrap_or(0),
                 weapon_can_target_air: obj
                     .weapon
                     .as_ref()
