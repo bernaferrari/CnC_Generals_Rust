@@ -348,32 +348,84 @@ impl<'a> CommandExecutor<'a> {
         CommandResult::Success
     }
 
-    /// C++-style group move goal spread: one unit keeps the click point; others
-    /// ring around it by selection radius so paths/goals don't collapse to one cell.
-    fn group_move_destinations(
+    /// C++ AIGroup::groupMoveToPosition / computeIndividualDestination residual.
+    ///
+    /// Sort movers near→far to the click, take the nearest unit as the free-move
+    /// "center", then offset each unit's goal by its (clamped) vector from that
+    /// center — preserves relative formation instead of inventing a ring.
+    pub(crate) fn group_move_destinations(
         &self,
         units: &[ObjectId],
         destination: Vec3,
     ) -> Vec<(ObjectId, Vec3)> {
-        if units.len() <= 1 {
+        if units.is_empty() {
+            return Vec::new();
+        }
+        if units.len() == 1 {
+            return vec![(units[0], destination)];
+        }
+
+        // Gather movable members with positions (skip dead / immobile).
+        let mut movers: Vec<(ObjectId, Vec3, f32)> = Vec::with_capacity(units.len());
+        for &unit_id in units {
+            let Some(obj) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !obj.is_alive() {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || obj.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            let radius = obj.selection_radius.max(5.0);
+            // Prefer Thing position (set_position); `Object.position` shadow can lag.
+            movers.push((unit_id, obj.get_position(), radius));
+        }
+        if movers.is_empty() {
+            // Fall back: raw destinations so callers still get a path attempt.
             return units.iter().map(|&id| (id, destination)).collect();
         }
-        let n = units.len() as f32;
-        let mut out = Vec::with_capacity(units.len());
-        for (i, &unit_id) in units.iter().enumerate() {
-            let spread = self
-                .game_logic
-                .get_object(unit_id)
-                .map(|u| u.selection_radius.max(6.0))
-                .unwrap_or(8.0);
-            // Keep first unit on the exact click; ring the rest (index 1..).
+        if movers.len() == 1 {
+            return vec![(movers[0].0, destination)];
+        }
+
+        // Near-to-far vs goal (C++ SimpleObjectIterator ITER_SORTED_NEAR_TO_FAR).
+        movers.sort_by(|a, b| {
+            let da = (a.1.x - destination.x).hypot(a.1.z - destination.z);
+            let db = (b.1.x - destination.x).hypot(b.1.z - destination.z);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Free-move center is the nearest unit's current position (C++ firstUnit branch).
+        let center = movers[0].1;
+        let mut out = Vec::with_capacity(movers.len());
+        for (i, (unit_id, pos, radius)) in movers.into_iter().enumerate() {
             let goal = if i == 0 {
+                // Lead unit walks to the click.
                 destination
             } else {
-                let angle = (i as f32) * std::f32::consts::TAU / (n - 1.0).max(1.0);
-                // Slight radial growth for larger groups so outer ring clears.
-                let ring = spread * (1.0 + ((i as f32) / n) * 0.35);
-                destination + Vec3::new(angle.cos() * ring, 0.0, angle.sin() * ring)
+                // computeIndividualDestination: offset from center, clamp length.
+                let mut dx = pos.x - center.x;
+                let mut dz = pos.z - center.z;
+                // Host uses XZ ground plane (Y up) — C++ uses XY with Z up.
+                let mut length = (dx * dx + dz * dz).sqrt();
+                let max_length = 6.0 * radius;
+                if length > max_length {
+                    length = max_length;
+                }
+                if length > 0.001 {
+                    let nlen = (dx * dx + dz * dz).sqrt().max(0.001);
+                    dx = (dx / nlen) * length;
+                    dz = (dz / nlen) * length;
+                } else {
+                    // Coincident with center: tiny stable offset so goals don't stack.
+                    let angle = (i as f32) * 1.7;
+                    dx = angle.cos() * radius * 0.5;
+                    dz = angle.sin() * radius * 0.5;
+                }
+                Vec3::new(destination.x + dx, destination.y, destination.z + dz)
             };
             out.push((unit_id, goal));
         }
@@ -4192,6 +4244,61 @@ mod group_move_tests {
                 && !w.contains("assign_unit_path(unit_id, destination, &[])"),
             "execute_move must path to per-unit goals"
         );
+    }
+
+    #[test]
+    fn group_move_destinations_preserves_relative_offset() {
+        use super::CommandExecutor;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        // Minimal mobile templates.
+        for name in ["GM_A", "GM_B"] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Vehicle);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(100.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let a = logic
+            .create_object("GM_A", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        let b = logic
+            .create_object("GM_B", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("b");
+        {
+            let oa = logic.get_object_mut(a).unwrap();
+            oa.selection_radius = 10.0;
+        }
+        {
+            let ob = logic.get_object_mut(b).unwrap();
+            ob.selection_radius = 10.0;
+        }
+
+        let click = Vec3::new(100.0, 0.0, 50.0);
+        let exec = CommandExecutor::new(&mut logic, 0);
+        let goals = exec.group_move_destinations(&[a, b], click);
+        assert_eq!(goals.len(), 2);
+
+        // B at x=40 is nearer the click at x=100 than A at x=0 → B is lead.
+        let goal_a = goals.iter().find(|(id, _)| *id == a).unwrap().1;
+        let goal_b = goals.iter().find(|(id, _)| *id == b).unwrap().1;
+        assert!(
+            (goal_b - click).length() < 0.01,
+            "nearest unit (B) must receive click goal, got {goal_b:?}"
+        );
+        // A was -40 X from lead/center B → goal keeps ~-40 X from click.
+        let offset = goal_a - click;
+        assert!(
+            offset.x < -20.0 && offset.x > -45.0,
+            "relative -X offset preserved, offset={offset:?}"
+        );
+        assert!(
+            offset.z.abs() < 1.0,
+            "no invented Z ring offset, offset={offset:?}"
+        );
+        assert!((goal_a - goal_b).length() > 10.0, "goals must not stack");
     }
 
     #[test]
