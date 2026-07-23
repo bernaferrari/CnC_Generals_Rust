@@ -1291,10 +1291,9 @@ impl JetAIUpdate {
     }
 
     fn find_suitable_airfield(&self) -> Option<ObjectID> {
-        let Some(obj) = self.get_object() else {
+        let Some(pos) = self.with_object(|guard| *guard.get_position()) else {
             return None;
         };
-        let pos = obj.read().ok().map(|guard| *guard.get_position())?;
         let Some(partition) = crate::helpers::ThePartitionManager::get() else {
             return None;
         };
@@ -1310,11 +1309,16 @@ impl JetAIUpdate {
             {
                 return false;
             }
-            if let Ok(jet_guard) = obj.read() {
-                let relationship = jet_guard.relationship_to(candidate);
-                if !matches!(relationship, crate::common::Relationship::Allies) {
-                    return false;
-                }
+            let allied = self
+                .with_object(|jet_guard| {
+                    matches!(
+                        jet_guard.relationship_to(candidate),
+                        crate::common::Relationship::Allies
+                    )
+                })
+                .unwrap_or(false);
+            if !allied {
+                return false;
             }
             let mut ok = false;
             candidate.with_parking_place_behavior(|pp| {

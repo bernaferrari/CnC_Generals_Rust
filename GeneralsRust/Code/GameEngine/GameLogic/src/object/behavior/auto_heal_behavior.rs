@@ -716,22 +716,36 @@ impl AutoHealBehavior {
         }
 
         let data = &self.module_data;
-        let healer_handle = self.get_object();
-        let healer_guard = healer_handle.as_ref().and_then(|arc| arc.read().ok());
-        let healer_ref = healer_guard.as_deref();
+        let amount = data.healing_amount as Real;
+        let delay = data.healing_delay;
+        let target_id = obj
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        let healer_id = self.owner_object_id();
 
-        // Attempt healing - different logic for radius vs non-radius
-        if data.radius == 0.0 {
-            if let Ok(mut obj_write) = obj.write() {
-                obj_write.attempt_healing(data.healing_amount as Real, healer_ref)?;
-            }
-        } else {
-            if let Ok(mut obj_write) = obj.write() {
-                obj_write.attempt_healing_from_sole_benefactor(
-                    data.healing_amount as Real,
-                    healer_ref,
-                    data.healing_delay,
-                )?;
+        // Prefer nested ID resolves; fall back to Arc healer only when target != healer.
+        if target_id != crate::common::INVALID_ID && target_id != healer_id {
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |obj_write| {
+                    crate::object::registry::OBJECT_REGISTRY.with_object(healer_id, |healer| {
+                        if data.radius == 0.0 {
+                            let _ = obj_write.attempt_healing(amount, Some(healer));
+                        } else {
+                            let _ = obj_write.attempt_healing_from_sole_benefactor(
+                                amount,
+                                Some(healer),
+                                delay,
+                            );
+                        }
+                    })
+                });
+        } else if let Ok(mut obj_write) = obj.write() {
+            if data.radius == 0.0 {
+                obj_write.attempt_healing(amount, None)?;
+            } else {
+                obj_write.attempt_healing_from_sole_benefactor(amount, None, delay)?;
             }
         }
 
@@ -1021,10 +1035,22 @@ impl AutoHealBehavior {
             .unwrap_or(false);
 
         if needs_healing {
-            let Some(obj) = self.get_object() else {
+            // Self-heal: ID resolve; healer source is self so Option healer is unused.
+            let amount = self.module_data.healing_amount as Real;
+            let radius = self.module_data.radius;
+            let delay = self.module_data.healing_delay;
+            let Some(result) = self.with_object_mut(|obj_write| {
+                if radius == 0.0 {
+                    obj_write.attempt_healing(amount, None)
+                } else {
+                    obj_write
+                        .attempt_healing_from_sole_benefactor(amount, None, delay)
+                        .map(|_| ())
+                }
+            }) else {
                 return Ok(UPDATE_SLEEP_FOREVER);
             };
-            self.pulse_heal_object(obj)?;
+            result?;
             Ok(update_sleep_time(healing_delay))
         } else {
             // Go to sleep forever - we'll wake up when damaged again
