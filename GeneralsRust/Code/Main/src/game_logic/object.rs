@@ -980,6 +980,13 @@ pub struct Object {
     /// C++ SlowDeathBehavior residual.
     #[serde(default)]
     pub slow_death: Option<crate::game_logic::host_slow_death::HostSlowDeathData>,
+    /// C++ HeightDieUpdate residual.
+    #[serde(default)]
+    pub height_die: Option<crate::game_logic::host_height_die::HostHeightDieData>,
+    /// C++ HelicopterSlowDeathBehavior residual.
+    #[serde(default)]
+    pub helicopter_slow_death:
+        Option<crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData>,
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
@@ -1599,6 +1606,8 @@ impl Object {
             create_object_die_transfer_damage: 0.0,
             lifetime_update: None,
             slow_death: None,
+            height_die: None,
+            helicopter_slow_death: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -1942,6 +1951,8 @@ impl Object {
             create_object_die_transfer_damage: 0.0,
             lifetime_update: None,
             slow_death: None,
+            height_die: None,
+            helicopter_slow_death: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -2513,6 +2524,101 @@ impl Object {
     }
 
     /// Attach FireWeaponWhenDamaged residual when template peels match.
+
+    pub fn ensure_height_die(&mut self, current_frame: u32) {
+        if self.height_die.is_some() {
+            return;
+        }
+        if let Some((h, desc, delay_ms)) =
+            crate::game_logic::host_height_die::height_die_config_for_template(&self.template_name)
+        {
+            let delay_f = ((delay_ms as f32) * 30.0 / 1000.0).round() as u32;
+            self.height_die = Some(
+                crate::game_logic::host_height_die::HostHeightDieData::with_target(
+                    h,
+                    desc,
+                    current_frame.saturating_add(delay_f),
+                ),
+            );
+        }
+    }
+
+    /// C++ HeightDieUpdate residual. True when should die from altitude.
+    pub fn tick_height_die(&mut self, current_frame: u32, terrain_height: f32) -> bool {
+        self.ensure_height_die(current_frame);
+        let pos = self.get_position();
+        let hat = pos.y - terrain_height;
+        let contained = self.contained_by.is_some();
+        let Some(hd) = self.height_die.as_mut() else {
+            return false;
+        };
+        if hd.tick(current_frame, hat, contained) {
+            self.health.current = 0.0;
+            self.status.destroyed = true;
+            self.refresh_model_condition_bits();
+            return true;
+        }
+        false
+    }
+
+    /// C++ HelicopterSlowDeathBehavior residual begin.
+    pub fn begin_helicopter_slow_death(&mut self) -> bool {
+        if !crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
+            &self.template_name,
+        ) {
+            return false;
+        }
+        if self
+            .helicopter_slow_death
+            .as_ref()
+            .map(|h| h.is_active() || h.done)
+            .unwrap_or(false)
+        {
+            return self
+                .helicopter_slow_death
+                .as_ref()
+                .map(|h| h.is_active())
+                .unwrap_or(false);
+        }
+        let mut h =
+            crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData::default();
+        h.begin();
+        self.helicopter_slow_death = Some(h);
+        if self.health.current <= 0.0 {
+            self.health.current = 0.01;
+        }
+        self.status.destroyed = false;
+        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.target = None;
+        true
+    }
+
+    /// Returns true when heli crash finished and should destroy.
+    pub fn tick_helicopter_slow_death(&mut self, current_frame: u32, terrain_height: f32) -> bool {
+        let pos = self.get_position();
+        let hat = (pos.y - terrain_height).max(0.0);
+        let ori = self.get_orientation();
+        let Some(h) = self.helicopter_slow_death.as_mut() else {
+            return false;
+        };
+        if !h.is_active() {
+            return false;
+        }
+        let (dx, dy, dz, dori, done) = h.tick(current_frame, hat);
+        let mut np = pos;
+        np.x += dx;
+        np.y = (np.y + dy).max(terrain_height);
+        np.z += dz;
+        self.set_position(np);
+        self.set_orientation(ori + dori);
+        if done {
+            self.health.current = 0.0;
+            self.status.destroyed = true;
+            self.refresh_model_condition_bits();
+            return true;
+        }
+        false
+    }
 
     /// C++ SlowDeathBehavior::beginSlowDeath residual.
     /// Returns true if slow death started (caller should defer destroy).
@@ -12073,6 +12179,35 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn height_die_kills_when_low() {
+        use crate::game_logic::host_height_die::HostHeightDieData;
+        use crate::game_logic::{Team, ThingTemplate};
+        let mut t = ThingTemplate::new("AmericaAuroraBomb");
+        t.set_health(10.0);
+        let mut o = Object::new(t, ObjectId(1), Team::USA);
+        o.height_die = Some(HostHeightDieData::with_target(5.0, true, 0));
+        o.set_position(glam::Vec3::new(0.0, 100.0, 0.0));
+        assert!(!o.tick_height_die(1, 0.0));
+        o.set_position(glam::Vec3::new(0.0, 50.0, 0.0));
+        assert!(!o.tick_height_die(2, 0.0));
+        o.set_position(glam::Vec3::new(0.0, 3.0, 0.0));
+        assert!(o.tick_height_die(3, 0.0));
+        assert!(o.status.destroyed);
+    }
+
+    #[test]
+    fn helicopter_slow_death_begins() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("AmericaComanche");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Aircraft);
+        let mut o = Object::new(t, ObjectId(2), Team::USA);
+        o.health.current = 0.0;
+        assert!(o.begin_helicopter_slow_death());
+        assert!(o.helicopter_slow_death.as_ref().unwrap().is_active());
     }
 
     #[test]
