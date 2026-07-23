@@ -194,6 +194,7 @@ pub mod host_spy_drone;
 pub mod host_spy_satellite;
 pub mod host_stealth_fighter;
 pub mod host_strategy_center;
+mod host_structure_collapse;
 pub mod host_structure_economy_residual;
 mod host_structure_topple;
 pub mod host_superweapon_kindof;
