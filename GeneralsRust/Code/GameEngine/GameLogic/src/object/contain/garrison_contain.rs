@@ -776,19 +776,19 @@ impl GarrisonContain {
             contained.set_weapon_bonus_condition(WeaponBonusConditionType::Garrisoned);
         }
 
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(mut owner) = owner_obj.write() {
-                owner.set_status(ObjectStatusMaskType::CAN_ATTACK, true);
-                if let Ok(module_data) = owner.get_garrison_contain_module_data() {
-                    if module_data.is_enclosing_container {
-                        if let Ok(mut contained) = obj.write() {
-                            if let Err(err) = contained.set_position(owner.get_position()) {
-                                log::debug!(
-                                    "GarrisonContain::on_containing set_position failed: {err}"
-                                );
-                            }
-                        }
-                    }
+        let owner_pos = self.with_owner_object_mut(|owner| {
+            owner.set_status(ObjectStatusMaskType::CAN_ATTACK, true);
+            match owner.get_garrison_contain_module_data() {
+                Ok(module_data) if module_data.is_enclosing_container => {
+                    Some(*owner.get_position())
+                }
+                _ => None,
+            }
+        });
+        if let Some(Some(pos)) = owner_pos {
+            if let Ok(mut contained) = obj.write() {
+                if let Err(err) = contained.set_position(&pos) {
+                    log::debug!("GarrisonContain::on_containing set_position failed: {err}");
                 }
             }
         }
@@ -975,9 +975,9 @@ impl GarrisonContain {
             }
         }
 
-        let Some(owner_obj) = self.get_object() else {
+        if self.get_object_id() == crate::common::INVALID_ID {
             return Ok(());
-        };
+        }
 
         let contain_count = self.base.get_contain_count() as usize;
         let contained_ids = self.base.get_contained_object_ids().to_vec();
@@ -1012,96 +1012,93 @@ impl GarrisonContain {
             }
         }
 
-        if let Ok(mut owner) = owner_obj.write() {
-            if owner.get_team().is_none() {
-                self.original_team = None;
-            }
+        let team_none = self
+            .with_owner_object(|owner| owner.get_team().is_none())
+            .unwrap_or(true);
+        if team_none {
+            self.original_team = None;
+        }
+        let original_team = self.original_team.as_ref().and_then(|t| t.upgrade());
+        let _ = self.with_owner_object_mut(|owner| {
             if contain_count > 0 {
-                if let Some(team) = rider_team {
+                if let Some(team) = rider_team.clone() {
                     let _ = owner.set_team(Some(team));
                 }
-                self.hide_garrisoned_state_from_non_allies = hide_garrison;
             } else {
-                let _ = owner.set_team(self.original_team.as_ref().and_then(|t| t.upgrade()));
-                self.hide_garrisoned_state_from_non_allies = false;
+                let _ = owner.set_team(original_team.clone());
+            }
+        });
+        if contain_count > 0 {
+            self.hide_garrisoned_state_from_non_allies = hide_garrison;
+        } else {
+            self.hide_garrisoned_state_from_non_allies = false;
+        }
+
+        let mut set_model_garrisoned = false;
+        if contain_count > 0 {
+            if let Some(&first_id) = contained_ids.first() {
+                let detected = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(first_id, |occupant| {
+                        occupant.test_status(ObjectStatusTypes::Detected)
+                    })
+                    .unwrap_or(false);
+                let local_player = ThePlayerList()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_local_player().cloned());
+                let apparent = local_player
+                    .as_ref()
+                    .and_then(|local| local.read().ok())
+                    .and_then(|local| self.get_apparent_controlling_player(Some(&local)));
+                let controlling = self
+                    .with_owner_object(|owner| owner.get_controlling_player())
+                    .flatten();
+                if detected
+                    || (apparent.is_some()
+                        && controlling.is_some()
+                        && Arc::ptr_eq(apparent.as_ref().unwrap(), controlling.as_ref().unwrap()))
+                {
+                    set_model_garrisoned = true;
+                }
             }
         }
 
-        if let Some(owner) = self.get_object() {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(drawable) = owner_guard.get_drawable() {
-                    let mut set_model_garrisoned = false;
-                    if contain_count > 0 {
-                        if let Some(&first_id) = contained_ids.first() {
-                            if let Some(first) =
-                                TheGameLogic::find_object_by_id(first_id).or_else(|| {
-                                    crate::object::registry::OBJECT_REGISTRY.get_object(first_id)
-                                })
-                            {
-                                if let Ok(occupant) = first.read() {
-                                    let detected =
-                                        occupant.test_status(ObjectStatusTypes::Detected);
-                                    let local_player = ThePlayerList()
-                                        .read()
-                                        .ok()
-                                        .and_then(|list| list.get_local_player().cloned());
-                                    let apparent = local_player
-                                        .as_ref()
-                                        .and_then(|local| local.read().ok())
-                                        .and_then(|local| {
-                                            self.get_apparent_controlling_player(Some(&local))
-                                        });
-                                    let controlling = owner_guard.get_controlling_player();
-                                    if detected
-                                        || (apparent.is_some()
-                                            && controlling.is_some()
-                                            && Arc::ptr_eq(
-                                                apparent.as_ref().unwrap(),
-                                                controlling.as_ref().unwrap(),
-                                            ))
-                                    {
-                                        set_model_garrisoned = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
+        let _ = self.with_owner_object(|owner_guard| {
+            if let Some(drawable) = owner_guard.get_drawable() {
+                if set_model_garrisoned {
+                    drawable.set_model_condition_state(ModelConditionFlags::GARRISONED);
+                } else {
+                    drawable.clear_model_condition_state(ModelConditionFlags::GARRISONED);
+                }
 
-                    if set_model_garrisoned {
-                        drawable.set_model_condition_state(ModelConditionFlags::GARRISONED);
-                    } else {
-                        drawable.clear_model_condition_state(ModelConditionFlags::GARRISONED);
-                    }
-
-                    if let Some(local_player) = ThePlayerList()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_local_player().cloned())
-                    {
-                        if let Ok(local_guard) = local_player.read() {
-                            if let Some(controller) =
-                                self.get_apparent_controlling_player(Some(&local_guard))
-                            {
-                                if let Ok(controller_guard) = controller.read() {
-                                    let time_of_day = TheGlobalData::get()
-                                        .map(|global| global.get_time_of_day())
-                                        .unwrap_or(crate::common::audio::TimeOfDay::Day);
-                                    let color = match time_of_day {
-                                        crate::common::audio::TimeOfDay::Night => {
-                                            controller_guard.get_player_night_color()
-                                        }
-                                        _ => controller_guard.get_player_color(),
-                                    };
-                                    if let Ok(mut draw_guard) = drawable.write() {
-                                        draw_guard.set_indicator_color(color);
+                if let Some(local_player) = ThePlayerList()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_local_player().cloned())
+                {
+                    if let Ok(local_guard) = local_player.read() {
+                        if let Some(controller) =
+                            self.get_apparent_controlling_player(Some(&local_guard))
+                        {
+                            if let Ok(controller_guard) = controller.read() {
+                                let time_of_day = TheGlobalData::get()
+                                    .map(|global| global.get_time_of_day())
+                                    .unwrap_or(crate::common::audio::TimeOfDay::Day);
+                                let color = match time_of_day {
+                                    crate::common::audio::TimeOfDay::Night => {
+                                        controller_guard.get_player_night_color()
                                     }
+                                    _ => controller_guard.get_player_color(),
+                                };
+                                if let Ok(mut draw_guard) = drawable.write() {
+                                    draw_guard.set_indicator_color(color);
                                 }
                             }
                         }
                     }
                 }
             }
-        }
+        });
 
         if contain_count > 0 {
             if self.is_enclosing_container_for_any() {
@@ -1141,24 +1138,23 @@ impl GarrisonContain {
         self.load_garrison_points()?;
         self.load_station_garrison_points()?;
 
-        let Some(owner_obj) = self.get_object() else {
-            return Ok(());
-        };
-        let owner_guard = owner_obj.read().map_err(|_| GameError::LockError)?;
-        let module_data = match owner_guard.get_garrison_contain_module_data() {
-            Ok(data) => data,
-            Err(_) => return Ok(()),
-        };
-        let roster = module_data.initial_roster.clone();
-        if roster.count <= 0 || roster.template_name.is_empty() {
-            return Ok(());
-        }
-
-        let owner_name = owner_guard.get_name().to_string();
-        let Some(contain) = owner_guard.get_contain() else {
-            return Ok(());
-        };
-        let Some(controller) = owner_guard.get_controlling_player() else {
+        let Some((roster, owner_name, controller, contain)) = self
+            .with_owner_object(|owner_guard| {
+                let module_data = match owner_guard.get_garrison_contain_module_data() {
+                    Ok(data) => data,
+                    Err(_) => return None,
+                };
+                let roster = module_data.initial_roster.clone();
+                if roster.count <= 0 || roster.template_name.is_empty() {
+                    return None;
+                }
+                let owner_name = owner_guard.get_name().to_string();
+                let contain = owner_guard.get_contain()?;
+                let controller = owner_guard.get_controlling_player()?;
+                Some((roster, owner_name, controller, contain))
+            })
+            .flatten()
+        else {
             return Ok(());
         };
         let team = controller
@@ -1169,7 +1165,6 @@ impl GarrisonContain {
             return Ok(());
         };
         let team_guard = team.read().map_err(|_| GameError::LockError)?;
-        drop(owner_guard);
 
         let Some(template) = TheThingFactory::find_template(&roster.template_name) else {
             return Err(format!(
