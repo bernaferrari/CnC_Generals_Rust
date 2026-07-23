@@ -1651,14 +1651,6 @@ impl SupplyTruckAIUpdate {
         self.object_id
     }
 
-    fn owner_object(&self) -> Option<Arc<RwLock<Object>>> {
-        if self.object_id == INVALID_ID {
-            return None;
-        }
-        TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-    }
-
     fn update_drawable_supply_status(&self) {
         if self.object_id == INVALID_ID {
             return;
@@ -2662,14 +2654,6 @@ impl WorkerAIUpdate {
         self.object_id
     }
 
-    fn owner_object(&self) -> Option<Arc<RwLock<Object>>> {
-        if self.object_id == INVALID_ID {
-            return None;
-        }
-        TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-    }
-
     fn update_drawable_supply_status(&self) {
         if self.object_id == INVALID_ID {
             return;
@@ -2869,7 +2853,12 @@ impl WorkerAIUpdate {
     }
 
     fn new_task(&mut self, task: WorkerDozerTaskSlot, target_id: ObjectID) {
-        let Some(owner) = self.owner_object() else {
+        if self.object_id == INVALID_ID {
+            return;
+        }
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
             return;
         };
         let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
@@ -2945,7 +2934,12 @@ impl WorkerAIUpdate {
 
     /// Issue a repair task to this worker (matches C++ WorkerAIUpdate::privateRepair).
     pub fn set_repair_target(&mut self, target_id: ObjectID, cmd_source: CommandSourceType) {
-        let Some(owner) = self.owner_object() else {
+        if self.object_id == INVALID_ID {
+            return;
+        }
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
             return;
         };
         let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
@@ -2978,7 +2972,12 @@ impl WorkerAIUpdate {
         target_id: ObjectID,
         cmd_source: CommandSourceType,
     ) {
-        let Some(owner) = self.owner_object() else {
+        if self.object_id == INVALID_ID {
+            return;
+        }
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
             return;
         };
         let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
@@ -3035,7 +3034,14 @@ impl WorkerAIUpdate {
                 this.clear_task(current);
             }
         };
-        let Some(owner) = self.owner_object() else {
+        if self.object_id == INVALID_ID {
+            self.dozer_task = None;
+            clear_current(self);
+            return;
+        }
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
             self.dozer_task = None;
             clear_current(self);
             return;
