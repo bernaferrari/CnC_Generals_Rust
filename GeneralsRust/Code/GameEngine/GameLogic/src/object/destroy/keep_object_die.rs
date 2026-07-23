@@ -106,13 +106,17 @@ impl KeepObjectDie {
     }
 
     /// Get the owning object if still alive
+    fn get_object_id(&self) -> crate::common::ObjectID {
+        self.object_id
+    }
+
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 }
 
@@ -149,18 +153,13 @@ impl DestroyModuleInterface for KeepObjectDie {
     /// Called to perform destruction behavior
     /// (matches C++ DestroyModuleInterface::onDestroy)
     fn on_destroy(&mut self, object_id: crate::common::ObjectID) {
-        if let Some(obj_arc) = self.get_object() {
-            if let Ok(mut _obj) = obj_arc.write() {
-                // Keep object in world - don't remove it
-                log::debug!(
-                    "KeepObjectDie: DestroyModuleInterface::on_destroy called for object {}",
-                    object_id
-                );
-
-                // The object stays in the world but in a destroyed state
-                // Visual updates should be handled by other systems
-            }
-        }
+        // Keep object in world - don't remove it
+        log::debug!(
+            "KeepObjectDie: DestroyModuleInterface::on_destroy called for object {}",
+            object_id
+        );
+        // The object stays in the world but in a destroyed state
+        // Visual updates should be handled by other systems
     }
 }
 

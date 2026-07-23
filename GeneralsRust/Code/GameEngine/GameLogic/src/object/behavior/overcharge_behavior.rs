@@ -172,8 +172,33 @@ impl OverchargeBehavior {
         Self::new(object_id, module_data)
     }
 
+    fn get_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+    }
+
+    fn with_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
+    }
+
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        TheGameLogic::find_object_by_id(self.object_id)
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     pub fn is_overcharge_active(&self) -> Bool {
@@ -181,47 +206,43 @@ impl OverchargeBehavior {
     }
 
     fn set_rod_state(&self, extend: Bool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(object) = self.get_object() else {
-            return Ok(());
-        };
-        let obj_guard = object
-            .read()
-            .map_err(|_| "OverchargeBehavior object lock poisoned")?;
-        let _ = obj_guard.with_power_plant_update_interface(|pp| {
-            pp.extend_rods(extend);
+        let _ = self.with_object(|obj_guard| {
+            obj_guard.with_power_plant_update_interface(|pp| {
+                pp.extend_rods(extend);
+            })
         });
         Ok(())
     }
 
     fn add_power_bonus(&self) {
-        let Some(object) = self.get_object() else {
-            return;
-        };
-        let obj_guard = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => return,
-        };
-        let Some(player) = obj_guard.get_controlling_player() else {
+        let Some((player, object_id)) = self
+            .with_object(|obj_guard| {
+                obj_guard
+                    .get_controlling_player()
+                    .map(|player| (player, obj_guard.get_id()))
+            })
+            .flatten()
+        else {
             return;
         };
         if let Ok(mut player_guard) = player.write() {
-            player_guard.add_power_bonus(obj_guard.get_id());
+            player_guard.add_power_bonus(object_id);
         };
     }
 
     fn remove_power_bonus(&self) {
-        let Some(object) = self.get_object() else {
-            return;
-        };
-        let obj_guard = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => return,
-        };
-        let Some(player) = obj_guard.get_controlling_player() else {
+        let Some((player, object_id)) = self
+            .with_object(|obj_guard| {
+                obj_guard
+                    .get_controlling_player()
+                    .map(|player| (player, obj_guard.get_id()))
+            })
+            .flatten()
+        else {
             return;
         };
         if let Ok(mut player_guard) = player.write() {
-            player_guard.remove_power_bonus(obj_guard.get_id());
+            player_guard.remove_power_bonus(object_id);
         };
     }
 
@@ -241,12 +262,8 @@ impl OverchargeBehavior {
         if !self.overcharge_active {
             return;
         }
-        let Some(object) = self.get_object() else {
-            return;
-        };
-        if object
-            .read()
-            .map(|guard| guard.is_disabled())
+        if self
+            .with_object(|guard| guard.is_disabled())
             .unwrap_or(true)
         {
             return;
@@ -276,28 +293,24 @@ impl UpdateModuleInterface for OverchargeBehavior {
             return Ok(UPDATE_SLEEP_NONE);
         }
 
-        let Some(object) = self.get_object() else {
+        let Some(max_health) = self
+            .with_object(|obj_read| {
+                obj_read.get_body_module().and_then(|body| {
+                    body.lock()
+                        .ok()
+                        .map(|body_guard| body_guard.get_max_health())
+                })
+            })
+            .flatten()
+        else {
             return Ok(UPDATE_SLEEP_NONE);
-        };
-
-        let max_health = {
-            let obj_read = object
-                .read()
-                .map_err(|_| "OverchargeBehavior object lock poisoned")?;
-            let Some(body) = obj_read.get_body_module() else {
-                return Ok(UPDATE_SLEEP_NONE);
-            };
-            let body_guard = body
-                .lock()
-                .map_err(|_| "OverchargeBehavior body lock poisoned")?;
-            body_guard.get_max_health()
         };
 
         let drain_amount = (max_health * self.module_data.health_percent_to_drain_per_second)
             / LOGICFRAMES_PER_SECOND as Real;
 
         if drain_amount > 0.0 {
-            if let Ok(mut obj_write) = object.write() {
+            let _ = self.with_object_mut(|obj_write| {
                 let mut damage_info = DamageInfo::with_simple(
                     drain_amount,
                     obj_write.get_id(),
@@ -306,20 +319,18 @@ impl UpdateModuleInterface for OverchargeBehavior {
                 );
                 damage_info.sync_from_input();
                 let _ = obj_write.attempt_damage(&mut damage_info);
-            }
+            });
         }
 
-        let current_health = {
-            let obj_read = object
-                .read()
-                .map_err(|_| "OverchargeBehavior object lock poisoned")?;
-            let Some(body) = obj_read.get_body_module() else {
-                return Ok(UPDATE_SLEEP_NONE);
-            };
-            let body_guard = body
-                .lock()
-                .map_err(|_| "OverchargeBehavior body lock poisoned")?;
-            body_guard.get_health()
+        let Some(current_health) = self
+            .with_object(|obj_read| {
+                obj_read
+                    .get_body_module()
+                    .and_then(|body| body.lock().ok().map(|body_guard| body_guard.get_health()))
+            })
+            .flatten()
+        else {
+            return Ok(UPDATE_SLEEP_NONE);
         };
 
         let min_health_threshold =
@@ -327,10 +338,9 @@ impl UpdateModuleInterface for OverchargeBehavior {
         if current_health < min_health_threshold {
             self.enable(false)?;
 
-            let controlling_player = object
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_controlling_player());
+            let controlling_player = self
+                .with_object(|guard| guard.get_controlling_player())
+                .flatten();
             let local_player = player_list()
                 .read()
                 .ok()
@@ -340,9 +350,9 @@ impl UpdateModuleInterface for OverchargeBehavior {
                 if Arc::ptr_eq(&owner, &local) {
                     TheInGameUI::display_message("GUI:OverchargeExhausted");
                     if let Some(radar) = TheRadar::get() {
-                        if let Ok(obj_guard) = object.read() {
+                        if let Some(pos) = self.with_object(|obj_guard| *obj_guard.get_position()) {
                             radar.create_event(
-                                obj_guard.get_position(),
+                                &pos,
                                 game_engine::common::system::radar::RadarEventType::Information,
                                 RADAR_EVENT_LIFETIME,
                             );
