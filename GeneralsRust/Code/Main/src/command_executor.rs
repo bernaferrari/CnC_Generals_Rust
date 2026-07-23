@@ -138,6 +138,16 @@ impl<'a> CommandExecutor<'a> {
                 *exact,
                 *as_team,
             ),
+            CommandType::AttackFollowWaypointPath {
+                waypoints,
+                exact,
+                as_team,
+            } => self.execute_attack_follow_waypoint_path(
+                &command.selected_units,
+                waypoints,
+                *exact,
+                *as_team,
+            ),
             CommandType::DoCommandButtonUsingWaypoints { button, waypoints } => self
                 .execute_do_command_button_using_waypoints(
                     &command.selected_units,
@@ -858,6 +868,37 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    /// C++ AIAttackFollowWaypointPathState residual —
+    /// follow path while able to auto-engage (attack-move along waypoints).
+    pub(crate) fn execute_attack_follow_waypoint_path(
+        &mut self,
+        units: &[ObjectId],
+        waypoints: &[Vec3],
+        exact: bool,
+        as_team: bool,
+    ) -> CommandResult {
+        let path_res = self.execute_follow_waypoint_path(units, waypoints, exact, as_team);
+        if !matches!(path_res, CommandResult::Success) {
+            return path_res;
+        }
+        // Promote movers that can attack into AttackMoving + is_attack_path.
+        for &unit_id in units {
+            let can_attack = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|u| u.is_alive() && (u.can_attack() || u.weapon.is_some()))
+                .unwrap_or(false);
+            if !can_attack {
+                continue;
+            }
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.is_attack_path = true;
+                unit.set_ai_state(AIState::AttackMoving);
+            }
+        }
+        CommandResult::Success
+    }
+
     /// C++ AIGroup::groupDoCommandButtonUsingWaypoints residual.
     pub(crate) fn execute_do_command_button_using_waypoints(
         &mut self,
@@ -1269,8 +1310,10 @@ impl<'a> CommandExecutor<'a> {
             }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 if can_attack {
+                    unit.is_attack_path = true;
                     unit.set_ai_state(AIState::AttackMoving);
                 } else {
+                    unit.is_attack_path = false;
                     unit.set_ai_state(AIState::Moving);
                 }
             }
@@ -6211,6 +6254,81 @@ mod group_move_tests {
             !o.movement.path.is_empty() || o.movement.target_position.is_some(),
             "should have path or target"
         );
+    }
+
+    #[test]
+    fn attack_follow_waypoint_sets_attack_path() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("AF_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.add_kind_of(KindOf::Attackable);
+        tpl.set_health(200.0);
+        logic.templates.insert("AF_V".to_string(), tpl);
+        let id = logic.create_object("AF_V", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let u = logic.get_object_mut(id).unwrap();
+            u.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Weapon::default()
+            });
+        }
+        let wps = vec![Vec3::new(20.0, 0.0, 0.0), Vec3::new(60.0, 0.0, 0.0)];
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_attack_follow_waypoint_path(&[id], &wps, true, false),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert!(u.is_attack_path, "attack-follow should mark attack path");
+        assert!(
+            matches!(u.ai_state, AIState::AttackMoving | AIState::Moving),
+            "state={:?}",
+            u.ai_state
+        );
+    }
+
+    #[test]
+    fn attack_move_sets_is_attack_path_flag() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("AM_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.add_kind_of(KindOf::Attackable);
+        tpl.set_health(200.0);
+        logic.templates.insert("AM_V".to_string(), tpl);
+        let id = logic.create_object("AM_V", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let u = logic.get_object_mut(id).unwrap();
+            u.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_attack_move(&[id], Vec3::new(90.0, 0.0, 0.0)),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert!(u.is_attack_path);
+        assert_eq!(u.ai_state, AIState::AttackMoving);
     }
 
     #[test]
