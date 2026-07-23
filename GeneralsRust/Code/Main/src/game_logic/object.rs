@@ -1198,6 +1198,9 @@ pub struct Object {
     pub assault_transport: Option<crate::game_logic::host_troop_crawler::HostAssaultTransportState>,
     /// C++ DeployStyleAIUpdate pack/unpack residual.
     pub deploy_style: Option<crate::game_logic::host_deploy_style::HostDeployStyleData>,
+    /// C++ CommandButtonHuntUpdate residual (special-button hunt).
+    pub command_button_hunt:
+        Option<crate::game_logic::host_command_button_hunt::HostCommandButtonHuntData>,
 
     /// Host residual: Overlord / Helix portable GattlingCannon addon installed
     /// (`Upgrade_ChinaOverlordGattlingCannon` / Helix equivalent). Equips AA
@@ -1919,6 +1922,7 @@ impl Object {
             is_troop_crawler_transport: false,
             assault_transport: None,
             deploy_style: None,
+            command_button_hunt: None,
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,
             is_helix_transport: false,
@@ -2287,6 +2291,7 @@ impl Object {
             is_troop_crawler_transport: false,
             assault_transport: None,
             deploy_style: None,
+            command_button_hunt: None,
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,
             is_helix_transport: false,
@@ -3621,6 +3626,30 @@ impl Object {
             None => true,
             Some(d) => d.is_ready_to_move(),
         }
+    }
+
+    /// C++ CommandButtonHuntUpdate::setCommandButton residual.
+    pub fn start_command_button_hunt(
+        &mut self,
+        mode: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode,
+        current_frame: u32,
+    ) {
+        self.command_button_hunt = Some(
+            crate::game_logic::host_command_button_hunt::HostCommandButtonHuntData::new(
+                mode,
+                current_frame,
+            ),
+        );
+        self.set_ai_state(AIState::Idle);
+        self.target = None;
+        self.stop_moving();
+    }
+
+    pub fn clear_command_button_hunt(&mut self) {
+        if let Some(h) = self.command_button_hunt.as_mut() {
+            h.clear();
+        }
+        self.command_button_hunt = None;
     }
 
     pub fn flash_as_selected(&mut self) {

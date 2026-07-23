@@ -1112,6 +1112,9 @@ pub struct GameLogic {
     highlander_body_reg: crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry,
     /// C++ DeployStyleAIUpdate residual counters.
     deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry,
+    /// C++ CommandButtonHuntUpdate residual counters.
+    command_button_hunt_reg:
+        crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
     /// C++ UpgradeDie residual removals.
     upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry,
 
@@ -2772,6 +2775,7 @@ impl GameLogic {
             highlander_body_reg:
                 crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry::new(),
             deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry::new(),
+            command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
             tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry::new(
             ),
@@ -3218,6 +3222,7 @@ impl GameLogic {
         self.battle_bus.clear();
         self.highlander_body_reg.clear();
         self.deploy_style_reg.clear();
+        self.command_button_hunt_reg.clear();
         self.upgrade_die_reg.clear();
         self.tunnel_network.clear();
         self.combat_chinook.clear();
@@ -7559,6 +7564,8 @@ impl GameLogic {
         self.tick_assault_transport_updates();
         // C++ DeployStyleAIUpdate pack/unpack residual.
         self.tick_deploy_style_updates();
+        // C++ CommandButtonHuntUpdate residual.
+        self.tick_command_button_hunt_updates();
 
         // Apply all AI commands (or log-only when GameWorld owns decision apply).
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
@@ -9185,6 +9192,121 @@ impl GameLogic {
         self.car_bomb.record_airborne_parachute_put();
         // Tag air path honesty shared with EjectPilotDie air OCL residual.
         self.usa_pilot.record_air_ejection();
+    }
+
+    /// C++ CommandButtonHuntUpdate::setCommandButton residual (scripts/AI).
+    pub fn start_command_button_hunt(
+        &mut self,
+        unit_id: ObjectId,
+        mode: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode,
+    ) -> bool {
+        let frame = self.frame;
+        let Some(unit) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        if !unit.is_alive() {
+            return false;
+        }
+        unit.start_command_button_hunt(mode, frame);
+        self.command_button_hunt_reg.record_start();
+        true
+    }
+
+    /// C++ CommandButtonHuntUpdate::update residual for enter modes.
+    pub fn tick_command_button_hunt_updates(&mut self) {
+        use crate::game_logic::host_command_button_hunt::{
+            hunt_allows_kind, hunt_allows_team, HostCommandButtonHuntMode,
+            COMMAND_BUTTON_HUNT_SCAN_RANGE,
+        };
+
+        let frame = self.frame;
+
+        let busy: std::collections::HashSet<ObjectId> =
+            self.pending_special_abilities.keys().copied().collect();
+        let hunters: Vec<(ObjectId, HostCommandButtonHuntMode, Team, glam::Vec3)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                let h = o.command_button_hunt.as_ref()?;
+                if !h.due(frame) {
+                    return None;
+                }
+                // C++: quit if last command not from AI — host residual: only when Idle.
+                if !matches!(o.ai_state, AIState::Idle) {
+                    return None;
+                }
+                if busy.contains(id) {
+                    return None;
+                }
+                Some((*id, h.mode, o.team, o.get_position()))
+            })
+            .collect();
+
+        for (hunter_id, mode, hunter_team, hunter_pos) in hunters {
+            self.command_button_hunt_reg.record_scan();
+            if let Some(h) = self
+                .objects
+                .get_mut(&hunter_id)
+                .and_then(|o| o.command_button_hunt.as_mut())
+            {
+                h.schedule_next(frame);
+            }
+
+            let mut best: Option<(ObjectId, f32)> = None;
+            for (tid, t) in self.objects.iter() {
+                if *tid == hunter_id || !t.is_alive() {
+                    continue;
+                }
+                let same_team = t.team == hunter_team;
+                let target_neutral = t.team == Team::Neutral;
+                if !hunt_allows_team(mode, same_team, target_neutral) {
+                    continue;
+                }
+                let is_veh = t.is_kind_of(KindOf::Vehicle);
+                let is_str = t.is_kind_of(KindOf::Structure);
+                let is_air = t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target;
+                if !hunt_allows_kind(mode, is_veh, is_str, is_air) {
+                    continue;
+                }
+                // Hijack residual: cannot re-hijack.
+                if matches!(mode, HostCommandButtonHuntMode::HijackVehicle) && t.is_hijacked() {
+                    continue;
+                }
+                let d = hunter_pos.distance(t.get_position());
+                if d > COMMAND_BUTTON_HUNT_SCAN_RANGE {
+                    continue;
+                }
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((*tid, d));
+                }
+            }
+
+            let Some((target_id, _)) = best else {
+                continue;
+            };
+
+            let ability = match mode {
+                HostCommandButtonHuntMode::HijackVehicle => {
+                    PendingSpecialAbility::Hijack { target_id }
+                }
+                HostCommandButtonHuntMode::ConvertToCarBomb => {
+                    PendingSpecialAbility::CarBomb { target_id }
+                }
+                HostCommandButtonHuntMode::SabotageBuilding => {
+                    PendingSpecialAbility::Sabotage { target_id }
+                }
+            };
+            self.queue_pending_special_ability(hunter_id, ability);
+            // Walk/path toward target residual.
+            if let Some(tp) = self.objects.get(&target_id).map(|t| t.get_position()) {
+                if let Some(u) = self.objects.get_mut(&hunter_id) {
+                    u.target = Some(target_id);
+                    u.set_ai_state(AIState::SpecialAbility);
+                }
+                let _ = self.assign_unit_path(hunter_id, tp, &[]);
+            }
+            self.command_button_hunt_reg.record_target();
+        }
     }
 
     /// C++ DeployStyleAIUpdate pack/unpack timer residual.
@@ -26774,6 +26896,10 @@ impl GameLogic {
     /// Residual honesty: Battle Bus load → docked → unload path.
     pub fn honesty_battle_bus_load_unload_ok(&self) -> bool {
         self.battle_bus.honesty_load_unload_ok()
+    }
+
+    pub fn honesty_command_button_hunt_ok(&self) -> bool {
+        self.command_button_hunt_reg.honesty_hunt_ok()
     }
 
     pub fn honesty_deploy_style_ok(&self) -> bool {
@@ -74360,6 +74486,49 @@ mod tests {
             assert_eq!(jet.contained_by, Some(af_id));
             assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(4));
             assert!(!jet.needs_return_to_base_rearm());
+        }
+    }
+
+    #[test]
+    fn command_button_hunt_hijack_issues_nearest_enemy_vehicle() {
+        use crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let hijacker = logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("hijacker");
+        {
+            let h = logic.find_object_mut(hijacker).unwrap();
+            h.template_name = "GLAInfantryHijacker".into();
+            h.set_ai_state(AIState::Idle);
+        }
+        let near = logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("near");
+        let far = logic
+            .create_object("TestTank", Team::USA, Vec3::new(400.0, 0.0, 0.0))
+            .expect("far");
+        let _ = far;
+
+        assert!(logic.start_command_button_hunt(hijacker, HostCommandButtonHuntMode::HijackVehicle));
+        logic.frame = 0;
+        logic.tick_command_button_hunt_updates();
+
+        assert!(logic.honesty_command_button_hunt_ok());
+        assert!(
+            logic.pending_special_abilities.get(&hijacker).is_some(),
+            "should queue Hijack on nearest tank"
+        );
+        match logic.pending_special_abilities.get(&hijacker) {
+            Some(PendingSpecialAbility::Hijack { target_id }) => {
+                assert_eq!(*target_id, near);
+            }
+            other => panic!("expected Hijack, got {other:?}"),
         }
     }
 
