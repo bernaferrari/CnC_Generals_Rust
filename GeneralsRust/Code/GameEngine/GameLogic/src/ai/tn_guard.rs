@@ -623,20 +623,21 @@ impl StateImplementation for AITNGuardInnerState {
         let Some(owner) = self.base.state().get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let mut nemesis = self.base.state().get_machine_goal_object();
-        if nemesis.is_none() {
+        let mut nemesis_id = self
+            .base
+            .state()
+            .get_machine_goal_object_id()
+            .unwrap_or(crate::common::INVALID_ID);
+        if nemesis_id == crate::common::INVALID_ID {
             let target_id = self.base.get_nemesis_to_attack();
             if target_id != crate::common::INVALID_ID {
-                nemesis = get_legacy_object(target_id);
-                if let Some(target) = nemesis.as_ref() {
-                    let target_id = target.read().ok().map(|g| g.get_id());
-                    let _ = self
-                        .base
-                        .with_machine(|machine| machine.set_goal_object_by_id(target_id));
-                }
+                nemesis_id = target_id;
+                let _ = self
+                    .base
+                    .with_machine(|machine| machine.set_goal_object_by_id(Some(target_id)));
             }
         }
-        let Some(nemesis) = nemesis else {
+        let Some(nemesis) = get_legacy_object(nemesis_id) else {
             return StateReturnType::Success;
         };
 
@@ -656,7 +657,7 @@ impl StateImplementation for AITNGuardInnerState {
         attack_machine.set_exit_conditions(Box::new(TunnelNetworkExitConditionsHandle::new(
             self.exit_conditions.clone(),
         )));
-        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
+        attack_machine.set_goal_object(Some(nemesis_id));
 
         let return_val = attack_machine.init_default_state();
         self.is_attacking = matches!(return_val, StateReturnType::Continue);
@@ -686,7 +687,16 @@ impl StateImplementation for AITNGuardInnerState {
             .filter(|id| *id != crate::common::INVALID_ID)
             .and_then(get_legacy_object);
 
-        let mut goal_obj = self.base.state().get_machine_goal_object();
+        let mut goal_id = self
+            .base
+            .state()
+            .get_machine_goal_object_id()
+            .unwrap_or(crate::common::INVALID_ID);
+        let mut goal_obj = if goal_id != crate::common::INVALID_ID {
+            get_legacy_object(goal_id)
+        } else {
+            None
+        };
 
         if goal_obj.is_none() {
             if let Some(target) = team_target_obj.as_ref() {
@@ -1042,7 +1052,10 @@ impl StateImplementation for AITNGuardOuterState {
         let Some(owner) = self.base.state().get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Some(nemesis) = self.base.state().get_machine_goal_object() else {
+        let Some(nemesis_id) = self.base.state().get_machine_goal_object_id() else {
+            return StateReturnType::Success;
+        };
+        let Some(nemesis) = get_legacy_object(nemesis_id) else {
             return StateReturnType::Success;
         };
 
@@ -1062,7 +1075,7 @@ impl StateImplementation for AITNGuardOuterState {
         attack_machine.set_exit_conditions(Box::new(TunnelNetworkExitConditionsHandle::new(
             self.exit_conditions.clone(),
         )));
-        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
+        attack_machine.set_goal_object(Some(nemesis_id));
 
         let return_val = attack_machine.init_default_state();
         self.is_attacking = matches!(return_val, StateReturnType::Continue);
@@ -1080,7 +1093,16 @@ impl StateImplementation for AITNGuardOuterState {
             return StateReturnType::Success;
         };
 
-        let mut goal_obj = self.base.state().get_machine_goal_object();
+        let mut goal_id = self
+            .base
+            .state()
+            .get_machine_goal_object_id()
+            .unwrap_or(crate::common::INVALID_ID);
+        let mut goal_obj = if goal_id != crate::common::INVALID_ID {
+            get_legacy_object(goal_id)
+        } else {
+            None
+        };
         if goal_obj.is_none() {
             if let Some(owner) = self.base.state().get_machine_owner() {
                 if let Ok(owner_guard) = owner.read() {
@@ -1393,34 +1415,31 @@ impl StateImplementation for AITNGuardAttackAggressorState {
             return StateReturnType::Failure;
         };
 
-        let mut nemesis = self.base.state().get_machine_goal_object();
-        if nemesis.is_none() {
-            let nemesis_id = self.base.get_nemesis_to_attack();
-            if nemesis_id != crate::common::INVALID_ID {
-                nemesis = get_legacy_object(nemesis_id);
-                if let Some(target) = nemesis.as_ref() {
-                    self.base
-                        .with_machine(|machine| {
-                            machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()))
-                        })
-                        .ok();
-                }
+        let mut nemesis_id = self
+            .base
+            .state()
+            .get_machine_goal_object_id()
+            .unwrap_or(crate::common::INVALID_ID);
+        if nemesis_id == crate::common::INVALID_ID {
+            let id = self.base.get_nemesis_to_attack();
+            if id != crate::common::INVALID_ID {
+                nemesis_id = id;
+                self.base
+                    .with_machine(|machine| machine.set_goal_object_by_id(Some(id)))
+                    .ok();
             }
         }
-        if nemesis.is_none() {
+        if nemesis_id == crate::common::INVALID_ID {
             if let Ok(owner_guard) = owner.read() {
                 if let Some(body) = owner_guard.get_body_module() {
                     if let Ok(body_guard) = body.lock() {
-                        let last = body_guard.get_last_damage_info();
-                        if let Some(info) = last {
-                            nemesis = get_legacy_object(info.source_id);
-                            if let Some(target) = nemesis.as_ref() {
+                        if let Some(info) = body_guard.get_last_damage_info() {
+                            if info.source_id != crate::common::INVALID_ID {
+                                nemesis_id = info.source_id;
                                 self.base.set_nemesis_to_attack(info.source_id);
                                 self.base
                                     .with_machine(|machine| {
-                                        machine.set_goal_object_by_id(
-                                            target.read().ok().map(|g| g.get_id()),
-                                        )
+                                        machine.set_goal_object_by_id(Some(info.source_id))
                                     })
                                     .ok();
                             }
@@ -1429,6 +1448,11 @@ impl StateImplementation for AITNGuardAttackAggressorState {
                 }
             }
         }
+        let mut nemesis = if nemesis_id != crate::common::INVALID_ID {
+            get_legacy_object(nemesis_id)
+        } else {
+            None
+        };
 
         let Some(nemesis) = nemesis else {
             return StateReturnType::Success;
@@ -1468,7 +1492,7 @@ impl StateImplementation for AITNGuardAttackAggressorState {
         attack_machine.set_exit_conditions(Box::new(TunnelNetworkExitConditionsHandle::new(
             self.exit_conditions.clone(),
         )));
-        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
+        attack_machine.set_goal_object(Some(nemesis_id));
 
         let return_val = attack_machine.init_default_state();
         self.is_attacking = matches!(return_val, StateReturnType::Continue);
@@ -1486,26 +1510,24 @@ impl StateImplementation for AITNGuardAttackAggressorState {
             return StateReturnType::Success;
         };
 
-        if let Some(goal) = self.base.state().get_machine_goal_object() {
-            self.base.set_nemesis_to_attack(
-                goal.read()
-                    .map(|guard| guard.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-            );
+        if let Some(goal_id) = self.base.state().get_machine_goal_object_id() {
+            self.base.set_nemesis_to_attack(goal_id);
             if let Some(owner) = self.base.state().get_machine_owner() {
                 if let Ok(owner_guard) = owner.read() {
                     if let Some(player_arc) = owner_guard.get_controlling_player() {
                         if let Ok(mut player_guard) = player_arc.write() {
                             if let Some(tunnels) = player_guard.get_tunnel_system_mut() {
-                                if let Ok(goal_guard) = goal.read() {
-                                    let _ = tunnels.update_nemesis(Some(&goal_guard));
+                                if let Some(goal) = get_legacy_object(goal_id) {
+                                    if let Ok(goal_guard) = goal.read() {
+                                        let _ = tunnels.update_nemesis(Some(&goal_guard));
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-            attack_machine.set_goal_object(goal.read().ok().map(|g| g.get_id()));
+            attack_machine.set_goal_object(Some(goal_id));
         }
 
         attack_machine.update()
