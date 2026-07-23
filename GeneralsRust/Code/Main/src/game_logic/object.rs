@@ -2879,6 +2879,36 @@ impl Object {
     }
 
     /// Apply FAERIE_FIRE status residual until absolute frame (refresh extends timer).
+
+    /// C++ Object::doStatusDamage residual.
+    ///
+    /// `status_name` is an OBJECT_STATUS_* residual name (e.g. "FAERIE_FIRE").
+    /// `duration_frames` is the timer length; refresh extends if later.
+    pub fn do_status_damage(
+        &mut self,
+        status_name: &str,
+        duration_frames: u32,
+        current_frame: u32,
+    ) {
+        let until = current_frame.saturating_add(duration_frames.max(1));
+        let key = status_name.to_ascii_uppercase();
+        match key.as_str() {
+            "FAERIE_FIRE" => {
+                self.apply_faerie_fire(until);
+            }
+            "REPULSOR" => {
+                self.set_status_repulsor(true);
+                // No dedicated timer residual yet — clear on next tick if needed.
+            }
+            "CAN_ATTACK" | "IS_ATTACKING" => {
+                // Non-timer status peels: ignore for damage residual.
+            }
+            _ => {
+                // Unknown status residual: no-op fail-closed (no HP damage).
+            }
+        }
+    }
+
     pub fn apply_faerie_fire(&mut self, until_frame: u32) {
         self.set_status_faerie_fire(true);
         if until_frame > self.faerie_fire_until_frame {
@@ -5940,6 +5970,19 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     ) -> bool {
+        // C++ DAMAGE_STATUS residual: amount is duration msec, not hitpoints.
+        if matches!(damage_type, crate::game_logic::combat::DamageType::Status) {
+            let frames = ((damage.max(0.0) * 30.0) / 1000.0).ceil() as u32;
+            let frame = crate::game_logic::host_historic_bonus::logic_frame();
+            // Default status peel when caller didn't already apply a named status.
+            // FAERIE_FIRE is the primary retail STATUS residual.
+            if frames > 0 {
+                self.do_status_damage("FAERIE_FIRE", frames.max(1), frame);
+            }
+            let _ = (source, death_type);
+            return false;
+        }
+
         self.take_damage_from_typed_death_with_host_hp(
             damage,
             source,
@@ -11165,6 +11208,23 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn status_damage_applies_faerie_without_hp_loss() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut tmpl = ThingTemplate::new("PaintMe");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(9), Team::GLA);
+        o.health.current = 100.0;
+        o.health.maximum = 100.0;
+        let dead = o.take_damage_from_typed(200.0, None, DamageType::Status);
+        assert!(!dead);
+        assert!((o.health.current - 100.0).abs() < 1e-3);
+        assert!(o.is_faerie_fire());
+        assert!(o.faerie_fire_until_frame > 0);
     }
 
     #[test]
