@@ -245,6 +245,9 @@ pub struct RenderableObject {
     /// C++ TransitionDamageFX / FXListDie residual name frozen at snapshot.
     #[serde(default)]
     pub damage_fx_name: Option<String>,
+    /// C++ BoneFXDamage / BoneFXUpdate residual FXList name.
+    #[serde(default)]
+    pub bone_fx_name: Option<String>,
     /// C++ FXListDie death FX residual name.
     #[serde(default)]
     pub death_fx_name: Option<String>,
@@ -2500,6 +2503,7 @@ impl PresentationFrame {
                     .pending_transition_damage_fx
                     .last()
                     .and_then(|e| e.fx_name.clone()),
+                bone_fx_name: obj.bone_fx_damage.as_ref().and_then(|b| b.last_fx.clone()),
                 death_fx_name: obj.pending_death_fx.clone(),
                 death_type_name: if obj.status.destroyed || !obj.is_alive() {
                     obj.status.death_type.as_name().to_string()
