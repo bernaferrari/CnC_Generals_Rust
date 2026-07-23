@@ -848,6 +848,9 @@ pub struct Object {
     /// Stored guard radius for pathing/AI persistence
     pub guard_radius: f32,
 
+    /// C++ GuardMode residual (Normal / WithoutPursuit / FlyingUnitsOnly).
+    pub guard_mode: GuardMode,
+
     /// Applied upgrades keyed by upgrade template/tag name.
     pub applied_upgrades: HashSet<String>,
 
@@ -1167,6 +1170,19 @@ pub struct Object {
     /// C++ StealthForbiddenConditions TAKING_DAMAGE residual.
     #[serde(default)]
     pub stealth_breaks_on_damage: bool,
+}
+
+/// C++ `GuardMode` (GameCommon.h) residual for AIGroup::groupGuard*.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum GuardMode {
+    /// GUARDMODE_NORMAL — may pursue outside the guard area.
+    #[default]
+    Normal = 0,
+    /// GUARDMODE_GUARD_WITHOUT_PURSUIT — no pursuit out of guard area.
+    WithoutPursuit = 1,
+    /// GUARDMODE_GUARD_FLYING_UNITS_ONLY — ignore non-flyers.
+    FlyingUnitsOnly = 2,
 }
 
 /// AI behavior states
@@ -1556,6 +1572,7 @@ impl Object {
             last_fire_frame: 0,
             fire_intent_count: 0,
             guard_radius: 0.0,
+            guard_mode: GuardMode::Normal,
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
             special_power_cooldown,
@@ -1852,6 +1869,7 @@ impl Object {
             last_fire_frame: 0,
             fire_intent_count: 0,
             guard_radius: 0.0,
+            guard_mode: GuardMode::Normal,
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
             special_power_cooldown: 10.0,
@@ -8107,6 +8125,11 @@ impl Object {
         if position.is_some() {
             self.set_ai_state(AIState::GuardingArea);
         }
+        self.record_host_guard();
+    }
+
+    pub fn set_guard_mode(&mut self, mode: GuardMode) {
+        self.guard_mode = mode;
         self.record_host_guard();
     }
 
