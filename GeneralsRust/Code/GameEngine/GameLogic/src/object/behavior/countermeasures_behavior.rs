@@ -884,19 +884,18 @@ impl UpgradeModuleInterface for CountermeasuresBehavior {
     }
 
     fn apply_upgrade(&mut self, upgrade_mask: crate::common::UpgradeMaskType) -> bool {
-        let Ok(object_arc) = self.get_object() else {
-            return false;
-        };
-        let Ok(mut object_guard) = object_arc.write() else {
-            return false;
-        };
         let mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
-        if self.upgrade_mux.attempt_upgrade(mask, &mut object_guard) {
-            TheGameLogic::set_wake_frame(object_guard.get_id(), UpdateSleepTime::None);
-            true
-        } else {
-            false
-        }
+        let object_id = self.object_id;
+        OBJECT_REGISTRY
+            .with_object_mut(object_id, |object_guard| {
+                if self.upgrade_mux.attempt_upgrade(mask, object_guard) {
+                    TheGameLogic::set_wake_frame(object_guard.get_id(), UpdateSleepTime::None);
+                    true
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false)
     }
 
     fn remove_upgrade(&mut self, upgrade_mask: crate::common::UpgradeMaskType) {

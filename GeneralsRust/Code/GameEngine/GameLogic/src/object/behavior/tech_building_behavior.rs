@@ -211,8 +211,7 @@ impl UpdateModuleInterface for TechBuildingBehavior {
         if let Some(pulse_fx) = &data.pulse_fx {
             if data.pulse_fx_rate > 0 && captured {
                 // Play the pulse FX
-                let object = self.get_object()?;
-                pulse_fx.do_fx_obj(&object, None)?;
+                pulse_fx.do_fx_obj_ids(self.get_object_id(), None, None)?;
                 return Ok(UpdateSleepTime::from_u32(data.pulse_fx_rate));
             }
         }

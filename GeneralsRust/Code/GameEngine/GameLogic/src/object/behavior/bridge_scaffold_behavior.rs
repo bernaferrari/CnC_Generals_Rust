@@ -273,85 +273,110 @@ impl UpdateModuleInterface for BridgeScaffoldBehavior {
             return Ok(crate::modules::UPDATE_SLEEP_NONE);
         }
 
-        let me = self.get_object()?;
-        let mut me_write = me
-            .write()
-            .map_err(|e| format!("bridge scaffold lock poisoned: {}", e))?;
-        let current_pos = *me_write.get_position();
+        let target_pos = self.target_pos;
+        let target_motion = self.target_motion;
+        let vertical_speed = self.vertical_speed;
+        let lateral_speed = self.lateral_speed;
+        let create_pos = self.create_pos;
+        let rise_to_pos = self.rise_to_pos;
+        let build_pos = self.build_pos;
+        let object_id = self.owner_object_id();
 
-        let dir = self.target_pos - current_pos;
-        let dir_len = dir.length();
-        if dir_len <= f32::EPSILON {
-            me_write.set_position(&self.target_pos)?;
-            return Ok(crate::modules::UPDATE_SLEEP_NONE);
+        enum ScaffoldStep {
+            Done,
+            Arrived(ScaffoldTargetMotion),
+            Continue,
         }
 
-        let mut top_speed = 1.0;
-        let (start, end) = match self.target_motion {
-            ScaffoldTargetMotion::Rise => {
-                top_speed = self.vertical_speed;
-                (self.create_pos, self.rise_to_pos)
-            }
-            ScaffoldTargetMotion::Sink => {
-                top_speed = self.vertical_speed;
-                (self.rise_to_pos, self.create_pos)
-            }
-            ScaffoldTargetMotion::BuildAcross => {
-                top_speed = self.lateral_speed;
-                (self.rise_to_pos, self.build_pos)
-            }
-            ScaffoldTargetMotion::TearDownAcross => {
-                top_speed = self.lateral_speed;
-                (self.build_pos, self.rise_to_pos)
-            }
-            ScaffoldTargetMotion::Still => (current_pos, current_pos),
-        };
+        let step = self.with_object_mut(
+            |me_write| -> Result<ScaffoldStep, Box<dyn std::error::Error + Send + Sync>> {
+                let current_pos = *me_write.get_position();
 
-        let total_distance = (end - start).length() * 0.25;
-        let our_distance = (end - current_pos).length();
-        let mut speed = if total_distance > f32::EPSILON {
-            (our_distance / total_distance) * top_speed
-        } else {
-            top_speed
-        };
-        let min_speed = top_speed * 0.08;
-        if speed < min_speed {
-            speed = min_speed;
-        }
-        if speed > top_speed {
-            speed = top_speed;
-        }
-        if speed < 0.001 {
-            speed = 0.001;
-        }
-
-        let new_pos = current_pos + (dir / dir_len) * speed;
-        let too_far = {
-            let to_target_new = self.target_pos - new_pos;
-            to_target_new.x * dir.x + to_target_new.y * dir.y + to_target_new.z * dir.z <= 0.0
-        };
-
-        if too_far {
-            let final_pos = self.target_pos;
-            me_write.set_position(&final_pos)?;
-            drop(me_write);
-
-            match self.target_motion {
-                ScaffoldTargetMotion::Rise => self.set_motion(ScaffoldTargetMotion::BuildAcross),
-                ScaffoldTargetMotion::BuildAcross => self.set_motion(ScaffoldTargetMotion::Still),
-                ScaffoldTargetMotion::TearDownAcross => self.set_motion(ScaffoldTargetMotion::Sink),
-                ScaffoldTargetMotion::Sink => {
-                    if let Ok(me_read) = me.read() {
-                        let _ = TheGameLogic::destroy_object(&*me_read);
-                    }
+                let dir = target_pos - current_pos;
+                let dir_len = dir.length();
+                if dir_len <= f32::EPSILON {
+                    me_write.set_position(&target_pos)?;
+                    return Ok(ScaffoldStep::Done);
                 }
-                ScaffoldTargetMotion::Still => {}
-            }
 
+                let mut top_speed = 1.0;
+                let (start, end) = match target_motion {
+                    ScaffoldTargetMotion::Rise => {
+                        top_speed = vertical_speed;
+                        (create_pos, rise_to_pos)
+                    }
+                    ScaffoldTargetMotion::Sink => {
+                        top_speed = vertical_speed;
+                        (rise_to_pos, create_pos)
+                    }
+                    ScaffoldTargetMotion::BuildAcross => {
+                        top_speed = lateral_speed;
+                        (rise_to_pos, build_pos)
+                    }
+                    ScaffoldTargetMotion::TearDownAcross => {
+                        top_speed = lateral_speed;
+                        (build_pos, rise_to_pos)
+                    }
+                    ScaffoldTargetMotion::Still => (current_pos, current_pos),
+                };
+
+                let total_distance = (end - start).length() * 0.25;
+                let our_distance = (end - current_pos).length();
+                let mut speed = if total_distance > f32::EPSILON {
+                    (our_distance / total_distance) * top_speed
+                } else {
+                    top_speed
+                };
+                let min_speed = top_speed * 0.08;
+                if speed < min_speed {
+                    speed = min_speed;
+                }
+                if speed > top_speed {
+                    speed = top_speed;
+                }
+                if speed < 0.001 {
+                    speed = 0.001;
+                }
+
+                let new_pos = current_pos + (dir / dir_len) * speed;
+                let too_far = {
+                    let to_target_new = target_pos - new_pos;
+                    to_target_new.x * dir.x + to_target_new.y * dir.y + to_target_new.z * dir.z
+                        <= 0.0
+                };
+
+                if too_far {
+                    me_write.set_position(&target_pos)?;
+                    return Ok(ScaffoldStep::Arrived(target_motion));
+                }
+
+                me_write.set_position(&new_pos)?;
+                Ok(ScaffoldStep::Continue)
+            },
+        )?;
+
+        let step = step?;
+        match step {
+            ScaffoldStep::Done | ScaffoldStep::Continue => {}
+            ScaffoldStep::Arrived(ScaffoldTargetMotion::Rise) => {
+                self.set_motion(ScaffoldTargetMotion::BuildAcross)
+            }
+            ScaffoldStep::Arrived(ScaffoldTargetMotion::BuildAcross) => {
+                self.set_motion(ScaffoldTargetMotion::Still)
+            }
+            ScaffoldStep::Arrived(ScaffoldTargetMotion::TearDownAcross) => {
+                self.set_motion(ScaffoldTargetMotion::Sink)
+            }
+            ScaffoldStep::Arrived(ScaffoldTargetMotion::Sink) => {
+                let _ = TheGameLogic::destroy_object_by_id(object_id);
+            }
+            ScaffoldStep::Arrived(ScaffoldTargetMotion::Still) => {}
+        }
+
+        if matches!(step, ScaffoldStep::Done | ScaffoldStep::Arrived(_)) {
             return Ok(crate::modules::UPDATE_SLEEP_NONE);
         }
 
-        me_write.set_position(&new_pos)?;
         Ok(crate::modules::UPDATE_SLEEP_NONE)
     }
 }
