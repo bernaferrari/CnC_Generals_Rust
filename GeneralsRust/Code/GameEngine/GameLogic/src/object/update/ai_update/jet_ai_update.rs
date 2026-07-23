@@ -1241,14 +1241,27 @@ impl JetAIUpdate {
         OBJECT_REGISTRY.get_object(self.object_id)
     }
 
-    fn producer_object(&self) -> Option<Arc<RwLock<crate::object::Object>>> {
-        let Some(obj) = self.get_object() else {
+    fn get_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(&self, f: impl FnOnce(&crate::object::Object) -> R) -> Option<R> {
+        if self.object_id == INVALID_ID {
             return None;
-        };
-        let producer_id = obj
-            .read()
-            .ok()
-            .map(|guard| guard.get_producer_id())
+        }
+        OBJECT_REGISTRY.with_object(self.object_id, f)
+    }
+
+    fn with_object_mut<R>(&self, f: impl FnOnce(&mut crate::object::Object) -> R) -> Option<R> {
+        if self.object_id == INVALID_ID {
+            return None;
+        }
+        OBJECT_REGISTRY.with_object_mut(self.object_id, f)
+    }
+
+    fn producer_object(&self) -> Option<Arc<RwLock<crate::object::Object>>> {
+        let producer_id = self
+            .with_object(|guard| guard.get_producer_id())
             .unwrap_or(INVALID_ID);
         TheGameLogic::find_object_by_id(producer_id)
     }
@@ -1337,30 +1350,33 @@ impl JetAIUpdate {
         let is_reloading = matches!(self.state_machine.state, Some(JetAIStateType::ReloadAmmo));
         let is_idle = ai.is_idle_unrestricted() || is_reloading;
 
-        if let Some(obj) = self.get_object() {
-            let mut allow_air_loco = self.allow_air_loco();
-            let has_pending = self.get_flag(JetFlag::HasPendingCommand);
+        let mut allow_air_loco = self.allow_air_loco();
+        let has_pending = self.get_flag(JetFlag::HasPendingCommand);
+        let owner_snapshot = self.with_object(|guard| {
+            let is_helipad = guard.is_kind_of(crate::common::KindOf::ProducedAtHelipad);
+            let mut fully_healed = false;
+            if let Some(body) = guard.get_body_module() {
+                let max_health = body.get_max_health();
+                let health = body.get_health();
+                fully_healed = max_health > 0.0 && health >= max_health;
+            }
+            (is_helipad, fully_healed)
+        });
+        if owner_snapshot.is_some() || self.get_object_id() != INVALID_ID {
             if is_idle {
-                if let Ok(guard) = obj.read() {
-                    let is_helipad = guard.is_kind_of(crate::common::KindOf::ProducedAtHelipad);
-                    let mut fully_healed = false;
-                    if let Some(body) = guard.get_body_module() {
-                        let max_health = body.get_max_health();
-                        let health = body.get_health();
-                        fully_healed = max_health > 0.0 && health >= max_health;
-                    }
-
+                if let Some((is_helipad, fully_healed)) = owner_snapshot {
                     let mut should_takeoff = false;
                     let _ = self.with_producer_parking_place(|pp| {
                         if !allow_air_loco && !has_pending && is_helipad && fully_healed {
                             should_takeoff = true;
                             pp.set_healee(None, false);
                         } else {
+                            // ParkingPlaceBehavior still stores healee as Arc for now.
                             pp.set_healee(
                                 if allow_air_loco {
                                     None
                                 } else {
-                                    Some(Arc::clone(&obj))
+                                    self.get_object()
                                 },
                                 !allow_air_loco,
                             );
@@ -1451,19 +1467,19 @@ impl JetAIUpdate {
         }
 
         if params.cmd == AiCommandType::Idle {
-            if let Some(obj) = self.get_object() {
-                if let Ok(guard) = obj.read() {
-                    if guard.is_airborne_target()
+            let should_return = self
+                .with_object(|guard| {
+                    guard.is_airborne_target()
                         && !guard.is_kind_of(crate::common::KindOf::ProducedAtHelipad)
-                    {
-                        self.with_state_machine(|machine, jet| machine.clear(ai, jet));
-                        ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
-                        self.with_state_machine(|machine, jet| {
-                            machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
-                        });
-                        return true;
-                    }
-                }
+                })
+                .unwrap_or(false);
+            if should_return {
+                self.with_state_machine(|machine, jet| machine.clear(ai, jet));
+                ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
+                self.with_state_machine(|machine, jet| {
+                    machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
+                });
+                return true;
             }
         }
 
@@ -1475,17 +1491,18 @@ impl JetAIUpdate {
         }
 
         if params.cmd == AiCommandType::Idle {
-            if let Some(obj) = self.get_object() {
-                if let Ok(guard) = obj.read() {
-                    if guard.is_airborne_target() && !guard.is_kind_of(KindOf::ProducedAtHelipad) {
-                        self.with_state_machine(|machine, jet| machine.clear(ai, jet));
-                        ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
-                        self.with_state_machine(|machine, jet| {
-                            machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
-                        });
-                        return true;
-                    }
-                }
+            let should_return = self
+                .with_object(|guard| {
+                    guard.is_airborne_target() && !guard.is_kind_of(KindOf::ProducedAtHelipad)
+                })
+                .unwrap_or(false);
+            if should_return {
+                self.with_state_machine(|machine, jet| machine.clear(ai, jet));
+                ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
+                self.with_state_machine(|machine, jet| {
+                    machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
+                });
+                return true;
             }
         }
 
@@ -1495,12 +1512,11 @@ impl JetAIUpdate {
                 | AiCommandType::Busy
                 | AiCommandType::FollowExitProductionPath => {}
                 AiCommandType::Enter | AiCommandType::GetRepaired => {
-                    if let Some(obj) = self.get_object() {
-                        if let Ok(guard) = obj.read() {
-                            if self.is_parked_at(params.obj, &guard) {
-                                return true;
-                            }
-                        }
+                    if self
+                        .with_object(|guard| self.is_parked_at(params.obj, guard))
+                        .unwrap_or(false)
+                    {
+                        return true;
                     }
                 }
                 _ => {
@@ -1540,37 +1556,38 @@ impl JetAIUpdate {
                     let _ = ai.ignore_obstacle(ignore.read().ok().map(|g| g.get_id()));
                 }
                 ai.set_last_command_source(params.cmd_source);
-                if let Some(obj) = self.get_object() {
-                    if let Ok(guard) = obj.read() {
-                        if guard.is_kind_of(KindOf::ProducedAtHelipad) {
-                            self.with_state_machine(|machine, jet| {
-                                machine.set_state(JetAIStateType::TakingOffAwaitClearance, ai, jet)
-                            });
-                        } else {
-                            self.with_state_machine(|machine, jet| {
-                                machine.set_state(JetAIStateType::TaxiFromHangar, ai, jet)
-                            });
-                        }
-                    }
+                let is_helipad = self
+                    .with_object(|guard| guard.is_kind_of(KindOf::ProducedAtHelipad))
+                    .unwrap_or(false);
+                if is_helipad {
+                    self.with_state_machine(|machine, jet| {
+                        machine.set_state(JetAIStateType::TakingOffAwaitClearance, ai, jet)
+                    });
+                } else {
+                    self.with_state_machine(|machine, jet| {
+                        machine.set_state(JetAIStateType::TaxiFromHangar, ai, jet)
+                    });
                 }
                 self.set_has_pending_command(true);
                 return true;
             }
             AiCommandType::Enter => {
                 if let Some(obj_id) = params.obj {
-                    if let (Some(owner), Some(target)) =
-                        (self.get_object(), TheGameLogic::find_object_by_id(obj_id))
-                    {
-                        if let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) {
-                            if !crate::action_manager::TheActionManager::can_enter_object(
-                                &*owner_guard,
-                                &*target_guard,
-                                params.cmd_source,
-                                crate::action_manager::CanEnterType::DontCheckCapacity,
-                            ) {
-                                return true;
-                            }
-                        }
+                    let can_enter = self
+                        .with_object(|owner_guard| {
+                            OBJECT_REGISTRY.with_object(obj_id, |target_guard| {
+                                crate::action_manager::TheActionManager::can_enter_object(
+                                    owner_guard,
+                                    target_guard,
+                                    params.cmd_source,
+                                    crate::action_manager::CanEnterType::DontCheckCapacity,
+                                )
+                            })
+                        })
+                        .flatten()
+                        .unwrap_or(false);
+                    if !can_enter {
+                        return true;
                     }
                     self.do_landing_command(obj_id, params.cmd_source, ai);
                     return true;
@@ -1578,18 +1595,20 @@ impl JetAIUpdate {
             }
             AiCommandType::GetRepaired => {
                 if let Some(obj_id) = params.obj {
-                    if let (Some(owner), Some(target)) =
-                        (self.get_object(), TheGameLogic::find_object_by_id(obj_id))
-                    {
-                        if let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) {
-                            if !crate::action_manager::TheActionManager::can_get_repaired_at(
-                                &*owner_guard,
-                                &*target_guard,
-                                params.cmd_source,
-                            ) {
-                                return true;
-                            }
-                        }
+                    let can_repair = self
+                        .with_object(|owner_guard| {
+                            OBJECT_REGISTRY.with_object(obj_id, |target_guard| {
+                                crate::action_manager::TheActionManager::can_get_repaired_at(
+                                    owner_guard,
+                                    target_guard,
+                                    params.cmd_source,
+                                )
+                            })
+                        })
+                        .flatten()
+                        .unwrap_or(false);
+                    if !can_repair {
+                        return true;
                     }
                     self.do_landing_command(obj_id, params.cmd_source, ai);
                     return true;
@@ -1607,22 +1626,25 @@ impl JetAIUpdate {
         cmd_source: crate::ai::CommandSourceType,
         ai: &mut dyn AIUpdateInterface,
     ) {
-        if let Some(obj) = self.get_object() {
-            if let Ok(guard) = obj.read() {
-                if guard.is_kind_of(KindOf::ProducedAtHelipad) {
-                    self.landing_pos_for_helipad = *guard.get_position();
-                    if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-                        let mut options = crate::helpers::FindPositionOptions::default();
-                        options.max_radius =
-                            guard.get_geometry_info().get_bounding_circle_radius() * 10.0;
-                        let mut tmp = Coord3D::ZERO;
-                        if partition.find_position_around_with_options(
-                            &self.landing_pos_for_helipad,
-                            &options,
-                            &mut tmp,
-                        ) {
-                            self.landing_pos_for_helipad = tmp;
-                        }
+        if let Some((is_helipad, pos, radius)) = self.with_object(|guard| {
+            (
+                guard.is_kind_of(KindOf::ProducedAtHelipad),
+                *guard.get_position(),
+                guard.get_geometry_info().get_bounding_circle_radius(),
+            )
+        }) {
+            if is_helipad {
+                self.landing_pos_for_helipad = pos;
+                if let Some(partition) = crate::helpers::ThePartitionManager::get() {
+                    let mut options = crate::helpers::FindPositionOptions::default();
+                    options.max_radius = radius * 10.0;
+                    let mut tmp = Coord3D::ZERO;
+                    if partition.find_position_around_with_options(
+                        &self.landing_pos_for_helipad,
+                        &options,
+                        &mut tmp,
+                    ) {
+                        self.landing_pos_for_helipad = tmp;
                     }
                 }
             }
@@ -1642,23 +1664,18 @@ impl JetAIUpdate {
                 });
                 if reserved {
                     let old_producer_id = self
-                        .get_object()
-                        .and_then(|obj| obj.read().ok().map(|guard| guard.get_producer_id()))
+                        .with_object(|guard| guard.get_producer_id())
                         .unwrap_or(INVALID_ID);
                     if old_producer_id != airfield_id {
                         let _ = self.with_producer_parking_place(|pp| {
                             let _ = pp.release_space(self.object_id);
                         });
                     }
-                    if let Some(obj) = self.get_object() {
-                        if let Ok(mut guard) = obj.write() {
-                            if let Some(airfield) = TheGameLogic::find_object_by_id(airfield_id) {
-                                if let Ok(airfield_guard) = airfield.read() {
-                                    guard.set_producer(Some(&*airfield_guard));
-                                }
-                            }
-                        }
-                    }
+                    let _ = self.with_object_mut(|guard| {
+                        let _ = OBJECT_REGISTRY.with_object(airfield_id, |airfield_guard| {
+                            guard.set_producer(Some(airfield_guard));
+                        });
+                    });
                     self.set_use_special_return_loco(false);
                     self.set_flag(JetFlag::AllowInterruptAndResumeOfCurStateForReload, false);
                     ai.set_last_command_source(cmd_source);
@@ -1689,13 +1706,10 @@ impl JetAIUpdate {
     }
 
     fn init_afterburner_sound(&mut self) {
-        let Some(obj) = self.get_object() else {
-            return;
-        };
-        let Ok(guard) = obj.read() else {
-            return;
-        };
-        if let Some(mut sound) = guard.get_template().get_per_unit_sound("Afterburner") {
+        if let Some(mut sound) = self
+            .with_object(|guard| guard.get_template().get_per_unit_sound("Afterburner"))
+            .flatten()
+        {
             sound.set_object_id(self.object_id);
             self.afterburner_sound = sound;
         }
@@ -1733,14 +1747,9 @@ impl JetAIUpdate {
         if self.get_flag(JetFlag::HasProducerLocation) {
             return;
         }
-        let Some(obj) = self.get_object() else {
+        let Some(producer_id) = self.with_object(|guard| guard.get_producer_id()) else {
             return;
         };
-        let producer_id = obj
-            .read()
-            .ok()
-            .map(|guard| guard.get_producer_id())
-            .unwrap_or(INVALID_ID);
 
         let mut allow_air_loco = true;
         let mut has_parking_place = false;
@@ -1755,8 +1764,8 @@ impl JetAIUpdate {
                     }
                 });
             }
-        } else if let Ok(obj_guard) = obj.read() {
-            self.producer_location = *obj_guard.get_position();
+        } else if let Some(pos) = self.with_object(|obj_guard| *obj_guard.get_position()) {
+            self.producer_location = pos;
             allow_air_loco = true;
         }
 
@@ -1878,34 +1887,29 @@ impl JetAIUpdate {
     }
 
     pub fn is_out_of_special_reload_ammo(&self) -> bool {
-        let Some(obj) = self.get_object() else {
-            return false;
-        };
-        let Ok(guard) = obj.read() else {
-            return false;
-        };
-
-        let mut specials = 0;
-        let mut out = 0;
-        for slot_index in 0..WEAPONSLOT_COUNT {
-            let slot = match slot_index {
-                0 => WeaponSlotType::Primary,
-                1 => WeaponSlotType::Secondary,
-                _ => WeaponSlotType::Tertiary,
-            };
-            let Some(weapon) = guard.get_weapon_in_weapon_slot(slot) else {
-                continue;
-            };
-            if weapon.get_template().reload_type != WeaponReloadType::ReturnToBaseToReload {
-                continue;
+        self.with_object(|guard| {
+            let mut specials = 0;
+            let mut out = 0;
+            for slot_index in 0..WEAPONSLOT_COUNT {
+                let slot = match slot_index {
+                    0 => WeaponSlotType::Primary,
+                    1 => WeaponSlotType::Secondary,
+                    _ => WeaponSlotType::Tertiary,
+                };
+                let Some(weapon) = guard.get_weapon_in_weapon_slot(slot) else {
+                    continue;
+                };
+                if weapon.get_template().reload_type != WeaponReloadType::ReturnToBaseToReload {
+                    continue;
+                }
+                specials += 1;
+                if weapon.get_status() == WeaponStatus::OutOfAmmo {
+                    out += 1;
+                }
             }
-            specials += 1;
-            if weapon.get_status() == WeaponStatus::OutOfAmmo {
-                out += 1;
-            }
-        }
-
-        specials > 0 && out == specials
+            specials > 0 && out == specials
+        })
+        .unwrap_or(false)
     }
 
     pub fn get_sneaky_targeting_offset(&self, offset: &mut Coord3D) -> bool {
@@ -1915,13 +1919,10 @@ impl JetAIUpdate {
         if TheGameLogic::get_frame() >= self.attackers_miss_expire_frame {
             return false;
         }
-        let Some(obj) = self.get_object() else {
+        let Some((dir_x, dir_y)) = self.with_object(|guard| guard.get_unit_direction_vector_2d())
+        else {
             return false;
         };
-        let Ok(guard) = obj.read() else {
-            return false;
-        };
-        let (dir_x, dir_y) = guard.get_unit_direction_vector_2d();
         offset.x = dir_x * self.data.sneaky_offset_when_attacking;
         offset.y = dir_y * self.data.sneaky_offset_when_attacking;
         offset.z = 0.0;
@@ -1956,26 +1957,26 @@ impl JetAIUpdate {
         let lockon_time = self.data.lockon_time.max(1);
         let elapsed = lockon_time.saturating_sub(remaining);
 
-        let Some(obj) = self.get_object() else {
+        let Some((owner_pos, final_dist)) = self.with_object(|guard| {
+            (
+                *guard.get_position(),
+                guard.get_geometry_info().get_bounding_circle_radius(),
+            )
+        }) else {
             return;
         };
-        let Ok(guard) = obj.read() else {
-            return;
-        };
-
-        let mut pos = *guard.get_position();
         let frac = remaining as Real / lockon_time as Real;
-        let final_dist = guard.get_geometry_info().get_bounding_circle_radius();
         let dist = final_dist + (self.data.lockon_initial_dist - final_dist) * frac;
         let angle = self.data.lockon_angle_spin * frac;
 
+        let mut pos = owner_pos;
         pos.x += angle.cos() * dist;
         pos.y += angle.sin() * dist;
 
         if let Some(client) = TheGameClient::get() {
             client.set_drawable_position(drawable_id, &pos);
-            let dx = guard.get_position().x - pos.x;
-            let dy = guard.get_position().y - pos.y;
+            let dx = owner_pos.x - pos.x;
+            let dy = owner_pos.y - pos.y;
             if dx != 0.0 || dy != 0.0 {
                 client.set_drawable_orientation(drawable_id, dy.atan2(dx));
             }
@@ -2111,13 +2112,11 @@ impl JetAIUpdate {
 
                 let mut min_height = self.data.min_height;
                 let producer_id = guard.get_producer_id();
-                if let Some(airfield) = TheGameLogic::find_object_by_id(producer_id) {
-                    if let Ok(air_guard) = airfield.read() {
-                        air_guard.with_parking_place_behavior(|pp| {
-                            min_height += pp.get_landing_deck_height_offset();
-                        });
-                    }
-                }
+                let _ = OBJECT_REGISTRY.with_object(producer_id, |air_guard| {
+                    air_guard.with_parking_place_behavior(|pp| {
+                        min_height += pp.get_landing_deck_height_offset();
+                    });
+                });
 
                 if let Some(drawable) = guard.get_drawable() {
                     let state_active = self.state_machine.state.is_some();
@@ -2164,7 +2163,11 @@ impl JetAIUpdate {
                 if !guard.is_kind_of(crate::common::KindOf::ProducedAtHelipad) {
                     let waiting_for_path = guard
                         .get_ai_update_interface()
-                        .and_then(|ai| ai.lock().ok().map(|guard| guard.is_waiting_for_path()))
+                        .and_then(|ai| {
+                            ai.lock()
+                                .ok()
+                                .map(|ai_guard| ai_guard.is_waiting_for_path())
+                        })
                         .unwrap_or(false);
                     if let Some(drawable) = guard.get_drawable() {
                         let should_enable = self.get_flag(JetFlag::TakeoffInProgress)
@@ -2296,15 +2299,12 @@ impl JetAIUpdate {
 
 impl Drop for JetAIUpdate {
     fn drop(&mut self) {
-        if let Some(obj) = self.get_object() {
-            if let Ok(guard) = obj.read() {
-                let producer_id = guard.get_producer_id();
-                if let Some(airfield) = TheGameLogic::find_object_by_id(producer_id) {
-                    if let Ok(air_guard) = airfield.read() {
-                        air_guard.with_parking_place_behavior(|pp| {
-                            pp.release_space(self.object_id);
-                        });
-                    }
+        if let Some(producer_id) = self.with_object(|guard| guard.get_producer_id()) {
+            if let Some(airfield) = TheGameLogic::find_object_by_id(producer_id) {
+                if let Ok(air_guard) = airfield.read() {
+                    air_guard.with_parking_place_behavior(|pp| {
+                        pp.release_space(self.object_id);
+                    });
                 }
             }
         }
