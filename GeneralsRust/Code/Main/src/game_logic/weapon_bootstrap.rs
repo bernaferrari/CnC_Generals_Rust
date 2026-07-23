@@ -2751,6 +2751,36 @@ fn seed_die_on_detonate_for(name: &str) -> bool {
         || n.contains("inferno") && n.contains("cannon")
 }
 
+/// C++ Weapon.ini DamageType=STATUS residual.
+pub fn host_weapon_is_status_damage(name: &str) -> bool {
+    seed_weapon_is_status_damage(name)
+}
+
+fn seed_weapon_is_status_damage(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("designator")
+        || n.contains("targetdesignator")
+        || (n.contains("avenger") && n.contains("target"))
+        || n.contains("statusweapon")
+}
+
+/// C++ Weapon.ini DamageStatusType residual name (OBJECT_STATUS bit name).
+pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static str> {
+    if !host_weapon_is_status_damage(name) {
+        return None;
+    }
+    let n = name.to_ascii_lowercase();
+    if n.contains("designator") || n.contains("faerie") || n.contains("avenger") {
+        return Some("FAERIE_FIRE");
+    }
+    Some("FAERIE_FIRE")
+}
+
+/// C++ STATUS damage duration: PrimaryDamage is msec → logic frames @ 30 FPS.
+pub fn host_status_damage_frames_from_primary_damage(primary_damage_msec: f32) -> u32 {
+    ((primary_damage_msec.max(0.0) * 30.0) / 1000.0).ceil() as u32
+}
+
 /// Look up the retail primary weapon template name for a host unit template.
 pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str> {
     match template_name {
@@ -5126,6 +5156,16 @@ mod tests {
         assert!(sec_last > 0.0, "secondary last_fire_time must advance");
     }
 
+    #[test]
+    fn status_damage_peels() {
+        assert!(host_weapon_is_status_damage("AvengerTargetDesignator"));
+        assert_eq!(
+            host_damage_status_type_for_weapon_name("AvengerTargetDesignator"),
+            Some("FAERIE_FIRE")
+        );
+        assert_eq!(host_status_damage_frames_from_primary_damage(200.0), 6);
+        assert!(!host_weapon_is_status_damage("AmericaTankCrusaderGun"));
+    }
     #[test]
     fn die_on_detonate_seeds() {
         assert!(host_die_on_detonate_for_weapon_name("ScudMissileWeapon"));

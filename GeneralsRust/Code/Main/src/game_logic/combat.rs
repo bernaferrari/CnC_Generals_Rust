@@ -19,6 +19,8 @@ pub enum DamageType {
     Unresistable,
     /// C++ DAMAGE_FALLING residual (PhysicsBehavior landing splat).
     Falling,
+    /// C++ DAMAGE_STATUS residual (doStatusDamage; amount = duration msec).
+    Status,
 }
 
 /// Armor types
