@@ -518,6 +518,7 @@ impl InputCommandProcessor {
                 if self.issue_immediate_command(
                     CommandType::Guard {
                         target: guard_target,
+                        mode: crate::game_logic::GuardMode::Normal,
                     },
                     game_logic,
                 ) {

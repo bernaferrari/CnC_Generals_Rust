@@ -973,6 +973,7 @@ impl WgpuUISystem {
                 "CommandButton0_0" => Some(crate::command_system::CommandType::Stop),
                 "CommandButton0_1" => Some(crate::command_system::CommandType::Guard {
                     target: crate::command_system::GuardTarget::Position(center),
+                    mode: crate::game_logic::GuardMode::Normal,
                 }),
                 "CommandButton0_2" => Some(crate::command_system::CommandType::Scatter),
                 "CommandButton0_3" => Some(crate::command_system::CommandType::Sell {
@@ -992,7 +993,10 @@ impl WgpuUISystem {
             | crate::command_system::CommandType::Sell { object_id } => {
                 *object_id = units[0];
             }
-            crate::command_system::CommandType::Guard { target } => {
+            crate::command_system::CommandType::Guard {
+                target,
+                mode: _mode,
+            } => {
                 if matches!(
                     target,
                     crate::command_system::GuardTarget::Position(p) if *p == glam::Vec3::ZERO

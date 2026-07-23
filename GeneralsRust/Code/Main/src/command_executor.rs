@@ -95,7 +95,9 @@ impl<'a> CommandExecutor<'a> {
                 self.execute_attack_ground(&command.selected_units, *location)
             }
             CommandType::Stop => self.execute_stop(&command.selected_units),
-            CommandType::Guard { target } => self.execute_guard(&command.selected_units, target),
+            CommandType::Guard { target, mode } => {
+                self.execute_guard(&command.selected_units, target, *mode)
+            }
             CommandType::Patrol => self.execute_patrol(&command.selected_units),
             CommandType::AttitudeSleep => self.execute_set_attitude(
                 &command.selected_units,
@@ -847,9 +849,11 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target: &GuardTarget,
+        mode: crate::game_logic::GuardMode,
     ) -> CommandResult {
         // C++ AIGroup::groupGuardPosition/Object — only units with AI/move;
         // guard radius residual ≈ adjusted vision (getStdGuardRange).
+        // mode = C++ GuardMode (Normal / WithoutPursuit / FlyingUnitsOnly).
         const GUARD_MIN_RADIUS: f32 = 80.0;
         let mut any = false;
         for &unit_id in units {
@@ -887,6 +891,7 @@ impl<'a> CommandExecutor<'a> {
                 // C++ getStdGuardRange ≈ vision with guard-inner factor; host uses
                 // max(vision, weapon, min radius).
                 unit.guard_radius = vision.max(weapon_r).max(GUARD_MIN_RADIUS);
+                unit.set_guard_mode(mode);
                 unit.set_target(None);
                 unit.set_force_attack(false);
                 unit.end_guard_retaliate();
@@ -4962,6 +4967,86 @@ mod group_move_tests {
     }
 
     #[test]
+    fn guard_mode_without_pursuit_and_flying_only_are_stored() {
+        use super::CommandExecutor;
+        use crate::command_system::{CommandResult, GuardTarget};
+        use crate::game_logic::{GameLogic, GuardMode, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("GM_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("GM_V".to_string(), tpl);
+        let a = logic.create_object("GM_V", Team::USA, Vec3::ZERO).unwrap();
+        let b = logic
+            .create_object("GM_V", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_guard(
+                    &[a],
+                    &GuardTarget::Position(Vec3::new(40.0, 0.0, 0.0)),
+                    GuardMode::WithoutPursuit
+                ),
+                CommandResult::Success
+            );
+        }
+        assert_eq!(
+            logic.get_object(a).unwrap().guard_mode,
+            GuardMode::WithoutPursuit
+        );
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_guard(
+                    &[b],
+                    &GuardTarget::Position(Vec3::new(40.0, 0.0, 0.0)),
+                    GuardMode::FlyingUnitsOnly
+                ),
+                CommandResult::Success
+            );
+        }
+        assert_eq!(
+            logic.get_object(b).unwrap().guard_mode,
+            GuardMode::FlyingUnitsOnly
+        );
+    }
+
+    #[test]
+    fn command_button_maps_guard_modes() {
+        use crate::command_system::{command_type_from_button_name, CommandType};
+        use crate::game_logic::GuardMode;
+
+        let g = command_type_from_button_name("Command_Guard").unwrap();
+        assert!(matches!(
+            g,
+            CommandType::Guard {
+                mode: GuardMode::Normal,
+                ..
+            }
+        ));
+        let w = command_type_from_button_name("Command_GuardWithoutPursuit").unwrap();
+        assert!(matches!(
+            w,
+            CommandType::Guard {
+                mode: GuardMode::WithoutPursuit,
+                ..
+            }
+        ));
+        let f = command_type_from_button_name("Command_GuardFlyingUnitsOnly").unwrap();
+        assert!(matches!(
+            f,
+            CommandType::Guard {
+                mode: GuardMode::FlyingUnitsOnly,
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn guard_uses_vision_radius_and_skips_structures() {
         use super::CommandExecutor;
         use crate::command_system::{CommandResult, GuardTarget};
@@ -4994,7 +5079,11 @@ mod group_move_tests {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         let pos = Vec3::new(50.0, 0.0, 0.0);
         assert_eq!(
-            exec.execute_guard(&[v, s], &GuardTarget::Position(pos)),
+            exec.execute_guard(
+                &[v, s],
+                &GuardTarget::Position(pos),
+                crate::game_logic::GuardMode::Normal
+            ),
             CommandResult::Success
         );
         let u = logic.get_object(v).unwrap();

@@ -1315,7 +1315,8 @@ enum StartupLoadState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PendingMapCommand {
     AttackMove,
-    Guard,
+    /// C++ GuardMode carried from the arming command button.
+    Guard(crate::game_logic::GuardMode),
     SetRallyPoint,
     /// Chinook combat drop residual awaiting map click.
     CombatDrop,
@@ -3398,7 +3399,9 @@ impl CnCGameEngine {
                     if self.selected_objects.is_empty() {
                         self.runtime_host_last_gameplay_cmd = "guard_fail_no_selection".into();
                     } else {
-                        self.pending_map_command = Some(PendingMapCommand::Guard);
+                        self.pending_map_command = Some(PendingMapCommand::Guard(
+                            crate::game_logic::GuardMode::Normal,
+                        ));
                         self.commit_pending_map_command(glam::Vec3::new(x, y, z), None);
                         self.runtime_host_last_gameplay_cmd = format!("guard_ok:{},{},{}", x, y, z);
                     }
@@ -9884,14 +9887,16 @@ impl CnCGameEngine {
             PendingMapCommand::AttackMove => crate::command_system::CommandType::AttackMoveTo {
                 destination: location,
             },
-            PendingMapCommand::Guard => {
+            PendingMapCommand::Guard(mode) => {
                 if let Some(tid) = target_object {
                     crate::command_system::CommandType::Guard {
                         target: crate::command_system::GuardTarget::Object(tid),
+                        mode,
                     }
                 } else {
                     crate::command_system::CommandType::Guard {
                         target: crate::command_system::GuardTarget::Position(location),
+                        mode,
                     }
                 }
             }
@@ -10047,7 +10052,7 @@ impl CnCGameEngine {
         };
         let cursor = match kind {
             PendingMapCommand::AttackMove => "ATTACK_CONTINUE_AREA",
-            PendingMapCommand::Guard => "GUARD_AREA",
+            PendingMapCommand::Guard(_) => "GUARD_AREA",
             PendingMapCommand::SetRallyPoint => "FRIENDLY_SPECIALPOWER",
             PendingMapCommand::CombatDrop => "COMBATDROP",
             PendingMapCommand::PlaceBeacon => "RADAR",
@@ -10695,8 +10700,8 @@ impl CnCGameEngine {
                 self.ui_manager.game_hud_mut().push_info_message(msg);
                 return;
             }
-            crate::command_system::CommandType::Guard { .. } => {
-                self.pending_map_command = Some(PendingMapCommand::Guard);
+            crate::command_system::CommandType::Guard { mode, .. } => {
+                self.pending_map_command = Some(PendingMapCommand::Guard(mode));
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("GUARD_AREA");
                 let msg = "Guard: click location or unit";
@@ -16090,7 +16095,7 @@ impl CnCGameEngine {
         if let Some(kind) = self.pending_map_command.as_ref() {
             return match kind {
                 PendingMapCommand::AttackMove => ("AttackMove", CursorIcon::Crosshair),
-                PendingMapCommand::Guard => ("Move", CursorIcon::AllScroll),
+                PendingMapCommand::Guard(_) => ("Move", CursorIcon::AllScroll),
                 PendingMapCommand::SetRallyPoint => ("SetRallyPoint", CursorIcon::Cell),
                 PendingMapCommand::CombatDrop => ("CombatDrop", CursorIcon::Move),
                 PendingMapCommand::PlaceBeacon => ("PlaceBeacon", CursorIcon::Cell),
