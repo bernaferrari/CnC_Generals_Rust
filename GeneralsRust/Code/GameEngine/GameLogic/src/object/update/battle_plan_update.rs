@@ -438,17 +438,20 @@ impl BattlePlanUpdate {
         match plan {
             BattlePlanStatus::None => {
                 // Paralyze troops
-                let _ = player.iterate_objects(|obj| {
-                    let kind_of = obj.get_kind_of();
-                    if (kind_of & self.module_data.valid_member_kind_of) != 0
-                        && (kind_of & self.module_data.invalid_member_kind_of) == 0
-                    {
-                        obj.set_disabled_until(
-                            DisabledType::Paralyzed,
-                            ctx.game_logic.get_frame()
-                                + self.module_data.battle_plan_paralyze_frames,
-                        );
-                    }
+                let _ = player.iterate_object_ids(|obj_id| {
+                    let _ =
+                        crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj| {
+                            let kind_of = obj.get_kind_of();
+                            if (kind_of & self.module_data.valid_member_kind_of) != 0
+                                && (kind_of & self.module_data.invalid_member_kind_of) == 0
+                            {
+                                obj.set_disabled_until(
+                                    DisabledType::Paralyzed,
+                                    ctx.game_logic.get_frame()
+                                        + self.module_data.battle_plan_paralyze_frames,
+                                );
+                            }
+                        });
                     Ok(())
                 });
             }

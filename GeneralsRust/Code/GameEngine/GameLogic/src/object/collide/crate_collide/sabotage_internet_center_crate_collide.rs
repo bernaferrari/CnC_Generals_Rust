@@ -373,8 +373,8 @@ impl SabotageInternetCenterCrateCollide {
                 let player_guard = controlling_player
                     .read()
                     .map_err(|_| GameError::LockError)?;
-                player_guard.iterate_objects(|obj| {
-                    disable_internet_center_spy_vision(obj, disable_frame)
+                player_guard.iterate_object_ids(|obj_id| {
+                    disable_internet_center_spy_vision(obj_id, disable_frame)
                 })?;
             }
         }
@@ -484,21 +484,23 @@ fn disable_hacker_id(object_id: ObjectID, frame: u32) -> Result<(), GameError> {
 
 /// Disable internet center spy vision callback function  
 fn disable_internet_center_spy_vision(
-    obj: Arc<RwLock<Object>>,
+    obj_id: crate::common::ObjectID,
     frame: u32,
 ) -> Result<(), GameError> {
-    let obj_lock = obj.read().map_err(|_| GameError::LockError)?;
-
-    if obj_lock.is_kind_of(KindOf::FSInternetCenter) {
-        for module in obj_lock.get_behavior_modules() {
-            if let Ok(mut module_guard) = module.lock() {
-                if let Some(spy_vision) = module_guard.get_spy_vision_control_interface() {
-                    spy_vision.set_disabled_until_frame(frame);
+    let applied = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_lock| {
+        if obj_lock.is_kind_of(KindOf::FSInternetCenter) {
+            for module in obj_lock.get_behavior_modules() {
+                if let Ok(mut module_guard) = module.lock() {
+                    if let Some(spy_vision) = module_guard.get_spy_vision_control_interface() {
+                        spy_vision.set_disabled_until_frame(frame);
+                    }
                 }
             }
         }
+    });
+    if applied.is_none() {
+        return Err(GameError::LockError);
     }
-
     Ok(())
 }
 
