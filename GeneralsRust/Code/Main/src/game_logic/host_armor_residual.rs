@@ -960,6 +960,7 @@ pub fn map_host_damage_type(dt: crate::game_logic::combat::DamageType) -> Damage
         H::KillGarrisoned => DamageType::KillGarrisoned,
         H::Healing => DamageType::Healing,
         H::Water => DamageType::Water,
+        H::Crush => DamageType::Crush,
     }
 }
 
@@ -1028,6 +1029,7 @@ pub fn map_store_damage_type(
         G::KillGarrisoned => H::KillGarrisoned,
         G::Healing => H::Healing,
         G::Water => H::Water,
+        G::Crush => H::Crush,
         G::Unresistable
         | G::Toppling
         | G::SubdualMissile
@@ -1038,7 +1040,6 @@ pub fn map_store_damage_type(
         G::SmallArms
         | G::ComancheVulcan
         | G::Melee
-        | G::Crush
         | G::ArmorPiercing
         | G::InfantryMissile
         | G::JetMissiles

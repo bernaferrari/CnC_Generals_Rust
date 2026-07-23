@@ -7107,6 +7107,7 @@ impl GameLogic {
         // First pass: Dispatch object AI through the existing state machine.
         for &object_id in object_ids {
             // Expire DISABLED_HACKED / DISABLED_EMP / Frenzy residual timers.
+            let mut topple_kill = false;
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.tick_disabled_hacked(self.frame);
                 obj.tick_selection_flash();
@@ -7122,6 +7123,12 @@ impl GameLogic {
                 if obj.tick_disguise_transition() {
                     self.bomb_truck_disguise.record_transition_halfpoint();
                 }
+                // C++ ToppleUpdate::update residual (trees / crushable props).
+                topple_kill = obj.tick_topple();
+            }
+            if topple_kill {
+                self.mark_object_for_destruction(object_id, None);
+                continue;
             }
             // OCL_EjectPilotViaParachute residual sink (elevated pilot → ground).
             self.tick_eject_parachute_residual(object_id);
@@ -7534,6 +7541,13 @@ impl GameLogic {
         }
 
         let same_team = a_team == b_team;
+        // C++ ToppleUpdate::onCollide residual: crusher_level > 1 topples trees/props.
+        if self.try_topple_on_collide(a_id, b_id) || self.try_topple_on_collide(b_id, a_id) {
+            if let Some(a) = self.objects.get_mut(&a_id) {
+                a.last_collidee = Some(b_id);
+            }
+            return true;
+        }
         // Overlap crush (may handle the pair).
         if self.apply_overlap_crush_check(a_id, b_id, same_team) {
             if let Some(a) = self.objects.get_mut(&a_id) {
@@ -7609,6 +7623,48 @@ impl GameLogic {
             a.movement.velocity.z += dz * 0.5;
         }
         true
+    }
+
+    /// C++ ToppleUpdate::onCollide residual — `crusher` may topple `prop`.
+    fn try_topple_on_collide(&mut self, crusher_id: ObjectId, prop_id: ObjectId) -> bool {
+        let (level, cpos, speed) = {
+            let Some(c) = self.objects.get(&crusher_id) else {
+                return false;
+            };
+            if c.status.destroyed || !c.is_alive() {
+                return false;
+            }
+            let pos = c.get_position();
+            let sp = (c.movement.velocity.x * c.movement.velocity.x
+                + c.movement.velocity.z * c.movement.velocity.z)
+                .sqrt();
+            (c.crusher_level, pos, sp)
+        };
+        if !crate::game_logic::host_topple::crusher_can_topple(level) {
+            return false;
+        }
+        let (kill_now, handled) = {
+            let Some(prop) = self.objects.get_mut(&prop_id) else {
+                return false;
+            };
+            let kill_now = prop.try_topple_from_crusher(level, cpos.x, cpos.z, speed.max(1.0));
+            let handled = prop
+                .topple_data
+                .as_ref()
+                .map(|t| {
+                    !matches!(
+                        t.state,
+                        crate::game_logic::host_topple::HostToppleState::Upright
+                    )
+                })
+                .unwrap_or(false)
+                || kill_now;
+            (kill_now, handled)
+        };
+        if kill_now {
+            self.mark_object_for_destruction(prop_id, None);
+        }
+        handled
     }
 
     pub fn apply_overlap_crush_check(
