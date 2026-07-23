@@ -624,15 +624,18 @@ impl StealthController {
             }
         }
 
-        if let Some(container) = object.get_container() {
-            if let Ok(container_guard) = container.read() {
-                if let Some(contain) = container_guard.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        if !contain_guard.is_garrisonable() {
-                            return false;
-                        }
-                    }
-                }
+        if let Some(container_id) = object.get_container_id() {
+            if let Some(true) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                container_id,
+                |container_guard| {
+                    container_guard
+                        .get_contain()
+                        .and_then(|contain| contain.lock().ok())
+                        .map(|contain_guard| !contain_guard.is_garrisonable())
+                        .unwrap_or(false)
+                },
+            ) {
+                return false;
             }
         }
 
@@ -681,15 +684,17 @@ impl StealthController {
         if self.data.reveal_distance_from_target <= 0.0 {
             return false;
         }
-        let Some(victim) = object.get_current_victim() else {
-            return false;
-        };
-        let Ok(victim_guard) = victim.read() else {
+        let Some(victim_id) = object.get_current_victim_id() else {
             return false;
         };
         let reveal_dist = self.data.reveal_distance_from_target;
-        let dist_sq =
-            ThePartitionManager::get_distance_squared(object, &victim_guard, FROM_CENTER_2D);
+        let Some(dist_sq) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |victim_guard| {
+                ThePartitionManager::get_distance_squared(object, victim_guard, FROM_CENTER_2D)
+            })
+        else {
+            return false;
+        };
         dist_sq <= reveal_dist * reveal_dist
     }
 
