@@ -37,6 +37,7 @@ use crate::modules::{
 };
 use crate::object::draw::TerrainDecalType;
 use crate::object::object_factory::{get_object_factory, GameObjectInstance};
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::update::ai_update_interface::GuardTargetType;
 use crate::object::update::{
     AssaultTransportAIUpdate, DeliverPayloadAIUpdate, DeployStyleAIUpdate, HackInternetAIUpdate,
@@ -2235,7 +2236,7 @@ impl Unit {
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return None;
         }
-        let all_objects = crate::object::registry::OBJECT_REGISTRY.get_all_objects();
+        let all_object_ids = crate::object::registry::OBJECT_REGISTRY.get_all_object_ids();
         let self_id = self
             .base_arc()
             .read()
@@ -2278,7 +2279,11 @@ impl Unit {
             }
         }
 
-        for obj in all_objects {
+        for obj_id in &all_object_ids {
+            let obj = match crate::object::registry::OBJECT_REGISTRY.get_object(*obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let obj_guard = match obj.read() {
                 Ok(guard) => guard,
                 Err(_) => continue,
@@ -2361,7 +2366,7 @@ impl Unit {
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return None;
         }
-        let all_objects = crate::object::registry::OBJECT_REGISTRY.get_all_objects();
+        let all_object_ids = crate::object::registry::OBJECT_REGISTRY.get_all_object_ids();
         let self_id = self
             .base_arc()
             .read()
@@ -2369,7 +2374,11 @@ impl Unit {
             .unwrap_or(0);
         let mut closest: Option<(ObjectID, Real)> = None;
 
-        for obj in all_objects {
+        for obj_id in &all_object_ids {
+            let obj = match crate::object::registry::OBJECT_REGISTRY.get_object(*obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let obj_guard = match obj.read() {
                 Ok(guard) => guard,
                 Err(_) => continue,

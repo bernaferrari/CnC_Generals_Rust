@@ -314,7 +314,11 @@ impl StealthRenderingHooks {
         if OBJECT_REGISTRY.is_empty() {
             return Ok(Vec::new());
         }
-        for object_ref in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let object_ref = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let Ok(object_guard) = object_ref.read() else {
                 continue;
             };

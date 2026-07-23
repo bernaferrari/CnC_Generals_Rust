@@ -1260,7 +1260,11 @@ impl AIBuildList {
         if OBJECT_REGISTRY.is_empty() {
             return Ok(0.0);
         }
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+            Some(v) => v,
+            None => continue,
+        };
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
@@ -1308,7 +1312,11 @@ impl AIBuildList {
         if OBJECT_REGISTRY.is_empty() {
             return Ok(0.0);
         }
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+            Some(v) => v,
+            None => continue,
+        };
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };

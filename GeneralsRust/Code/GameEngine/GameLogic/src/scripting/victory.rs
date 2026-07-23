@@ -785,7 +785,11 @@ impl VictoryManager {
             return Ok(0.0);
         }
         let mut enemy_alive = 0usize;
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let Ok(obj) = obj_arc.read() else {
                 continue;
             };
@@ -829,7 +833,11 @@ impl VictoryManager {
             return Ok(0.0);
         }
         let mut remaining = 0usize;
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let Ok(obj) = obj_arc.read() else {
                 continue;
             };
@@ -973,7 +981,11 @@ impl VictoryManager {
         let mut built = 0usize;
         for name in structures {
             let mut found = false;
-            for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+            for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+                let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                    Some(v) => v,
+                    None => continue,
+                };
                 let Ok(obj) = obj_arc.read() else {
                     continue;
                 };

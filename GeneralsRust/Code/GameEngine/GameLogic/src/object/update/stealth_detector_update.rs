@@ -332,9 +332,13 @@ impl StealthDetectorController {
         if OBJECT_REGISTRY.is_empty() {
             return Ok(UpdateSleepTime::None);
         }
-        let all_objects = OBJECT_REGISTRY.get_all_objects();
+        let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
 
-        for obj_ref in all_objects {
+        for obj_id in &all_object_ids {
+            let obj_ref = match OBJECT_REGISTRY.get_object(*obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let Ok(obj_guard) = obj_ref.read() else {
                 continue;
             };

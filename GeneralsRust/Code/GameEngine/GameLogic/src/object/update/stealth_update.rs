@@ -555,10 +555,18 @@ impl StealthUpdateController {
             if OBJECT_REGISTRY.is_empty() {
                 return;
             }
-            let all_objects = OBJECT_REGISTRY.get_all_objects();
+            let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
 
-            for enemy_obj in all_objects {
-                if let Ok(enemy_guard) = enemy_obj.read() {
+            for obj_id in &all_object_ids {
+                let enemy_obj = match OBJECT_REGISTRY.get_object(*obj_id) {
+                    Some(v) => v,
+                    None => continue,
+                };
+                let enemy_guard = match enemy_obj.read() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if true {
                     // Skip if same team or not a unit
                     if enemy_guard.get_team_id() == self_team_id {
                         continue;

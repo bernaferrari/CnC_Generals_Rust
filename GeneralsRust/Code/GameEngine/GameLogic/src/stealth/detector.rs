@@ -146,10 +146,18 @@ impl StealthDetectorController {
         if OBJECT_REGISTRY.is_empty() {
             return;
         }
-        let all_objects = OBJECT_REGISTRY.get_all_objects();
+        let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
 
-        for obj_ref in all_objects {
-            if let Ok(obj_guard) = obj_ref.read() {
+        for obj_id in &all_object_ids {
+            let obj_ref = match OBJECT_REGISTRY.get_object(*obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
+            let obj_guard = match obj_ref.read() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if true {
                 let target_id = obj_guard.get_id();
 
                 // Skip self

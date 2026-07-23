@@ -4910,16 +4910,18 @@ impl ScriptCondition for BuiltByPlayerCondition {
         if OBJECT_REGISTRY.is_empty() {
             return Ok(false);
         }
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
-            if let Ok(obj) = obj_arc.read() {
-                if obj.is_effectively_dead() {
-                    continue;
-                }
-                if let Some(owner_id) = obj.get_controlling_player_id() {
-                    if owner_id == player_id {
-                        let template_name = obj.get_template_name();
-                        if template_name == object_type {
-                            return Ok(true);
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    if obj.is_effectively_dead() {
+                        continue;
+                    }
+                    if let Some(owner_id) = obj.get_controlling_player_id() {
+                        if owner_id == player_id {
+                            let template_name = obj.get_template_name();
+                            if template_name == object_type {
+                                return Ok(true);
+                            }
                         }
                     }
                 }

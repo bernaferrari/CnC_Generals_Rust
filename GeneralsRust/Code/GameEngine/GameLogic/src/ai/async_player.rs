@@ -679,7 +679,11 @@ impl AsyncAiPlayer {
         let now = Instant::now();
         // Host path: dual-world factory empty — no enemy residual scan.
         if !OBJECT_REGISTRY.is_empty() {
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+        let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+            Some(v) => v,
+            None => continue,
+        };
             let Ok(obj_guard) = obj_arc.read() else { continue };
             if obj_guard.is_destroyed() {
                 continue;
@@ -725,7 +729,11 @@ impl AsyncAiPlayer {
         let mut resource_sites = Vec::new();
         // Host path: dual-world factory empty — no resource residual.
         if !OBJECT_REGISTRY.is_empty() {
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+        let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+            Some(v) => v,
+            None => continue,
+        };
             let Ok(obj_guard) = obj_arc.read() else { continue };
             if !(obj_guard.is_kind_of(KindOf::ResourceNode)
                 || obj_guard.is_kind_of(KindOf::SupplySource)
@@ -792,7 +800,7 @@ impl AsyncAiPlayer {
         let total_objects = if OBJECT_REGISTRY.is_empty() {
             owned_objects.len().max(1) as f32
         } else {
-            OBJECT_REGISTRY.get_all_objects().len().max(1) as f32
+            OBJECT_REGISTRY.get_all_object_ids().len().max(1) as f32
         };
         let map_control = owned_objects.len() as f32 / total_objects;
 
