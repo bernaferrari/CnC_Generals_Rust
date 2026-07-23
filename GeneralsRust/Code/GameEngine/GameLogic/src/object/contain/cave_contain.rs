@@ -116,13 +116,35 @@ impl CaveContain {
     }
 
     /// Get the object this module belongs to
+    pub fn get_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    /// Borrow the owning object for one operation via ObjectID.
+    fn with_owner_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+    }
+
+    fn with_owner_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
+    }
+
+    /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     /// Check if this is a garrisonable unit
@@ -177,21 +199,22 @@ impl CaveContain {
         }
 
         // Register object in partition manager and set position
-        if let Some(owner_obj) = self.get_object() {
-            if let (Ok(owner), Ok(mut contained)) = (owner_obj.read(), obj.write()) {
-                contained.register_in_partition_manager()?;
-                if let Err(err) = contained.set_position(owner.get_position()) {
+        let owner_pos = self.with_owner_object(|owner| *owner.get_position());
+        if let Ok(mut contained) = obj.write() {
+            contained.register_in_partition_manager()?;
+            if let Some(pos) = owner_pos {
+                if let Err(err) = contained.set_position(&pos) {
                     log::warn!(
                         "CaveContain::on_removing failed to place contained object {}: {}",
                         contained.get_id(),
                         err
                     );
                 }
+            }
 
-                if let Some(drawable) = contained.get_drawable() {
-                    if let Ok(mut draw) = drawable.write() {
-                        draw.set_drawable_hidden(false)?;
-                    }
+            if let Some(drawable) = contained.get_drawable() {
+                if let Ok(mut draw) = drawable.write() {
+                    draw.set_drawable_hidden(false)?;
                 }
             }
         }
@@ -200,23 +223,21 @@ impl CaveContain {
 
         // If no more units contained, revert to original team
         if self.get_contain_count()? == 0 {
-            if let Some(owner_obj) = self.get_object() {
-                if let Ok(owner) = owner_obj.read() {
-                    if owner.get_team().is_some() {
-                        self.change_team_on_all_connected_caves(self.original_team.clone(), false)?;
-                        self.original_team = None;
-                    }
-                }
+            if self
+                .with_owner_object(|owner| owner.get_team().is_some())
+                .unwrap_or(false)
+            {
+                self.change_team_on_all_connected_caves(self.original_team.clone(), false)?;
+                self.original_team = None;
             }
 
             // Clear garrisoned model condition
-            if let Some(owner_obj) = self.get_object() {
-                if let Ok(owner) = owner_obj.read() {
-                    if let Some(drawable) = owner.get_drawable() {
-                        if let Ok(mut draw) = drawable.write() {
-                            draw.clear_model_condition_garrisoned()?;
-                        }
-                    }
+            if let Some(drawable) = self
+                .with_owner_object(|owner| owner.get_drawable())
+                .flatten()
+            {
+                if let Ok(mut draw) = drawable.write() {
+                    draw.clear_model_condition_garrisoned()?;
                 }
             }
         }
@@ -265,9 +286,15 @@ impl CaveContain {
         let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Contain object not found")?;
-        let owner = self.get_object();
         if super::should_cancel_containment_after_booby_trap(
-            owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
+            {
+                let id = self.get_object_id();
+                if id == crate::common::INVALID_ID {
+                    None
+                } else {
+                    Some(id)
+                }
+            },
             obj_id,
         ) {
             return Ok(());
@@ -453,16 +480,13 @@ impl CaveContain {
             return Ok(());
         };
 
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner) = owner_obj.read() {
-                if !self.base.is_die_applicable(&*owner, damage_info) {
-                    return Ok(());
-                }
-
-                if owner.is_under_construction() {
-                    return Ok(()); // Never registered itself as a tunnel
-                }
-            }
+        let skip = self
+            .with_owner_object(|owner| {
+                !self.base.is_die_applicable(owner, damage_info) || owner.is_under_construction()
+            })
+            .unwrap_or(true);
+        if skip {
+            return Ok(());
         }
 
         let tracker = if let Some(cave_system) = &self.cave_system {
@@ -474,10 +498,9 @@ impl CaveContain {
         };
 
         if let Ok(mut tunnel) = tracker.write() {
-            if let Some(owner_obj) = self.get_object() {
-                if let Ok(owner) = owner_obj.read() {
-                    tunnel.on_tunnel_destroyed(&*owner)?;
-                }
+            let owner_id = self.get_object_id();
+            if owner_id != crate::common::INVALID_ID {
+                tunnel.on_tunnel_destroyed_id(owner_id)?;
             }
         }
         if self.get_contain_count()? == 0 {
@@ -510,10 +533,9 @@ impl CaveContain {
         };
 
         if let Ok(mut tunnel) = tracker.write() {
-            if let Some(owner_obj) = self.get_object() {
-                if let Ok(owner) = owner_obj.read() {
-                    tunnel.on_tunnel_created(&*owner)?;
-                }
+            let owner_id = self.get_object_id();
+            if owner_id != crate::common::INVALID_ID {
+                tunnel.on_tunnel_created_id(owner_id)?;
             }
         }
 
@@ -551,10 +573,9 @@ impl CaveContain {
         };
 
         if let Ok(mut tunnel) = old_tracker.write() {
-            if let Some(owner_obj) = self.get_object() {
-                if let Ok(owner) = owner_obj.read() {
-                    tunnel.on_tunnel_destroyed(&*owner)?;
-                }
+            let owner_id = self.get_object_id();
+            if owner_id != crate::common::INVALID_ID {
+                tunnel.on_tunnel_destroyed_id(owner_id)?;
             }
         }
 
@@ -567,10 +588,9 @@ impl CaveContain {
         };
 
         if let Ok(mut tunnel) = new_tracker.write() {
-            if let Some(owner_obj) = self.get_object() {
-                if let Ok(owner) = owner_obj.read() {
-                    tunnel.on_tunnel_created(&*owner)?;
-                }
+            let owner_id = self.get_object_id();
+            if owner_id != crate::common::INVALID_ID {
+                tunnel.on_tunnel_created_id(owner_id)?;
             }
         }
 
@@ -613,28 +633,22 @@ impl CaveContain {
         &self,
         _observing_player: Option<&Player>,
     ) -> Option<Arc<RwLock<Player>>> {
-        self.get_object()
-            .and_then(|owner| owner.read().ok()?.get_controlling_player())
+        self.with_owner_object(|owner| owner.get_controlling_player())
+            .flatten()
     }
 
     /// Recalculate apparent controlling player
     pub fn recalc_apparent_controlling_player(&mut self) -> GameResult<()> {
         // Record original team first time through
         if self.original_team.is_none() {
-            if let Some(owner_obj) = self.get_object() {
-                if let Ok(owner) = owner_obj.read() {
-                    self.original_team = owner.get_team().map(|t| Arc::downgrade(&t));
-                }
+            if let Some(team) = self.with_owner_object(|owner| owner.get_team()).flatten() {
+                self.original_team = Some(Arc::downgrade(&team));
             }
         }
 
         // Check if team is null (game teardown)
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner) = owner_obj.read() {
-                if owner.get_team().is_none() {
-                    self.original_team = None;
-                }
-            }
+        if let Some(true) = self.with_owner_object(|owner| owner.get_team().is_none()) {
+            self.original_team = None;
         }
 
         // Edge trigger on count == 1 to do capture stuff
@@ -683,13 +697,12 @@ impl CaveContain {
                         }
                         _ => controller_guard.get_player_color(),
                     };
-                    if let Some(owner_obj) = self.get_object() {
-                        if let Ok(owner) = owner_obj.read() {
-                            if let Some(drawable) = owner.get_drawable() {
-                                if let Ok(mut draw_guard) = drawable.write() {
-                                    draw_guard.set_indicator_color(color);
-                                }
-                            }
+                    if let Some(drawable) = self
+                        .with_owner_object(|owner| owner.get_drawable())
+                        .flatten()
+                    {
+                        if let Ok(mut draw_guard) = drawable.write() {
+                            draw_guard.set_indicator_color(color);
                         }
                     }
                 }

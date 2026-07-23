@@ -124,13 +124,26 @@ impl HelixContain {
     }
 
     /// Get the object this module belongs to
+    pub fn get_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_owner_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+    }
+
+    /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     /// Treat as open container
@@ -365,13 +378,9 @@ impl HelixContain {
             }
 
             self.portable_structure_id = Some(obj_id);
-            if let Some(owner_obj) = self.get_object() {
+            {
+                let owner_id = self.get_object_id();
                 if let Ok(mut obj_mut) = obj.write() {
-                    let owner_id = owner_obj
-                        .read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID);
                     let _ = obj_mut.set_contained_by(Some(owner_id));
                 }
             }
@@ -379,9 +388,15 @@ impl HelixContain {
             return Ok(());
         }
 
-        let owner = self.get_object();
         if super::should_cancel_containment_after_booby_trap(
-            owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
+            {
+                let id = self.get_object_id();
+                if id == crate::common::INVALID_ID {
+                    None
+                } else {
+                    Some(id)
+                }
+            },
             obj_id,
         ) {
             return Ok(());
@@ -437,13 +452,9 @@ impl HelixContain {
             }
 
             self.portable_structure_id = Some(obj_id);
-            if let Some(owner_obj) = self.get_object() {
+            {
+                let owner_id = self.get_object_id();
                 if let Ok(mut obj_mut) = obj.write() {
-                    let owner_id = owner_obj
-                        .read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID);
                     let _ = obj_mut.set_contained_by(Some(owner_id));
                 }
             }
@@ -501,12 +512,11 @@ impl HelixContain {
     /// Matches C++ HelixContain::isPassengerAllowedToFire (HelixContain.cpp:340-360)
     pub fn is_passenger_allowed_to_fire(&self, id: Option<ObjectID>) -> bool {
         // Nested containment voids firing, always (matches C++ lines 346-347)
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner) = owner_obj.read() {
-                if owner.get_contained_by().is_some() {
-                    return false;
-                }
-            }
+        if self
+            .with_owner_object(|owner| owner.get_contained_by().is_some())
+            .unwrap_or(false)
+        {
+            return false;
         }
 
         if let Some(obj_id) = id {
@@ -568,22 +578,21 @@ impl HelixContain {
 
     /// Redeploy occupants
     pub fn redeploy_occupants(&mut self) -> GameResult<()> {
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner_guard) = owner_obj.read() {
-                let mut fire_pos = *owner_guard.get_position();
-                fire_pos.z += 8.0;
-                for rider_id in self.base.base.get_contained_object_ids().to_vec() {
-                    if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
-                    {
-                        if let Ok(mut rider_guard) = rider.write() {
-                            if let Err(err) = rider_guard.set_position(&fire_pos) {
-                                log::warn!(
-                                    "HelixContain::redeploy_occupants failed to place rider {}: {}",
-                                    rider_guard.get_id(),
-                                    err
-                                );
-                            }
+        if let Some(mut fire_pos) =
+            self.with_owner_object(|owner_guard| *owner_guard.get_position())
+        {
+            fire_pos.z += 8.0;
+            for rider_id in self.base.base.get_contained_object_ids().to_vec() {
+                if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                {
+                    if let Ok(mut rider_guard) = rider.write() {
+                        if let Err(err) = rider_guard.set_position(&fire_pos) {
+                            log::warn!(
+                                "HelixContain::redeploy_occupants failed to place rider {}: {}",
+                                rider_guard.get_id(),
+                                err
+                            );
                         }
                     }
                 }
