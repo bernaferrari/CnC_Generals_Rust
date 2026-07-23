@@ -71,9 +71,10 @@ impl<'a> CommandExecutor<'a> {
                 destination,
                 waypoints,
             } => self.execute_move_to(&command.selected_units, *destination, waypoints),
-            CommandType::AttackMoveTo { destination } => {
-                self.execute_attack_move(&command.selected_units, *destination)
-            }
+            CommandType::AttackMoveTo {
+                destination,
+                max_shots,
+            } => self.execute_attack_move(&command.selected_units, *destination, *max_shots),
             CommandType::ForceMoveTo { destination } => {
                 self.execute_force_move(&command.selected_units, *destination)
             }
@@ -989,7 +990,7 @@ impl<'a> CommandExecutor<'a> {
 
         match &mut ct {
             CommandType::MoveTo { destination, .. }
-            | CommandType::AttackMoveTo { destination }
+            | CommandType::AttackMoveTo { destination, .. }
             | CommandType::ForceMoveTo { destination }
             | CommandType::TightenToPosition { destination }
             | CommandType::OverrideSpecialPowerDestination {
@@ -1311,28 +1312,52 @@ impl<'a> CommandExecutor<'a> {
         true
     }
 
-    fn execute_attack_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
-        // C++ AIGroup::groupAttackMoveToPosition:
-        //   ableToAttack → aiAttackMoveToPosition; else → aiMoveToPosition.
+    /// C++ AIGroup::groupAttackMoveToPosition residual.
+    /// ableToAttack → attack-move path + maxShots; else plain move.
+    pub(crate) fn execute_attack_move(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+        max_shots: i32,
+    ) -> CommandResult {
+        if !destination.x.is_finite() || !destination.z.is_finite() {
+            return CommandResult::InvalidLocation;
+        }
         let goals = self.group_move_destinations(units, destination);
         let mut any = false;
         for (unit_id, goal) in goals {
             let (can_move, can_attack) = match self.game_logic.get_object(unit_id) {
-                Some(unit) => (unit.can_move(), unit.can_attack()),
-                None => return CommandResult::InvalidTarget,
+                Some(unit) => (
+                    unit.is_alive() && unit.can_move(),
+                    unit.can_attack() || unit.weapon.is_some(),
+                ),
+                None => continue,
             };
             if !can_move {
                 continue;
             }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_attack();
+                unit.set_force_attack(false);
+                unit.set_max_shots_to_fire(max_shots);
             }
             if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
-                return CommandResult::InvalidCommand;
+                if !self.path_to_goal_with_state(
+                    unit_id,
+                    goal,
+                    if can_attack {
+                        AIState::AttackMoving
+                    } else {
+                        AIState::Moving
+                    },
+                ) {
+                    continue;
+                }
             }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 if can_attack {
                     unit.is_attack_path = true;
+                    unit.auto_acquire_when_idle = true;
                     unit.set_ai_state(AIState::AttackMoving);
                 } else {
                     unit.is_attack_path = false;
@@ -1342,7 +1367,6 @@ impl<'a> CommandExecutor<'a> {
             any = true;
         }
         if any {
-            self.apply_player_stealth_mood_delay(units);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -6830,6 +6854,42 @@ mod group_move_tests {
     }
 
     #[test]
+    fn attack_move_sets_max_shots_and_path_flag() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("AM_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("AM_V".to_string(), tpl);
+        let id = logic.create_object("AM_V", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let o = logic.get_object_mut(id).unwrap();
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_attack_move(&[id], Vec3::new(200.0, 0.0, 0.0), 5),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert_eq!(u.ai_state, AIState::AttackMoving);
+        assert!(u.is_attack_path);
+        assert_eq!(u.max_shots_to_fire, 5);
+        assert!(u.auto_acquire_when_idle);
+    }
+
+    #[test]
     fn group_geometry_and_formation_move() {
         use super::CommandExecutor;
         use crate::command_system::CommandResult;
@@ -7122,7 +7182,7 @@ mod group_move_tests {
         {
             let mut exec = CommandExecutor::new(&mut logic, 0);
             assert_eq!(
-                exec.execute_attack_move(&[id], Vec3::new(90.0, 0.0, 0.0)),
+                exec.execute_attack_move(&[id], Vec3::new(90.0, 0.0, 0.0), -1),
                 CommandResult::Success
             );
         }

@@ -1015,7 +1015,10 @@ impl WgpuUISystem {
                     }
                 }
             }
-            crate::command_system::CommandType::AttackMoveTo { destination } => {
+            crate::command_system::CommandType::AttackMoveTo {
+                destination,
+                max_shots: -1,
+            } => {
                 if *destination == glam::Vec3::ZERO {
                     // Cursor world residual when available; else forward push.
                     if let Some(obj) = game_logic.get_object(units[0]) {

@@ -14854,7 +14854,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn weapon_last_fire_time_channel_via_set_weapon_stats() {
         use crate::game_logic::host_weapon_stats_log::{self, HostWeaponStatsEvent};
         use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -18422,8 +18421,6 @@ mod tests {
         }
     }
 
-    #[test]
-    #[test]
     #[test]
     fn special_power_session_writeback_after_tick() {
         use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
