@@ -7112,6 +7112,7 @@ impl GameLogic {
         for &object_id in object_ids {
             // Expire DISABLED_HACKED / DISABLED_EMP / Frenzy residual timers.
             let mut topple_kill = false;
+            let mut lifetime_kill = false;
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.tick_disabled_hacked(self.frame);
                 obj.tick_selection_flash();
@@ -7125,6 +7126,13 @@ impl GameLogic {
                     if obj.pending_fire_when_damaged_weapon.is_none() {
                         obj.pending_fire_when_damaged_weapon = Some(w);
                     }
+                }
+                // C++ LifetimeUpdate residual.
+                if obj.tick_lifetime_update(self.frame) {
+                    obj.health.current = 0.0;
+                    obj.status.destroyed = true;
+                    obj.refresh_model_condition_bits();
+                    lifetime_kill = true;
                 }
                 obj.tick_continuous_fire_coast(self.frame);
                 obj.tick_force_reload_when_idle(self.frame);
@@ -7218,6 +7226,12 @@ impl GameLogic {
                             .with_priority(190),
                     );
                 }
+            }
+            // C++ CreateObjectDie residual (spawn after death FX).
+            self.apply_pending_create_object_die(object_id);
+            if lifetime_kill {
+                self.mark_object_for_destruction(object_id, None);
+                continue;
             }
             if topple_kill {
                 // Completed topple: queue destroy (structure Done bypasses re-topple).
@@ -21901,6 +21915,8 @@ impl GameLogic {
             object.ensure_fire_weapon_when_damaged();
             object.ensure_transition_damage_fx();
             object.ensure_fx_list_die();
+            object.ensure_create_object_die();
+            object.ensure_lifetime_update(self.frame);
             self.objects.insert(id, object);
 
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
@@ -22175,6 +22191,46 @@ impl GameLogic {
     }
 
     /// C++ FireWeaponWhenDamagedBehavior forceFireWeapon residual at object position.
+
+    /// C++ CreateObjectDie::onDie residual — spawn OCL templates at dying object.
+    fn apply_pending_create_object_die(&mut self, dying_id: ObjectId) {
+        let (spawns, transfer_dmg, transfer, team, pos) = {
+            let Some(o) = self.objects.get_mut(&dying_id) else {
+                return;
+            };
+            let (spawns, dmg, transfer) = o.take_pending_create_object_die_spawns();
+            (spawns, dmg, transfer, o.team, o.get_position())
+        };
+        if spawns.is_empty() {
+            return;
+        }
+        for tmpl in spawns {
+            // Ensure template name exists for residual peels.
+            if !self.templates.contains_key(&tmpl) {
+                let mut t = ThingTemplate::new(&tmpl);
+                t.set_health(100.0);
+                if tmpl.to_ascii_lowercase().contains("tunnel")
+                    || tmpl.to_ascii_lowercase().contains("network")
+                {
+                    t.add_kind_of(KindOf::Structure);
+                }
+                self.templates.insert(tmpl.clone(), t);
+            }
+            let Some(new_id) = self.create_object(&tmpl, team, pos) else {
+                continue;
+            };
+            if transfer && transfer_dmg > 0.0 {
+                if let Some(n) = self.objects.get_mut(&new_id) {
+                    let _ = n.take_damage_from_typed(
+                        transfer_dmg,
+                        None,
+                        crate::game_logic::combat::DamageType::Unresistable,
+                    );
+                }
+            }
+        }
+    }
+
     fn apply_fire_weapon_when_damaged_named(
         &mut self,
         source_id: ObjectId,
@@ -82010,6 +82066,58 @@ mod tests {
             "ranger should be crushed under topple sweep, hp={}",
             ranger.health.current
         );
+    }
+
+    #[test]
+    fn create_object_die_spawns_on_lifetime_expiry() {
+        use crate::game_logic::host_create_object_die::HostCreateObjectDieData;
+        use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut st = ThingTemplate::new("GLASneakAttackTunnelNetworkStart");
+        st.set_health(50.0);
+        st.add_kind_of(KindOf::Structure);
+        logic
+            .templates
+            .insert("GLASneakAttackTunnelNetworkStart".into(), st);
+        let mut nt = ThingTemplate::new("GLASneakAttackTunnelNetwork");
+        nt.set_health(200.0);
+        nt.add_kind_of(KindOf::Structure);
+        logic
+            .templates
+            .insert("GLASneakAttackTunnelNetwork".into(), nt);
+
+        let id = logic
+            .create_object(
+                "GLASneakAttackTunnelNetworkStart",
+                Team::GLA,
+                glam::Vec3::new(10.0, 0.0, 10.0),
+            )
+            .unwrap();
+        {
+            let o = logic.objects.get_mut(&id).unwrap();
+            o.lifetime_update = Some(HostLifetimeUpdateData::from_delay_frames(0, 2));
+            o.create_object_die = Some(HostCreateObjectDieData {
+                ocl_name: "OCL_CreateSneakAttackTunnel".into(),
+                spawn_templates: vec!["GLASneakAttackTunnelNetwork".into()],
+                transfer_previous_health: true,
+                fired: false,
+            });
+        }
+        // Simulate lifetime tick path.
+        {
+            let o = logic.objects.get_mut(&id).unwrap();
+            assert!(o.tick_lifetime_update(2));
+            o.health.current = 0.0;
+            o.status.destroyed = true;
+            o.refresh_model_condition_bits();
+        }
+        logic.apply_pending_create_object_die(id);
+        let spawned = logic
+            .objects
+            .values()
+            .any(|o| o.template_name.contains("TunnelNetwork") && o.id != id);
+        assert!(spawned, "CreateObjectDie should spawn tunnel network");
     }
 
     #[test]
