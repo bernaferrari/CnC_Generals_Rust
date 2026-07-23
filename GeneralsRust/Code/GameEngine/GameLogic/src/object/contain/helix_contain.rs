@@ -572,8 +572,10 @@ impl HelixContain {
             if let Ok(owner_guard) = owner_obj.read() {
                 let mut fire_pos = *owner_guard.get_position();
                 fire_pos.z += 8.0;
-                if let Ok(items) = self.base.base.get_contained_items_list() {
-                    for rider in items {
+                for rider_id in self.base.base.get_contained_object_ids().to_vec() {
+                    if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                    {
                         if let Ok(mut rider_guard) = rider.write() {
                             if let Err(err) = rider_guard.set_position(&fire_pos) {
                                 log::warn!(
