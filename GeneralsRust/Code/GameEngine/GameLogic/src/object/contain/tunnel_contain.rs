@@ -273,7 +273,15 @@ impl TunnelContain {
                     owner_read.get_controlling_player().and_then(|player| {
                         player.read().ok().and_then(|player_read| {
                             player_read.get_tunnel_system().and_then(|tunnel_system| {
-                                tunnel_system.get_contained_items_list().first().cloned()
+                                tunnel_system
+                                    .get_contained_item_ids()
+                                    .first()
+                                    .copied()
+                                    .and_then(|id| {
+                                        TheGameLogic::find_object_by_id(id).or_else(|| {
+                                            crate::object::registry::OBJECT_REGISTRY.get_object(id)
+                                        })
+                                    })
                             })
                         })
                     })
@@ -306,28 +314,22 @@ impl TunnelContain {
             let player_read = controlling_player
                 .read()
                 .map_err(|_| "Player lock poisoned")?;
-            let objects: Vec<_> = if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                tunnel_system
-                    .get_contained_items_list()
-                    .iter()
-                    .cloned()
-                    .collect()
+            let object_ids: Vec<_> = if let Some(tunnel_system) = player_read.get_tunnel_system() {
+                tunnel_system.get_contained_item_ids().to_vec()
             } else {
                 Vec::new()
             };
             drop(player_read);
             drop(owner_read);
 
-            for obj in objects {
-                self.remove_from_contain(
-                    obj.read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID),
-                    true,
-                )?;
-                let mut obj_write = obj.write().map_err(|_| "Object lock poisoned")?;
-                obj_write.kill(None, None);
+            for object_id in object_ids {
+                self.remove_from_contain(object_id, true)?;
+                if let Some(obj) = TheGameLogic::find_object_by_id(object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+                {
+                    let mut obj_write = obj.write().map_err(|_| "Object lock poisoned")?;
+                    obj_write.kill(None, None);
+                }
             }
         }
 
@@ -462,7 +464,15 @@ impl TunnelContain {
                 owner_read.get_controlling_player().and_then(|player| {
                     player.read().ok().and_then(|player_read| {
                         player_read.get_tunnel_system().and_then(|tunnel_system| {
-                            tunnel_system.get_contained_items_list().first().cloned()
+                            tunnel_system
+                                .get_contained_item_ids()
+                                .first()
+                                .copied()
+                                .and_then(|id| {
+                                    TheGameLogic::find_object_by_id(id).or_else(|| {
+                                        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+                                    })
+                                })
                         })
                     })
                 })
