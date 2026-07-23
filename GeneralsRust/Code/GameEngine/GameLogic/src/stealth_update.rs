@@ -625,16 +625,19 @@ impl StealthController {
         }
 
         if let Some(container_id) = object.get_container_id() {
-            if let Some(true) = crate::object::registry::OBJECT_REGISTRY.with_object(
-                container_id,
-                |container_guard| {
-                    container_guard
-                        .get_contain()
-                        .and_then(|contain| contain.lock().ok())
+            let not_garrisonable = crate::object::registry::OBJECT_REGISTRY
+                .with_object(container_id, |container_guard| {
+                    let Some(contain) = container_guard.get_contain() else {
+                        return false;
+                    };
+                    contain
+                        .lock()
+                        .ok()
                         .map(|contain_guard| !contain_guard.is_garrisonable())
                         .unwrap_or(false)
-                },
-            ) {
+                })
+                .unwrap_or(false);
+            if not_garrisonable {
                 return false;
             }
         }
