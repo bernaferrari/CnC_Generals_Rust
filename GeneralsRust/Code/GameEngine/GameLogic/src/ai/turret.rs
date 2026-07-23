@@ -577,29 +577,28 @@ impl TurretAI {
 
     /// Check if target is in weapon range
     pub fn is_target_in_weapon_range(&self, target_id: ObjectID) -> bool {
-        let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
+        if self.owner_id == crate::common::INVALID_ID {
+            return false;
+        }
+        let Some(target_pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |guard| *guard.get_position())
         else {
             return false;
         };
-        if let Some(owner_arc) = self.owner_object() {
-            if let Ok(owner_ref) = owner_arc.try_read() {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_ref| {
                 let Some(weapon) = owner_ref.get_weapon_in_slot(self.weapon_slot) else {
                     return false;
                 };
                 let max_range = weapon.get_attack_range(owner_ref.get_id());
                 let min_range = weapon.get_template().get_minimum_attack_range();
-                let Some(target_pos) = target.read().ok().map(|guard| *guard.get_position()) else {
-                    return false;
-                };
                 let owner_pos = *owner_ref.get_position();
                 let dx = target_pos.x - owner_pos.x;
                 let dy = target_pos.y - owner_pos.y;
                 let dist = (dx * dx + dy * dy).sqrt();
-                return dist >= min_range && dist <= max_range;
-            }
-        }
-        false
+                dist >= min_range && dist <= max_range
+            })
+            .unwrap_or(false)
     }
 
     /// Check if any turret weapon is within range of target (matches C++ friend_isAnyWeaponInRangeOf)
