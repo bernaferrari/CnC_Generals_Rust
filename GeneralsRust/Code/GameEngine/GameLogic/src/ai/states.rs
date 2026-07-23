@@ -3909,11 +3909,14 @@ impl ClassicState for AIRappelIntoState {
         }
 
         self.target_is_bldg = false;
-        if let Some(goal) = self.base.get_machine_goal_object() {
-            if let Ok(goal_guard) = goal.read() {
-                if !goal_guard.is_effectively_dead() && goal_guard.is_kind_of(KindOf::Structure) {
-                    self.target_is_bldg = true;
-                }
+        if let Some(goal_id) = self.base.get_machine_goal_object_id() {
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(goal_id, |goal_guard| {
+                    !goal_guard.is_effectively_dead() && goal_guard.is_kind_of(KindOf::Structure)
+                })
+                .unwrap_or(false)
+            {
+                self.target_is_bldg = true;
             }
         }
 
