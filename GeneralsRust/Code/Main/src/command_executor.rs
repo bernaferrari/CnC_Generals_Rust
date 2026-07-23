@@ -659,17 +659,41 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    fn execute_stop(&mut self, units: &[ObjectId]) -> CommandResult {
-        for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.stop();
-                unit.set_target(None);
-                unit.set_force_attack(false);
-                // C++ stop clears guard/waypoint residual anchors.
-                unit.set_guard_position(None);
-                unit.set_guard_target(None);
-                unit.end_guard_retaliate();
-                unit.set_ai_state(AIState::Idle);
+    pub(crate) fn execute_stop(&mut self, units: &[ObjectId]) -> CommandResult {
+        // C++ AIGroup::groupIdle (player stop):
+        // aiIdle + stealth combat unit mood delay until stealthed again.
+        let now = self.game_logic.get_frame();
+        // Deterministic group skew residual (C++ GameLogicRandomValue 0..LOGICFRAMES_PER_SECOND).
+        // Host: unit index mod 30 so large multi-selects stagger re-acquire.
+        for (i, &unit_id) in units.iter().enumerate() {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            unit.stop();
+            unit.set_target(None);
+            unit.set_force_attack(false);
+            // C++ stop clears guard/waypoint residual anchors.
+            unit.set_guard_position(None);
+            unit.set_guard_target(None);
+            unit.end_guard_retaliate();
+            unit.set_ai_state(AIState::Idle);
+
+            // C++: CAN_STEALTH + canAutoAcquire + not stealthed + not detected +
+            // !canAutoAcquireWhileStealthed → delay mood check by stealth delay.
+            // Host residual: innate_stealth or stealth_delay_frames>0 as CAN_STEALTH proxy;
+            // stealthed idle acquire already blocked in get_next_mood_target.
+            let can_stealth = unit.innate_stealth || unit.stealth_delay_frames > 0;
+            let not_stealthed = !unit.status.stealthed;
+            let not_detected = !unit.status.detected;
+            if can_stealth
+                && unit.auto_acquire_when_idle
+                && unit.can_attack()
+                && not_stealthed
+                && not_detected
+            {
+                let delay = unit.stealth_delay_frames.max(1);
+                let skew = (i as u32) % 30; // LOGICFRAMES_PER_SECOND residual
+                unit.next_mood_check_time = now.saturating_add(delay).saturating_add(skew);
             }
         }
         CommandResult::Success
@@ -4767,12 +4791,50 @@ mod group_move_tests {
     fn execute_stop_clears_guard_residual() {
         let src = include_str!("command_executor.rs");
         let start = src.find("fn execute_stop").expect("execute_stop");
-        let body = &src[start..start + 700];
+        // Include stealth mood-delay residual after the clear anchors block.
+        let body = &src[start..start + 2200];
         assert!(
             body.contains("set_guard_position(None)")
                 && body.contains("end_guard_retaliate")
-                && body.contains("set_target(None)"),
-            "Stop must clear guard anchors and targets residual"
+                && body.contains("set_target(None)")
+                && body.contains("next_mood_check_time"),
+            "Stop must clear guard anchors/targets and delay stealth mood residual"
+        );
+    }
+
+    #[test]
+    fn stop_delays_mood_for_unstealthed_stealth_unit() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.set_current_frame(100);
+        let mut tpl = ThingTemplate::new("ST_A");
+        tpl.add_kind_of(KindOf::Infantry);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("ST_A".to_string(), tpl);
+        let a = logic.create_object("ST_A", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let u = logic.get_object_mut(a).unwrap();
+            u.innate_stealth = true;
+            u.stealth_delay_frames = 45;
+            u.auto_acquire_when_idle = true;
+            u.status.stealthed = false;
+            u.status.detected = false;
+            u.next_mood_check_time = 0;
+            u.set_ai_state(AIState::Moving);
+        }
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(exec.execute_stop(&[a]), CommandResult::Success);
+        let u = logic.get_object(a).unwrap();
+        assert_eq!(u.ai_state, AIState::Idle);
+        // now=100 + delay 45 + skew 0
+        assert_eq!(
+            u.next_mood_check_time, 145,
+            "player stop should delay mood until stealth window"
         );
     }
 }
