@@ -1748,7 +1748,9 @@ impl SupplyTruckAIUpdate {
             let mut play_depleted = true;
             if let Some(best_warehouse) = resource::find_best_supply_warehouse(self.object_id) {
                 if let (Some(owner), Some(warehouse)) = (
-                    self.owner_object(),
+                    TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                    }),
                     TheGameLogic::find_object_by_id(best_warehouse),
                 ) {
                     if let (Ok(owner_guard), Ok(warehouse_guard)) = (owner.read(), warehouse.read())
@@ -3405,7 +3407,9 @@ impl WorkerAIUpdate {
             let mut play_depleted = true;
             if let Some(best_warehouse) = resource::find_best_supply_warehouse(self.object_id) {
                 if let (Some(owner), Some(warehouse)) = (
-                    self.owner_object(),
+                    TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                    }),
                     TheGameLogic::find_object_by_id(best_warehouse),
                 ) {
                     if let (Ok(owner_guard), Ok(warehouse_guard)) = (owner.read(), warehouse.read())
