@@ -611,16 +611,13 @@ impl SpawnBehavior {
     }
 
     fn create_spawn(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let object = self.get_object()?;
         let data = Arc::clone(&self.module_data);
 
         // Get exit interface
-        let exit_interface = {
-            let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-            obj_guard
-                .get_object_exit_interface()
-                .ok_or("Object must have ExitInterface to use SpawnBehavior")?
-        };
+        let exit_interface = self
+            .with_object(|obj_guard| obj_guard.get_object_exit_interface())
+            .map_err(|_| "Failed to read object")?
+            .ok_or("Object must have ExitInterface to use SpawnBehavior")?;
 
         let exit_door = {
             let mut exit_guard = exit_interface
@@ -651,27 +648,21 @@ impl SpawnBehavior {
                 .as_ref()
                 .ok_or("No spawn template available")?;
 
-            let parent_team = {
-                let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-                obj_guard.get_team()
-            };
+            let parent_team = self
+                .with_object(|obj_guard| obj_guard.get_team())
+                .map_err(|_| "Failed to read object")?;
 
             let spawn_obj = TheObjectFactory::new_object(Arc::clone(template), parent_team)?;
 
             // Count this unit towards our score
-            let controlling_player = {
-                let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-                obj_guard.get_controlling_player()
-            };
+            let controlling_player = self
+                .with_object(|obj_guard| obj_guard.get_controlling_player())
+                .map_err(|_| "Failed to read object")?;
 
             if let Some(player) = controlling_player {
                 let mut player_guard = player.write().map_err(|_| "Failed to write player")?;
                 {
-                    let producer_id = object
-                        .read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID);
+                    let producer_id = self.get_object_id();
                     let unit_id = spawn_obj
                         .read()
                         .ok()
@@ -700,9 +691,9 @@ impl SpawnBehavior {
         // Set producer relationship
         {
             let mut spawn_guard = new_spawn.write().map_err(|_| "Failed to write spawn")?;
-            let parent_obj = object.read().map_err(|_| "Failed to read parent")?;
-            spawn_guard.set_producer(Some(&*parent_obj));
-            drop(parent_obj);
+            let _ = self.with_object(|parent_obj| {
+                spawn_guard.set_producer(Some(parent_obj));
+            })?;
             drop(spawn_guard);
         }
 
@@ -713,11 +704,7 @@ impl SpawnBehavior {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(INVALID_ID);
-            let master_id = object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(self.object_id);
+            let master_id = self.get_object_id();
             self.notify_slaved_update(spawn_id, master_id)?;
         }
 
@@ -739,10 +726,9 @@ impl SpawnBehavior {
 
                 if self.initial_burst_countdown > 0 {
                     // Try to exit from parent's producer (barracks)
-                    let producer_id = {
-                        let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-                        obj_guard.get_producer_id()
-                    };
+                    let producer_id = self
+                        .with_object(|obj_guard| obj_guard.get_producer_id())
+                        .map_err(|_| "Failed to read object")?;
 
                     if producer_id != INVALID_ID {
                         if let Some(barracks) = TheGameLogic::find_object_by_id(producer_id) {
@@ -771,10 +757,9 @@ impl SpawnBehavior {
                                         let mut spawn_guard = new_spawn
                                             .write()
                                             .map_err(|_| "Failed to write spawn")?;
-                                        let parent_obj =
-                                            object.read().map_err(|_| "Failed to read parent")?;
-                                        spawn_guard.set_producer(Some(&*parent_obj));
-                                        drop(parent_obj);
+                                        let _ = self.with_object(|parent_obj| {
+                                            spawn_guard.set_producer(Some(parent_obj));
+                                        })?;
                                         drop(spawn_guard);
 
                                         self.initial_burst_countdown -= 1;
@@ -800,13 +785,14 @@ impl SpawnBehavior {
                             let distance = {
                                 let cur_spawn_guard =
                                     cur_spawn.read().map_err(|_| "Failed to read spawn")?;
-                                let parent_guard =
-                                    object.read().map_err(|_| "Failed to read parent")?;
-                                ThePartitionManager::get_distance_squared(
-                                    &cur_spawn_guard,
-                                    &parent_guard,
-                                    FROM_CENTER_2D,
-                                )
+                                self.with_object(|parent_guard| {
+                                    ThePartitionManager::get_distance_squared(
+                                        &cur_spawn_guard,
+                                        parent_guard,
+                                        FROM_CENTER_2D,
+                                    )
+                                })
+                                .map_err(|_| "Failed to read parent")?
                             };
                             if distance < closest_distance {
                                 closest_distance = distance;
@@ -1359,10 +1345,10 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             // If aggregate health and no spawns left, destroy parent
             if self.spawn_count == 0 && self.aggregate_health {
                 if let Some(killer) = TheGameLogic::find_object_by_id(damage_info.input.source_id) {
-                    let target_object = self.get_object()?;
                     let mut killer_guard = killer.write().map_err(|_| "Failed to write killer")?;
-                    let obj_guard = target_object.read().map_err(|_| "Failed to read object")?;
-                    killer_guard.score_the_kill(&*obj_guard);
+                    let _ = self.with_object(|obj_guard| {
+                        killer_guard.score_the_kill(obj_guard);
+                    });
                 }
 
                 TheGameLogic::destroy_object_by_id(self.get_object_id())?;

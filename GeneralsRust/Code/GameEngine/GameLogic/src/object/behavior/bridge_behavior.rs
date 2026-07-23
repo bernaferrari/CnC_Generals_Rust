@@ -556,7 +556,6 @@ impl BridgeBehavior {
         tower_object: &Arc<RwLock<GameObject>>,
         tower_type: BridgeTowerType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let bridge_arc = self.get_object()?;
         let module_handles = {
             let tower_read = tower_object
                 .read()
@@ -564,9 +563,8 @@ impl BridgeBehavior {
             tower_read.behavior_modules()
         };
 
-        let bridge_id = bridge_arc
-            .read()
-            .map(|guard| guard.get_id())
+        let bridge_id = self
+            .with_object(|guard| guard.get_id())
             .unwrap_or(OBJECT_INVALID_ID);
         for handle in module_handles {
             handle.with_module(|module| {
@@ -1726,10 +1724,10 @@ impl DamageModuleInterface for BridgeBehavior {
                     let Ok(mut tower_write) = tower_arc.write() else {
                         continue;
                     };
-                    let me = self.get_object()?;
-                    let source_guard = me.read().map_err(|_| "bridge lock poisoned")?;
-                    let _ = tower_write
-                        .attempt_healing(healing_percentage * tower_max, Some(&*source_guard));
+                    let _ = self.with_object(|source_guard| {
+                        tower_write
+                            .attempt_healing(healing_percentage * tower_max, Some(source_guard))
+                    });
                 }
             }
         }
