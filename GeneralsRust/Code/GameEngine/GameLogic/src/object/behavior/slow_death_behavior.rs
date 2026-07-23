@@ -598,13 +598,44 @@ impl SlowDeathBehavior {
         self.object_id = object_id;
     }
 
-    fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
-        if self.object_id == INVALID_ID {
+    fn get_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(
+        &self,
+        f: impl FnOnce(&Object) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.get_object_id();
+        if id == INVALID_ID {
             return Err("Object not set".into());
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            .ok_or_else(|| format!("Object {} not registered", self.object_id).into())
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, f)
+            .ok_or_else(|| "Object not found".into())
+    }
+
+    fn with_object_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Object) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.get_object_id();
+        if id == INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(id, f)
+            .ok_or_else(|| "Object not found".into())
+    }
+
+    fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.get_object_id();
+        if id == INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            .ok_or_else(|| "Object not found".into())
     }
 
     fn is_slow_death_activated(&self) -> bool {
@@ -721,11 +752,7 @@ impl UpdateModuleInterface for SlowDeathBehavior {
         if time_scale != 1.0 && self.accelerated_time_scale == 1.0 && !data.has_non_lod_effects() {
             if time_scale == 0.0 {
                 // Instant death - destroy immediately (C++ line 377)
-                let obj_id = object
-                    .read()
-                    .map_err(|e| format!("Lock error: {}", e))?
-                    .get_id();
-                crate::helpers::TheGameLogic::remove_object(obj_id);
+                crate::helpers::TheGameLogic::remove_object(self.get_object_id());
                 return Ok(UPDATE_SLEEP_NONE);
             }
 
@@ -1085,29 +1112,24 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
     /// Calculate probability modifier based on overkill
     /// (Matches C++ SlowDeathBehavior::getProbabilityModifier at line 158)
     fn get_probability_modifier(&self, damage_info: &DamageInfo) -> Int {
-        let object = match self.get_object() {
-            Ok(obj) => obj,
-            Err(_) => return self.module_data.probability_modifier,
-        };
-
-        let obj_read = match object.read() {
-            Ok(o) => o,
+        let max_health = match self.with_object(|obj_read| {
+            if let Some(body_arc) = obj_read.get_body_module() {
+                if let Ok(body_guard) = body_arc.lock() {
+                    body_guard.get_max_health()
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            }
+        }) {
+            Ok(h) => h,
             Err(_) => return self.module_data.probability_modifier,
         };
 
         // Calculate overkill percentage (C++ lines 163-165)
         let overkill_damage =
             damage_info.output.actual_damage_dealt - damage_info.output.actual_damage_clipped;
-        let max_health = if let Some(body_arc) = obj_read.get_body_module() {
-            if let Ok(body_guard) = body_arc.lock() {
-                body_guard.get_max_health()
-            } else {
-                1.0
-            }
-        } else {
-            1.0
-        };
-
         let overkill_percent = (overkill_damage as Real) / max_health;
         let overkill_modifier =
             (overkill_percent * self.module_data.modifier_bonus_per_overkill_percent) as Int;
@@ -1118,19 +1140,12 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
 
     fn is_die_applicable(&self, damage_info: &DamageInfo) -> bool {
         // Matches C++ SlowDeathBehavior.h:132 - Check die mux data applicability
-        let object = match self.get_object() {
-            Ok(obj) => obj,
-            Err(_) => return false,
-        };
-
-        let obj_read = match object.read() {
-            Ok(o) => o,
-            Err(_) => return false,
-        };
-
-        self.module_data
-            .die_mux_data
-            .is_die_applicable(&*obj_read, damage_info)
+        self.with_object(|obj_read| {
+            self.module_data
+                .die_mux_data
+                .is_die_applicable(obj_read, damage_info)
+        })
+        .unwrap_or(false)
     }
 
     fn get_slow_death_phase(&self) -> u32 {

@@ -508,13 +508,44 @@ impl SpawnBehavior {
         self.object_id = object_id;
     }
 
-    fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
-        if self.object_id == INVALID_ID {
+    fn get_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(
+        &self,
+        f: impl FnOnce(&Object) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.get_object_id();
+        if id == INVALID_ID {
             return Err("Object not set".into());
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            .ok_or_else(|| format!("Object {} not registered", self.object_id).into())
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, f)
+            .ok_or_else(|| "Object not found".into())
+    }
+
+    fn with_object_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Object) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.get_object_id();
+        if id == INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(id, f)
+            .ok_or_else(|| "Object not found".into())
+    }
+
+    fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.get_object_id();
+        if id == INVALID_ID {
+            return Err("Object not set".into());
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            .ok_or_else(|| "Object not found".into())
     }
 
     fn notify_slaved_update(
@@ -552,33 +583,31 @@ impl SpawnBehavior {
             return Ok(false);
         }
 
-        let object = self.get_object()?;
-        let obj_guard = object.read().map_err(|_| "Failed to read object")?;
+        self.with_object(|obj_guard| {
+            // Check for reconstruction and one-shot spawning
+            if obj_guard
+                .get_status_bits()
+                .test(OBJECT_STATUS_RECONSTRUCTING)
+                && data.is_one_shot_data
+            {
+                // If we are a Hole rebuild, not only should we not, but we should never ask again.
+                return Ok(false);
+            }
 
-        // Check for reconstruction and one-shot spawning
-        if obj_guard
-            .get_status_bits()
-            .test(OBJECT_STATUS_RECONSTRUCTING)
-            && data.is_one_shot_data
-        {
-            drop(obj_guard);
-            // If we are a Hole rebuild, not only should we not, but we should never ask again.
-            return Ok(false);
-        }
+            // Not if we are under construction or being sold
+            if obj_guard.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION)
+                || obj_guard.test_status(OBJECT_STATUS_SOLD)
+            {
+                return Ok(false);
+            }
 
-        // Not if we are under construction or being sold
-        if obj_guard.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION)
-            || obj_guard.test_status(OBJECT_STATUS_SOLD)
-        {
-            return Ok(false);
-        }
+            // Not if we are civilian controlled
+            if obj_guard.is_neutral_controlled() {
+                return Ok(false);
+            }
 
-        // Not if we are civilian controlled
-        if obj_guard.is_neutral_controlled() {
-            return Ok(false);
-        }
-
-        Ok(true)
+            Ok(true)
+        })?
     }
 
     fn create_spawn(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -826,23 +855,18 @@ impl SpawnBehavior {
     fn reclaim_orphan_spawn(
         &self,
     ) -> Result<Option<Arc<RwLock<Object>>>, Box<dyn std::error::Error + Send + Sync>> {
-        let object = self.get_object()?;
         let data = self.module_data.clone();
 
-        let controlling_player = {
-            let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-            obj_guard.get_controlling_player()
-        };
-
-        let player = controlling_player.ok_or("No controlling player")?;
+        let (player, object_pos) = self.with_object(|obj_guard| {
+            let player = obj_guard.get_controlling_player();
+            let pos = obj_guard.get_position().clone();
+            (player, pos)
+        })?;
+        let player = player.ok_or("No controlling player")?;
 
         // Find closest orphan matching our templates
         let mut closest_orphan = None;
         let mut closest_distance = BIG_DISTANCE;
-        let object_pos = {
-            let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-            obj_guard.get_position().clone()
-        };
 
         // Check each template type
         let mut checked_templates = std::collections::HashSet::new();
@@ -1112,11 +1136,8 @@ impl UpdateModuleInterface for SpawnBehavior {
         if !self.initial_burst_times_inited {
             self.initial_burst_times_inited = true;
 
-            let object = self.get_object()?;
-            let runtime_produced = {
-                let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-                obj_guard.get_producer_id() != INVALID_ID
-            };
+            let runtime_produced =
+                self.with_object(|obj_guard| obj_guard.get_producer_id() != INVALID_ID)?;
 
             let now = TheGameLogic::get_frame();
             let mut burst_init_count = self.initial_burst_countdown;
@@ -1172,12 +1193,7 @@ impl DieModuleInterface for SpawnBehavior {
         damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let data = &self.module_data;
-        let object = self.get_object()?;
-
-        if !data
-            .die_mux_data
-            .is_die_applicable(&object.read().unwrap(), damage_info)
-        {
+        if !self.with_object(|obj| data.die_mux_data.is_die_applicable(obj, damage_info))? {
             return Ok(());
         }
 
@@ -1310,15 +1326,13 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         }
 
         // Check if last attack command was from player/script
-        if let Ok(object) = self.get_object() {
-            if let Some(ai) = object.read().unwrap().get_ai_update_interface() {
-                let ai_guard = ai.lock().unwrap();
-                let last_command_source = ai_guard.get_last_command_source();
-                drop(ai_guard);
-
-                if last_command_source != CMD_FROM_AI {
-                    return false;
-                }
+        if let Ok(Some(last_command_source)) = self.with_object(|object| {
+            object
+                .get_ai_update_interface()
+                .and_then(|ai| ai.lock().ok().map(|g| g.get_last_command_source()))
+        }) {
+            if last_command_source != CMD_FROM_AI {
+                return false;
             }
         }
 
@@ -1351,9 +1365,7 @@ impl SpawnBehaviorInterface for SpawnBehavior {
                     killer_guard.score_the_kill(&*obj_guard);
                 }
 
-                let object = self.get_object()?;
-                let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-                TheGameLogic::destroy_object(&*obj_guard)?;
+                TheGameLogic::destroy_object_by_id(self.get_object_id())?;
             }
         }
 
