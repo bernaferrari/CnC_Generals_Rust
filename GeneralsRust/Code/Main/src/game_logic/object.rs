@@ -940,6 +940,9 @@ pub struct Object {
     #[serde(default)]
     pub structure_collapse_data:
         Option<crate::game_logic::host_structure_collapse::HostStructureCollapseData>,
+    /// C++ KeepObjectDie residual (leave rubble).
+    #[serde(default)]
+    pub keep_object_die: Option<crate::game_logic::host_keep_object_die::HostKeepObjectDieData>,
     /// C++ FireWeaponWhenDamagedBehavior residual.
     #[serde(default)]
     pub fire_weapon_when_damaged:
@@ -1597,6 +1600,7 @@ impl Object {
             topple_data: None,
             structure_topple_data: None,
             structure_collapse_data: None,
+            keep_object_die: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
@@ -1943,6 +1947,7 @@ impl Object {
             topple_data: None,
             structure_topple_data: None,
             structure_collapse_data: None,
+            keep_object_die: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
@@ -2246,7 +2251,10 @@ impl Object {
     }
 
     pub fn is_alive(&self) -> bool {
-        !self.status.destroyed && self.health.is_alive()
+        !self.status.destroyed
+            && !self.status.effectively_dead
+            && !self.status.keep_as_rubble
+            && self.health.is_alive()
     }
 
     pub fn get_health_percentage(&self) -> f32 {
@@ -2354,6 +2362,7 @@ impl Object {
             || self.status.disabled_paralyzed
             || self.status.disabled_subdued
             || self.status.disabled_freefall
+            || self.status.disabled_default
             || self.status.under_construction
     }
 
@@ -2564,6 +2573,33 @@ impl Object {
             return true;
         }
         false
+    }
+
+    /// C++ KeepObjectDie residual: leave rubble instead of DestroyDie remove.
+    pub fn begin_keep_object_die(&mut self, current_frame: u32) -> bool {
+        let is_struct = self.is_kind_of(crate::game_logic::KindOf::Structure);
+        if !crate::game_logic::host_keep_object_die::wants_keep_object_die(
+            &self.template_name,
+            is_struct,
+        ) {
+            return false;
+        }
+        if self.status.keep_as_rubble {
+            return true;
+        }
+        let mut data = crate::game_logic::host_keep_object_die::HostKeepObjectDieData::default();
+        data.mark_rubble(current_frame);
+        self.keep_object_die = Some(data);
+        self.health.current = 0.0;
+        self.status.effectively_dead = true;
+        self.status.keep_as_rubble = true;
+        // Not destroyed: remains in world. Unselectable rubble husk.
+        self.status.destroyed = false;
+        self.status.selected = false;
+        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.target = None;
+        self.refresh_model_condition_bits();
+        true
     }
 
     /// C++ JetSlowDeathBehavior residual begin.
@@ -12280,6 +12316,21 @@ mod tests {
         o.set_position(glam::Vec3::new(0.0, 3.0, 0.0));
         assert!(o.tick_height_die(3, 0.0));
         assert!(o.status.destroyed);
+    }
+
+    #[test]
+    fn keep_object_die_leaves_rubble() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("TechHospital");
+        t.set_health(500.0);
+        t.add_kind_of(KindOf::Structure);
+        let mut o = Object::new(t, ObjectId(9), Team::Neutral);
+        o.health.current = 0.0;
+        assert!(o.begin_keep_object_die(10));
+        assert!(o.status.keep_as_rubble);
+        assert!(o.status.effectively_dead);
+        assert!(!o.status.destroyed);
+        assert!(!o.is_alive());
     }
 
     #[test]

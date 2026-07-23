@@ -22151,6 +22151,8 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        // C++ DamDie::onDie residual fires with other die modules at death start.
+        self.maybe_apply_dam_die(id);
         // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
         if self.try_begin_structure_topple_instead_of_destroy(id, killer) {
             return;
@@ -22159,8 +22161,69 @@ impl GameLogic {
         if self.try_begin_slow_death_instead_of_destroy(id, killer) {
             return;
         }
+        // C++ KeepObjectDie residual: leave rubble, do not DestroyDie-remove.
+        if self.try_begin_keep_object_die_instead_of_destroy(id, killer) {
+            return;
+        }
         self.objects_to_destroy
             .push_back(DestructionEvent { id, killer });
+    }
+
+    /// C++ KeepObjectDie residual: convert to lasting rubble, skip remove.
+    fn try_begin_keep_object_die_instead_of_destroy(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+    ) -> bool {
+        let frame = self.frame;
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if obj.status.keep_as_rubble {
+            let _ = killer;
+            return true;
+        }
+        if !obj.begin_keep_object_die(frame) {
+            return false;
+        }
+        let _ = killer;
+        // Death FX / OCL peels without world removal.
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.fire_fx_list_die();
+            obj.fire_create_object_die();
+        }
+        self.apply_pending_create_object_die(id);
+        let is_dam = self
+            .objects
+            .get(&id)
+            .map(|o| crate::game_logic::host_dam_die::is_dam_template(&o.template_name))
+            .unwrap_or(false);
+        if is_dam {
+            self.apply_dam_die_enable_waveguides();
+        }
+        true
+    }
+
+    /// C++ DamDie::onDie residual — enable KINDOF_WAVEGUIDE objects.
+    fn maybe_apply_dam_die(&mut self, id: ObjectId) {
+        let is_dam = self
+            .objects
+            .get(&id)
+            .map(|o| crate::game_logic::host_dam_die::is_dam_template(&o.template_name))
+            .unwrap_or(false);
+        if is_dam {
+            self.apply_dam_die_enable_waveguides();
+        }
+    }
+
+    fn apply_dam_die_enable_waveguides(&mut self) {
+        for obj in self.objects.values_mut() {
+            let is_wg = obj.is_kind_of(crate::game_logic::KindOf::WaveGuide)
+                || crate::game_logic::host_dam_die::is_wave_guide_template(&obj.template_name);
+            if is_wg {
+                obj.status.disabled_default = false;
+            }
+        }
     }
 
     fn try_begin_slow_death_instead_of_destroy(
@@ -82201,6 +82264,60 @@ mod tests {
             assert!(o.tick_height_die(2, 0.0));
         }
         assert!(logic.objects.get(&id).unwrap().status.destroyed);
+    }
+
+    #[test]
+    fn keep_object_die_defers_destroy() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        // Oil peels skip StructureTopple residual and use KeepObjectDie directly.
+        let mut t = ThingTemplate::new("TechOilDerrick");
+        t.set_health(500.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("TechOilDerrick".into(), t);
+        let id = logic
+            .create_object(
+                "TechOilDerrick",
+                Team::Neutral,
+                glam::Vec3::new(10.0, 0.0, 10.0),
+            )
+            .unwrap();
+        logic.mark_object_for_destruction(id, None);
+        let obj = logic.objects.get(&id).expect("rubble remains");
+        assert!(obj.status.keep_as_rubble);
+        assert!(obj.status.effectively_dead);
+        assert!(!obj.status.destroyed);
+        assert!(logic.objects_to_destroy.iter().all(|e| e.id != id));
+    }
+
+    #[test]
+    fn dam_die_enables_waveguides() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut dam = ThingTemplate::new("Dam");
+        dam.set_health(1000.0);
+        dam.add_kind_of(KindOf::Structure);
+        logic.templates.insert("Dam".into(), dam);
+        let mut wg = ThingTemplate::new("WaveGuide1");
+        wg.set_health(100.0);
+        wg.add_kind_of(KindOf::WaveGuide);
+        logic.templates.insert("WaveGuide1".into(), wg);
+        let dam_id = logic
+            .create_object("Dam", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let wg_id = logic
+            .create_object("WaveGuide1", Team::Neutral, glam::Vec3::new(50.0, 0.0, 0.0))
+            .unwrap();
+        logic
+            .objects
+            .get_mut(&wg_id)
+            .unwrap()
+            .status
+            .disabled_default = true;
+        assert!(logic.objects.get(&wg_id).unwrap().is_disabled());
+        logic.mark_object_for_destruction(dam_id, None);
+        assert!(!logic.objects.get(&wg_id).unwrap().status.disabled_default);
+        assert!(!logic.objects.get(&wg_id).unwrap().is_disabled());
     }
 
     #[test]

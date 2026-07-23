@@ -112,6 +112,7 @@ pub mod host_combat_sim_residual;
 pub mod host_command_button_residual;
 pub mod host_countermeasures;
 mod host_create_object_die;
+mod host_dam_die;
 pub mod host_deliver_payload;
 pub mod host_demo_suicide_bomb;
 pub mod host_dock_contain_exit_heal_residual;
@@ -148,6 +149,7 @@ pub mod host_humvee;
 pub mod host_inferno_cannon;
 pub mod host_jarmen_kell;
 mod host_jet_slow_death;
+mod host_keep_object_die;
 pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
@@ -981,12 +983,20 @@ pub enum KindOf {
     ArmorSalvager,
     /// C++ KINDOF_AIRCRAFT_PATH_AROUND — tall buildings aircraft path around.
     AircraftPathAround,
+    /// C++ KINDOF_WAVEGUIDE — flood wave objects enabled by DamDie.
+    WaveGuide,
 }
 
 /// Object status flags
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ObjectStatus {
     pub destroyed: bool,
+    /// C++ isEffectivelyDead residual (rubble kept in world).
+    #[serde(default)]
+    pub effectively_dead: bool,
+    /// C++ KeepObjectDie rubble residual (object stays after death).
+    #[serde(default)]
+    pub keep_as_rubble: bool,
     /// C++ OBJECT_STATUS_REPULSOR residual (script SetRepulsor / dead civs).
     #[serde(default)]
     pub repulsor: bool,
@@ -1024,6 +1034,9 @@ pub struct ObjectStatus {
     pub detected: bool,
     /// C++ DISABLED_UNDERPOWERED: set when player's power supply < demand.
     pub disabled_underpowered: bool,
+    /// C++ DISABLED_DEFAULT residual (WaveGuide starts disabled until DamDie).
+    #[serde(default)]
+    pub disabled_default: bool,
     /// C++ DISABLED_UNMANNED residual (DAMAGE_KILLPILOT / Jarmen Kell snipe).
     /// Vehicle stays alive but cannot act; team is typically Neutral.
     #[serde(default)]
