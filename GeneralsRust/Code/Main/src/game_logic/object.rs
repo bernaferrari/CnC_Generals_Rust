@@ -1007,6 +1007,8 @@ pub struct Object {
     pub continuous_fire_one_shots: u32,
     /// C++ WeaponTemplate::m_continuousFireTwoShotsNeeded residual.
     pub continuous_fire_two_shots: u32,
+    /// C++ ContinuousFireCoast residual (logic frames; 0 = no auto cool-down timer).
+    pub continuous_fire_coast_frames: u32,
     /// Absolute host frame until which coast keeps spin-up (0 = none).
     #[serde(default)]
     pub continuous_fire_coast_until_frame: u32,
@@ -1682,6 +1684,7 @@ impl Object {
             continuous_fire_level: 0,
             continuous_fire_one_shots: u32::MAX,
             continuous_fire_two_shots: u32::MAX,
+            continuous_fire_coast_frames: 0,
             continuous_fire_coast_until_frame: 0,
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
@@ -1996,6 +1999,7 @@ impl Object {
             continuous_fire_level: 0,
             continuous_fire_one_shots: u32::MAX,
             continuous_fire_two_shots: u32::MAX,
+            continuous_fire_coast_frames: 0,
             continuous_fire_coast_until_frame: 0,
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
@@ -7657,6 +7661,39 @@ impl Object {
         self.record_host_continuous_fire();
     }
 
+    /// Stamp ContinuousFireCoast deadline after a shot (C++ m_frameToStartCoolDown).
+    pub fn stamp_continuous_fire_coast(&mut self, frame: u32) {
+        if self.continuous_fire_level == 0 {
+            self.continuous_fire_coast_until_frame = 0;
+            return;
+        }
+        let coast = self.continuous_fire_coast_frames;
+        if coast == 0 {
+            // No coast configured — keep spin until explicit cool-down.
+            return;
+        }
+        self.continuous_fire_coast_until_frame = frame.saturating_add(coast);
+    }
+
+    /// C++ FiringTracker::update cool-down after ContinuousFireCoast idle.
+    pub fn tick_continuous_fire_coast(&mut self, frame: u32) {
+        if self.continuous_fire_level == 0 {
+            return;
+        }
+        let until = self.continuous_fire_coast_until_frame;
+        if until == 0 || frame < until {
+            return;
+        }
+        // coolDown residual: clear MEAN/FAST straight to zero.
+        self.continuous_fire_level = 0;
+        self.continuous_fire_consecutive = 0;
+        self.consecutive_shots_at_target = 0;
+        self.consecutive_shot_target = None;
+        self.continuous_fire_victim = 0;
+        self.continuous_fire_coast_until_frame = 0;
+        self.record_host_continuous_fire();
+    }
+
     /// Fire at target. `target_is_infantry` selects ScatterRadiusVsInfantry residual.
     pub fn fire_at(&mut self, target_id: ObjectId, current_time: f32) -> bool {
         self.fire_at_ex(target_id, current_time, false, false)
@@ -10527,6 +10564,39 @@ mod tests {
             resolve_host_death_type(None, DamageType::Toxin),
             HostDeathType::Poisoned
         );
+    }
+
+    #[test]
+    fn continuous_fire_coasts_down_after_idle() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("CFC_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("CFC_V".to_string(), tpl);
+        let id = logic.create_object("CFC_V", Team::USA, Vec3::ZERO).unwrap();
+        let tgt = ObjectId(7);
+        {
+            let a = logic.get_object_mut(id).unwrap();
+            a.continuous_fire_one_shots = 1;
+            a.continuous_fire_two_shots = 4;
+            a.continuous_fire_coast_frames = 10;
+            a.record_shot_at_target(tgt);
+            a.record_shot_at_target(tgt);
+            assert_eq!(a.continuous_fire_level, 1);
+            a.stamp_continuous_fire_coast(100);
+            assert_eq!(a.continuous_fire_coast_until_frame, 110);
+            a.tick_continuous_fire_coast(109);
+            assert_eq!(a.continuous_fire_level, 1);
+            a.tick_continuous_fire_coast(110);
+            assert_eq!(a.continuous_fire_level, 0);
+            assert_eq!(a.consecutive_shots_at_target, 0);
+            let (_, _, rof, _) = a.weapon_bonus_fields();
+            assert!((rof - 1.0).abs() < 0.01);
+        }
     }
 
     #[test]
