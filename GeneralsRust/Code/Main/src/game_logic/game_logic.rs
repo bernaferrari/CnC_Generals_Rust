@@ -1108,6 +1108,10 @@ pub struct GameLogic {
     /// (load / unload / passenger fire / armed-riders weapon-set).
     /// Fail-closed: not SlowDeath undeath SECOND_LIFE / multi-door exit matrix.
     battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry,
+    /// C++ HighlanderBody residual clamps.
+    highlander_body_reg: crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry,
+    /// C++ UpgradeDie residual removals.
+    upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry,
 
     /// Host GLA Tunnel Network residual (TunnelContain shared MaxTunnelCapacity=10).
     /// Enter any allied tunnel; exit/evacuate at any allied tunnel (cross-tunnel).
@@ -2763,6 +2767,9 @@ impl GameLogic {
             overlord_bunker_residual_enters: 0,
             overlord_bunker_residual_exits: 0,
             battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry::new(),
+            highlander_body_reg:
+                crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry::new(),
+            upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
             tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry::new(
             ),
             combat_chinook: crate::game_logic::host_combat_chinook::HostCombatChinookRegistry::new(
@@ -3206,6 +3213,8 @@ impl GameLogic {
         self.overlord_bunker_residual_enters = 0;
         self.overlord_bunker_residual_exits = 0;
         self.battle_bus.clear();
+        self.highlander_body_reg.clear();
+        self.upgrade_die_reg.clear();
         self.tunnel_network.clear();
         self.combat_chinook.clear();
         self.listening_outpost.clear();
@@ -21595,6 +21604,14 @@ impl GameLogic {
             if crate::game_logic::host_battle_bus::is_battle_bus_template(template_name) {
                 object.install_battle_bus_transport();
             }
+            if crate::game_logic::host_highlander_body::is_highlander_body_template(template_name) {
+                object.install_highlander_body();
+            }
+            if let Some(up) =
+                crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
+            {
+                object.install_upgrade_die(up);
+            }
 
             // Host residual: GLA Technical TransportContain Slots=5 (infantry passengers)
             // + PRIMARY TechnicalMachineGunWeapon residual (salvage tiers swap later).
@@ -22480,6 +22497,8 @@ impl GameLogic {
         self.maybe_notify_special_power_completion(id);
         // C++ DamDie::onDie residual fires with other die modules at death start.
         self.maybe_apply_dam_die(id);
+        // C++ UpgradeDie::onDie residual — free producer's upgrade slot.
+        self.maybe_apply_upgrade_die(id);
         // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
         if self.try_begin_structure_topple_instead_of_destroy(id, killer) {
             return;
@@ -22532,6 +22551,36 @@ impl GameLogic {
     }
 
     /// C++ DamDie::onDie residual — enable KINDOF_WAVEGUIDE objects.
+    /// C++ UpgradeDie::onDie residual.
+    fn maybe_apply_upgrade_die(&mut self, id: ObjectId) {
+        let (producer, upgrade) = {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                return;
+            };
+            let Some(ud) = obj.upgrade_die.as_mut() else {
+                return;
+            };
+            if ud.fired {
+                return;
+            }
+            ud.fired = true;
+            (obj.producer_id, ud.upgrade_to_remove.clone())
+        };
+        let Some(pid) = producer else {
+            self.upgrade_die_reg.record_missing_producer();
+            return;
+        };
+        let Some(master) = self.objects.get_mut(&pid) else {
+            self.upgrade_die_reg.record_missing_producer();
+            return;
+        };
+        if master.remove_upgrade_tag(&upgrade) {
+            self.upgrade_die_reg.record_removal();
+        } else {
+            self.upgrade_die_reg.record_missing_upgrade();
+        }
+    }
+
     fn maybe_apply_dam_die(&mut self, id: ObjectId) {
         let is_dam = self
             .objects
@@ -26474,6 +26523,18 @@ impl GameLogic {
     /// Residual honesty: Battle Bus load → docked → unload path.
     pub fn honesty_battle_bus_load_unload_ok(&self) -> bool {
         self.battle_bus.honesty_load_unload_ok()
+    }
+
+    pub fn honesty_highlander_body_ok(&self) -> bool {
+        self.highlander_body_reg.honesty_clamp_ok()
+    }
+
+    pub fn honesty_upgrade_die_ok(&self) -> bool {
+        self.upgrade_die_reg.honesty_removal_ok()
+    }
+
+    pub fn record_highlander_clamp(&mut self) {
+        self.highlander_body_reg.record_clamp();
     }
 
     /// Residual honesty: Battle Bus passenger residual fire.
@@ -35730,6 +35791,14 @@ impl GameLogic {
         let (ox, oz) = drone_spawn_offset_from_master(kind);
         let spawn_pos = Vec3::new(master_pos.x + ox, master_pos.y, master_pos.z + oz);
         let drone_id = self.create_object(drone_tpl_name, team, spawn_pos)?;
+
+        // C++ Object::setProducer + UpgradeDie producer link residual.
+        if let Some(drone) = self.objects.get_mut(&drone_id) {
+            drone.producer_id = Some(master_id);
+            if drone.upgrade_die.is_none() {
+                drone.install_upgrade_die(kind.upgrade_name());
+            }
+        }
 
         if let Some(master) = self.objects.get_mut(&master_id) {
             master.apply_upgrade_tag(kind.upgrade_name());
@@ -73822,6 +73891,104 @@ mod tests {
             )
         };
         assert!(killed, "UNRESISTABLE must bypass UndeadBody");
+    }
+
+    #[test]
+    fn highlander_body_clamps_normal_damage_unresistable_kills() {
+        let mut game_logic = GameLogic::new();
+        // Ensure template + highlander install.
+        let mut tpl = ThingTemplate::new("TreeHighlanderTest");
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Immobile)
+            .set_health(50.0);
+        game_logic
+            .templates
+            .insert("TreeHighlanderTest".into(), tpl);
+        let id = game_logic
+            .create_object("TreeHighlanderTest", Team::Neutral, Vec3::ZERO)
+            .expect("tree");
+        {
+            let o = game_logic.find_object_mut(id).unwrap();
+            assert!(
+                o.highlander_body,
+                "create_object must install HighlanderBody"
+            );
+            o.thing.template.armor = 0.0;
+            o.health.maximum = 50.0;
+            o.health.current = 50.0;
+        }
+        let killed = {
+            let o = game_logic.find_object_mut(id).unwrap();
+            o.take_damage_from_typed(999.0, None, crate::game_logic::combat::DamageType::Bullet)
+        };
+        assert!(!killed);
+        let o = game_logic.find_object(id).unwrap();
+        assert!(o.is_alive());
+        assert!(
+            (o.health.current - 1.0).abs() < 0.01,
+            "highlander must leave 1 HP, got {}",
+            o.health.current
+        );
+        // UNRESISTABLE kills.
+        let killed2 = {
+            let o = game_logic.find_object_mut(id).unwrap();
+            o.take_damage_from_typed(
+                10.0,
+                None,
+                crate::game_logic::combat::DamageType::Unresistable,
+            )
+        };
+        assert!(killed2);
+    }
+
+    #[test]
+    fn upgrade_die_removes_producer_drone_upgrade() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        // Humvee-like master.
+        let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".into(), humvee);
+        let master_id = game_logic
+            .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("humvee");
+        let drone_id = game_logic
+            .residual_attach_slave_drone(
+                master_id,
+                crate::game_logic::host_slave_drones::SlaveDroneKind::Scout,
+            )
+            .expect("scout drone");
+        {
+            let m = game_logic.find_object(master_id).unwrap();
+            assert!(m.has_upgrade_tag(
+                crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE
+            ));
+        }
+        {
+            let d = game_logic.find_object(drone_id).unwrap();
+            assert_eq!(d.producer_id, Some(master_id));
+            assert!(d.upgrade_die.is_some());
+        }
+        // Kill drone → UpgradeDie frees master upgrade.
+        game_logic.destroy_object(drone_id);
+        // Process destruction queue if needed.
+        if let Some(d) = game_logic.find_object_mut(drone_id) {
+            d.status.destroyed = true;
+            d.health.current = 0.0;
+        }
+        // destroy_object should have already run upgrade die via mark.
+        let m = game_logic.find_object(master_id).unwrap();
+        assert!(
+            !m.has_upgrade_tag(crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE),
+            "UpgradeDie must remove producer upgrade"
+        );
+        assert!(game_logic.honesty_upgrade_die_ok());
     }
 
     // -----------------------------------------------------------------------
