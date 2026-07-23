@@ -908,7 +908,9 @@ impl SpawnBehavior {
             return Ok(()); // Not using aggregate health
         }
 
-        let object = self.get_object()?;
+        if self.get_object_id() == INVALID_ID {
+            return Err("SpawnBehavior missing owning object".into());
+        }
         let data = self.module_data.clone();
 
         let mut spawn_count = 0;
@@ -941,23 +943,21 @@ impl SpawnBehavior {
 
                 // Handle veterancy synchronization
                 let spawn_vet_level = spawn_guard.get_veterancy_level();
-                let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-                let obj_vet_level = obj_guard.get_veterancy_level();
+                let obj_vet_level = self
+                    .with_object(|obj_guard| obj_guard.get_veterancy_level())
+                    .map_err(|_| "Failed to read object")?;
 
                 if spawn_vet_level > obj_vet_level {
-                    drop(obj_guard);
-                    let obj_guard = object.write().map_err(|_| "Failed to write object")?;
-                    if let Some(exp_tracker) = obj_guard.get_experience_tracker() {
-                        let mut tracker_guard = exp_tracker
-                            .lock()
-                            .map_err(|_| "Failed to lock experience tracker")?;
-                        tracker_guard.set_veterancy_level_with_requirements(
-                            spawn_vet_level,
-                            &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                        );
-                        drop(tracker_guard);
-                    }
-                    drop(obj_guard);
+                    let _ = self.with_object_mut(|obj_guard| {
+                        if let Some(exp_tracker) = obj_guard.get_experience_tracker() {
+                            if let Ok(mut tracker_guard) = exp_tracker.lock() {
+                                tracker_guard.set_veterancy_level_with_requirements(
+                                    spawn_vet_level,
+                                    &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
+                                );
+                            }
+                        }
+                    });
                 } else if spawn_vet_level < obj_vet_level {
                     if let Some(spawn_exp_tracker) = spawn_guard.get_experience_tracker() {
                         let mut spawn_tracker_guard = spawn_exp_tracker
@@ -999,17 +999,14 @@ impl SpawnBehavior {
         }
 
         if somebody_is_selected {
-            let obj_selected = {
-                let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-                if let Some(drawable) = obj_guard.get_drawable() {
-                    drawable
-                        .read()
-                        .map_err(|_| "Failed to read object drawable")?
-                        .is_selected()
-                } else {
-                    false
-                }
-            };
+            let obj_selected = self
+                .with_object(|obj_guard| {
+                    obj_guard
+                        .get_drawable()
+                        .and_then(|drawable| drawable.read().ok().map(|d| d.is_selected()))
+                })
+                .map_err(|_| "Failed to read object")?
+                .unwrap_or(false);
 
             if !obj_selected || somebody_is_not_selected {
                 // Create selection group message
@@ -1039,13 +1036,14 @@ impl SpawnBehavior {
 
                 // Select parent object if not selected
                 if !obj_selected {
-                    let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-                    if let Some(drawable) = obj_guard.get_drawable() {
-                        TheInGameUI::select_drawable(&drawable);
-                        TheInGameUI::set_displayed_max_warning(false);
-                        team_msg.append_boolean_argument(false);
-                        team_msg.append_object_id_argument(obj_guard.get_id());
-                    }
+                    let _ = self.with_object(|obj_guard| {
+                        if let Some(drawable) = obj_guard.get_drawable() {
+                            TheInGameUI::select_drawable(&drawable);
+                            TheInGameUI::set_displayed_max_warning(false);
+                            team_msg.append_boolean_argument(false);
+                            team_msg.append_object_id_argument(obj_guard.get_id());
+                        }
+                    });
                 }
             }
         }
@@ -1053,15 +1051,14 @@ impl SpawnBehavior {
         // Update health box position (average of spawn positions)
         if spawn_count > 0 {
             avg_spawn_pos /= spawn_count as Real;
-            let obj_pos = {
-                let obj_guard = object.read().map_err(|_| "Failed to read object")?;
-                obj_guard.get_position().clone()
-            };
+            let obj_pos = self
+                .with_object(|obj_guard| *obj_guard.get_position())
+                .map_err(|_| "Failed to read object")?;
             avg_spawn_pos -= obj_pos;
 
-            let mut obj_guard = object.write().map_err(|_| "Failed to write object")?;
-            obj_guard.set_health_box_offset(avg_spawn_pos);
-            drop(obj_guard);
+            let _ = self.with_object_mut(|obj_guard| {
+                obj_guard.set_health_box_offset(avg_spawn_pos);
+            });
         }
 
         // Update aggregate health
@@ -1070,32 +1067,32 @@ impl SpawnBehavior {
             let perfect_total_health = avg_health_max * spawn_count_max as Real;
             let actual_health = acr_health / perfect_total_health;
 
-            let obj_guard = object.write().map_err(|_| "Failed to write object")?;
-            if let Some(body) = obj_guard.get_body_module() {
-                let mut body_guard = body.lock().map_err(|_| "Failed to lock object body")?;
-                let percent = (100.0 * actual_health).clamp(0.0, 100.0).round() as i32;
-                body_guard
-                    .set_initial_health(percent)
-                    .map_err(|e| format!("Failed to set spawn initial health: {e}"))?;
-                drop(body_guard);
-            }
-            drop(obj_guard);
+            self.with_object_mut(|obj_guard| {
+                if let Some(body) = obj_guard.get_body_module() {
+                    let mut body_guard = body.lock().map_err(|_| "Failed to lock object body")?;
+                    let percent = (100.0 * actual_health).clamp(0.0, 100.0).round() as i32;
+                    body_guard
+                        .set_initial_health(percent)
+                        .map_err(|e| format!("Failed to set spawn initial health: {e}"))?;
+                }
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+            })??;
         } else {
-            let obj_guard = object.write().map_err(|_| "Failed to write object")?;
-            if let Some(body) = obj_guard.get_body_module() {
-                let mut body_guard = body.lock().map_err(|_| "Failed to lock object body")?;
-                body_guard
-                    .set_initial_health(0)
-                    .map_err(|e| format!("Failed to set spawn initial zero health: {e}"))?;
-                drop(body_guard);
-            }
-            drop(obj_guard);
+            self.with_object_mut(|obj_guard| {
+                if let Some(body) = obj_guard.get_body_module() {
+                    let mut body_guard = body.lock().map_err(|_| "Failed to lock object body")?;
+                    body_guard
+                        .set_initial_health(0)
+                        .map_err(|e| format!("Failed to set spawn initial zero health: {e}"))?;
+                }
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+            })??;
         }
 
         // Make sure no enemies are shooting at the nexus, since it doesn't 'exist'
-        let mut obj_guard = object.write().map_err(|_| "Failed to write object")?;
-        obj_guard.set_status(MAKE_OBJECT_STATUS_MASK!(OBJECT_STATUS_MASKED), true);
-        drop(obj_guard);
+        let _ = self.with_object_mut(|obj_guard| {
+            obj_guard.set_status(MAKE_OBJECT_STATUS_MASK!(OBJECT_STATUS_MASKED), true);
+        });
 
         Ok(())
     }

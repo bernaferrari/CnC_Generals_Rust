@@ -203,36 +203,32 @@ impl PropagandaCenterBehavior {
             if current_frame.saturating_sub(self.brainwashing_subject_start_frame)
                 >= self.module_data.brainwash_duration
             {
-                let Some(owner) = self.get_object() else {
+                let Some(exit_interface) = self
+                    .with_object(|guard| guard.get_object_exit_interface())
+                    .flatten()
+                else {
                     return Ok(());
                 };
 
-                let exit_interface = owner
-                    .read()
-                    .ok()
-                    .and_then(|guard| guard.get_object_exit_interface());
-
-                let Some(exit_interface) = exit_interface else {
+                let Ok(subject_guard) = subject_arc.read() else {
                     return Ok(());
                 };
-
-                let (exit_door, controlling_player) = {
-                    let Ok(owner_guard) = owner.read() else {
-                        return Ok(());
-                    };
-                    let Ok(subject_guard) = subject_arc.read() else {
-                        return Ok(());
-                    };
-                    let Ok(mut exit_guard) = exit_interface.lock() else {
-                        return Ok(());
-                    };
-
-                    (
-                        exit_guard
-                            .reserve_door_for_exit(Some(&*owner_guard), Some(&*subject_guard)),
-                        owner_guard.get_controlling_player(),
-                    )
+                let Some((exit_door, controlling_player)) = self
+                    .with_object(|owner_guard| {
+                        let Ok(mut exit_guard) = exit_interface.lock() else {
+                            return None;
+                        };
+                        Some((
+                            exit_guard
+                                .reserve_door_for_exit(Some(owner_guard), Some(&*subject_guard)),
+                            owner_guard.get_controlling_player(),
+                        ))
+                    })
+                    .flatten()
+                else {
+                    return Ok(());
                 };
+                drop(subject_guard);
 
                 if matches!(exit_door, ExitDoorType::None | ExitDoorType::NoneAvailable) {
                     return Ok(());
