@@ -291,6 +291,8 @@ pub struct Player {
     pub queued_upgrades: HashSet<String>,
     pub is_local: bool,
     pub is_alive: bool,
+    /// C++ Player::didPlayerPreorder residual (shell/skirmish preorder bonus).
+    pub did_preorder: bool,
     pub statistics: PlayerStatistics,
     /// Frame at which power sabotage expires (0 = not sabotaged).
     /// Matches C++ Player::m_powerSabotagedUntilFrame.
@@ -349,6 +351,7 @@ impl Player {
             unlocked_sciences: HashSet::new(),
             queued_upgrades: HashSet::new(),
             is_local,
+            did_preorder: false,
             is_alive: true,
             statistics: PlayerStatistics::default(),
             power_sabotaged_till_frame: 0,
@@ -1115,6 +1118,8 @@ pub struct GameLogic {
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
+    /// C++ PreorderCreate residual counters.
+    preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry,
     /// C++ UpgradeDie residual removals.
     upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry,
 
@@ -2776,6 +2781,7 @@ impl GameLogic {
                 crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry::new(),
             deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
+            preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
             tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry::new(
             ),
@@ -3223,6 +3229,7 @@ impl GameLogic {
         self.highlander_body_reg.clear();
         self.deploy_style_reg.clear();
         self.command_button_hunt_reg.clear();
+        self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
         self.tunnel_network.clear();
         self.combat_chinook.clear();
@@ -26896,6 +26903,18 @@ impl GameLogic {
     /// Residual honesty: Battle Bus load → docked → unload path.
     pub fn honesty_battle_bus_load_unload_ok(&self) -> bool {
         self.battle_bus.honesty_load_unload_ok()
+    }
+
+    pub fn honesty_preorder_create_ok(&self) -> bool {
+        self.preorder_create_reg.honesty_ok()
+    }
+
+    pub fn set_player_did_preorder(&mut self, team: Team, did: bool) {
+        for p in self.players.values_mut() {
+            if p.team == team {
+                p.did_preorder = did;
+            }
+        }
     }
 
     pub fn honesty_command_button_hunt_ok(&self) -> bool {
@@ -51067,8 +51086,30 @@ impl GameLogic {
         let team = obj.team;
         let pos = obj.get_position();
         let name = obj.template_name.clone();
-        // C++ SpecialPowerCreate → onSpecialPowerCreation (all owners, not local-only).
         // NLL ends `obj` borrow after last field copy above.
+        // C++ PreorderCreate::onBuildComplete residual.
+        let did_preorder = self
+            .players
+            .values()
+            .find(|p| p.team == team && p.is_alive)
+            .map(|p| p.did_preorder)
+            .unwrap_or(false);
+        if crate::game_logic::host_preorder_create::is_preorder_create_template(&name) {
+            if let Some(o) = self.objects.get_mut(&structure_id) {
+                o.model_condition_bits =
+                    crate::game_logic::host_preorder_create::apply_preorder_model_bit(
+                        o.model_condition_bits,
+                        did_preorder,
+                    );
+                o.refresh_model_condition_bits();
+            }
+            if did_preorder {
+                self.preorder_create_reg.record_set();
+            } else {
+                self.preorder_create_reg.record_clear();
+            }
+        }
+        // C++ SpecialPowerCreate → onSpecialPowerCreation (all owners, not local-only).
         self.on_structure_superweapon_creation(structure_id);
         let local = self
             .players
@@ -74530,6 +74571,53 @@ mod tests {
             }
             other => panic!("expected Hijack, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn preorder_create_sets_model_bit_on_command_center_complete() {
+        use crate::game_logic::host_preorder_create::{has_preorder_model_bit, MC_BIT_PREORDER};
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("AmericaCommandCenter");
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .add_kind_of(KindOf::Immobile)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), tpl);
+        // Ensure a USA player with preorder.
+        if logic.players.is_empty() {
+            let p = Player::new(0, Team::USA, "USA", true);
+            logic.players.insert(0, p);
+        }
+        logic.set_player_did_preorder(Team::USA, true);
+
+        let id = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("cc");
+        {
+            let o = logic.find_object_mut(id).unwrap();
+            o.status.under_construction = true;
+        }
+        logic.notify_structure_construction_complete(id);
+        let o = logic.find_object(id).unwrap();
+        assert!(
+            has_preorder_model_bit(o.model_condition_bits),
+            "PREORDER bit {MC_BIT_PREORDER} must be set"
+        );
+        assert!(logic.honesty_preorder_create_ok());
+
+        // Non-preorder player clears bit.
+        logic.set_player_did_preorder(Team::USA, false);
+        // Force clear path: clear bit then re-notify.
+        {
+            let o = logic.find_object_mut(id).unwrap();
+            o.model_condition_bits |= 1u128 << MC_BIT_PREORDER;
+        }
+        logic.notify_structure_construction_complete(id);
+        let o = logic.find_object(id).unwrap();
+        assert!(!has_preorder_model_bit(o.model_condition_bits));
     }
 
     #[test]
