@@ -226,9 +226,13 @@ impl OverlordContain {
 
         self.deactivate_redirected_contain()?;
 
-        if let Some(rider) = self.base.base.get_contained_items_list()?.first() {
-            if let Ok(mut rider_guard) = rider.write() {
-                rider_guard.kill(None, None);
+        if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
+            if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+            {
+                if let Ok(mut rider_guard) = rider.write() {
+                    rider_guard.kill(None, None);
+                }
             }
         }
 
@@ -270,14 +274,17 @@ impl OverlordContain {
         }
 
         // Need to capture our specific rider. He will then kick passengers out if he is a Transport
-        if let (Some(rider), Some(new_owner_arc)) = (
-            self.base.base.get_contained_items_list()?.first(),
-            new_owner,
-        ) {
-            if let Ok(mut rider_guard) = rider.write() {
-                if let Ok(new_owner_guard) = new_owner_arc.read() {
-                    let default_team = new_owner_guard.get_default_team();
-                    rider_guard.set_team(default_team)?;
+        if let Some(new_owner_arc) = new_owner {
+            if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
+                if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                {
+                    if let Ok(mut rider_guard) = rider.write() {
+                        if let Ok(new_owner_guard) = new_owner_arc.read() {
+                            let default_team = new_owner_guard.get_default_team();
+                            rider_guard.set_team(default_team)?;
+                        }
+                    }
                 }
             }
         }
@@ -547,13 +554,9 @@ impl OverlordContain {
     /// Check if this is an enclosing container for the given object.
     /// Matches C++ OverlordContain::isEnclosingContainerFor
     pub fn is_enclosing_container_for(&self, obj: &Object) -> bool {
-        if let Ok(items) = self.base.base.get_contained_items_list() {
-            if let Some(rider) = items.first() {
-                if let Ok(rider_guard) = rider.read() {
-                    if rider_guard.get_id() == obj.get_id() {
-                        return false;
-                    }
-                }
+        if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
+            if rider_id == obj.get_id() {
+                return false;
             }
         }
         true
@@ -620,8 +623,10 @@ impl OverlordContain {
     /// Flash selected for visible contained units.
     /// Matches C++ OverlordContain::clientVisibleContainedFlashAsSelected (OverlordContain.h:89)
     pub fn client_visible_contained_flash_as_selected(&self) -> GameResult<()> {
-        if let Ok(items) = self.base.base.get_contained_items_list() {
-            for item in items {
+        for &item_id in self.base.base.get_contained_object_ids() {
+            if let Some(item) = TheGameLogic::find_object_by_id(item_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(item_id))
+            {
                 if let Ok(item_guard) = item.read() {
                     if !item_guard.is_kind_of(KindOf::PortableStructure) {
                         continue;
@@ -698,8 +703,10 @@ impl OverlordContain {
         // Oh, and I don't want this function trying to do death. That is more complicated and will
         // be handled on my death.
         if new_state != BodyDamageType::Rubble && self.base.base.get_contain_count() == 1 {
-            if let Ok(items) = self.base.base.get_contained_items_list() {
-                if let Some(rider) = items.first() {
+            if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
+                if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                {
                     if let Ok(rider_guard) = rider.read() {
                         if let Some(body) = rider_guard.get_body_module() {
                             body.set_damage_state(new_state);
@@ -729,8 +736,10 @@ impl OverlordContain {
         }
 
         // Get the first rider
-        if let Ok(items) = self.base.base.get_contained_items_list() {
-            if let Some(rider) = items.first() {
+        if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
+            if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+            {
                 if let Ok(rider_guard) = rider.read() {
                     return rider_guard.get_contain();
                 }

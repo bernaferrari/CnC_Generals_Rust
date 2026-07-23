@@ -1088,28 +1088,45 @@ impl OpenContain {
 
     /// Last possible cleanup before owner deletion.
     pub fn on_delete(&mut self) -> GameResult<()> {
-        let riders = self.get_contained_items_list()?;
-        for rider in riders {
-            if let Ok(rider_guard) = rider.read() {
-                TheGameLogic::destroy_object(&*rider_guard)?;
+        let rider_ids = self.contained_object_ids.clone();
+        for rider_id in rider_ids {
+            if let Err(err) = TheGameLogic::destroy_object_by_id(rider_id) {
+                log::warn!("OpenContain::on_delete destroy {rider_id}: {err}");
             }
         }
         Ok(())
     }
 
     /// Iterate contained objects with callback
+    pub fn iterate_contained_ids<F>(&self, mut func: F, reverse: bool) -> GameResult<()>
+    where
+        F: FnMut(ObjectID) -> GameResult<()>,
+    {
+        let mut ids = self.contained_object_ids.clone();
+        if reverse {
+            ids.reverse();
+        }
+        for id in ids {
+            func(id)?;
+        }
+        Ok(())
+    }
+
     pub fn iterate_contained<F>(&self, mut func: F, reverse: bool) -> GameResult<()>
     where
         F: FnMut(Arc<RwLock<Object>>) -> GameResult<()>,
     {
-        let mut objects = self.resolve_contained_objects();
-        if reverse {
-            objects.reverse();
-        }
-        for obj in objects {
-            func(obj)?;
-        }
-        Ok(())
+        self.iterate_contained_ids(
+            |id| {
+                if let Some(obj) = TheGameLogic::find_object_by_id(id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+                {
+                    func(obj)?;
+                }
+                Ok(())
+            },
+            reverse,
+        )
     }
 
     /// Get count of contained objects
