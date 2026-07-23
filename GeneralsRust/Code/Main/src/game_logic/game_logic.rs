@@ -43931,6 +43931,7 @@ impl GameLogic {
 
         // NuclearMissile residual radiation field ticks (after impact blasts).
         self.update_nuclear_radiation_fields();
+        self.update_neutron_slow_death_fields();
         // AnthraxBomb residual toxin field ticks (after impact blasts).
         self.update_anthrax_toxin_fields();
         // SpectreGunship residual orbit damage ticks (after insertion).
@@ -43943,6 +43944,117 @@ impl GameLogic {
 
     /// Tick residual radiation fields spawned by NuclearMissile impacts.
     /// Fail-closed vs full HazardousMaterialArmor / cleanup-hazard objects.
+
+    /// C++ NeutronMissileSlowDeathBehavior multi-blast residual.
+    fn update_neutron_slow_death_fields(&mut self) {
+        use crate::game_logic::host_neutron_missile_slow_death::{
+            plan_neutron_frame, MC_BIT_BURNED,
+        };
+        use crate::game_logic::host_topple::HostToppleData;
+
+        let n = self.special_power_strikes.neutron_slow_death_field_count();
+        if n == 0 {
+            return;
+        }
+
+        // Snapshot object xz + ids for planning.
+        let objects: Vec<(ObjectId, f32, f32, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, o)| {
+                let p = o.get_position();
+                (*id, p.x, p.z, o.is_alive())
+            })
+            .collect();
+
+        // Access fields via temporary steal pattern.
+        let fields = self
+            .special_power_strikes
+            .neutron_slow_death_fields_mut_for_tick();
+        let metas = self
+            .special_power_strikes
+            .neutron_slow_death_meta()
+            .to_vec();
+
+        let frame = self.frame;
+        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        let mut keep_fields = Vec::new();
+        let mut keep_metas = Vec::new();
+
+        for (mut state, meta) in fields.into_iter().zip(metas.into_iter()) {
+            let epicenter = (meta.position.x, meta.position.z);
+            let xz: Vec<(f32, f32)> = objects.iter().map(|(_, x, z, _)| (*x, *z)).collect();
+            let (hits, place_scorch, done) = plan_neutron_frame(&mut state, frame, epicenter, &xz);
+
+            if place_scorch {
+                // Presentation residual: combat particle at epicenter.
+                let _ = self.combat_particles.spawn(
+                    crate::game_logic::combat_particles::CombatParticleKind::DeathExplosion,
+                    meta.position,
+                    frame,
+                    Some(meta.source_object),
+                    None,
+                );
+            }
+
+            for hit in hits {
+                let Some((id, _, _, alive)) = objects.get(hit.target_index).copied() else {
+                    continue;
+                };
+                if id == meta.source_object {
+                    continue;
+                }
+                let Some(obj) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                if hit.set_burned {
+                    obj.model_condition_bits |= 1u128 << MC_BIT_BURNED;
+                }
+                if hit.topple_speed > 0.0 {
+                    // Tree/prop topple residual peel.
+                    let name = obj.template_name.to_ascii_lowercase();
+                    let can_topple = obj.topple_data.is_none()
+                        && (name.contains("tree")
+                            || name.contains("shrub")
+                            || crate::game_logic::host_topple::is_topple_capable_template(
+                                &obj.template_name,
+                            ));
+                    if can_topple {
+                        let mut td = HostToppleData::default();
+                        if td.apply_toppling_force(
+                            hit.topple_dx,
+                            hit.topple_dz,
+                            hit.topple_speed,
+                            crate::game_logic::host_topple::TOPPLE_OPTIONS_NO_BOUNCE
+                                | crate::game_logic::host_topple::TOPPLE_OPTIONS_NO_FX,
+                        ) {
+                            obj.topple_data = Some(td);
+                        }
+                    }
+                }
+                if hit.damage > 0.0 && alive {
+                    let destroyed =
+                        obj.take_damage_from_immediate(hit.damage, Some(meta.source_object));
+                    if destroyed {
+                        destroy_ids.push((id, meta.source_team));
+                    }
+                }
+            }
+
+            if !done {
+                keep_fields.push(state);
+                keep_metas.push(meta);
+            }
+        }
+
+        self.special_power_strikes
+            .restore_neutron_slow_death_fields(keep_fields, keep_metas);
+
+        for (id, team) in destroy_ids {
+            self.mark_object_for_destruction(id, Some(team));
+        }
+    }
+
     fn update_nuclear_radiation_fields(&mut self) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
@@ -67490,6 +67602,20 @@ mod tests {
                 .honesty_host_path_ok(HostSuperweaponKind::NuclearMissile),
             "host path honesty requires complete blast + radiation spawn"
         );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .neutron_slow_death_field_count()
+                >= 1,
+            "NuclearMissile impact must arm NeutronMissileSlowDeath multi-blast residual"
+        );
+
+        // Advance multi-blast residual through Blast6 (~1180ms @ 30 FPS).
+        for _ in 0..40 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_neutron_slow_death_fields();
+            game_logic.update_nuclear_radiation_fields();
+        }
 
         let enemy_after = game_logic.find_object(enemy_id).map(|o| o.health.current);
         let enemy_dealt =
@@ -67500,12 +67626,12 @@ mod tests {
                 || enemy_after == Some(0.0)
                 || game_logic
                     .find_object(enemy_id)
-                    .map(|o| o.status.destroyed)
+                    .map(|o| o.status.destroyed || !o.is_alive())
                     .unwrap_or(true),
-            "enemy at epicenter must take lethal NuclearMissile residual damage (dealt={enemy_dealt}, after={enemy_after:?})"
+            "enemy at epicenter must take lethal NuclearMissile multi-blast residual damage (dealt={enemy_dealt}, after={enemy_after:?})"
         );
 
-        // Radiation victim took blast falloff + one radiation tick (same impact frame).
+        // Radiation victim took multi-blast falloff and/or radiation ticks.
         let rad_after = game_logic
             .find_object(rad_victim_id)
             .map(|o| o.health.current)
@@ -67513,7 +67639,7 @@ mod tests {
         let rad_dealt = test_observed_damage_to(rad_victim_id, rad_before, rad_after);
         assert!(
             rad_dealt > 0.0 || rad_after < rad_before,
-            "mid-radius victim must take blast and/or radiation damage (before={rad_before}, after={rad_after}, dealt={rad_dealt})"
+            "mid-radius victim must take multi-blast and/or radiation damage (before={rad_before}, after={rad_after}, dealt={rad_dealt})"
         );
         // Far unit untouched.
         assert!(
@@ -67552,8 +67678,10 @@ mod tests {
             .map(|o| o.health.current);
         if let Some(mid_hp) = rad_mid {
             crate::game_logic::host_damage_log::clear();
-            game_logic.frame = 180 + 23;
+            // Frame is already past impact + multi-blast advance; step one radiation interval.
+            game_logic.frame = game_logic.frame.saturating_add(23);
             game_logic.update_special_power_strikes();
+            game_logic.update_nuclear_radiation_fields();
             let rad_later = game_logic
                 .find_object(rad_victim_id)
                 .map(|o| o.health.current)
@@ -67578,8 +67706,24 @@ mod tests {
             .special_power_strikes()
             .completed_of_kind(HostSuperweaponKind::NuclearMissile);
         assert_eq!(completed.len(), 1);
-        assert!(completed[0].objects_hit >= 1);
-        assert!(completed[0].total_damage_applied > 0.0);
+        // Instant impact hits suppressed; multi-blast residual applies damage.
+        assert_eq!(
+            completed[0].phase,
+            crate::game_logic::special_power_strikes::HostStrikePhase::Completed
+        );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .neutron_slow_death_spawned_total()
+                >= 1
+                || game_logic
+                    .special_power_strikes()
+                    .neutron_slow_death_field_count()
+                    >= 1
+                || completed[0].objects_hit >= 1
+                || completed[0].total_damage_applied > 0.0,
+            "nuclear path must arm multi-blast residual or record blast damage"
+        );
 
         game_logic.process_destroy_list();
     }
@@ -82264,6 +82408,70 @@ mod tests {
             assert!(o.tick_height_die(2, 0.0));
         }
         assert!(logic.objects.get(&id).unwrap().status.destroyed);
+    }
+
+    #[test]
+    fn neutron_missile_slow_death_multi_blast() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        let mut enemy = ThingTemplate::new("TestTank");
+        enemy.set_health(500.0);
+        enemy.add_kind_of(KindOf::Vehicle);
+        enemy.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("TestTank".into(), enemy);
+
+        let mut tree = ThingTemplate::new("Tree");
+        tree.set_health(100.0);
+        tree.add_kind_of(KindOf::Immobile);
+        logic.templates.insert("Tree".into(), tree);
+
+        let tank_id = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let _tree_id = logic
+            .create_object("Tree", Team::Neutral, glam::Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+
+        // Spawn neutron field as NuclearMissile impact residual would.
+        // Source id must not collide with live targets (skip filter).
+        let sid = logic.special_power_strikes.spawn_neutron_slow_death_field(
+            ObjectId(9_001),
+            Team::China,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+            logic.frame,
+            1,
+        );
+        assert!(sid > 0);
+        assert_eq!(
+            logic.special_power_strikes.neutron_slow_death_field_count(),
+            1
+        );
+
+        // Advance through Blast6 (~1180ms = 35 frames).
+        for _ in 0..50 {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_neutron_slow_death_fields();
+        }
+
+        let tank = logic.objects.get(&tank_id);
+        // Blast6 3500 should destroy 500hp tank.
+        assert!(
+            tank.map(|t| !t.is_alive() || t.health.current <= 0.0)
+                .unwrap_or(true),
+            "tank must take Blast6 damage"
+        );
+        assert!((HostSuperweaponKind::NuclearMissile.max_damage() - 3500.0).abs() < 0.1);
+        assert_eq!(
+            crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry::damage_at_distance(
+                HostSuperweaponKind::NuclearMissile,
+                0.0,
+            ),
+            0.0
+        );
+        let _ = SpecialPowerType::NuclearMissile;
     }
 
     #[test]

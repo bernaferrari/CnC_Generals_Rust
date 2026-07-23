@@ -160,6 +160,7 @@ pub mod host_mines;
 pub mod host_minigunner;
 pub mod host_missile_defender;
 pub mod host_money_crate;
+pub mod host_neutron_missile_slow_death;
 pub mod host_neutron_shell;
 pub mod host_nuclear_tanks;
 pub mod host_nuke_cannon;
