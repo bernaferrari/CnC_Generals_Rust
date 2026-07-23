@@ -2084,6 +2084,15 @@ pub struct PresentationSuperweaponTimer {
 }
 
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
+/// C++ ProjectileStreamUpdate residual frozen for presentation trail draw.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationProjectileStream {
+    pub shooter_id: ObjectId,
+    pub stream_name: String,
+    pub points: Vec<(f32, f32, f32)>,
+    pub target_id: Option<ObjectId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
     pub frame: LogicFrame,
@@ -2247,6 +2256,8 @@ pub struct PresentationFrame {
     /// Frozen so WGPU laser segment pack does not re-read live host mid-render.
     /// Fail-closed: not full SegLineRenderer GPU texture draw.
     pub laser_beams: Vec<PresentationLaserBeam>,
+    /// C++ ProjectileStreamUpdate residual trails.
+    pub projectile_streams: Vec<PresentationProjectileStream>,
     /// In-flight combat projectiles frozen from host CombatSystem.
     /// Fail-closed: not full W3D projectile draw / trail mesh.
     pub projectiles: Vec<PresentationProjectile>,
@@ -2986,6 +2997,19 @@ impl PresentationFrame {
             ));
         }
 
+        let projectile_streams: Vec<PresentationProjectileStream> = logic
+            .projectile_stream_snapshot()
+            .into_iter()
+            .map(
+                |(shooter_id, stream_name, points, target_id)| PresentationProjectileStream {
+                    shooter_id,
+                    stream_name,
+                    points: points.into_iter().map(|p| (p.x, p.y, p.z)).collect(),
+                    target_id,
+                },
+            )
+            .collect();
+
         let projectiles: Vec<PresentationProjectile> = logic
             .combat_system()
             .projectiles_snapshot()
@@ -3321,6 +3345,7 @@ impl PresentationFrame {
             fow_grid,
             particle_systems,
             laser_beams,
+            projectile_streams,
             projectiles,
             floating_texts,
             world_anims,
