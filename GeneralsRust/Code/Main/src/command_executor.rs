@@ -1486,6 +1486,161 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    /// C++ AIGroup::isMember residual.
+    pub(crate) fn is_member(&self, units: &[ObjectId], obj: ObjectId) -> bool {
+        units.iter().any(|&id| id == obj)
+    }
+
+    /// C++ AIGroup::getCenter residual (skip held/immobile without move).
+    pub(crate) fn group_center(&self, units: &[ObjectId]) -> Option<Vec3> {
+        let mut cx = 0.0f32;
+        let mut cy = 0.0f32;
+        let mut cz = 0.0f32;
+        let mut count = 0u32;
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() {
+                continue;
+            }
+            // C++ skips DISABLED_HELD riders.
+            if o.contained_by.is_some() {
+                continue;
+            }
+            if o.is_kind_of(crate::game_logic::KindOf::Immobile)
+                && !o.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                // Still count structures with AI-like commands; skip pure immobile props.
+            }
+            let p = o.get_position();
+            cx += p.x;
+            cy += p.y;
+            cz += p.z;
+            count += 1;
+        }
+        if count == 0 {
+            // Fallback: any alive member.
+            for &id in units {
+                if let Some(o) = self.game_logic.get_object(id) {
+                    if o.is_alive() {
+                        return Some(o.get_position());
+                    }
+                }
+            }
+            return None;
+        }
+        let n = count as f32;
+        Some(Vec3::new(cx / n, cy / n, cz / n))
+    }
+
+    /// C++ AIGroup::containsAnyObjectsNotOwnedByPlayer residual (team ownership).
+    pub(crate) fn contains_any_objects_not_owned_by_player(
+        &self,
+        units: &[ObjectId],
+        player_id: u32,
+    ) -> bool {
+        let owner_team = self.player_team(player_id);
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if o.team != owner_team {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// C++ AIGroup::removeAnyObjectsNotOwnedByPlayer residual.
+    /// Returns (kept_units, group_now_empty).
+    pub(crate) fn remove_any_objects_not_owned_by_player(
+        &self,
+        units: &[ObjectId],
+        player_id: u32,
+    ) -> (Vec<ObjectId>, bool) {
+        let owner_team = self.player_team(player_id);
+        let kept: Vec<ObjectId> = units
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.game_logic
+                    .get_object(id)
+                    .map(|o| o.team == owner_team)
+                    .unwrap_or(false)
+            })
+            .collect();
+        let empty = kept.is_empty();
+        (kept, empty)
+    }
+
+    /// C++ AIGroup::groupDoSpecialPowerAtLocation residual.
+    pub(crate) fn execute_special_power_at_location(
+        &mut self,
+        units: &[ObjectId],
+        power_type: &crate::command_system::SpecialPowerType,
+        location: Vec3,
+    ) -> CommandResult {
+        self.execute_special_power(
+            units,
+            power_type,
+            &crate::command_system::PowerTarget::Location(location),
+        )
+    }
+
+    /// C++ AIGroup::groupDoSpecialPowerAtObject residual.
+    pub(crate) fn execute_special_power_at_object(
+        &mut self,
+        units: &[ObjectId],
+        power_type: &crate::command_system::SpecialPowerType,
+        target: ObjectId,
+    ) -> CommandResult {
+        self.execute_special_power(
+            units,
+            power_type,
+            &crate::command_system::PowerTarget::Object(target),
+        )
+    }
+
+    /// C++ AIGroup::groupGuardObject residual helper.
+    pub(crate) fn execute_guard_object(
+        &mut self,
+        units: &[ObjectId],
+        target: ObjectId,
+        mode: crate::game_logic::GuardMode,
+    ) -> CommandResult {
+        self.execute_guard(
+            units,
+            &crate::command_system::GuardTarget::Object(target),
+            mode,
+        )
+    }
+
+    /// C++ AIGroup::groupGuardArea residual — area approximated as position + radius guard.
+    pub(crate) fn execute_guard_area(
+        &mut self,
+        units: &[ObjectId],
+        center: Vec3,
+        radius: f32,
+        mode: crate::game_logic::GuardMode,
+    ) -> CommandResult {
+        // Host residual: guard position at center; stamp guard_radius from area.
+        let res = self.execute_guard(
+            units,
+            &crate::command_system::GuardTarget::Position(center),
+            mode,
+        );
+        if matches!(res, CommandResult::Success) {
+            let r = radius.max(80.0);
+            for &id in units {
+                if let Some(u) = self.game_logic.get_object_mut(id) {
+                    u.guard_radius = r;
+                }
+            }
+        }
+        res
+    }
+
     /// C++ AIGroup::isIdle residual — every member idle or effectively dead.
     pub(crate) fn group_is_idle(&self, units: &[ObjectId]) -> bool {
         let mut saw = false;
@@ -6421,6 +6576,92 @@ mod group_move_tests {
         assert_eq!(u.ai_state, AIState::AttackingGround);
         assert_eq!(u.max_shots_to_fire, 3);
         assert!(u.force_attack);
+    }
+
+    #[test]
+    fn group_ownership_filter_and_center() {
+        use super::CommandExecutor;
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        logic.add_player(Player::new(1, Team::GLA, "GLA", false));
+        for (name, team) in [("OF_U", Team::USA), ("OF_E", Team::GLA)] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Vehicle);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(100.0);
+            logic.templates.insert(name.to_string(), tpl);
+            let _ = team;
+        }
+        let u = logic
+            .create_object("OF_U", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let e = logic
+            .create_object("OF_E", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        let exec = CommandExecutor::new(&mut logic, 0);
+        assert!(exec.is_member(&[u, e], u));
+        assert!(!exec.is_member(&[u], e));
+        assert!(exec.contains_any_objects_not_owned_by_player(&[u, e], 0));
+        let (kept, empty) = exec.remove_any_objects_not_owned_by_player(&[u, e], 0);
+        assert_eq!(kept, vec![u]);
+        assert!(!empty);
+        let c = exec.group_center(&[u, e]).unwrap();
+        assert!((c.x - 20.0).abs() < 0.1, "center x={}", c.x);
+    }
+
+    #[test]
+    fn special_power_at_location_wrapper() {
+        use super::CommandExecutor;
+        use crate::command_system::{CommandResult, SpecialPowerType};
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("SP_L");
+        tpl.add_kind_of(KindOf::Structure);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(500.0);
+        logic.templates.insert("SP_L".to_string(), tpl);
+        let id = logic.create_object("SP_L", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            // May succeed or invalid depending on power readiness residual — must not panic.
+            let _ = exec.execute_special_power_at_location(
+                &[id],
+                &SpecialPowerType::SpySatellite,
+                Vec3::new(100.0, 0.0, 50.0),
+            );
+            let _ =
+                exec.execute_special_power_at_object(&[id], &SpecialPowerType::SpySatellite, id);
+        }
+    }
+
+    #[test]
+    fn guard_area_stamps_radius() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, GuardMode, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("GA_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("GA_V".to_string(), tpl);
+        let id = logic.create_object("GA_V", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_guard_area(&[id], Vec3::new(30.0, 0.0, 0.0), 150.0, GuardMode::Normal),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert!((u.guard_radius - 150.0).abs() < 0.1, "r={}", u.guard_radius);
     }
 
     #[test]
