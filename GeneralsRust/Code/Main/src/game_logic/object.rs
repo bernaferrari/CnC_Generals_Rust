@@ -2774,6 +2774,10 @@ impl Object {
         if self.weapon_bonus_battle_plan_search_and_destroy {
             range *= SEARCH_AND_DESTROY_RANGE_MULT;
         }
+        // C++ WEAPONBONUSCONDITION_GARRISONED residual (GameData RANGE 133%).
+        if self.contained_by.is_some() {
+            range *= 1.33;
+        }
 
         (damage, range, rof.max(0.01), pre_attack.max(0.01))
     }
@@ -7604,15 +7608,17 @@ impl Object {
 
     /// Fire at target. `target_is_infantry` selects ScatterRadiusVsInfantry residual.
     pub fn fire_at(&mut self, target_id: ObjectId, current_time: f32) -> bool {
-        self.fire_at_ex(target_id, current_time, false)
+        self.fire_at_ex(target_id, current_time, false, false)
     }
 
     /// Fire at target with KindOf-aware scatter residual.
+    /// `target_has_faerie_fire`: C++ TARGET_FAERIE_FIRE WeaponBonus ROF residual.
     pub fn fire_at_ex(
         &mut self,
         target_id: ObjectId,
         current_time: f32,
         target_is_infantry: bool,
+        target_has_faerie_fire: bool,
     ) -> bool {
         // C++ canFireWeapon residual: jammed / disabled units cannot discharge.
         if self.status.weapons_jammed || self.is_disabled() {
@@ -7621,7 +7627,10 @@ impl Object {
         // Prefer the locked/active slot when ready; else primary; else secondary.
         let slot = {
             let prefer_secondary = self.active_weapon_slot == 1;
-            let rof = self.weapon_bonus_fields().2;
+            let mut rof = self.weapon_bonus_fields().2;
+            if target_has_faerie_fire {
+                rof *= crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
+            }
             let primary_name = self.primary_weapon_name().map(|s| s.to_string());
             let secondary_name = self.secondary_weapon_name().map(|s| s.to_string());
             let primary_ready = self.weapon.as_ref().is_some_and(|w| {
@@ -10467,6 +10476,43 @@ mod tests {
             resolve_host_death_type(None, DamageType::Toxin),
             HostDeathType::Poisoned
         );
+    }
+
+    #[test]
+    fn fire_at_ex_faerie_fire_speeds_reload() {
+        use crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("FF_ATK");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("FF_ATK".to_string(), tpl);
+        let atk = logic
+            .create_object("FF_ATK", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let a = logic.get_object_mut(atk).unwrap();
+            a.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 200.0,
+                reload_time: 1.0,
+                last_fire_time: -100.0, // never-fired residual
+                ..Weapon::default()
+            });
+            // First shot at t=0
+            assert!(a.fire_at_ex(ObjectId(99), 0.0, false, true));
+            // Without faerie, not ready at 0.7 (needs full 1.0s)
+            assert!(!a.fire_at_ex(ObjectId(99), 0.7, false, false));
+            // With faerie ROF 150%, ready at 0.7 (effective reload ~0.667)
+            assert!(
+                a.fire_at_ex(ObjectId(99), 0.7, false, true),
+                "TARGET_FAERIE_FIRE should ready at ~0.667s reload"
+            );
+            assert!((FAERIE_FIRE_ROF_MULTIPLIER - 1.5).abs() < 0.001);
+        }
     }
 
     #[test]

@@ -10550,6 +10550,11 @@ impl GameLogic {
             }
         }
 
+        let (victim_infantry, victim_faerie) = self
+            .objects
+            .get(&victim_id)
+            .map(|v| (v.is_kind_of(KindOf::Infantry), v.is_faerie_fire()))
+            .unwrap_or((false, false));
         let fired = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return AttackFireResult::Failure;
@@ -10562,7 +10567,8 @@ impl GameLogic {
                 crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             }
-            u.fire_at(victim_id, current_time)
+            // TARGET_FAERIE_FIRE ROF residual when victim is painted.
+            u.fire_at_ex(victim_id, current_time, victim_infantry, victim_faerie)
         };
 
         if fired {
@@ -17182,14 +17188,26 @@ impl GameLogic {
                     } else if let Some(attacker) = self.objects.get(&object_id) {
                         if attacker.can_target(target) {
                             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
-                            let tgt_inf = self
+                            let (tgt_inf, tgt_faerie) = self
                                 .objects
                                 .get(&target_id)
-                                .map(|t| t.is_kind_of(KindOf::Infantry))
-                                .unwrap_or(false);
+                                .map(|t| (t.is_kind_of(KindOf::Infantry), t.is_faerie_fire()))
+                                .unwrap_or((false, false));
                             if let Some(attacker) = self.objects.get_mut(&object_id) {
-                                if attacker.can_fire(current_time) {
-                                    attacker.fire_at_ex(target_id, current_time, tgt_inf);
+                                // can_fire without target uses base ROF; fire_at_ex applies
+                                // TARGET_FAERIE_FIRE ROF residual against painted targets.
+                                if attacker.can_fire(current_time)
+                                    || (tgt_faerie
+                                        && attacker.weapon.as_ref().is_some_and(|w| {
+                                            Object::weapon_ready_vs_target(w, current_time, true)
+                                        }))
+                                {
+                                    attacker.fire_at_ex(
+                                        target_id,
+                                        current_time,
+                                        tgt_inf,
+                                        tgt_faerie,
+                                    );
                                 }
                             }
                         }
