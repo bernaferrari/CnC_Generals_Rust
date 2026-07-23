@@ -352,9 +352,9 @@ impl ExitConditions {
     }
 
     pub fn should_exit(&self, machine: &StateMachine) -> bool {
-        let goal_object = machine.get_goal_object();
+        let goal_object_id = machine.get_goal_object_id();
 
-        if goal_object.is_none() {
+        if goal_object_id == crate::common::INVALID_ID {
             return (self.conditions_to_consider & exit_conditions::ATTACK_EXIT_IF_NO_UNIT_FOUND)
                 != 0;
         }
@@ -366,18 +366,19 @@ impl ExitConditions {
         }
 
         if (self.conditions_to_consider & exit_conditions::ATTACK_EXIT_IF_OUTSIDE_RADIUS) != 0 {
-            if let Some(obj) = goal_object {
-                if let Ok(obj_ref) = obj.try_read() {
+            if let Some(outside) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(goal_object_id, |obj_ref| {
                     let obj_pos = obj_ref.get_position();
                     let delta = Coord3D::new(
                         obj_pos.x - self.center.x,
                         obj_pos.y - self.center.y,
                         0.0, // Don't account for Z in distance calculation
                     );
-
-                    if Vector3Ext::length_sqr(&delta) > self.radius_sqr {
-                        return true;
-                    }
+                    Vector3Ext::length_sqr(&delta) > self.radius_sqr
+                })
+            {
+                if outside {
+                    return true;
                 }
             }
         }

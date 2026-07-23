@@ -175,9 +175,9 @@ impl GuardRetaliateExitConditions {
     }
 
     pub fn should_exit(&self, machine: &StateMachine) -> bool {
-        let goal_object = machine.get_goal_object();
+        let goal_object_id = machine.get_goal_object_id();
 
-        if goal_object.is_none() {
+        if goal_object_id == crate::common::INVALID_ID {
             return (self.conditions_to_consider
                 & guard_retaliate_exit_conditions::ATTACK_EXIT_IF_NO_UNIT_FOUND)
                 != 0;
@@ -196,34 +196,32 @@ impl GuardRetaliateExitConditions {
             & guard_retaliate_exit_conditions::ATTACK_EXIT_IF_OUTSIDE_RADIUS)
             != 0
         {
-            if let Some(goal_obj) = goal_object {
-                if let Ok(goal_ref) = goal_obj.try_read() {
+            if let Some(true) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(goal_object_id, |goal_ref| {
                     let obj_pos = goal_ref.get_position();
-
                     let delta_aggressor =
                         Coord3D::new(obj_pos.x - self.center.x, obj_pos.y - self.center.y, 0.0);
-
                     if Vector3Ext::length_sqr(&delta_aggressor) > self.radius_sqr {
                         return true;
                     }
+                    false
+                })
+            {
+                return true;
+            }
 
-                    if let Some(owner) = machine.get_owner() {
-                        if let Ok(owner_ref) = owner.try_read() {
-                            let my_pos = owner_ref.get_position();
-                            let my_range = Coord3D::new(
-                                my_pos.x - self.center.x,
-                                my_pos.y - self.center.y,
-                                0.0,
-                            );
-                            let guard_range = owner
-                                .read()
-                                .ok()
-                                .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
-                                .unwrap_or(100.0);
-                            if Vector3Ext::length_sqr(&my_range) > guard_range * guard_range {
-                                return true;
-                            }
-                        }
+            if let Some(owner) = machine.get_owner() {
+                if let Ok(owner_ref) = owner.try_read() {
+                    let my_pos = owner_ref.get_position();
+                    let my_range =
+                        Coord3D::new(my_pos.x - self.center.x, my_pos.y - self.center.y, 0.0);
+                    let guard_range = owner
+                        .read()
+                        .ok()
+                        .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
+                        .unwrap_or(100.0);
+                    if Vector3Ext::length_sqr(&my_range) > guard_range * guard_range {
+                        return true;
                     }
                 }
             }

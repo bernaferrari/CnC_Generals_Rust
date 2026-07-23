@@ -569,9 +569,18 @@ impl BehaviorModuleInterface for StickyBombUpdate {
         if let Some(shooter) = shooter {
             if let Ok(shooter_guard) = shooter.read() {
                 if let Some(ai) = shooter_guard.get_ai_update_interface() {
-                    if let Some(goal) = ai.get_goal_object() {
-                        if let Ok(goal_guard) = goal.read() {
-                            self.init_sticky_bomb(Some(&goal_guard), None, None);
+                    if let Ok(ai_guard) = ai.lock() {
+                        let goal_id = ai_guard.get_goal_object_id();
+                        if goal_id != crate::common::INVALID_ID {
+                            if let Some(goal) =
+                                crate::helpers::TheGameLogic::find_object_by_id(goal_id).or_else(
+                                    || crate::object::registry::OBJECT_REGISTRY.get_object(goal_id),
+                                )
+                            {
+                                if let Ok(goal_guard) = goal.read() {
+                                    self.init_sticky_bomb(Some(&goal_guard), None, None);
+                                }
+                            }
                         }
                     }
                 }
