@@ -1267,6 +1267,35 @@ impl OpenContain {
         (start_pos, end_pos)
     }
 
+    fn next_exit_snapshot(
+        &mut self,
+    ) -> Option<(Coord3D, Coord3D, f32, PathfindLayerEnum, ObjectID)> {
+        if self.module_data.number_of_exit_paths <= 0 {
+            return self.with_object(|owner| {
+                let pos = *owner.get_position();
+                (
+                    pos,
+                    pos,
+                    owner.get_orientation(),
+                    owner.get_layer(),
+                    owner.get_id(),
+                )
+            });
+        }
+        let (_, start_bone, end_bone) = self.exit_bone_names_for_next_path();
+        self.with_object(|owner| {
+            let (_, start_pos, _) = owner.get_single_logical_bone_position(&start_bone);
+            let (_, end_pos, _) = owner.get_single_logical_bone_position(&end_bone);
+            (
+                start_pos,
+                end_pos,
+                owner.get_orientation(),
+                owner.get_layer(),
+                owner.get_id(),
+            )
+        })
+    }
+
     fn destination_layer(pos: &Coord3D) -> PathfindLayerEnum {
         TheTerrainLogic::get()
             .map(|terrain| terrain.get_layer_for_destination(pos))
@@ -1334,16 +1363,11 @@ impl OpenContain {
                 });
         }
 
-        let Some(owner) = self.get_object() else {
+        let Some((mut start_pos, mut end_pos, exit_angle, owner_layer, owner_id)) =
+            self.next_exit_snapshot()
+        else {
             return Ok(None);
         };
-        let Ok(owner_guard) = owner.read() else {
-            return Ok(None);
-        };
-        let (mut start_pos, mut end_pos) = self.next_exit_positions(&owner_guard);
-        let exit_angle = owner_guard.get_orientation();
-        let owner_layer = owner_guard.get_layer();
-        let owner_id = owner_guard.get_id();
 
         if let Some(terrain) = TheTerrainLogic::get() {
             start_pos.z = terrain.get_ground_height(start_pos.x, start_pos.y, None);
@@ -1360,7 +1384,9 @@ impl OpenContain {
         };
 
         Self::add_to_pathfind_map(exit_id, start_pos);
-        Self::refresh_owner_pathfind_goal(&owner_guard);
+        let _ = self.with_object(|owner_guard| {
+            Self::refresh_owner_pathfind_goal(owner_guard);
+        });
 
         if let Ok(exit_guard) = obj.read() {
             if let Some(ai) = exit_guard.get_ai_update_interface() {
