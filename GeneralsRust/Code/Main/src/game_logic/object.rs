@@ -836,6 +836,8 @@ pub struct Object {
     /// Slot held by the lock (PRIMARY=0, SECONDARY=1, TERTIARY=2).
     #[serde(default)]
     pub weapon_lock_slot: u8,
+    /// C++ Weapon::m_status residual (active slot).
+    pub weapon_fire_status: WeaponFireStatus,
     /// C++ Weapon::m_curBarrel residual (which fire bone / FX barrel).
     pub weapon_cur_barrel: u8,
     /// C++ WeaponTemplate::m_shotsPerBarrel residual (0/1 = single-barrel).
@@ -1232,6 +1234,23 @@ pub struct Object {
     /// C++ StealthForbiddenConditions TAKING_DAMAGE residual.
     #[serde(default)]
     pub stealth_breaks_on_damage: bool,
+}
+
+/// C++ `WeaponStatus` (WeaponStatus.h) residual for the active weapon slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum WeaponFireStatus {
+    ReadyToFire = 0,
+    OutOfAmmo = 1,
+    BetweenFiringShots = 2,
+    ReloadingClip = 3,
+    PreAttack = 4,
+}
+
+impl Default for WeaponFireStatus {
+    fn default() -> Self {
+        Self::ReadyToFire
+    }
 }
 
 /// C++ WeaponLockType (WeaponSet.h) residual.
@@ -1643,6 +1662,7 @@ impl Object {
             active_weapon_slot: 0,
             weapon_lock_type: WeaponLockType::NotLocked,
             weapon_lock_slot: 0,
+            weapon_fire_status: WeaponFireStatus::ReadyToFire,
             weapon_cur_barrel: 0,
             weapon_shots_per_barrel: 1,
             weapon_barrel_count: 1,
@@ -1964,6 +1984,7 @@ impl Object {
             active_weapon_slot: 0,
             weapon_lock_type: WeaponLockType::NotLocked,
             weapon_lock_slot: 0,
+            weapon_fire_status: WeaponFireStatus::ReadyToFire,
             weapon_cur_barrel: 0,
             weapon_shots_per_barrel: 1,
             weapon_barrel_count: 1,
@@ -7332,6 +7353,62 @@ impl Object {
         self.face_position(other.get_position(), dt)
     }
 
+    /// C++ Weapon::getStatus residual refresh for the active/primary slot.
+    pub fn refresh_weapon_fire_status(&mut self, current_time: f32) {
+        // Pre-attack wind-up wins while armed.
+        if self.pre_attack_ready_at > current_time + 1e-6 {
+            self.weapon_fire_status = WeaponFireStatus::PreAttack;
+            return;
+        }
+        let slot = self.active_weapon_slot;
+        let Some(weapon) = self.weapon_slot(slot).or_else(|| self.weapon.as_ref()) else {
+            self.weapon_fire_status = WeaponFireStatus::OutOfAmmo;
+            return;
+        };
+        let name = if slot == 1 {
+            self.thing.template.secondary_weapon_name.as_deref().or(self
+                .thing
+                .template
+                .primary_weapon_name
+                .as_deref())
+        } else {
+            self.thing.template.primary_weapon_name.as_deref()
+        };
+        let reload = self.effective_weapon_reload(weapon.reload_time);
+        // Empty non-auto clip → OUT_OF_AMMO.
+        if !Self::weapon_has_ammo_for_shot(weapon, name) {
+            self.weapon_fire_status = WeaponFireStatus::OutOfAmmo;
+            return;
+        }
+        // Clip reload window: last_fire set and ammo just refilled with clip_reload.
+        if weapon.clip_size > 0 {
+            let clip_reload = if weapon.clip_reload_time > 0.0 {
+                weapon.clip_reload_time
+            } else {
+                reload
+            };
+            // Heuristic: ammo full right after fire with long delay → reloading.
+            // Prefer explicit: if not ready and ammo was consumed mid-clip, BETWEEN; if empty was auto-reloading handled in consume.
+            if current_time - weapon.last_fire_time < reload - 1e-6 {
+                // Mid-clip gap vs full-clip reload: empty clip auto path sets ammo full then waits clip_reload.
+                if weapon.ammo == Some(weapon.clip_size)
+                    && weapon.clip_size > 0
+                    && clip_reload > reload + 1e-4
+                    && current_time - weapon.last_fire_time < clip_reload
+                {
+                    self.weapon_fire_status = WeaponFireStatus::ReloadingClip;
+                    return;
+                }
+                self.weapon_fire_status = WeaponFireStatus::BetweenFiringShots;
+                return;
+            }
+        } else if current_time - weapon.last_fire_time < reload - 1e-6 {
+            self.weapon_fire_status = WeaponFireStatus::BetweenFiringShots;
+            return;
+        }
+        self.weapon_fire_status = WeaponFireStatus::ReadyToFire;
+    }
+
     pub fn can_fire(&self, current_time: f32) -> bool {
         // C++ Object::canFireWeapon: DISABLED_SUBDUED / weapons_jammed residual.
         // Shock stun residual blocks weapon fire while flailing/stunned.
@@ -7915,6 +7992,7 @@ impl Object {
                 self.pre_attack_target = Some(target_id);
                 self.record_host_combat_attack();
                 self.pre_attack_ready_at = current_time + pre_delay;
+                self.weapon_fire_status = WeaponFireStatus::PreAttack;
                 self.record_host_combat_attack();
                 // C++ Weapon::preFireWeapon LeechRange activate residual.
                 self.activate_leech_range_for_slot(slot);
@@ -8344,6 +8422,7 @@ impl Object {
             self.advance_weapon_barrel_after_shot();
             // C++ --m_maxShotCount residual.
             self.consume_max_shot_count();
+            self.refresh_weapon_fire_status(current_time);
             {
                 let (dmg, rng) = self
                     .weapon_slot(slot)
@@ -10776,6 +10855,29 @@ mod tests {
         // 1 + 6/2 = 4 barrels wrapped -> barrel 0 after 8 shots total from start of loop?
         // started at barrel 1 after 2 shots; +6 shots = 3 more barrel advances -> barrel 0
         assert_eq!(o.weapon_cur_barrel, 0);
+    }
+
+    #[test]
+    fn weapon_fire_status_between_shots_after_fire() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut tmpl = ThingTemplate::new("StatusW");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
+        let tgt = Object::new(tmpl, ObjectId(2), Team::GLA);
+        atk.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 1.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        });
+        assert_eq!(atk.weapon_fire_status, WeaponFireStatus::ReadyToFire);
+        assert!(atk.fire_at(tgt.id, 1.0));
+        assert_eq!(atk.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
+        atk.refresh_weapon_fire_status(2.0);
+        assert_eq!(atk.weapon_fire_status, WeaponFireStatus::ReadyToFire);
     }
 
     #[test]
