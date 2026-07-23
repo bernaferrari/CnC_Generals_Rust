@@ -210,13 +210,25 @@ impl PrisonBehavior {
         })
     }
 
+    fn get_object_id(&self) -> crate::common::ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+    }
+
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     fn pick_visual_location(&self) -> Coord3D {
@@ -292,11 +304,8 @@ impl PrisonBehavior {
         client.set_drawable_position(draw_id, &pos);
         client.set_drawable_orientation(draw_id, orient);
 
-        if let Some(owner) = self.get_object() {
-            let owner_id = owner
-                .read()
-                .map(|guard| guard.get_id())
-                .unwrap_or(INVALID_ID);
+        let owner_id = self.get_object_id();
+        if owner_id != INVALID_ID {
             client.set_drawable_shroud_status_object_id(draw_id, owner_id);
         }
 

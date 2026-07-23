@@ -554,19 +554,46 @@ impl DumbProjectileBehavior {
         Ok(Self::new_from_object(object, module_data))
     }
 
+    fn owner_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(
+        &self,
+        f: impl FnOnce(&GameObject) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return Err("DumbProjectileBehavior missing owning object id".into());
+        }
+        OBJECT_REGISTRY
+            .with_object(id, f)
+            .ok_or_else(|| "DumbProjectileBehavior owning object not found".into())
+    }
+
+    fn with_object_mut<R>(
+        &self,
+        f: impl FnOnce(&mut GameObject) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return Err("DumbProjectileBehavior missing owning object id".into());
+        }
+        OBJECT_REGISTRY
+            .with_object_mut(id, f)
+            .ok_or_else(|| "DumbProjectileBehavior owning object not found".into())
+    }
+
     fn get_object(
         &self,
     ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
-        if self.object_id == OBJECT_INVALID_ID {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
             return Err("DumbProjectileBehavior missing owning object id".into());
         }
-        OBJECT_REGISTRY.get_object(self.object_id).ok_or_else(|| {
-            format!(
-                "DumbProjectileBehavior object {} not registered",
-                self.object_id
-            )
-            .into()
-        })
+        OBJECT_REGISTRY
+            .get_object(id)
+            .ok_or_else(|| "DumbProjectileBehavior owning object not found".into())
     }
 
     fn get_current_frame(&self) -> UnsignedInt {
@@ -868,11 +895,9 @@ impl DumbProjectileBehavior {
 
                 self.detonate()?;
 
-                if let Ok(projectile_guard) = self.get_object() {
-                    if let Ok(mut projectile) = projectile_guard.write() {
-                        projectile.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
-                    }
-                }
+                let _ = self.with_object_mut(|projectile| {
+                    projectile.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
+                });
 
                 return Ok(());
             }
@@ -888,18 +913,11 @@ impl DumbProjectileBehavior {
             return Ok(());
         }
 
-        let object = match self.get_object() {
-            Ok(obj) => obj,
-            Err(_) => return Ok(()), // Object already destroyed
+        let Ok((position, object_id)) =
+            self.with_object(|obj_guard| (*obj_guard.get_position(), obj_guard.get_id()))
+        else {
+            return Ok(()); // Object already destroyed
         };
-
-        let obj_guard = object.read().map_err(|_| {
-            std::io::Error::other("DumbProjectileBehavior failed to read object for detonation")
-        })?;
-
-        let position = *obj_guard.get_position();
-        let object_id = obj_guard.get_id();
-        drop(obj_guard);
 
         if let Some(weapon_template) = &self.detonation_weapon {
             let detonation_result = crate::weapon::with_weapon_store(|store| {
@@ -915,6 +933,7 @@ impl DumbProjectileBehavior {
             detonation_result.map_err(|err| std::io::Error::other(err.to_string()))?;
 
             if self.module_data.detonate_calls_kill {
+                let object = self.get_object()?;
                 let max_health = object
                     .read()
                     .map_err(|_| {
@@ -939,14 +958,10 @@ impl DumbProjectileBehavior {
                     },
                 )?;
             } else {
-                let obj_guard = object.read().map_err(|_| {
-                    std::io::Error::other(
-                        "DumbProjectileBehavior failed to read object for destroy",
-                    )
-                })?;
-                crate::helpers::TheGameLogic::destroy_object(&*obj_guard)?;
+                let _ = TheGameLogic::destroy_object_by_id(object_id);
             }
         } else {
+            let object = self.get_object()?;
             let max_health = object
                 .read()
                 .map_err(|_| {
@@ -974,11 +989,11 @@ impl DumbProjectileBehavior {
             )?;
         }
 
-        if let Ok(obj_guard) = object.read() {
+        let _ = self.with_object(|obj_guard| {
             if let Some(drawable) = obj_guard.get_drawable() {
                 drawable.set_drawable_hidden(true);
             }
-        }
+        });
 
         self.has_detonated = true;
 
@@ -1017,23 +1032,21 @@ impl DumbProjectileBehavior {
             WeaponBonusConditionFlags::none()
         };
         self.lifespan_frame = self.get_current_frame() + self.module_data.max_lifespan;
-        if let Ok(projectile) = self.get_object() {
-            if let Ok(obj_guard) = projectile.read() {
-                self.flight_path_start = *obj_guard.get_position();
-            }
-            if self.module_data.tumble_randomly {
-                if let Ok(obj_guard) = projectile.write() {
-                    if let Some(physics) = obj_guard.get_physics() {
-                        if let Ok(mut phys_guard) = physics.lock() {
-                            let min = -1.0 / std::f32::consts::PI;
-                            let max = 1.0 / std::f32::consts::PI;
-                            phys_guard.set_pitch_rate(get_game_logic_random_value_real(min, max));
-                            phys_guard.set_yaw_rate(get_game_logic_random_value_real(min, max));
-                            phys_guard.set_roll_rate(get_game_logic_random_value_real(min, max));
-                        }
+        if let Ok(pos) = self.with_object(|obj_guard| *obj_guard.get_position()) {
+            self.flight_path_start = pos;
+        }
+        if self.module_data.tumble_randomly {
+            let _ = self.with_object(|obj_guard| {
+                if let Some(physics) = obj_guard.get_physics() {
+                    if let Ok(mut phys_guard) = physics.lock() {
+                        let min = -1.0 / std::f32::consts::PI;
+                        let max = 1.0 / std::f32::consts::PI;
+                        phys_guard.set_pitch_rate(get_game_logic_random_value_real(min, max));
+                        phys_guard.set_yaw_rate(get_game_logic_random_value_real(min, max));
+                        phys_guard.set_roll_rate(get_game_logic_random_value_real(min, max));
                     }
                 }
-            }
+            });
         }
         let end_pos = if let Some(victim_id) = victim {
             OBJECT_REGISTRY
@@ -1051,22 +1064,16 @@ impl DumbProjectileBehavior {
             if weapon.is_scale_weapon_speed {
                 let min_range = weapon.get_minimum_attack_range();
                 let max_range = weapon.get_unmodified_attack_range();
-                let range = if let Ok(projectile) = self.get_object() {
-                    projectile
-                        .read()
-                        .ok()
-                        .map(|guard| {
-                            ThePartitionManager::get_distance_squared_to_pos(
-                                &*guard,
-                                &end_pos,
-                                crate::common::FROM_CENTER_2D,
-                            )
-                            .sqrt()
-                        })
-                        .unwrap_or(0.0)
-                } else {
-                    0.0
-                };
+                let range = self
+                    .with_object(|guard| {
+                        ThePartitionManager::get_distance_squared_to_pos(
+                            guard,
+                            &end_pos,
+                            crate::common::FROM_CENTER_2D,
+                        )
+                        .sqrt()
+                    })
+                    .unwrap_or(0.0);
                 let mut range_ratio = 1.0;
                 if max_range > min_range {
                     range_ratio = (range - min_range) / (max_range - min_range);
@@ -1085,9 +1092,7 @@ impl DumbProjectileBehavior {
         self.current_step = 0;
         if let Ok(projectile) = self.get_object() {
             if self.init_flight_path(&projectile, true, true).is_err() {
-                if let Ok(obj_guard) = projectile.read() {
-                    let _ = TheGameLogic::destroy_object(&*obj_guard);
-                }
+                let _ = TheGameLogic::destroy_object_by_id(self.owner_object_id());
             }
         }
     }
