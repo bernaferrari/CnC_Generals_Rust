@@ -119,6 +119,7 @@ mod host_defection_helper;
 mod host_defector_special_power;
 pub mod host_deliver_payload;
 pub mod host_demo_suicide_bomb;
+mod host_deploy_style;
 pub mod host_dock_contain_exit_heal_residual;
 pub mod host_dragon_tank;
 pub mod host_ecm_jam;

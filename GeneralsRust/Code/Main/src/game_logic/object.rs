@@ -1196,6 +1196,8 @@ pub struct Object {
     pub is_troop_crawler_transport: bool,
     /// C++ AssaultTransportAIUpdate residual state (designated target + members).
     pub assault_transport: Option<crate::game_logic::host_troop_crawler::HostAssaultTransportState>,
+    /// C++ DeployStyleAIUpdate pack/unpack residual.
+    pub deploy_style: Option<crate::game_logic::host_deploy_style::HostDeployStyleData>,
 
     /// Host residual: Overlord / Helix portable GattlingCannon addon installed
     /// (`Upgrade_ChinaOverlordGattlingCannon` / Helix equivalent). Equips AA
@@ -1916,6 +1918,7 @@ impl Object {
             is_pathfinder_unit: false,
             is_troop_crawler_transport: false,
             assault_transport: None,
+            deploy_style: None,
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,
             is_helix_transport: false,
@@ -2283,6 +2286,7 @@ impl Object {
             is_pathfinder_unit: false,
             is_troop_crawler_transport: false,
             assault_transport: None,
+            deploy_style: None,
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,
             is_helix_transport: false,
@@ -3588,6 +3592,34 @@ impl Object {
             // Deployed units typically stop locomoting residual.
             self.stop_moving();
             self.set_status_moving(false);
+        }
+    }
+
+    /// Install C++ DeployStyleAIUpdate residual from template peels.
+    pub fn install_deploy_style_if_needed(&mut self) {
+        if self.deploy_style.is_some() {
+            return;
+        }
+        if let Some(data) = crate::game_logic::host_deploy_style::HostDeployStyleData::for_template(
+            &self.template_name,
+        ) {
+            self.deploy_style = Some(data);
+        }
+    }
+
+    /// True when DeployStyle residual allows firing this frame.
+    pub fn deploy_style_allows_fire(&self) -> bool {
+        match self.deploy_style.as_ref() {
+            None => true,
+            Some(d) => d.is_ready_to_attack(),
+        }
+    }
+
+    /// True when DeployStyle residual allows pathing this frame.
+    pub fn deploy_style_allows_move(&self) -> bool {
+        match self.deploy_style.as_ref() {
+            None => true,
+            Some(d) => d.is_ready_to_move(),
         }
     }
 
