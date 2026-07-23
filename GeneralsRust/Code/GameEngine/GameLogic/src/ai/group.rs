@@ -104,7 +104,7 @@ impl AIGroup {
         self.member_list
             .iter()
             .copied()
-            .filter(|id| OBJECT_REGISTRY.get_object(*id).is_some())
+            .filter(|id| OBJECT_REGISTRY.contains(*id))
             .collect()
     }
 
@@ -130,8 +130,7 @@ impl AIGroup {
     }
 
     fn prune_dead_members(&mut self) {
-        self.member_list
-            .retain(|id| OBJECT_REGISTRY.get_object(*id).is_some());
+        self.member_list.retain(|id| OBJECT_REGISTRY.contains(*id));
         self.member_list_size = self.member_list.len();
     }
 
@@ -267,39 +266,35 @@ impl AIGroup {
 
         // First pass - try to use only AI objects
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if obj_ref.is_disabled_by_type(DisabledType::Held) {
-                        continue; // Don't count riders in center calculation
-                    }
-
-                    if obj_ref.get_ai_update_interface().is_some() {
-                        let pos = obj_ref.get_position();
-                        center.x += pos.x;
-                        center.y += pos.y;
-                        center.z += pos.z;
-                        count += 1;
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if obj_ref.is_disabled_by_type(DisabledType::Held) {
+                    return; // Don't count riders in center calculation
                 }
-            }
+
+                if obj_ref.get_ai_update_interface().is_some() {
+                    let pos = obj_ref.get_position();
+                    center.x += pos.x;
+                    center.y += pos.y;
+                    center.z += pos.z;
+                    count += 1;
+                }
+            });
         }
 
         // If no AI objects found, use all objects
         if count == 0 && !self.member_list.is_empty() {
             for &member_id in &self.member_list {
-                if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                    if let Ok(obj_ref) = obj.try_read() {
-                        if obj_ref.is_disabled_by_type(DisabledType::Held) {
-                            continue; // Don't count riders in center calculation
-                        }
-
-                        let pos = obj_ref.get_position();
-                        center.x += pos.x;
-                        center.y += pos.y;
-                        center.z += pos.z;
-                        count += 1;
+                let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                    if obj_ref.is_disabled_by_type(DisabledType::Held) {
+                        return; // Don't count riders in center calculation
                     }
-                }
+
+                    let pos = obj_ref.get_position();
+                    center.x += pos.x;
+                    center.y += pos.y;
+                    center.z += pos.z;
+                    count += 1;
+                });
             }
         }
 
@@ -322,35 +317,33 @@ impl AIGroup {
         let mut formation_id: Option<FormationID> = None;
 
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if obj_ref.is_disabled_by_type(DisabledType::Held) {
-                        continue; // Don't count riders in center calculation
-                    }
-
-                    if obj_ref.get_ai_update_interface().is_some() {
-                        let pos = obj_ref.get_position();
-                        center.x += pos.x;
-                        center.y += pos.y;
-                        center.z += pos.z;
-
-                        // Calculate bounding coordinates
-                        min.x = min.x.min(pos.x);
-                        max.x = max.x.max(pos.x);
-                        min.y = min.y.min(pos.y);
-                        max.y = max.y.max(pos.y);
-
-                        let cur_id = obj_ref.get_formation_id();
-                        if count == 0 {
-                            formation_id = Some(cur_id);
-                        } else if formation_id.map_or(false, |id| id != cur_id) {
-                            formation_id = None;
-                        }
-
-                        count += 1;
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if obj_ref.is_disabled_by_type(DisabledType::Held) {
+                    return; // Don't count riders in center calculation
                 }
-            }
+
+                if obj_ref.get_ai_update_interface().is_some() {
+                    let pos = obj_ref.get_position();
+                    center.x += pos.x;
+                    center.y += pos.y;
+                    center.z += pos.z;
+
+                    // Calculate bounding coordinates
+                    min.x = min.x.min(pos.x);
+                    max.x = max.x.max(pos.x);
+                    min.y = min.y.min(pos.y);
+                    max.y = max.y.max(pos.y);
+
+                    let cur_id = obj_ref.get_formation_id();
+                    if count == 0 {
+                        formation_id = Some(cur_id);
+                    } else if formation_id.map_or(false, |id| id != cur_id) {
+                        formation_id = None;
+                    }
+
+                    count += 1;
+                }
+            });
         }
 
         if count > 0 {
@@ -444,17 +437,15 @@ impl AIGroup {
         self.prune_dead_members();
 
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        let obj_speed = ai.get_speed();
-                        if obj_speed < self.speed {
-                            self.speed = obj_speed;
-                        }
-                        found_any = true;
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    let obj_speed = ai.get_speed();
+                    if obj_speed < self.speed {
+                        self.speed = obj_speed;
                     }
+                    found_any = true;
                 }
-            }
+            });
         }
 
         if !found_any {
@@ -477,51 +468,43 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_move_to_position(pos, add_waypoint, cmd_source);
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_move_to_position(pos, add_waypoint, cmd_source);
                 }
-            }
+            });
         }
     }
 
     pub fn group_move_to_and_evacuate(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_move_to_and_evacuate(pos, cmd_source);
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_move_to_and_evacuate(pos, cmd_source);
                 }
-            }
+            });
         }
     }
 
     /// Start following the path from the given waypoint (matches C++ AIGroup::groupFollowWaypointPath).
     pub fn group_follow_waypoint_path(&self, way: &Waypoint, cmd_source: CommandSourceType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_follow_waypoint_path(way, cmd_source);
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_follow_waypoint_path(way, cmd_source);
                 }
-            }
+            });
         }
     }
 
     /// Start following the path exactly from the given waypoint (matches C++ AIGroup::groupFollowWaypointPathExact).
     pub fn group_follow_waypoint_path_exact(&self, way: &Waypoint, cmd_source: CommandSourceType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_follow_waypoint_path_exact(way, cmd_source);
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_follow_waypoint_path_exact(way, cmd_source);
                 }
-            }
+            });
         }
     }
 
@@ -532,13 +515,11 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_follow_waypoint_path_as_team(way, cmd_source);
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_follow_waypoint_path_as_team(way, cmd_source);
                 }
-            }
+            });
         }
     }
 
@@ -549,38 +530,32 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_follow_waypoint_path_exact_as_team(way, cmd_source);
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_follow_waypoint_path_exact_as_team(way, cmd_source);
                 }
-            }
+            });
         }
     }
 
     pub fn group_idle(&self, cmd_source: CommandSourceType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_idle(cmd_source);
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_idle(cmd_source);
                 }
-            }
+            });
         }
     }
 
     /// Tell all things in the group to toggle overcharge (matches C++ AIGroup::groupToggleOvercharge).
     pub fn group_toggle_overcharge(&self, _cmd_source: CommandSourceType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    let _ = obj_ref.with_overcharge_behavior_interface(|overcharge| {
-                        let _ = overcharge.toggle();
-                    });
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                let _ = obj_ref.with_overcharge_behavior_interface(|overcharge| {
+                    let _ = overcharge.toggle();
+                });
+            });
         }
     }
 
@@ -593,29 +568,25 @@ impl AIGroup {
         _cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.try_lock() {
-                            ai_guard.set_surrendered(obj_we_surrendered_to, surrender);
-                        }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.try_lock() {
+                        ai_guard.set_surrendered(obj_we_surrendered_to, surrender);
                     }
                 }
-            }
+            });
         }
     }
 
     /// Trigger a group cheer (matches C++ AIGroup::groupCheer).
     pub fn group_cheer(&self, _cmd_source: CommandSourceType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(mut obj_ref) = obj.try_write() {
-                    obj_ref.set_special_model_condition_state(
-                        MODELCONDITION_SPECIAL_CHEERING,
-                        LOGICFRAMES_PER_SECOND * 3,
-                    );
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                obj_ref.set_special_model_condition_state(
+                    MODELCONDITION_SPECIAL_CHEERING,
+                    LOGICFRAMES_PER_SECOND * 3,
+                );
+            });
         }
     }
 
@@ -624,18 +595,16 @@ impl AIGroup {
     pub fn group_pick_up_prisoner(&self, prisoner_id: ObjectID, cmd_source: CommandSourceType) {
         let prisoner_id = Some(prisoner_id);
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.try_lock() {
-                            let mut params =
-                                AiCommandParams::new(AiCommandType::PickUpPrisoner, cmd_source);
-                            params.obj = prisoner_id;
-                            let _ = ai_guard.execute_command(&params);
-                        }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.try_lock() {
+                        let mut params =
+                            AiCommandParams::new(AiCommandType::PickUpPrisoner, cmd_source);
+                        params.obj = prisoner_id;
+                        let _ = ai_guard.execute_command(&params);
                     }
                 }
-            }
+            });
         }
     }
 
@@ -644,18 +613,16 @@ impl AIGroup {
     pub fn group_return_to_prison(&self, prison_id: ObjectID, cmd_source: CommandSourceType) {
         let prison_id = Some(prison_id);
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.try_lock() {
-                            let mut params =
-                                AiCommandParams::new(AiCommandType::ReturnPrisoners, cmd_source);
-                            params.obj = prison_id;
-                            let _ = ai_guard.execute_command(&params);
-                        }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.try_lock() {
+                        let mut params =
+                            AiCommandParams::new(AiCommandType::ReturnPrisoners, cmd_source);
+                        params.obj = prison_id;
+                        let _ = ai_guard.execute_command(&params);
                     }
                 }
-            }
+            });
         }
     }
 
@@ -667,30 +634,26 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.try_lock() {
-                            let mut params =
-                                AiCommandParams::new(AiCommandType::CombatDrop, cmd_source);
-                            params.obj = target_id;
-                            params.pos = *pos;
-                            let _ = ai_guard.execute_command(&params);
-                        }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.try_lock() {
+                        let mut params =
+                            AiCommandParams::new(AiCommandType::CombatDrop, cmd_source);
+                        params.obj = target_id;
+                        params.pos = *pos;
+                        let _ = ai_guard.execute_command(&params);
                     }
                 }
-            }
+            });
         }
     }
 
     /// Issue a command button (matches C++ AIGroup::groupDoCommandButton).
     pub fn group_do_command_button(&self, button_id: u32, cmd_source: CommandSourceType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    let _ = obj_ref.do_command_button(button_id, cmd_source);
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                let _ = obj_ref.do_command_button(button_id, cmd_source);
+            });
         }
     }
 
@@ -702,11 +665,9 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    let _ = obj_ref.do_command_button_at_position(button_id, pos, cmd_source);
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                let _ = obj_ref.do_command_button_at_position(button_id, pos, cmd_source);
+            });
         }
     }
 
@@ -718,11 +679,9 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    let _ = obj_ref.do_command_button_using_waypoints(button_id, way, cmd_source);
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                let _ = obj_ref.do_command_button_using_waypoints(button_id, way, cmd_source);
+            });
         }
     }
 
@@ -733,19 +692,12 @@ impl AIGroup {
         target_id: ObjectID,
         cmd_source: CommandSourceType,
     ) {
-        let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
-            return;
-        };
-        let Ok(target_ref) = target.read() else {
-            return;
-        };
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    let _ =
-                        obj_ref.do_command_button_at_object(button_id, &*target_ref, cmd_source);
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object(target_id, |target_ref| {
+                let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                    let _ = obj_ref.do_command_button_at_object(button_id, target_ref, cmd_source);
+                });
+            });
         }
     }
 
@@ -775,17 +727,15 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        if forced {
-                            ai.ai_force_attack_object(victim_id, max_shots_to_fire, cmd_source);
-                        } else {
-                            ai.ai_attack_object(victim_id, max_shots_to_fire, cmd_source);
-                        }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    if forced {
+                        ai.ai_force_attack_object(victim_id, max_shots_to_fire, cmd_source);
+                    } else {
+                        ai.ai_attack_object(victim_id, max_shots_to_fire, cmd_source);
                     }
                 }
-            }
+            });
         }
     }
 
@@ -796,13 +746,11 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
                 }
-            }
+            });
         }
     }
 
@@ -813,13 +761,11 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_guard_position(pos, guard_mode, cmd_source);
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_guard_position(pos, guard_mode, cmd_source);
                 }
-            }
+            });
         }
     }
 
@@ -827,24 +773,21 @@ impl AIGroup {
     pub fn group_sell(&self, _cmd_source: CommandSourceType) {
         let current_frame = TheGameLogic::get_frame();
         for &member_id in &self.member_list {
-            let obj = match OBJECT_REGISTRY.get_object(member_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj_ref) = obj.try_read() else {
+            let Some(sell_obj) =
+                OBJECT_REGISTRY.with_object(member_id, |obj_ref| build_assistant::Object {
+                    id: obj_ref.get_id(),
+                    position: build_assistant::Coord3D {
+                        x: obj_ref.get_position().x,
+                        y: obj_ref.get_position().y,
+                        z: obj_ref.get_position().z,
+                    },
+                    orientation: obj_ref.get_orientation(),
+                })
+            else {
                 continue;
             };
             let Some(mut assistant) = build_assistant::get_build_assistant() else {
                 return;
-            };
-            let sell_obj = build_assistant::Object {
-                id: obj_ref.get_id(),
-                position: build_assistant::Coord3D {
-                    x: obj_ref.get_position().x,
-                    y: obj_ref.get_position().y,
-                    z: obj_ref.get_position().z,
-                },
-                orientation: obj_ref.get_orientation(),
             };
             assistant.sell_object(&sell_obj, current_frame);
         }
@@ -857,28 +800,24 @@ impl AIGroup {
         cmd_source: CommandSourceType,
     ) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.ai_guard_object(obj_to_guard_id, guard_mode, cmd_source);
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_guard_object(obj_to_guard_id, guard_mode, cmd_source);
                 }
-            }
+            });
         }
     }
 
     /// Set mine clearing detail weapon set flag for all members (matches C++ AIGroup::setMineClearingDetail)
     pub fn set_mine_clearing_detail(&self, set: bool) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(mut obj_ref) = obj.try_write() {
-                    if set {
-                        obj_ref.set_weapon_set_flag(WeaponSetType::MineClearingDetail);
-                    } else {
-                        obj_ref.clear_weapon_set_flag(WeaponSetType::MineClearingDetail);
-                    }
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if set {
+                    obj_ref.set_weapon_set_flag(WeaponSetType::MineClearingDetail);
+                } else {
+                    obj_ref.clear_weapon_set_flag(WeaponSetType::MineClearingDetail);
                 }
-            }
+            });
         }
     }
 
@@ -890,12 +829,10 @@ impl AIGroup {
     ) -> bool {
         let mut any = false;
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(mut obj_ref) = obj.try_write() {
-                    obj_ref.set_weapon_lock(weapon_slot, lock_type);
-                    any = true;
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                obj_ref.set_weapon_lock(weapon_slot, lock_type);
+                any = true;
+            });
         }
         any
     }
@@ -903,24 +840,20 @@ impl AIGroup {
     /// Release weapon lock for all members (matches C++ AIGroup::releaseWeaponLockForGroup)
     pub fn release_weapon_lock_for_group(&self, lock_type: WeaponLockType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(mut obj_ref) = obj.try_write() {
-                    obj_ref.release_weapon_lock(lock_type);
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                obj_ref.release_weapon_lock(lock_type);
+            });
         }
     }
 
     /// Set a weapon set flag for members that support it (matches C++ AIGroup::setWeaponSetFlag)
     pub fn set_weapon_set_flag(&self, wst: WeaponSetType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(mut obj_ref) = obj.try_write() {
-                    if obj_ref.has_weapon_set_template(wst) {
-                        obj_ref.set_weapon_set_flag(wst);
-                    }
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if obj_ref.has_weapon_set_template(wst) {
+                    obj_ref.set_weapon_set_flag(wst);
                 }
-            }
+            });
         }
     }
 
@@ -929,43 +862,39 @@ impl AIGroup {
         let upgrade_center = THE_UPGRADE_CENTER.clone();
 
         for &member_id in &self.member_list {
-            let obj = match OBJECT_REGISTRY.get_object(member_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj_ref) = obj.try_read() else {
-                continue;
-            };
-
-            if !obj_ref.can_produce_upgrade(upgrade.as_ref()) {
-                continue;
-            }
-
-            if upgrade.get_upgrade_type() == crate::upgrade::UpgradeType::Object {
-                if obj_ref.has_upgrade(upgrade.as_ref())
-                    || !obj_ref.affected_by_upgrade(upgrade.as_ref())
-                {
-                    continue;
-                }
-            }
-
-            let Some(player) = obj_ref.get_controlling_player() else {
-                continue;
-            };
-            let Ok(player_guard) = player.read() else {
-                continue;
-            };
-
-            let can_afford = upgrade_center
-                .read()
-                .ok()
-                .map(|center| center.can_afford_upgrade(&player_guard, upgrade.as_ref(), false))
+            let can_queue = OBJECT_REGISTRY
+                .with_object(member_id, |obj_ref| {
+                    if !obj_ref.can_produce_upgrade(upgrade.as_ref()) {
+                        return false;
+                    }
+                    if upgrade.get_upgrade_type() == crate::upgrade::UpgradeType::Object {
+                        if obj_ref.has_upgrade(upgrade.as_ref())
+                            || !obj_ref.affected_by_upgrade(upgrade.as_ref())
+                        {
+                            return false;
+                        }
+                    }
+                    let Some(player) = obj_ref.get_controlling_player() else {
+                        return false;
+                    };
+                    let Ok(player_guard) = player.read() else {
+                        return false;
+                    };
+                    upgrade_center
+                        .read()
+                        .ok()
+                        .map(|center| {
+                            center.can_afford_upgrade(&player_guard, upgrade.as_ref(), false)
+                        })
+                        .unwrap_or(false)
+                })
                 .unwrap_or(false);
-            if !can_afford {
+            if !can_queue {
                 continue;
             }
-
-            let _ = obj_ref.queue_upgrade(upgrade);
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                let _ = obj_ref.queue_upgrade(upgrade);
+            });
         }
     }
 
@@ -978,17 +907,15 @@ impl AIGroup {
         let template = store.find_special_power_template_by_id(special_power_id as u32)?;
 
         for &member_id in &self.member_list {
-            let obj = OBJECT_REGISTRY.get_object(member_id)?;
-            let has_special_power = {
-                let Ok(obj_ref) = obj.try_read() else {
-                    continue;
-                };
-                obj_ref
-                    .get_special_power_module(template.get_id())
-                    .is_some()
-            };
+            let has_special_power = OBJECT_REGISTRY
+                .with_object(member_id, |obj_ref| {
+                    obj_ref
+                        .get_special_power_module(template.get_id())
+                        .is_some()
+                })
+                .unwrap_or(false);
             if has_special_power {
-                return Some(obj);
+                return OBJECT_REGISTRY.get_object(member_id);
             }
         }
 
@@ -1002,24 +929,22 @@ impl AIGroup {
     ) -> Option<Arc<RwLock<Object>>> {
         let control_bar = get_control_bar_bridge()?;
         for &member_id in &self.member_list {
-            let obj = OBJECT_REGISTRY.get_object(member_id)?;
-            let has_command_button = {
-                let Ok(obj_ref) = obj.try_read() else {
-                    continue;
-                };
-                let command_set_name = obj_ref.get_command_set_string();
-                let Some(command_set) = control_bar.find_command_set_by_name(command_set_name)
-                else {
-                    continue;
-                };
-                command_set
-                    .buttons
-                    .iter()
-                    .flatten()
-                    .any(|button| button.id == command_type)
-            };
+            let has_command_button = OBJECT_REGISTRY
+                .with_object(member_id, |obj_ref| {
+                    let command_set_name = obj_ref.get_command_set_string();
+                    let Some(command_set) = control_bar.find_command_set_by_name(command_set_name)
+                    else {
+                        return false;
+                    };
+                    command_set
+                        .buttons
+                        .iter()
+                        .flatten()
+                        .any(|button| button.id == command_type)
+                })
+                .unwrap_or(false);
             if has_command_button {
-                return Some(obj);
+                return OBJECT_REGISTRY.get_object(member_id);
             }
         }
 
@@ -1028,46 +953,55 @@ impl AIGroup {
 
     /// Check if the group is idle
     pub fn is_idle(&self) -> bool {
+        // C++ AIGroup::isIdle — all AI members idle or effectively dead; empty → true.
+        let mut is_idle = true;
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        if !ai.is_idle() {
-                            return false;
-                        }
-                    }
-                }
+            let member = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                obj.get_ai_update_interface()
+                    .map(|ai| ai.is_idle() || obj.is_effectively_dead())
+            });
+            let Some(Some(member_idle)) = member else {
+                // missing object or no AI → C++ continue
+                continue;
+            };
+            is_idle = member_idle;
+            if !is_idle {
+                return false;
             }
         }
-        true
+        is_idle
     }
 
     /// Check if the group is busy (explicitly in busy state)
     pub fn is_busy(&self) -> bool {
+        // C++ AIGroup::isBusy — all AI members busy and alive; empty → true.
+        let mut is_busy = true;
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        if ai.is_busy() {
-                            return true;
-                        }
-                    }
-                }
+            let member = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                obj.get_ai_update_interface()
+                    .map(|ai| ai.is_busy() && !obj.is_effectively_dead())
+            });
+            let Some(Some(member_busy)) = member else {
+                // missing object or no AI → C++ continue
+                continue;
+            };
+            is_busy = member_busy;
+            if !is_busy {
+                return false;
             }
         }
-        false
+        is_busy
     }
 
     /// Check if the group AI is dead
     pub fn is_group_ai_dead(&self) -> bool {
+        // C++: group AI is dead when every member is effectively dead (or missing).
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if obj_ref.is_effectively_dead() {
-                        continue;
-                    }
-                    return false;
-                }
+            let alive = OBJECT_REGISTRY
+                .with_object(member_id, |obj| !obj.is_effectively_dead())
+                .unwrap_or(false);
+            if alive {
+                return false;
             }
         }
         true
@@ -1076,25 +1010,25 @@ impl AIGroup {
     /// Set attitude for all group members
     pub fn set_attitude(&self, attitude: AttitudeType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        ai.set_attitude(to_module_attitude(attitude));
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.set_attitude(to_module_attitude(attitude));
                 }
-            }
+            });
         }
     }
 
     /// Get attitude from first group member (they should all be the same)
     pub fn get_attitude(&self) -> AttitudeType {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        return from_module_attitude(ai.get_attitude());
-                    }
+            if let Some(Some(v)) = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    return Some(from_module_attitude(ai.get_attitude()));
                 }
+
+                None
+            }) {
+                return v;
             }
         }
         AttitudeType::Normal
@@ -1124,26 +1058,23 @@ impl AIGroup {
 
                     // Add all members to the formation
                     for &member_id in &self.member_list {
-                        if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                            if let Ok(obj_ref) = obj.try_read() {
-                                let unit_id = obj_ref.get_id();
-                                let position = *obj_ref.get_position();
-                                let speed = if let Some(ai) = obj_ref.get_ai_update_interface() {
-                                    ai.get_speed()
-                                } else {
-                                    100.0
-                                };
-                                // Get actual health percentage from object
-                                let health = obj_ref.get_health_percentage();
-                                // Get actual veterancy rank (0=Regular, 1=Veteran, 2=Elite, 3=Heroic)
-                                let rank = obj_ref.get_veterancy_level() as u32;
+                        let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                            let unit_id = obj_ref.get_id();
+                            let position = *obj_ref.get_position();
+                            let speed = if let Some(ai) = obj_ref.get_ai_update_interface() {
+                                ai.get_speed()
+                            } else {
+                                100.0
+                            };
+                            // Get actual health percentage from object
+                            let health = obj_ref.get_health_percentage();
+                            // Get actual veterancy rank (0=Regular, 1=Veteran, 2=Elite, 3=Heroic)
+                            let rank = obj_ref.get_veterancy_level() as u32;
 
-                                if let Some(formation) = manager.get_formation_mut(formation_id) {
-                                    let _ =
-                                        formation.add_unit(unit_id, position, speed, health, rank);
-                                }
+                            if let Some(formation) = manager.get_formation_mut(formation_id) {
+                                let _ = formation.add_unit(unit_id, position, speed, health, rank);
                             }
-                        }
+                        });
                     }
                 }
             }
@@ -1180,19 +1111,17 @@ impl AIGroup {
     /// Group attack-move: Move to position and engage enemies along the way
     pub fn group_attack_move_to_position(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    if let Some(ai) = obj_ref.get_ai_update_interface() {
-                        // Attack-move is a special AI state that moves to position
-                        // while automatically engaging enemies
-                        ai.ai_attack_move_to_position(
-                            pos,
-                            crate::weapon::NO_MAX_SHOTS_LIMIT,
-                            cmd_source,
-                        );
-                    }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    // Attack-move is a special AI state that moves to position
+                    // while automatically engaging enemies
+                    ai.ai_attack_move_to_position(
+                        pos,
+                        crate::weapon::NO_MAX_SHOTS_LIMIT,
+                        cmd_source,
+                    );
                 }
-            }
+            });
         }
     }
 
@@ -1236,19 +1165,17 @@ impl AIGroup {
                     // Update member positions in formation
                     if let Some(formation) = manager.get_formation_mut(formation_id) {
                         for &member_id in &self.member_list {
-                            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                                if let Ok(obj_ref) = obj.try_read() {
-                                    let unit_id = obj_ref.get_id();
-                                    let position = *obj_ref.get_position();
-                                    // Get actual health percentage from object
-                                    let health = obj_ref.get_health_percentage();
-                                    // Check if object is in combat
-                                    let in_combat = obj_ref.is_in_combat();
+                            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                                let unit_id = obj_ref.get_id();
+                                let position = *obj_ref.get_position();
+                                // Get actual health percentage from object
+                                let health = obj_ref.get_health_percentage();
+                                // Check if object is in combat
+                                let in_combat = obj_ref.is_in_combat();
 
-                                    let _ = formation
-                                        .update_unit_status(unit_id, position, health, in_combat);
-                                }
-                            }
+                                let _ = formation
+                                    .update_unit_status(unit_id, position, health, in_combat);
+                            });
                         }
                     }
                 }
@@ -1266,11 +1193,9 @@ impl Drop for AIGroup {
     fn drop(&mut self) {
         // Disassociate each member from the group
         for &member_id in &self.member_list {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(member_id) {
-                if let Ok(mut obj_ref) = obj.try_write() {
-                    obj_ref.leave_group();
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                obj_ref.leave_group();
+            });
         }
     }
 }
