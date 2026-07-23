@@ -148,7 +148,12 @@ impl A10StrikePower {
         let ocl = TheObjectCreationListStore::find_object_creation_list(ocl_name.as_str())
             .ok_or_else(|| format!("OCL '{}' not found for A10 strike", ocl_name))?;
 
-        let owner = self.resolve_owner_object();
+        let owner_id = self
+            .resolve_owner_object_id()
+            .ok_or_else(|| "A10 strike requires an owning object".to_string())?;
+        let owner = self
+            .resolve_owner_object()
+            .ok_or_else(|| "A10 strike requires an owning object".to_string())?;
 
         let mut target_coord = targeting.position;
         if self.data.adjust_position_to_passable {
@@ -168,11 +173,12 @@ impl A10StrikePower {
             }
         }
 
-        let owner_guard = owner.as_ref().and_then(|arc| arc.read().ok());
-        let owner_pos = owner_guard
-            .as_ref()
-            .map(|guard| *guard.get_position())
+        let owner_pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |guard| *guard.get_position())
             .unwrap_or(target_coord);
+        let owner_guard = owner
+            .read()
+            .map_err(|_| "A10 strike owner lock poisoned".to_string())?;
 
         let creation_coord = match self.data.create_loc {
             OclCreateLocType::CreateAtEdgeNearSource => TheTerrainLogic::get()
@@ -199,9 +205,6 @@ impl A10StrikePower {
 
         let ctx = live_creation_context();
         let create_owner = self.data.create_loc != OclCreateLocType::UseOwnerObject;
-        let Some(owner_guard) = owner_guard else {
-            return Err("A10 strike requires an owning object".to_string());
-        };
         let created = if create_owner {
             ocl.create_with_angle(
                 &ctx,

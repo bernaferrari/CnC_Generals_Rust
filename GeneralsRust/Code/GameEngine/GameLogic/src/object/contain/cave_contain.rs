@@ -428,7 +428,7 @@ impl CaveContain {
         Ok(Vec::new())
     }
 
-    pub fn get_contained_items_list(&self) -> GameResult<Vec<Arc<RwLock<Object>>>> {
+    pub fn get_contained_items_list(&self) -> GameResult<Vec<ObjectID>> {
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
@@ -437,14 +437,7 @@ impl CaveContain {
         };
 
         if let Ok(tunnel) = tracker.read() {
-            return Ok(tunnel
-                .get_contained_item_ids()
-                .iter()
-                .filter_map(|&id| {
-                    TheGameLogic::find_object_by_id(id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-                })
-                .collect());
+            return Ok(tunnel.get_contained_item_ids().to_vec());
         }
         Ok(Vec::new())
     }
