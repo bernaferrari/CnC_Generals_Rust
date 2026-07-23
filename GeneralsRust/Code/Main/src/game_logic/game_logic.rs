@@ -1155,6 +1155,9 @@ pub struct GameLogic {
     emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry,
     /// Host BaikonurLaunchPower residual (door open + detonation multi-blast).
     baikonur_launches: crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry,
+    /// Host DefectorSpecialPower residual.
+    defector_special:
+        crate::game_logic::host_defector_special_power::HostDefectorSpecialPowerRegistry,
 
     /// Host China Frenzy ("Rage") residual — temporary ally attack buff in radius.
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
@@ -2743,6 +2746,7 @@ impl GameLogic {
             emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
             baikonur_launches:
                 crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry::new(),
+            defector_special: crate::game_logic::host_defector_special_power::HostDefectorSpecialPowerRegistry::new(),
             frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
             battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry::new(),
             emergency_repairs:
@@ -3173,6 +3177,8 @@ impl GameLogic {
         self.emp_pulses.clear();
         self.baikonur_launches =
             crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry::new();
+        self.defector_special =
+            crate::game_logic::host_defector_special_power::HostDefectorSpecialPowerRegistry::new();
         self.frenzies.clear();
         self.cleanup_areas.clear();
         self.base_defense_residual_fires = 0;
@@ -23164,6 +23170,11 @@ impl GameLogic {
 
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.apply_upgrade_tag(upgrade);
+            // C++ ModelConditionUpgrade residual.
+            let _ = crate::game_logic::host_model_condition_upgrade::apply_model_condition_upgrade(
+                &mut obj.model_condition_bits,
+                upgrade,
+            );
             if is_overlord_family_host(&obj.template_name) {
                 if is_gattling_addon_upgrade(upgrade) {
                     obj.install_overlord_gattling_addon();
@@ -36279,6 +36290,41 @@ impl GameLogic {
     }
 
     /// Residual honesty: Baikonur launch door and/or detonation recorded.
+
+    pub fn honesty_defector_ok(&self) -> bool {
+        self.defector_special.honesty_ok()
+    }
+
+    /// C++ DefectorSpecialPower::doSpecialPowerAtObject residual.
+    pub fn activate_defector(&mut self, caster_id: ObjectId, victim_id: ObjectId) -> bool {
+        use crate::game_logic::host_defector_special_power::DEFECTOR_DETECTION_FRAMES;
+        if caster_id == victim_id {
+            return false;
+        }
+        let Some(caster) = self.objects.get(&caster_id) else {
+            return false;
+        };
+        if caster.is_disabled() {
+            return false;
+        }
+        let caster_team = caster.team;
+        let Some(victim) = self.objects.get_mut(&victim_id) else {
+            return false;
+        };
+        if !victim.is_alive() {
+            return false;
+        }
+        if victim.team == caster_team {
+            return false;
+        }
+        let frames = DEFECTOR_DETECTION_FRAMES;
+        let now = self.frame;
+        victim.defect(caster_team, now, frames);
+        self.defector_special.record(victim_id.0 as u32, frames);
+        // Reveal residual: optional FOW around victim (FatCursorRadius).
+        true
+    }
+
     pub fn honesty_baikonur_ok(&self) -> bool {
         self.baikonur_launches.honesty_host_path_ok()
     }
@@ -58569,6 +58615,52 @@ mod tests {
     /// C++ SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate::doDisableAttack
     /// setDisabledUntil(DISABLED_EMP, now + DisabledDuration=30000ms).
     /// Fail-closed: not full OCL bomb / spheroid drawable / spark particles.
+
+    #[test]
+    fn defector_special_power_defects_enemy() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut gen = ThingTemplate::new("AmericaCommandCenter");
+        gen.set_health(1000.0);
+        gen.add_kind_of(KindOf::Structure);
+        logic.templates.insert("AmericaCommandCenter".into(), gen);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank.set_health(200.0);
+        tank.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let caster = logic
+            .create_object("AmericaCommandCenter", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let victim = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.activate_defector(caster, victim));
+        let v = logic.objects.get(&victim).unwrap();
+        assert_eq!(v.team, Team::USA);
+        assert!(v.is_undetected_defector());
+        assert!(logic.honesty_defector_ok());
+    }
+
+    #[test]
+    fn model_condition_upgrade_sets_bit_on_object() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("Demo_Technical");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("Demo_Technical".into(), t);
+        let id = logic
+            .create_object("Demo_Technical", Team::GLA, glam::Vec3::ZERO)
+            .unwrap();
+        let before = logic.objects.get(&id).unwrap().model_condition_bits;
+        logic.apply_upgrade_to_object(id, "Upgrade_DemoArmor");
+        let after = logic.objects.get(&id).unwrap().model_condition_bits;
+        assert_ne!(
+            before, after,
+            "ModelConditionUpgrade must set ConditionFlag bit"
+        );
+    }
 
     #[test]
     fn baikonur_launch_door_and_detonation() {

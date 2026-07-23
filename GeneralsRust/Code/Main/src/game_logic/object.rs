@@ -2338,6 +2338,12 @@ impl Object {
             .unwrap_or(false)
     }
 
+    /// C++ Object::defect(team, detectionFrames) residual.
+    pub fn defect(&mut self, new_team: Team, now: u32, detection_frames: u32) {
+        self.set_team(new_team);
+        self.begin_undetected_defection(now, detection_frames, true);
+    }
+
     /// C++ Object::defect / friend_setUndetectedDefector + DefectionHelper timer.
     pub fn begin_undetected_defection(&mut self, now: u32, protection_frames: u32, with_fx: bool) {
         if self.defection_helper.is_none() {

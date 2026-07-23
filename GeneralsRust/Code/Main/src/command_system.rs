@@ -565,6 +565,9 @@ pub enum SpecialPowerType {
     StealthGpsScrambler,
     /// Launch Baikonur Rocket residual (SPECIAL_LAUNCH_BAIKONUR_ROCKET).
     BaikonurRocket,
+    /// Defector special power residual (SPECIAL_DEFECTOR / SpecialPowerDefector).
+    /// Clicks enemy unit/structure → defects to caster with undetected timer.
+    Defector,
     /// Nuke General NukeDrop residual (NUKE_SPECIAL_CLUSTER_MINES).
     NukeDrop,
     /// Battleship Bombardment residual (SPECIAL_BATTLESHIP_BOMBARDMENT).

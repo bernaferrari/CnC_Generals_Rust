@@ -199,6 +199,7 @@ pub fn host_command_power_cpp_enum_name(
         HostCommandSpecialPowerType::NukeChinaCarpetBomb => Some("EARLY_SPECIAL_CHINA_CARPET_BOMB"),
         HostCommandSpecialPowerType::StealthGpsScrambler => Some("SPECIAL_GPS_SCRAMBLER"),
         HostCommandSpecialPowerType::BaikonurRocket => Some("SPECIAL_LAUNCH_BAIKONUR_ROCKET"),
+        HostCommandSpecialPowerType::Defector => Some("SPECIAL_DEFECTOR"),
         HostCommandSpecialPowerType::NukeDrop => Some("NUKE_SPECIAL_CLUSTER_MINES"),
         HostCommandSpecialPowerType::BattleshipBombardment => {
             Some("SPECIAL_BATTLESHIP_BOMBARDMENT")
@@ -385,8 +386,8 @@ pub fn special_power_public_timer_structure_templates(
         | P::SuperweaponNeutronMissile
         | P::BaikonurRocket => &[
             CHINA_NUCLEAR_MISSILE_LAUNCHER,
+            "ChinaNuclearMissileLauncher",
             "Nuke_ChinaNuclearMissileLauncher",
-            "SupW_AmericaNuclearMissile",
         ],
         P::ScudStorm => &[GLA_SCUD_STORM, "Chem_GLAScudStorm"],
         // Science-gated PublicTimer powers: no structure template residual.
@@ -439,6 +440,7 @@ pub fn special_power_public_timer_display_name(
         | P::NukeNeutronMissile
         | P::SuperweaponNeutronMissile
         | P::BaikonurRocket => "Nuclear Missile",
+        P::Defector => "Defector",
         P::ScudStorm => "Scud Storm",
         P::TerrorCell => "Terror Cell",
         P::BlackMarketNuke => "Black Market Nuke",
@@ -461,6 +463,7 @@ pub fn special_power_public_timer_icon(
         | P::NukeNeutronMissile
         | P::SuperweaponNeutronMissile
         | P::BaikonurRocket => "SSNuclearMissile",
+        P::Defector => "SSDefector",
         P::ScudStorm => "SSScudStorm",
         P::TerrorCell => "SSTerrorCell",
         P::BlackMarketNuke => "SSBlackMarketNuke",
@@ -603,6 +606,7 @@ pub fn special_power_reload_seconds(
         P::Airstrike | P::AirForceAirstrike => Some(A10_STRIKE_RELOAD_MS),
         P::NapalmStrike => Some(NAPALM_STRIKE_RELOAD_MS),
         P::NuclearMissile | P::BaikonurRocket => Some(NUCLEAR_MISSILE_RELOAD_MS),
+        P::Defector => None,
         P::BlackMarketNuke => Some(BLACK_MARKET_NUKE_RELOAD_MS),
         P::DetonateDirtyNuke => Some(DIRTY_NUKE_RELOAD_MS),
         P::NukeNeutronMissile => Some(300_000),
