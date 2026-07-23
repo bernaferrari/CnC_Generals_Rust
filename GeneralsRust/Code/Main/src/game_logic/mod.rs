@@ -183,6 +183,7 @@ pub mod host_partition_collision_physics_residual;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 mod host_poisoned_behavior;
+mod host_preorder_create;
 pub mod host_production_buildable_command_residual;
 pub mod host_propaganda;
 pub mod host_quad_cannon;
