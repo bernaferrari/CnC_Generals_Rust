@@ -12539,8 +12539,10 @@ impl GameLogic {
         if !needs {
             return false;
         }
+        // C++ JetAIUpdate final dock / rearm proximity residual.
         const REARM_RANGE: f32 = 120.0;
-        // Pure residual acquire: nearest friendly airfield in rearm range (3D).
+        // C++ seek-airfield path residual (map-wide).
+        const RTB_SEEK_RANGE: f32 = 50_000.0;
         let candidates: Vec<_> = self
             .objects
             .values()
@@ -12560,17 +12562,46 @@ impl GameLogic {
                 },
             )
             .collect();
-        let Some((af_id, _, _)) =
-            crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
-                jet_id,
-                jet_team,
-                jet_pos,
-                candidates,
-                |_| REARM_RANGE,
-                |_| true,
-            )
-        else {
-            return false;
+        // Prefer in-range airfield for immediate dock; else nearest map-wide for RTB path.
+        let in_range = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            jet_id,
+            jet_team,
+            jet_pos,
+            candidates.iter().cloned(),
+            |_| REARM_RANGE,
+            |_| true,
+        );
+        let af_id = if let Some((id, _, _)) = in_range {
+            id
+        } else {
+            let Some((id, _, _)) =
+                crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+                    jet_id,
+                    jet_team,
+                    jet_pos,
+                    candidates,
+                    |_| RTB_SEEK_RANGE,
+                    |_| true,
+                )
+            else {
+                return false;
+            };
+            // C++ JetAIUpdate RETURN_TO_BASE path residual: fly toward airfield.
+            let af_pos = self
+                .objects
+                .get(&id)
+                .map(|o| o.get_position())
+                .unwrap_or(jet_pos);
+            if let Some(jet) = self.objects.get_mut(&jet_id) {
+                jet.target = None;
+                jet.set_status_attacking(false);
+                if !matches!(jet.ai_state, AIState::Moving | AIState::Docked) {
+                    jet.set_ai_state(AIState::Moving);
+                }
+            }
+            let _ = self.assign_unit_path(jet_id, af_pos, &[]);
+            // Not docked yet — suppress out-of-ammo damage while RTB en route.
+            return true;
         };
         let af_pos = self
             .objects
@@ -74247,6 +74278,89 @@ mod tests {
             .unwrap()
             .deploy_style_allows_move());
         assert!(game_logic.assign_unit_path(id, Vec3::new(100.0, 0.0, 0.0), &[]));
+    }
+
+    #[test]
+    fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+
+        let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
+        af_tmpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSAirfield)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaAirfield".into(), af_tmpl);
+
+        let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
+        jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+        jet_tmpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic.templates.insert("AmericaJetRaptor".into(), jet_tmpl);
+
+        let af_id = logic
+            .create_object("AmericaAirfield", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("af");
+        let jet_id = logic
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(2000.0, 0.0, 40.0))
+            .expect("jet");
+
+        {
+            let jet = logic.objects.get_mut(&jet_id).unwrap();
+            jet.weapon = Some(Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ammo: Some(0),
+                clip_size: 4,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Weapon::default()
+            });
+            jet.status.airborne_target = true;
+        }
+        assert!(logic
+            .objects
+            .get(&jet_id)
+            .unwrap()
+            .needs_return_to_base_rearm());
+
+        // Distant: path toward airfield (not docked yet).
+        assert!(logic.try_return_to_base_rearm(jet_id));
+        {
+            let jet = logic.objects.get(&jet_id).unwrap();
+            assert_ne!(jet.contained_by, Some(af_id), "still en route");
+            assert!(
+                jet.movement.target_position.is_some()
+                    || !jet.movement.path.is_empty()
+                    || matches!(jet.ai_state, AIState::Moving),
+                "should path toward airfield"
+            );
+            // Ammo still empty until dock.
+            assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
+        }
+
+        // Enter rearm range → dock + full rearm.
+        {
+            let jet = logic.objects.get_mut(&jet_id).unwrap();
+            jet.set_position(Vec3::new(50.0, 40.0, 0.0));
+            if let Some(w) = jet.weapon.as_mut() {
+                w.ammo = Some(0);
+            }
+        }
+        assert!(logic.try_return_to_base_rearm(jet_id));
+        {
+            let jet = logic.objects.get(&jet_id).unwrap();
+            assert_eq!(jet.contained_by, Some(af_id));
+            assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(4));
+            assert!(!jet.needs_return_to_base_rearm());
+        }
     }
 
     #[test]
