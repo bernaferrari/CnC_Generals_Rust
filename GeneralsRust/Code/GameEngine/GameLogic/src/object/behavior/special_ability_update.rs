@@ -525,13 +525,34 @@ impl SpecialAbilityUpdate {
         behavior
     }
 
+    fn get_object_id(&self) -> crate::common::ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+    }
+
+    fn with_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
+    }
+
+    /// Short-lived Arc resolve; prefer `with_object` / `get_object_id`.
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     fn calc_sleep_time(&self) -> UpdateSleepTime {
@@ -567,10 +588,10 @@ impl SpecialAbilityUpdate {
     where
         F: FnOnce(&mut dyn SpecialPowerModuleInterface) -> R,
     {
-        let obj = self.get_object()?;
-        let obj_guard = obj.read().ok()?;
         let template = self.module_data.special_power_template.as_ref()?;
-        obj_guard.with_special_power_module_mut_by_name(template.get_name(), func)
+        self.with_object(|obj_guard| {
+            obj_guard.with_special_power_module_mut_by_name(template.get_name(), func)
+        })?
     }
 
     fn is_preparation_complete(&self) -> bool {
@@ -586,22 +607,18 @@ impl SpecialAbilityUpdate {
     }
 
     fn on_exit(&mut self, cleanup: bool) {
-        if let Some(obj) = self.get_object() {
-            if let Ok(mut obj_guard) = obj.write() {
-                obj_guard
-                    .clear_model_condition_flags(
-                        ModelConditionFlags::Unpacking
-                            | ModelConditionFlags::Packing
-                            | ModelConditionFlags::FiringA,
-                    )
-                    .unwrap_or_else(|err| {
-                        log::debug!(
-                            "SpecialAbilityUpdate::on_exit clear_model_condition_flags: {err}"
-                        )
-                    });
-                obj_guard.clear_status(crate::common::ObjectStatusMaskType::IS_USING_ABILITY);
-            }
-        }
+        let _ = self.with_object_mut(|obj_guard| {
+            obj_guard
+                .clear_model_condition_flags(
+                    ModelConditionFlags::Unpacking
+                        | ModelConditionFlags::Packing
+                        | ModelConditionFlags::FiringA,
+                )
+                .unwrap_or_else(|err| {
+                    log::debug!("SpecialAbilityUpdate::on_exit clear_model_condition_flags: {err}")
+                });
+            obj_guard.clear_status(crate::common::ObjectStatusMaskType::IS_USING_ABILITY);
+        });
 
         // remove audio event...
         self.end_preparation();
@@ -618,11 +635,9 @@ impl SpecialAbilityUpdate {
     }
 
     fn end_preparation(&mut self) {
-        if let Some(obj) = self.get_object() {
-            if let Ok(mut obj_guard) = obj.write() {
-                obj_guard.clear_status(crate::common::ObjectStatusMaskType::IS_USING_ABILITY);
-            }
-        }
+        let _ = self.with_object_mut(|obj_guard| {
+            obj_guard.clear_status(crate::common::ObjectStatusMaskType::IS_USING_ABILITY);
+        });
 
         if let Some(sound) = self.prep_sound_loop.take() {
             if let Some(audio) = TheAudio::get() {
@@ -944,10 +959,8 @@ impl SpecialAbilityUpdate {
                     self.capture_flash_phase = 0.0;
                 }
                 if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                    if let (Ok(target_guard), Some(owner)) =
-                        (target.read(), self.get_object())
-                    {
-                        if owner.read().ok().map(|o| o.relationship_to(&target_guard))
+                    if let Ok(target_guard) = target.read() {
+                        if self.with_object(|o| o.relationship_to(&target_guard))
                             == Some(Relationship::Allies)
                         {
                             return;
@@ -992,14 +1005,13 @@ impl SpecialAbilityUpdate {
 
         if let Some(sound) = self.module_data.prep_sound_loop.as_ref() {
             if let Some(audio) = TheAudio::get() {
-                if let Some(obj) = self.get_object() {
-                    if let Ok(obj_guard) = obj.read() {
-                        let mut event = sound.clone();
-                        event.set_object_id(obj_guard.get_id());
-                        let handle = audio.add_audio_event(&event);
-                        event.set_playing_handle(handle);
-                        self.prep_sound_loop = Some(event);
-                    }
+                let object_id = self.get_object_id();
+                if object_id != INVALID_ID {
+                    let mut event = sound.clone();
+                    event.set_object_id(object_id);
+                    let handle = audio.add_audio_event(&event);
+                    event.set_playing_handle(handle);
+                    self.prep_sound_loop = Some(event);
                 }
             }
         }
@@ -1025,10 +1037,8 @@ impl SpecialAbilityUpdate {
                     None => return false,
                 };
 
-                if let (Ok(target_guard), Some(owner)) =
-                    (target.read(), self.get_object())
-                {
-                    if owner.read().ok().map(|o| o.relationship_to(&target_guard))
+                if let Ok(target_guard) = target.read() {
+                    if self.with_object(|o| o.relationship_to(&target_guard))
                         == Some(Relationship::Allies)
                     {
                         return false;
@@ -1048,10 +1058,8 @@ impl SpecialAbilityUpdate {
                     Some(target) => target,
                     None => return false,
                 };
-                if let (Ok(target_guard), Some(owner)) =
-                    (target.read(), self.get_object())
-                {
-                    if owner.read().ok().map(|o| o.relationship_to(&target_guard))
+                if let Ok(target_guard) = target.read() {
+                    if self.with_object(|o| o.relationship_to(&target_guard))
                         == Some(Relationship::Allies)
                     {
                         return false;
@@ -1097,42 +1105,39 @@ impl SpecialAbilityUpdate {
             None => return,
         };
 
-        if let Some(obj) = self.get_object() {
-            if let Ok(obj_guard) = obj.read() {
-                if self.module_data.award_xp_for_triggering > 0 {
-                    if let Some(tracker) = obj_guard.get_experience_tracker() {
-                        let _ = tracker.lock().map(|mut t| {
-                            t.add_experience_points(
-                                self.module_data.award_xp_for_triggering,
-                                false,
-                                &crate::experience::ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                            );
-                        });
-                    }
-                }
-                let skill_points = if self.module_data.skill_points_for_triggering != -1 {
-                    self.module_data.skill_points_for_triggering
-                } else {
-                    self.module_data.award_xp_for_triggering
-                };
-                if skill_points > 0 {
-                    if let Some(player) = obj_guard.get_controlling_player() {
-                        let _ = player.write().map(|mut p| {
-                            p.add_skill_points(skill_points);
-                        });
-                    }
+        let _ = self.with_object(|obj_guard| {
+            if self.module_data.award_xp_for_triggering > 0 {
+                if let Some(tracker) = obj_guard.get_experience_tracker() {
+                    let _ = tracker.lock().map(|mut t| {
+                        t.add_experience_points(
+                            self.module_data.award_xp_for_triggering,
+                            false,
+                            &crate::experience::ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
+                        );
+                    });
                 }
             }
-        }
+            let skill_points = if self.module_data.skill_points_for_triggering != -1 {
+                self.module_data.skill_points_for_triggering
+            } else {
+                self.module_data.award_xp_for_triggering
+            };
+            if skill_points > 0 {
+                if let Some(player) = obj_guard.get_controlling_player() {
+                    let _ = player.write().map(|mut p| {
+                        p.add_skill_points(skill_points);
+                    });
+                }
+            }
+        });
 
         if let Some(sound) = self.module_data.trigger_sound.as_ref() {
             if let Some(audio) = TheAudio::get() {
-                if let Some(obj) = self.get_object() {
-                    if let Ok(obj_guard) = obj.read() {
-                        let mut event = sound.clone();
-                        event.set_object_id(obj_guard.get_id());
-                        audio.add_audio_event(&event);
-                    }
+                let object_id = self.get_object_id();
+                if object_id != INVALID_ID {
+                    let mut event = sound.clone();
+                    event.set_object_id(object_id);
+                    audio.add_audio_event(&event);
                 }
             }
         }
@@ -1227,11 +1232,12 @@ impl SpecialAbilityUpdate {
                     Some(target) => target,
                     None => return,
                 };
-                if let Some(obj) = self.get_object() {
-                    if let Ok(obj_guard) = obj.read() {
-                        if obj_guard.relationship_to(&target.read().unwrap()) == Relationship::Allies {
-                            return;
-                        }
+                if let Ok(target_guard) = target.read() {
+                    if self.with_object(|obj_guard| {
+                        obj_guard.relationship_to(&target_guard) == Relationship::Allies
+                    }) == Some(true)
+                    {
+                        return;
                     }
                 }
                 if let Ok(mut target_guard) = target.write() {
@@ -1455,12 +1461,11 @@ impl SpecialAbilityUpdate {
         }
 
         if self.module_data.lose_stealth_on_trigger && ok_to_lose_stealth {
-            if let Some(obj) = self.get_object() {
-                if let Ok(obj_guard) = obj.read() {
-                    if let Some(stealth) = obj_guard.get_stealth() {
-                        let _ = stealth.lock().map(|mut s| s.mark_as_detected());
-                    }
-                }
+            if let Some(stealth) = self
+                .with_object(|obj_guard| obj_guard.get_stealth())
+                .flatten()
+            {
+                let _ = stealth.lock().map(|mut s| s.mark_as_detected());
             }
         }
     }
@@ -1477,8 +1482,7 @@ impl SpecialAbilityUpdate {
         let template =
             TheThingFactory::find_template(self.module_data.special_object_name.as_str())?;
         let factory = TheThingFactory::get().ok()?;
-        let owner = self.get_object()?;
-        let team = owner.read().ok().and_then(|o| o.get_team());
+        let team = self.with_object(|o| o.get_team()).flatten();
 
         let new_object = if let Some(team_arc) = team {
             if let Ok(team_guard) = team_arc.read() {
@@ -1490,19 +1494,21 @@ impl SpecialAbilityUpdate {
             factory.new_object_optional_team(template, None).ok()?
         };
 
-        let owner_guard = owner.read().ok();
+        let owner_snapshot = self.with_object(|owner_guard| {
+            (
+                *owner_guard.get_position(),
+                owner_guard.get_orientation(),
+                owner_guard.get_id(),
+            )
+        });
         let mut new_id = INVALID_ID;
         if let Ok(mut new_guard) = new_object.write() {
             new_id = new_guard.get_id();
-            if let Some(owner_guard) = owner_guard.as_ref() {
-                let _ = new_guard.set_position(owner_guard.get_position());
-                let _ = new_guard.set_orientation(owner_guard.get_orientation());
-            }
-            if let Some(tracker) = new_guard.get_experience_tracker() {
-                if let Some(owner_guard) = owner_guard.as_ref() {
-                    let _ = tracker
-                        .lock()
-                        .map(|mut t| t.set_experience_sink(owner_guard.get_id()));
+            if let Some((pos, orient, owner_id)) = owner_snapshot {
+                let _ = new_guard.set_position(&pos);
+                let _ = new_guard.set_orientation(orient);
+                if let Some(tracker) = new_guard.get_experience_tracker() {
+                    let _ = tracker.lock().map(|mut t| t.set_experience_sink(owner_id));
                 }
             }
             if let Some(physics) = new_guard.get_physics() {
@@ -1519,11 +1525,7 @@ impl SpecialAbilityUpdate {
     }
 
     fn is_facing(&mut self) -> bool {
-        let Some(obj) = self.get_object() else {
-            return true;
-        };
-        let ai = obj.read().ok().and_then(|g| g.get_ai_update_interface());
-        let Some(ai) = ai else {
+        let Some(ai) = self.with_object(|g| g.get_ai_update_interface()).flatten() else {
             return true;
         };
 
@@ -1538,11 +1540,11 @@ impl SpecialAbilityUpdate {
     }
 
     fn need_to_face(&self) -> bool {
-        let Some(obj) = self.get_object() else {
-            return false;
-        };
-        let ai = obj.read().ok().and_then(|g| g.get_ai_update_interface());
-        if ai.is_none() {
+        if self
+            .with_object(|g| g.get_ai_update_interface())
+            .flatten()
+            .is_none()
+        {
             return false;
         }
         if !self.module_data.need_to_face_target {
@@ -1552,20 +1554,16 @@ impl SpecialAbilityUpdate {
     }
 
     fn start_facing(&mut self) {
-        let Some(obj) = self.get_object() else {
-            return;
-        };
-        let ai = obj.read().ok().and_then(|g| g.get_ai_update_interface());
-        let Some(ai) = ai else {
+        let Some(ai) = self.with_object(|g| g.get_ai_update_interface()).flatten() else {
             return;
         };
 
         ai.ai_idle(CMD_FROM_AI);
-        if let Ok(obj_guard) = obj.read() {
+        let _ = self.with_object(|obj_guard| {
             if let Some(physics) = obj_guard.get_physics() {
                 physics.reset_dynamic_physics();
             }
-        }
+        });
 
         self.facing_initiated = true;
         let target_pos = if self.target_id != INVALID_ID {
@@ -1577,14 +1575,16 @@ impl SpecialAbilityUpdate {
             None
         };
 
-        if let (Some(target_pos), Ok(mut obj_guard)) = (target_pos, obj.write()) {
-            let dx = target_pos.x - obj_guard.get_position().x;
-            let dy = target_pos.y - obj_guard.get_position().y;
-            let angle = dy.atan2(dx);
-            let _ = obj_guard.set_orientation(angle);
-            if let Ok(mut ai_guard) = ai.lock() {
-                ai_guard.set_locomotor_goal_orientation(angle);
-            }
+        if let Some(target_pos) = target_pos {
+            let _ = self.with_object_mut(|obj_guard| {
+                let dx = target_pos.x - obj_guard.get_position().x;
+                let dy = target_pos.y - obj_guard.get_position().y;
+                let angle = dy.atan2(dx);
+                let _ = obj_guard.set_orientation(angle);
+                if let Ok(mut ai_guard) = ai.lock() {
+                    ai_guard.set_locomotor_goal_orientation(angle);
+                }
+            });
         }
 
         self.facing_complete = true;
@@ -1635,13 +1635,12 @@ impl SpecialAbilityUpdate {
         if self.module_data.lose_stealth_on_trigger
             && self.anim_frames < self.module_data.pre_trigger_unstealth_frames
         {
-            if let Some(obj) = self.get_object() {
-                if let Ok(obj_guard) = obj.read() {
-                    if let Some(stealth) = obj_guard.get_stealth() {
-                        if let Ok(mut stealth_guard) = stealth.lock() {
-                            stealth_guard.mark_as_detected();
-                        }
-                    }
+            if let Some(stealth) = self
+                .with_object(|obj_guard| obj_guard.get_stealth())
+                .flatten()
+            {
+                if let Ok(mut stealth_guard) = stealth.lock() {
+                    stealth_guard.mark_as_detected();
                 }
             }
         }
@@ -1798,12 +1797,11 @@ impl SpecialAbilityUpdate {
                     }
                 }
             }
-        } else if let Some(obj) = self.get_object() {
-            if let Ok(obj_guard) = obj.read() {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    ai.ai_idle(CMD_FROM_AI);
-                }
-            }
+        } else if let Some(ai) = self
+            .with_object(|obj_guard| obj_guard.get_ai_update_interface())
+            .flatten()
+        {
+            ai.ai_idle(CMD_FROM_AI);
         }
 
         self.on_exit(false);
@@ -1906,14 +1904,11 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
                             CommonSpecialPowerType::SpecialInfantryCaptureBuilding
                             | CommonSpecialPowerType::SpecialBlackLotusCaptureBuilding
                             | CommonSpecialPowerType::SpecialHackerDisableBuilding => {
-                                if let Some(obj) = self.get_object() {
-                                    if let Ok(obj_guard) = obj.read() {
-                                        if obj_guard.relationship_to(&target_guard)
-                                            == Relationship::Allies
-                                        {
-                                            should_abort = true;
-                                        }
-                                    }
+                                if self.with_object(|obj_guard| {
+                                    obj_guard.relationship_to(&target_guard) == Relationship::Allies
+                                }) == Some(true)
+                                {
+                                    should_abort = true;
                                 }
                                 if target_guard.test_status(ObjectStatusTypes::Stealthed)
                                     && !target_guard.test_status(ObjectStatusTypes::Detected)
@@ -1962,12 +1957,11 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
 
         let spm_exists = self.with_spm(|_| ()).is_some();
         if should_abort || self.get_template().is_none() || !spm_exists {
-            if let Some(obj) = self.get_object() {
-                if let Ok(obj_guard) = obj.read() {
-                    if let Some(ai) = obj_guard.get_ai_update_interface() {
-                        ai.ai_idle(CMD_FROM_AI);
-                    }
-                }
+            if let Some(ai) = self
+                .with_object(|obj_guard| obj_guard.get_ai_update_interface())
+                .flatten()
+            {
+                ai.ai_idle(CMD_FROM_AI);
             }
             self.on_exit(false);
             return Ok(self.calc_sleep_time());
@@ -2338,11 +2332,7 @@ impl SpecialPowerUpdateInterface for SpecialAbilityUpdate {
         self.within_start_ability_range = false;
 
         // Clear model conditions
-        if let Some(_obj) = self.get_object() {
-            // obj.write().clear_model_condition_flags(...)
-            // Clear AI
-            // obj.write().get_ai_update_interface().ai_idle(CMD_FROM_AI);
-        }
+        // Model-condition/AI cleanup handled by on_exit paths.
 
         self.no_target_command = target_obj.is_none() && target_pos.is_none();
 
@@ -2353,11 +2343,9 @@ impl SpecialPowerUpdateInterface for SpecialAbilityUpdate {
         }
 
         self.active = true;
-        if let Some(obj) = self.get_object() {
-            let obj_id = obj.read().map(|guard| guard.get_id()).unwrap_or(INVALID_ID);
-            if obj_id != INVALID_ID {
-                TheGameLogic::set_wake_frame(obj_id, UPDATE_SLEEP_NONE);
-            }
+        let obj_id = self.get_object_id();
+        if obj_id != INVALID_ID {
+            TheGameLogic::set_wake_frame(obj_id, UPDATE_SLEEP_NONE);
         }
         true
     }
