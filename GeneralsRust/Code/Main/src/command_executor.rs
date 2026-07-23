@@ -366,7 +366,8 @@ impl<'a> CommandExecutor<'a> {
         }
 
         // Gather movable members with positions (skip dead / immobile).
-        let mut movers: Vec<(ObjectId, Vec3, f32)> = Vec::with_capacity(units.len());
+        let mut movers: Vec<(ObjectId, Vec3, f32, u32, glam::Vec2)> =
+            Vec::with_capacity(units.len());
         for &unit_id in units {
             let Some(obj) = self.game_logic.get_object(unit_id) else {
                 continue;
@@ -380,15 +381,36 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             let radius = obj.selection_radius.max(5.0);
-            // Prefer Thing position (set_position); `Object.position` shadow can lag.
-            movers.push((unit_id, obj.get_position(), radius));
+            movers.push((
+                unit_id,
+                obj.get_position(),
+                radius,
+                obj.formation_id,
+                obj.formation_offset,
+            ));
         }
         if movers.is_empty() {
-            // Fall back: raw destinations so callers still get a path attempt.
             return units.iter().map(|&id| (id, destination)).collect();
         }
         if movers.len() == 1 {
             return vec![(movers[0].0, destination)];
+        }
+
+        // Shared non-zero formation id → C++ formation move offsets.
+        let fid0 = movers[0].3;
+        let is_formation = fid0 != 0 && movers.iter().all(|m| m.3 == fid0);
+
+        if is_formation {
+            // C++ friend_moveFormationToPos residual: goal + formationOffset.
+            return movers
+                .into_iter()
+                .map(|(id, _pos, _r, _fid, off)| {
+                    (
+                        id,
+                        Vec3::new(destination.x + off.x, destination.y, destination.z + off.y),
+                    )
+                })
+                .collect();
         }
 
         // Near-to-far vs goal (C++ SimpleObjectIterator ITER_SORTED_NEAR_TO_FAR).
@@ -401,15 +423,12 @@ impl<'a> CommandExecutor<'a> {
         // Free-move center is the nearest unit's current position (C++ firstUnit branch).
         let center = movers[0].1;
         let mut out = Vec::with_capacity(movers.len());
-        for (i, (unit_id, pos, radius)) in movers.into_iter().enumerate() {
+        for (i, (unit_id, pos, radius, _fid, _off)) in movers.into_iter().enumerate() {
             let goal = if i == 0 {
-                // Lead unit walks to the click.
                 destination
             } else {
-                // computeIndividualDestination: offset from center, clamp length.
                 let mut dx = pos.x - center.x;
                 let mut dz = pos.z - center.z;
-                // Host uses XZ ground plane (Y up) — C++ uses XY with Z up.
                 let mut length = (dx * dx + dz * dz).sqrt();
                 let max_length = 6.0 * radius;
                 if length > max_length {
@@ -420,7 +439,6 @@ impl<'a> CommandExecutor<'a> {
                     dx = (dx / nlen) * length;
                     dz = (dz / nlen) * length;
                 } else {
-                    // Coincident with center: tiny stable offset so goals don't stack.
                     let angle = (i as f32) * 1.7;
                     dx = angle.cos() * radius * 0.5;
                     dz = angle.sin() * radius * 0.5;
@@ -2371,7 +2389,7 @@ impl<'a> CommandExecutor<'a> {
     fn execute_dock(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
         let target_pos = if let Some(target) = self.game_logic.get_object(target_id) {
             if target.is_alive() && !target.status.under_construction && target.can_contain() {
-                target.position
+                target.get_position()
             } else {
                 return CommandResult::InvalidTarget;
             }
@@ -4035,35 +4053,60 @@ impl<'a> CommandExecutor<'a> {
 
     // === Formation Commands ===
 
-    fn execute_create_formation(&mut self, units: &[ObjectId]) -> CommandResult {
+    pub(crate) fn execute_create_formation(&mut self, units: &[ObjectId]) -> CommandResult {
+        // C++ AIGroup::groupCreateFormation — stamp formation id + offset from
+        // centroid. Does NOT path units or enter GuardingArea.
         if units.is_empty() {
             return CommandResult::InvalidCommand;
         }
 
-        // Use the centroid as a formation anchor and add a spread based on selection radius.
-        let mut count = 0.0;
-        let mut sum = Vec3::ZERO;
+        let mut members: Vec<(ObjectId, Vec3, u32)> = Vec::new();
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object(unit_id) {
-                sum += unit.position;
-                count += 1.0;
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() || !unit.can_move() {
+                continue;
             }
+            if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || unit.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            members.push((unit_id, unit.get_position(), unit.formation_id));
         }
-        if count == 0.0 {
+        if members.is_empty() {
             return CommandResult::InvalidCommand;
         }
-        let anchor = sum / count;
 
-        // Offset units slightly to reduce stacking, proportional to their selection radius.
-        for (i, &unit_id) in units.iter().enumerate() {
+        let mut center = Vec3::ZERO;
+        for (_, pos, _) in &members {
+            center += *pos;
+        }
+        center /= members.len() as f32;
+
+        // C++: if already a formation (shared id, or single unit with id), clear.
+        let mut is_formation = false;
+        if members.len() == 1 && members[0].2 != 0 {
+            is_formation = true;
+        } else if members.len() >= 2 {
+            let first_id = members[0].2;
+            if first_id != 0 && members.iter().all(|m| m.2 == first_id) {
+                is_formation = true;
+            }
+        }
+
+        let new_id = if is_formation {
+            0 // NO_FORMATION_ID — dissolve
+        } else {
+            self.game_logic.alloc_formation_id()
+        };
+
+        for (unit_id, pos, _) in members {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                let angle = (i as f32) * std::f32::consts::TAU / (count.max(1.0));
-                let spread = unit.selection_radius.max(6.0);
-                let offset = Vec3::new(angle.cos() * spread, 0.0, angle.sin() * spread);
-                let pos = anchor + offset;
-                unit.guard_position = Some(pos);
-                unit.guard_radius = spread * 1.5;
-                unit.set_ai_state(AIState::GuardingArea);
+                unit.formation_id = new_id;
+                // C++ offset is XY; host ground is XZ → store as Vec2(x, z).
+                unit.formation_offset = glam::Vec2::new(pos.x - center.x, pos.z - center.z);
             }
         }
 
@@ -4527,6 +4570,95 @@ mod group_move_tests {
             "C++ cheer is 3s (90 frames@30), got {}",
             u.cheer_timer
         );
+    }
+
+    #[test]
+    fn create_formation_stamps_offsets_not_guard() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        for name in ["FM_A", "FM_B"] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Vehicle);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(100.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let a = logic
+            .create_object("FM_A", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("FM_B", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_create_formation(&[a, b]),
+            CommandResult::Success
+        );
+        let ua = logic.get_object(a).unwrap();
+        let ub = logic.get_object(b).unwrap();
+        assert_ne!(ua.formation_id, 0);
+        assert_eq!(ua.formation_id, ub.formation_id);
+        // Center at x=20 → offsets -20 and +20
+        assert!(
+            (ua.formation_offset.x + 20.0).abs() < 0.1,
+            "{:?}",
+            ua.formation_offset
+        );
+        assert!(
+            (ub.formation_offset.x - 20.0).abs() < 0.1,
+            "{:?}",
+            ub.formation_offset
+        );
+        assert_ne!(ua.ai_state, AIState::GuardingArea);
+
+        // Second call dissolves formation (C++ toggle when already formation).
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_create_formation(&[a, b]),
+            CommandResult::Success
+        );
+        assert_eq!(logic.get_object(a).unwrap().formation_id, 0);
+        assert_eq!(logic.get_object(b).unwrap().formation_id, 0);
+    }
+
+    #[test]
+    fn formation_move_uses_stamped_offsets() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        for name in ["FM_C", "FM_D"] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Vehicle);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(100.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let a = logic
+            .create_object("FM_C", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("FM_D", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_create_formation(&[a, b]),
+            CommandResult::Success
+        );
+        let click = Vec3::new(100.0, 0.0, 50.0);
+        let goals = exec.group_move_destinations(&[a, b], click);
+        let ga = goals.iter().find(|(id, _)| *id == a).unwrap().1;
+        let gb = goals.iter().find(|(id, _)| *id == b).unwrap().1;
+        assert!((ga.x - (100.0 - 20.0)).abs() < 0.1, "a goal {ga:?}");
+        assert!((gb.x - (100.0 + 20.0)).abs() < 0.1, "b goal {gb:?}");
+        assert!((ga.z - 50.0).abs() < 0.1);
+        assert!((gb.z - 50.0).abs() < 0.1);
     }
 
     #[test]

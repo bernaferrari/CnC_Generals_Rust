@@ -991,6 +991,8 @@ pub struct GameLogic {
 
     /// Object ID counter
     next_object_id: ObjectId,
+    /// C++ TheAI next formation id residual (starts at 1; 0 = none).
+    next_formation_id: u32,
 
     /// Simulation frame counter
     frame: u32,
@@ -2679,6 +2681,7 @@ impl GameLogic {
             objects: HashMap::new(),
             players: HashMap::new(),
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
+            next_formation_id: 1,
             frame: 0,
             game_mode: GameMode::None,
             skirmish_rules: SkirmishRulesState::default(),
@@ -3120,6 +3123,7 @@ impl GameLogic {
         self.objects.clear();
         self.players.clear();
         self.next_object_id = ObjectId(1);
+        self.next_formation_id = 1;
         self.frame = 0;
         self.objects_to_destroy.clear();
         self.combat_particles.clear();
@@ -21730,11 +21734,19 @@ impl GameLogic {
     pub fn clear_all_objects(&mut self) {
         self.objects.clear();
         self.next_object_id = ObjectId(1);
+        self.next_formation_id = 1;
     }
 
     /// Set the next object ID counter (for snapshot restoration).
     pub fn set_next_object_id_for_restore(&mut self, next_object_id: ObjectId) {
         self.next_object_id = next_object_id;
+    }
+
+    /// C++ TheAI::getNextFormationID residual.
+    pub fn alloc_formation_id(&mut self) -> u32 {
+        let id = self.next_formation_id;
+        self.next_formation_id = self.next_formation_id.saturating_add(1).max(1);
+        id
     }
 
     /// Clear all players (for snapshot restoration)

@@ -797,6 +797,11 @@ pub struct Object {
     /// Optional short-lived cheer/animation timer
     pub cheer_timer: f32,
 
+    /// C++ Object::m_formationID residual (0 = NO_FORMATION_ID).
+    pub formation_id: u32,
+    /// C++ Object::m_formationOffset residual (host XZ → Vec2 x/y).
+    pub formation_offset: glam::Vec2,
+
     /// Toggleable weapon/overcharge state flags
     pub overcharge_enabled: bool,
     pub active_weapon_slot: u8,
@@ -1533,6 +1538,8 @@ impl Object {
             is_combat_chinook_transport: false,
             contained_by: None,
             cheer_timer: 0.0,
+            formation_id: 0,
+            formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
             active_weapon_slot: 0,
             pre_attack_target: None,
@@ -1827,6 +1834,8 @@ impl Object {
             is_combat_chinook_transport: false,
             contained_by: None,
             cheer_timer: 0.0,
+            formation_id: 0,
+            formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
             active_weapon_slot: 0,
             pre_attack_target: None,
