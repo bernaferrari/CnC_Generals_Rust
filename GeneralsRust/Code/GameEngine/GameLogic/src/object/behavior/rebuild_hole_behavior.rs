@@ -155,8 +155,29 @@ impl RebuildHoleBehavior {
         Self::new(object_id, module_data)
     }
 
+    fn get_object_id(&self) -> crate::common::ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+    }
+
+    fn with_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        let id = self.get_object_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
+    }
+
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
         TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 
     fn resolve_worker_template(&mut self) -> Option<Arc<dyn crate::common::ThingTemplate>> {
@@ -180,11 +201,9 @@ impl RebuildHoleBehavior {
         self.worker_id = INVALID_ID;
         self.worker_wait_counter = self.module_data.worker_respawn_delay;
 
-        if let Some(hole_arc) = self.get_object() {
-            if let Ok(mut hole_guard) = hole_arc.write() {
-                hole_guard.mask_object(false);
-            }
-        }
+        let _ = self.with_object_mut(|hole_guard| {
+            hole_guard.mask_object(false);
+        });
 
         Ok(())
     }
@@ -399,11 +418,9 @@ impl RebuildHoleBehavior {
             guard.set_producer(Some(hole));
         }
 
-        if let Some(hole_arc) = self.get_object() {
-            if let Ok(mut hole_guard) = hole_arc.write() {
-                hole_guard.mask_object(true);
-            }
-        }
+        let _ = self.with_object_mut(|hole_guard| {
+            hole_guard.mask_object(true);
+        });
 
         self.transfer_attackers(self.object_id, recon_id);
 
@@ -535,11 +552,7 @@ impl BehaviorModuleInterface for RebuildHoleBehavior {
             }
             self.worker_id = INVALID_ID;
         }
-        if let Some(hole_arc) = self.get_object() {
-            if let Ok(hole_guard) = hole_arc.read() {
-                let _ = TheGameLogic::destroy_object(&*hole_guard);
-            }
-        }
+        let _ = TheGameLogic::destroy_object_by_id(self.get_object_id());
         Ok(())
     }
 

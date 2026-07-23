@@ -771,11 +771,33 @@ impl AutoHealBehavior {
     }
 
     /// Get the object this behavior belongs to
-    fn get_object(&self) -> Option<Arc<RwLock<GameObject>>> {
-        if self.object_id == OBJECT_INVALID_ID {
+    fn owner_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(&self, f: impl FnOnce(&GameObject) -> R) -> Option<R> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
             return None;
         }
-        OBJECT_REGISTRY.get_object(self.object_id)
+        OBJECT_REGISTRY.with_object(id, f)
+    }
+
+    fn with_object_mut<R>(&self, f: impl FnOnce(&mut GameObject) -> R) -> Option<R> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return None;
+        }
+        OBJECT_REGISTRY.with_object_mut(id, f)
+    }
+
+    /// Short-lived Arc resolve; prefer `with_object` / `owner_object_id`.
+    fn get_object(&self) -> Option<Arc<RwLock<GameObject>>> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return None;
+        }
+        OBJECT_REGISTRY.get_object(id)
     }
 
     /// Get current game frame
@@ -798,13 +820,11 @@ impl UpdateModuleInterface for AutoHealBehavior {
             return Ok(UPDATE_SLEEP_FOREVER);
         }
 
-        let Some(obj) = self.get_object() else {
+        if self
+            .with_object(|obj_read| obj_read.is_effectively_dead())
+            .unwrap_or(true)
+        {
             return Ok(UPDATE_SLEEP_FOREVER);
-        };
-        if let Ok(obj_read) = obj.read() {
-            if obj_read.is_effectively_dead() {
-                return Ok(UPDATE_SLEEP_FOREVER);
-            }
         }
 
         let data = &self.module_data;
@@ -948,23 +968,17 @@ impl AutoHealBehavior {
         let forbidden_kind_of = self.module_data.forbidden_kind_of.clone();
         let skip_self = self.module_data.skip_self_for_healing;
         let healing_delay = self.module_data.healing_delay;
-        let obj = match self.get_object() {
-            Some(obj) => obj,
-            None => return Ok(UPDATE_SLEEP_FOREVER),
-        };
-
-        let controlling_player = {
-            let obj_read = obj
-                .read()
-                .map_err(|e| format!("auto-heal lock poisoned: {}", e))?;
-            obj_read.get_controlling_player()
+        let Some((controlling_player, healer_id)) =
+            self.with_object(|obj_read| (obj_read.get_controlling_player(), obj_read.get_id()))
+        else {
+            return Ok(UPDATE_SLEEP_FOREVER);
         };
 
         if let Some(player) = controlling_player {
             let mut helper = AutoHealPlayerScanHelper::new();
             helper.kind_of_to_test = kind_of_to_test;
             helper.forbidden_kind_of = forbidden_kind_of;
-            helper.the_healer = Some(obj.read().map(|g| g.get_id()).unwrap_or(OBJECT_INVALID_ID));
+            helper.the_healer = Some(healer_id);
             helper.skip_self_for_healing = skip_self;
 
             player
@@ -992,27 +1006,24 @@ impl AutoHealBehavior {
         &mut self,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         let healing_delay = self.module_data.healing_delay;
-        let obj = match self.get_object() {
-            Some(obj) => obj,
-            None => return Ok(UPDATE_SLEEP_FOREVER),
-        };
-
-        // Check if we need healing
-        let needs_healing = {
-            let obj_read = obj
-                .read()
-                .map_err(|e| format!("auto-heal lock poisoned: {}", e))?;
-            if let Some(body) = obj_read.get_body_module() {
-                let body_lock = body
-                    .lock()
-                    .map_err(|e| format!("auto-heal body lock poisoned: {}", e))?;
-                body_lock.get_health() < body_lock.get_max_health()
-            } else {
-                false
-            }
-        };
+        let needs_healing = self
+            .with_object(|obj_read| {
+                if let Some(body) = obj_read.get_body_module() {
+                    if let Ok(body_lock) = body.lock() {
+                        body_lock.get_health() < body_lock.get_max_health()
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false);
 
         if needs_healing {
+            let Some(obj) = self.get_object() else {
+                return Ok(UPDATE_SLEEP_FOREVER);
+            };
             self.pulse_heal_object(obj)?;
             Ok(update_sleep_time(healing_delay))
         } else {
@@ -1026,16 +1037,10 @@ impl AutoHealBehavior {
         &mut self,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         let data = &self.module_data;
-        let obj = match self.get_object() {
-            Some(obj) => obj,
-            None => return Ok(UPDATE_SLEEP_FOREVER),
-        };
-
-        let (position, healer_team) = {
-            let obj_read = obj
-                .read()
-                .map_err(|e| format!("auto-heal lock poisoned: {}", e))?;
-            (*obj_read.get_position(), obj_read.get_team())
+        let Some((position, healer_team)) =
+            self.with_object(|obj_read| (*obj_read.get_position(), obj_read.get_team()))
+        else {
+            return Ok(UPDATE_SLEEP_FOREVER);
         };
 
         let Some(healer_team) = healer_team else {
@@ -1148,13 +1153,9 @@ impl UpgradeModuleInterface for AutoHealBehavior {
 
         if !self.upgrade_executed {
             self.give_self_upgrade();
-            if let Some(object) = self.get_object() {
-                if let Ok(thing) = object.read() {
-                    self.module_data
-                        .upgrade_mux_data
-                        .perform_upgrade_fx(&*thing);
-                }
-            }
+            let _ = self.with_object(|thing| {
+                self.module_data.upgrade_mux_data.perform_upgrade_fx(thing);
+            });
         }
 
         true
@@ -1164,11 +1165,8 @@ impl UpgradeModuleInterface for AutoHealBehavior {
         let (activation_mask, _) = self.compute_upgrade_masks();
         if activation_mask.is_empty() || upgrade_mask.intersects(activation_mask) {
             self.undo_upgrade();
-            if let Some(object) = self.get_object() {
-                let object_id = object
-                    .read()
-                    .map(|g| g.get_id())
-                    .unwrap_or(OBJECT_INVALID_ID);
+            let object_id = self.owner_object_id();
+            if object_id != OBJECT_INVALID_ID {
                 let object_handle = AutoHealObjectHandle { object_id };
                 self.module_data
                     .upgrade_mux_data
