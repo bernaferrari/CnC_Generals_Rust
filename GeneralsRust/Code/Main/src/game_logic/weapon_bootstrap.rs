@@ -2764,6 +2764,17 @@ fn seed_weapon_is_status_damage(name: &str) -> bool {
         || n.contains("statusweapon")
 }
 
+/// C++ Weapon.ini DamageType=KILL_PILOT residual (Jarmen Kell sniper).
+pub fn host_weapon_is_kill_pilot_damage(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("snipe")
+        || n.contains("killpilot")
+        || n.contains("kill_pilot")
+        || (n.contains("jarmen") && n.contains("rifle"))
+        || n.contains("pathfindersniper")
+        || n.contains("sniperrifle")
+}
+
 /// C++ Weapon.ini DamageStatusType residual name (OBJECT_STATUS bit name).
 pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static str> {
     if !host_weapon_is_status_damage(name) {
@@ -5156,6 +5167,16 @@ mod tests {
         assert!(sec_last > 0.0, "secondary last_fire_time must advance");
     }
 
+    #[test]
+    fn kill_pilot_damage_peel() {
+        assert!(host_weapon_is_kill_pilot_damage(
+            "JarmenKellSnipeVehicleRifle"
+        ));
+        assert!(host_weapon_is_kill_pilot_damage(
+            "AmericaPathfinderSniperRifle"
+        ));
+        assert!(!host_weapon_is_kill_pilot_damage("AmericaTankCrusaderGun"));
+    }
     #[test]
     fn status_damage_peels() {
         assert!(host_weapon_is_status_damage("AvengerTargetDesignator"));
