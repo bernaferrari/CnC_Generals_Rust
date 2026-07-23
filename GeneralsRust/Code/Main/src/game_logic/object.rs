@@ -762,6 +762,9 @@ pub struct Object {
     /// Host residual: C++ WEAPONSET_PLAYER_UPGRADE flag on this object.
     /// Battle Bus uses this when armed riders are present.
     pub weapon_set_player_upgrade: bool,
+    /// C++ WEAPONSET_MINE_CLEARING_DETAIL residual (DozerAI / AIGroup::setMineClearingDetail).
+    #[serde(default)]
+    pub weapon_set_mine_clearing_detail: bool,
 
     /// Host residual: Battle Bus style transport (capacity 8 + fire + armed-riders).
     /// Distinct from generic Humvee transport residual for honesty counters.
@@ -796,6 +799,9 @@ pub struct Object {
 
     /// Optional short-lived cheer/animation timer
     pub cheer_timer: f32,
+    /// C++ AICMD_GO_PRONE residual duration (seconds).
+    #[serde(default)]
+    pub prone_timer: f32,
 
     /// C++ Object::m_formationID residual (0 = NO_FORMATION_ID).
     pub formation_id: u32,
@@ -1553,6 +1559,7 @@ impl Object {
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
+            weapon_set_mine_clearing_detail: false,
             is_battle_bus_transport: false,
             is_technical_transport: false,
             is_combat_cycle_transport: false,
@@ -1561,6 +1568,7 @@ impl Object {
             is_combat_chinook_transport: false,
             contained_by: None,
             cheer_timer: 0.0,
+            prone_timer: 0.0,
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
@@ -1852,6 +1860,7 @@ impl Object {
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
+            weapon_set_mine_clearing_detail: false,
             is_battle_bus_transport: false,
             is_technical_transport: false,
             is_combat_cycle_transport: false,
@@ -1860,6 +1869,7 @@ impl Object {
             is_combat_chinook_transport: false,
             contained_by: None,
             cheer_timer: 0.0,
+            prone_timer: 0.0,
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
@@ -6226,6 +6236,36 @@ impl Object {
         }
     }
 
+    /// C++ Object::setWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL) residual.
+    pub fn set_weapon_set_mine_clearing_detail(&mut self, enabled: bool) {
+        self.weapon_set_mine_clearing_detail = enabled;
+        self.record_host_weapon_set();
+    }
+
+    /// C++ AICMD_GO_PRONE residual — infantry hit the dirt briefly.
+    pub fn go_prone(&mut self, duration_secs: f32) {
+        self.stop_moving();
+        self.set_target(None);
+        self.set_force_attack(false);
+        self.prone_timer = duration_secs.max(0.1);
+        if let Some(bit) =
+            crate::game_logic::host_enum_table_residual::model_condition_bit_name_index("PRONE")
+        {
+            self.model_condition_bits |= 1u128 << bit;
+        }
+        // Stay in Idle while prone so orders can break it; timer clears the bit.
+        if !matches!(
+            self.ai_state,
+            AIState::Attacking
+                | AIState::AttackMoving
+                | AIState::GuardingArea
+                | AIState::GuardingObject
+        ) {
+            self.set_ai_state(AIState::Idle);
+        }
+        self.record_host_locomotor();
+    }
+
     pub fn record_host_weapon_set(&self) {
         crate::game_logic::host_weapon_set_log::record(
             self.id,
@@ -8721,6 +8761,20 @@ impl Object {
                 self.set_ai_state(AIState::Idle);
                 self.cheer_timer = 0.0;
                 self.record_host_demo_mine_cheer();
+            }
+        }
+
+        if self.prone_timer > 0.0 {
+            self.prone_timer -= dt;
+            if self.prone_timer <= 0.0 {
+                self.prone_timer = 0.0;
+                if let Some(bit) =
+                    crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                        "PRONE",
+                    )
+                {
+                    self.model_condition_bits &= !(1u128 << bit);
+                }
             }
         }
 
