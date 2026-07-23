@@ -343,24 +343,22 @@ impl GarrisonContain {
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
         self.base.update()?;
 
-        let contained_objects = self.base.get_contained_items_list()?;
-        for obj in contained_objects {
-            let is_dead = obj
-                .read()
-                .map(|guard| guard.is_effectively_dead())
+        let contained_ids = self.base.get_contained_object_ids().to_vec();
+        for object_id in contained_ids {
+            let is_dead = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |guard| guard.is_effectively_dead())
                 .unwrap_or(false);
             if is_dead {
-                self.remove_from_contain(
-                    obj.read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID),
-                    true,
-                )?;
-                if let Ok(mut contained) = obj.write() {
-                    contained.set_safe_occlusion_frame(
-                        TheGameLogic::get_frame() + crate::common::LOGICFRAMES_PER_SECOND * 1000,
-                    );
+                self.remove_from_contain(object_id, true)?;
+                if let Some(obj) = TheGameLogic::find_object_by_id(object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+                {
+                    if let Ok(mut contained) = obj.write() {
+                        contained.set_safe_occlusion_frame(
+                            TheGameLogic::get_frame()
+                                + crate::common::LOGICFRAMES_PER_SECOND * 1000,
+                        );
+                    }
                 }
             }
         }
@@ -607,15 +605,9 @@ impl GarrisonContain {
         if self.base.get_contain_count() > 0 {
             self.validate_rally_point()?;
         }
-        let objects = self.base.get_contained_items_list()?;
-        for obj in objects {
-            self.remove_from_contain(
-                obj.read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-                expose_stealth_units,
-            )?;
+        let object_ids = self.base.get_contained_object_ids().to_vec();
+        for object_id in object_ids {
+            self.remove_from_contain(object_id, expose_stealth_units)?;
         }
         self.recalc_apparent_controlling_player()?;
         Ok(())
@@ -2018,9 +2010,13 @@ impl GarrisonContain {
             return Ok(());
         }
 
-        let contained_objects = self.base.get_contained_items_list()?;
-        for obj in contained_objects {
-            self.heal_single_object(obj, module_data.frames_for_full_heal)?;
+        let contained_ids = self.base.get_contained_object_ids().to_vec();
+        for object_id in contained_ids {
+            if let Some(obj) = TheGameLogic::find_object_by_id(object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+            {
+                self.heal_single_object(obj, module_data.frames_for_full_heal)?;
+            }
         }
         Ok(())
     }
