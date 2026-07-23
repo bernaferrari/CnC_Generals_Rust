@@ -3044,6 +3044,10 @@ impl Object {
         self.producer_id = obj.map(|o| o.get_id()).unwrap_or(INVALID_ID);
     }
 
+    pub fn set_producer_id(&mut self, producer_id: ObjectID) {
+        self.producer_id = producer_id;
+    }
+
     pub fn get_builder_id(&self) -> ObjectID {
         self.builder_id
     }

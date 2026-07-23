@@ -1440,14 +1440,59 @@ impl GarrisonContain {
             return Ok(());
         }
 
-        let Some(owner_obj) = self.get_object() else {
-            return Ok(());
-        };
-        let Ok(mut owner) = owner_obj.write() else {
-            return Ok(());
-        };
+        let Some((base_pos, bone_sets)) = self.with_owner_object_mut(|owner| {
+            let base_pos = *owner.get_position();
+            let Some(drawable) = owner.get_drawable() else {
+                return (base_pos, None);
+            };
 
-        let base_pos = *owner.get_position();
+            let original_flags = drawable.get_model_condition_flags();
+
+            let mut clear_flags = ModelConditionFlags::empty();
+            clear_flags.set(ModelConditionFlags::REALLY_DAMAGED, true);
+            clear_flags.set(ModelConditionFlags::RUBBLE, true);
+            clear_flags.set(ModelConditionFlags::SPECIAL_DAMAGED, true);
+            clear_flags.set(ModelConditionFlags::DAMAGED, true);
+
+            let mut set_flags = ModelConditionFlags::empty();
+            set_flags.set(ModelConditionFlags::GARRISONED, true);
+
+            let _ = owner.clear_and_set_model_condition_flags(clear_flags, set_flags);
+            let pristine = if let Ok(draw_guard) = drawable.read() {
+                draw_guard.get_pristine_bone_positions("FIREPOINT", 0, MAX_GARRISON_POINTS)
+            } else {
+                Vec::new()
+            };
+
+            let mut set_damaged = ModelConditionFlags::empty();
+            set_damaged.set(ModelConditionFlags::DAMAGED, true);
+            let _ = owner.clear_and_set_model_condition_flags(clear_flags, set_damaged);
+            let damaged = if let Ok(draw_guard) = drawable.read() {
+                draw_guard.get_pristine_bone_positions("FIREPOINT", 0, MAX_GARRISON_POINTS)
+            } else {
+                Vec::new()
+            };
+
+            let mut clear_really = ModelConditionFlags::empty();
+            clear_really.set(ModelConditionFlags::RUBBLE, true);
+            clear_really.set(ModelConditionFlags::SPECIAL_DAMAGED, true);
+            clear_really.set(ModelConditionFlags::DAMAGED, true);
+            let mut set_really = ModelConditionFlags::empty();
+            set_really.set(ModelConditionFlags::REALLY_DAMAGED, true);
+            let _ = owner.clear_and_set_model_condition_flags(clear_really, set_really);
+            let really = if let Ok(draw_guard) = drawable.read() {
+                draw_guard.get_pristine_bone_positions("FIREPOINT", 0, MAX_GARRISON_POINTS)
+            } else {
+                Vec::new()
+            };
+
+            let _ = owner
+                .clear_and_set_model_condition_flags(ModelConditionFlags::all(), original_flags);
+
+            (base_pos, Some((pristine, damaged, really)))
+        }) else {
+            return Ok(());
+        };
 
         for condition_index in 0..MAX_GARRISON_POINT_CONDITIONS {
             for i in 0..MAX_GARRISON_POINTS {
@@ -1455,71 +1500,23 @@ impl GarrisonContain {
             }
         }
 
-        let Some(drawable) = owner.get_drawable() else {
-            self.garrison_points_initialized = true;
-            return Ok(());
-        };
-
-        let original_flags = drawable.get_model_condition_flags();
-
-        let mut clear_flags = ModelConditionFlags::empty();
-        clear_flags.set(ModelConditionFlags::REALLY_DAMAGED, true);
-        clear_flags.set(ModelConditionFlags::RUBBLE, true);
-        clear_flags.set(ModelConditionFlags::SPECIAL_DAMAGED, true);
-        clear_flags.set(ModelConditionFlags::DAMAGED, true);
-
-        let mut set_flags = ModelConditionFlags::empty();
-        set_flags.set(ModelConditionFlags::GARRISONED, true);
-
-        // pristine garrisoned
-        let _ = owner.clear_and_set_model_condition_flags(clear_flags, set_flags);
-        let positions = if let Ok(draw_guard) = drawable.read() {
-            draw_guard.get_pristine_bone_positions("FIREPOINT", 0, MAX_GARRISON_POINTS)
-        } else {
-            Vec::new()
-        };
-        for (i, pos) in positions.iter().enumerate() {
-            if i < MAX_GARRISON_POINTS {
-                self.garrison_points[GARRISON_POINT_PRISTINE][i] = *pos;
+        if let Some((pristine, damaged, really)) = bone_sets {
+            for (i, pos) in pristine.iter().enumerate() {
+                if i < MAX_GARRISON_POINTS {
+                    self.garrison_points[GARRISON_POINT_PRISTINE][i] = *pos;
+                }
+            }
+            for (i, pos) in damaged.iter().enumerate() {
+                if i < MAX_GARRISON_POINTS {
+                    self.garrison_points[GARRISON_POINT_DAMAGED][i] = *pos;
+                }
+            }
+            for (i, pos) in really.iter().enumerate() {
+                if i < MAX_GARRISON_POINTS {
+                    self.garrison_points[GARRISON_POINT_REALLY_DAMAGED][i] = *pos;
+                }
             }
         }
-
-        // damaged garrisoned
-        let mut set_damaged = ModelConditionFlags::empty();
-        set_damaged.set(ModelConditionFlags::DAMAGED, true);
-        let _ = owner.clear_and_set_model_condition_flags(clear_flags, set_damaged);
-        let positions = if let Ok(draw_guard) = drawable.read() {
-            draw_guard.get_pristine_bone_positions("FIREPOINT", 0, MAX_GARRISON_POINTS)
-        } else {
-            Vec::new()
-        };
-        for (i, pos) in positions.iter().enumerate() {
-            if i < MAX_GARRISON_POINTS {
-                self.garrison_points[GARRISON_POINT_DAMAGED][i] = *pos;
-            }
-        }
-
-        // really damaged garrisoned
-        let mut clear_really = ModelConditionFlags::empty();
-        clear_really.set(ModelConditionFlags::RUBBLE, true);
-        clear_really.set(ModelConditionFlags::SPECIAL_DAMAGED, true);
-        clear_really.set(ModelConditionFlags::DAMAGED, true);
-        let mut set_really = ModelConditionFlags::empty();
-        set_really.set(ModelConditionFlags::REALLY_DAMAGED, true);
-        let _ = owner.clear_and_set_model_condition_flags(clear_really, set_really);
-        let positions = if let Ok(draw_guard) = drawable.read() {
-            draw_guard.get_pristine_bone_positions("FIREPOINT", 0, MAX_GARRISON_POINTS)
-        } else {
-            Vec::new()
-        };
-        for (i, pos) in positions.iter().enumerate() {
-            if i < MAX_GARRISON_POINTS {
-                self.garrison_points[GARRISON_POINT_REALLY_DAMAGED][i] = *pos;
-            }
-        }
-
-        let _ =
-            owner.clear_and_set_model_condition_flags(ModelConditionFlags::all(), original_flags);
 
         self.garrison_points_initialized = true;
         Ok(())
@@ -1941,54 +1938,58 @@ impl GarrisonContain {
             return Ok(());
         }
 
-        let Some(owner_obj) = self.get_object() else {
+        let Some(positions) = self.with_owner_object_mut(|owner| {
+            let Some(drawable) = owner.get_drawable() else {
+                return None;
+            };
+
+            let original_flags = drawable.get_model_condition_flags();
+            let mut clear_flags = ModelConditionFlags::empty();
+            clear_flags.set(ModelConditionFlags::REALLY_DAMAGED, true);
+            clear_flags.set(ModelConditionFlags::RUBBLE, true);
+            clear_flags.set(ModelConditionFlags::SPECIAL_DAMAGED, true);
+            clear_flags.set(ModelConditionFlags::DAMAGED, true);
+
+            let mut set_flags = ModelConditionFlags::empty();
+            set_flags.set(ModelConditionFlags::GARRISONED, true);
+            let _ = owner.clear_and_set_model_condition_flags(clear_flags, set_flags);
+
+            let contain_max = owner
+                .get_garrison_contain_module_data()
+                .map(|d| d.base.contain_max)
+                .unwrap_or(MAX_GARRISON_POINTS as i32);
+            let max_points = if contain_max <= 0 {
+                MAX_GARRISON_POINTS
+            } else {
+                contain_max.min(MAX_GARRISON_POINTS as i32) as usize
+            };
+
+            let positions = if let Ok(draw_guard) = drawable.read() {
+                draw_guard.get_pristine_bone_positions("STATION", 0, max_points)
+            } else {
+                Vec::new()
+            };
+
+            let _ = owner
+                .clear_and_set_model_condition_flags(ModelConditionFlags::all(), original_flags);
+            Some(positions)
+        }) else {
             return Ok(());
         };
-        let Ok(mut owner) = owner_obj.write() else {
-            return Ok(());
-        };
-        let Some(drawable) = owner.get_drawable() else {
+
+        if let Some(positions) = positions {
+            self.station_point_list.clear();
+            for pos in positions {
+                self.station_point_list.push(StationPointData {
+                    occupant_id: None,
+                    position: pos,
+                });
+            }
+        } else {
             self.station_garrison_points_initialized = true;
             return Ok(());
-        };
-
-        let original_flags = drawable.get_model_condition_flags();
-        let mut clear_flags = ModelConditionFlags::empty();
-        clear_flags.set(ModelConditionFlags::REALLY_DAMAGED, true);
-        clear_flags.set(ModelConditionFlags::RUBBLE, true);
-        clear_flags.set(ModelConditionFlags::SPECIAL_DAMAGED, true);
-        clear_flags.set(ModelConditionFlags::DAMAGED, true);
-
-        let mut set_flags = ModelConditionFlags::empty();
-        set_flags.set(ModelConditionFlags::GARRISONED, true);
-        let _ = owner.clear_and_set_model_condition_flags(clear_flags, set_flags);
-
-        let contain_max = owner
-            .get_garrison_contain_module_data()
-            .map(|d| d.base.contain_max)
-            .unwrap_or(MAX_GARRISON_POINTS as i32);
-        let max_points = if contain_max <= 0 {
-            MAX_GARRISON_POINTS
-        } else {
-            contain_max.min(MAX_GARRISON_POINTS as i32) as usize
-        };
-
-        let positions = if let Ok(draw_guard) = drawable.read() {
-            draw_guard.get_pristine_bone_positions("STATION", 0, max_points)
-        } else {
-            Vec::new()
-        };
-
-        self.station_point_list.clear();
-        for pos in positions {
-            self.station_point_list.push(StationPointData {
-                occupant_id: None,
-                position: pos,
-            });
         }
 
-        let _ =
-            owner.clear_and_set_model_condition_flags(ModelConditionFlags::all(), original_flags);
         self.station_garrison_points_initialized = true;
         Ok(())
     }
