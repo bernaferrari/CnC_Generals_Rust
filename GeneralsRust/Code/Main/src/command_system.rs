@@ -155,6 +155,17 @@ pub enum CommandType {
     ReturnSupplies,
     /// Dozer/Worker path to nearest enemy mine and clear residual.
     ClearMines,
+    /// C++ AIGroup::setMineClearingDetail residual.
+    SetMineClearingDetail {
+        enabled: bool,
+    },
+    /// C++ AIGroup::groupGoProne residual.
+    GoProne,
+    /// C++ AIGroup::groupAttackArea residual — attack enemies inside radius around point.
+    AttackArea {
+        center: glam::Vec3,
+        radius: f32,
+    },
     Dock {
         target_id: ObjectId,
     },
@@ -2155,6 +2166,17 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             target: PowerTarget::None,
         }),
         "clearmines" | "disarmmines" => Some(CommandType::ClearMines),
+        "setmineclearingdetail" | "mineclearingdetail" | "mineclearing" => {
+            Some(CommandType::SetMineClearingDetail { enabled: true })
+        }
+        "clearmineclearingdetail" | "nomineclearing" => {
+            Some(CommandType::SetMineClearingDetail { enabled: false })
+        }
+        "goprone" | "prone" | "hitthedirt" => Some(CommandType::GoProne),
+        "attackarea" => Some(CommandType::AttackArea {
+            center: glam::Vec3::ZERO,
+            radius: 150.0,
+        }),
         // Generic ControlBar SW button residual — power type resolved at arm time.
         "specialpower" | "dospecialpower" => Some(CommandType::DoSpecialPower {
             power_type: SpecialPowerType::ParticleCannon, // placeholder; engine resolves

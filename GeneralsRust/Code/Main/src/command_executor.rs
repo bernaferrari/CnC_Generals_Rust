@@ -183,6 +183,13 @@ impl<'a> CommandExecutor<'a> {
             CommandType::ReturnToBase => self.execute_return_to_base(&command.selected_units),
             CommandType::ReturnSupplies => self.execute_return_supplies(&command.selected_units),
             CommandType::ClearMines => self.execute_clear_mines(&command.selected_units),
+            CommandType::SetMineClearingDetail { enabled } => {
+                self.execute_set_mine_clearing_detail(&command.selected_units, *enabled)
+            }
+            CommandType::GoProne => self.execute_go_prone(&command.selected_units),
+            CommandType::AttackArea { center, radius } => {
+                self.execute_attack_area(&command.selected_units, *center, *radius)
+            }
             CommandType::Dock { target_id } => {
                 self.execute_dock(&command.selected_units, *target_id)
             }
@@ -2620,6 +2627,122 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
+
+    /// C++ AIGroup::setMineClearingDetail residual.
+    pub(crate) fn execute_set_mine_clearing_detail(
+        &mut self,
+        units: &[ObjectId],
+        enabled: bool,
+    ) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            unit.set_weapon_set_mine_clearing_detail(enabled);
+            any = true;
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::groupGoProne residual.
+    pub(crate) fn execute_go_prone(&mut self, units: &[ObjectId]) -> CommandResult {
+        // Retail infantry prone window residual (~2s).
+        const PRONE_SECS: f32 = 2.0;
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            // C++ go-prone is infantry-oriented (AIUpdate); skip structures / immobile.
+            if unit.is_kind_of(crate::game_logic::KindOf::Structure)
+                || unit.is_kind_of(crate::game_logic::KindOf::Immobile)
+            {
+                continue;
+            }
+            let is_infantry = unit.is_kind_of(crate::game_logic::KindOf::Infantry)
+                || unit.object_type == crate::game_logic::ObjectType::Infantry;
+            if !is_infantry {
+                continue;
+            }
+            unit.go_prone(PRONE_SECS);
+            any = true;
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::groupAttackArea residual — engage nearest enemy inside radius.
+    pub(crate) fn execute_attack_area(
+        &mut self,
+        units: &[ObjectId],
+        center: Vec3,
+        radius: f32,
+    ) -> CommandResult {
+        let radius = radius.max(1.0);
+        if !center.x.is_finite() || !center.z.is_finite() {
+            return CommandResult::InvalidLocation;
+        }
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() || !unit.can_attack() {
+                continue;
+            }
+            let team = unit.team;
+            // Find nearest enemy of this unit inside area.
+            let mut best: Option<(ObjectId, f32)> = None;
+            for (cid, cand) in self.game_logic.get_objects().iter() {
+                if !cand.is_alive() || !cand.is_targetable_by_enemy_of(team) {
+                    continue;
+                }
+                let d = center.distance(cand.get_position());
+                if d > radius {
+                    continue;
+                }
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((*cid, d));
+                }
+            }
+            if let Some((enemy_id, _)) = best {
+                // Reuse attack path.
+                if matches!(
+                    self.execute_attack_object(&[unit_id], enemy_id),
+                    CommandResult::Success
+                ) {
+                    any = true;
+                }
+            } else {
+                // No target: move to area center (C++ attack-area still enters state).
+                if unit.can_move()
+                    && self.path_to_goal_with_state(unit_id, center, AIState::AttackMoving)
+                {
+                    any = true;
+                }
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
     fn execute_clear_mines(&mut self, units: &[ObjectId]) -> CommandResult {
         use crate::game_logic::host_mines::{is_mine_clearer, DOZER_MINE_CLEAR_SCAN_RANGE};
         let mut any = false;
@@ -2641,7 +2764,12 @@ impl<'a> CommandExecutor<'a> {
             }
             let team = unit.team;
             let pos = unit.get_position();
+            // C++ DozerAIUpdate: setWeaponSetFlag(MINE_CLEARING_DETAIL) while clearing.
             let scan = DOZER_MINE_CLEAR_SCAN_RANGE.max(80.0);
+            if let Some(u) = self.game_logic.get_object_mut(unit_id) {
+                u.set_weapon_set_mine_clearing_detail(true);
+            }
+
             // Pure residual acquire: nearest enemy mine in clear scan range (XZ).
             let mine_cands: Vec<_> = self
                 .game_logic
@@ -5222,6 +5350,106 @@ mod group_move_tests {
         assert!(
             logic.is_object_being_sold(s)
                 || logic.get_object(s).map(|o| o.status.sold).unwrap_or(false)
+        );
+    }
+
+    #[test]
+    fn mine_clearing_detail_toggles_weapon_set_flag() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("MC_D");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(300.0);
+        logic.templates.insert("MC_D".to_string(), tpl);
+        let d = logic.create_object("MC_D", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_set_mine_clearing_detail(&[d], true),
+                CommandResult::Success
+            );
+        }
+        assert!(logic.get_object(d).unwrap().weapon_set_mine_clearing_detail);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_set_mine_clearing_detail(&[d], false),
+                CommandResult::Success
+            );
+        }
+        assert!(!logic.get_object(d).unwrap().weapon_set_mine_clearing_detail);
+    }
+
+    #[test]
+    fn go_prone_sets_prone_timer_and_bit() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{
+            host_enum_table_residual::model_condition_bit_name_index, GameLogic, KindOf, Team,
+            ThingTemplate,
+        };
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("GP_I");
+        tpl.add_kind_of(KindOf::Infantry);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("GP_I".to_string(), tpl);
+        let i = logic.create_object("GP_I", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_go_prone(&[i]), CommandResult::Success);
+        }
+        let u = logic.get_object(i).unwrap();
+        assert!(u.prone_timer > 0.0);
+        if let Some(bit) = model_condition_bit_name_index("PRONE") {
+            assert_ne!(u.model_condition_bits & (1u128 << bit), 0);
+        }
+    }
+
+    #[test]
+    fn attack_area_engages_enemy_inside_radius() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        for (name, team) in [("AA_U", Team::USA), ("AA_E", Team::GLA)] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Vehicle);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(200.0);
+            logic.templates.insert(name.to_string(), tpl);
+            let _ = team;
+        }
+        let u = logic.create_object("AA_U", Team::USA, Vec3::ZERO).unwrap();
+        let e = logic
+            .create_object("AA_E", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_attack_area(&[u], Vec3::new(40.0, 0.0, 0.0), 80.0),
+                CommandResult::Success
+            );
+        }
+        let unit = logic.get_object(u).unwrap();
+        assert!(
+            unit.target == Some(e)
+                || matches!(
+                    unit.ai_state,
+                    AIState::Attacking | AIState::AttackMoving | AIState::Moving
+                ),
+            "attack area should engage or path, target={:?} state={:?}",
+            unit.target,
+            unit.ai_state
         );
     }
 
