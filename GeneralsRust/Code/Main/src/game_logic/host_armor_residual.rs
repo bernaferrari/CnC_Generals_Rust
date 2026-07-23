@@ -958,6 +958,8 @@ pub fn map_host_damage_type(dt: crate::game_logic::combat::DamageType) -> Damage
         H::Surrender => DamageType::Surrender,
         H::Penalty => DamageType::Penalty,
         H::KillGarrisoned => DamageType::KillGarrisoned,
+        H::Healing => DamageType::Healing,
+        H::Water => DamageType::Water,
     }
 }
 
@@ -1024,14 +1026,14 @@ pub fn map_store_damage_type(
         G::Surrender => H::Surrender,
         G::Penalty => H::Penalty,
         G::KillGarrisoned => H::KillGarrisoned,
+        G::Healing => H::Healing,
+        G::Water => H::Water,
         G::Unresistable
-        | G::Healing
         | G::Toppling
         | G::SubdualMissile
         | G::SubdualVehicle
         | G::SubdualBuilding
         | G::SubdualUnresistable
-        | G::Water
         | G::HazardCleanup => H::Unresistable,
         G::SmallArms
         | G::ComancheVulcan
@@ -1080,6 +1082,12 @@ pub fn host_damage_type_for_weapon_name(name: &str) -> crate::game_logic::combat
     }
     if crate::game_logic::weapon_bootstrap::host_weapon_is_kill_garrisoned_damage(name) {
         return crate::game_logic::combat::DamageType::KillGarrisoned;
+    }
+    if crate::game_logic::weapon_bootstrap::host_weapon_is_healing_damage(name) {
+        return crate::game_logic::combat::DamageType::Healing;
+    }
+    if crate::game_logic::weapon_bootstrap::host_weapon_is_water_damage(name) {
+        return crate::game_logic::combat::DamageType::Water;
     }
     crate::game_logic::combat::DamageType::Bullet
 }

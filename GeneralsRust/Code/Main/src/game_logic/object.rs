@@ -6157,6 +6157,20 @@ impl Object {
             // Non-lethal or non-capable: fall through to normal HP.
         }
         // DAMAGE_PENALTY: normal HP path (no special intercept).
+        // C++ DAMAGE_HEALING residual: restore HP via attemptHealing; never destroys.
+        // Does not stamp last_damage_source (C++ AIGuardRetaliate / stealth skip).
+        if matches!(damage_type, crate::game_logic::combat::DamageType::Healing) {
+            let _ = death_type;
+            if self.status.destroyed || !self.is_alive() {
+                return false;
+            }
+            // amount is heal strength; negative ignored by heal().
+            self.heal(damage.max(0.0));
+            // Optional: record healer without treating as hostile damage source.
+            let _ = source;
+            return false;
+        }
+        // DAMAGE_WATER: normal HP damage path (type distinguishes FX in C++).
         // C++ DAMAGE_KILL_PILOT residual: unmanned vehicle, no HP damage.
         if matches!(
             damage_type,
@@ -11440,6 +11454,42 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn healing_and_water_damage_residuals() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut t = ThingTemplate::new("Ranger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        let mut unit = Object::new(t, ObjectId(1), Team::USA);
+        unit.health.current = 40.0;
+        unit.health.maximum = 100.0;
+
+        // Healing restores HP and never destroys.
+        assert!(!unit.take_damage_from_typed(25.0, Some(ObjectId(99)), DamageType::Healing));
+        assert!((unit.health.current - 65.0).abs() < 1e-3);
+        assert!(unit.is_alive());
+        // Healing must not stamp hostile last_damage_source.
+        assert!(unit.last_damage_source.is_none());
+
+        // Cap at maximum.
+        assert!(!unit.take_damage_from_typed(1000.0, None, DamageType::Healing));
+        assert!((unit.health.current - 100.0).abs() < 1e-3);
+
+        // Water deals normal HP damage.
+        unit.health.current = 100.0;
+        let destroyed = unit.take_damage_from_typed(30.0, None, DamageType::Water);
+        assert!(!destroyed);
+        assert!((unit.health.current - 70.0).abs() < 1e-3);
+
+        // Dead units do not heal.
+        unit.health.current = 0.0;
+        unit.status.destroyed = true;
+        assert!(!unit.take_damage_from_typed(50.0, None, DamageType::Healing));
+        assert!((unit.health.current - 0.0).abs() < 1e-3);
     }
 
     #[test]
