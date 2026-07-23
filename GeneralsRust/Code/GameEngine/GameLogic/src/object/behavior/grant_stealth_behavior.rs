@@ -368,7 +368,7 @@ impl GrantStealthBehavior {
         if OBJECT_REGISTRY.is_empty() {
             return;
         }
-        // we'll use OBJECT_REGISTRY.get_all_objects() and filter manually
+        // we'll use OBJECT_REGISTRY.get_all_object_ids() and filter manually
         // This is less efficient but functionally equivalent for now
         // Host path: empty dual-world registry residual.
         if OBJECT_REGISTRY.is_empty() {
