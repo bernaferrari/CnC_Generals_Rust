@@ -116,6 +116,12 @@ impl<'a> CommandExecutor<'a> {
                 crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
             ),
             CommandType::Scatter => self.execute_scatter(&command.selected_units),
+            CommandType::TightenToPosition { destination } => {
+                self.execute_tighten_to_position(&command.selected_units, *destination)
+            }
+            CommandType::AttackTeam { team, max_shots } => {
+                self.execute_attack_team(&command.selected_units, *team, *max_shots)
+            }
             CommandType::Deploy => self.execute_deploy(&command.selected_units),
             CommandType::Gather { target_id } => {
                 self.execute_gather(&command.selected_units, *target_id)
@@ -337,6 +343,10 @@ impl<'a> CommandExecutor<'a> {
     // === Movement Commands ===
 
     pub(crate) fn execute_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
+        // C++ groupMoveToPosition: click inside group bounds → tighten (all to point).
+        if self.should_tighten_group_move(units, destination) {
+            return self.execute_tighten_to_position(units, destination);
+        }
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
@@ -382,6 +392,9 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> CommandResult {
+        if waypoints.is_empty() && self.should_tighten_group_move(units, destination) {
+            return self.execute_tighten_to_position(units, destination);
+        }
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
@@ -530,6 +543,178 @@ impl<'a> CommandExecutor<'a> {
             out.push((unit_id, goal));
         }
         out
+    }
+
+    /// C++ GlobalData::m_groupMoveClickToGatherFactor residual (1.0 = full bbox).
+    const GROUP_MOVE_CLICK_TO_GATHER_FACTOR: f32 = 1.0;
+
+    /// True when destination lies inside the selected group's XZ bounding rect
+    /// scaled by gather factor — C++ groupMoveToPosition tighten path.
+    pub(crate) fn should_tighten_group_move(&self, units: &[ObjectId], destination: Vec3) -> bool {
+        if Self::GROUP_MOVE_CLICK_TO_GATHER_FACTOR <= 0.0 || units.len() < 2 {
+            return false;
+        }
+        let mut min_x = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut min_z = f32::INFINITY;
+        let mut max_z = f32::NEG_INFINITY;
+        let mut count = 0u32;
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() || !o.can_move() {
+                continue;
+            }
+            if o.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || o.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            // Airborne fixed-wing: C++ disables tighten.
+            if o.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                && o.status.airborne_target
+                && !o.template_name.to_ascii_lowercase().contains("heli")
+                && !o.template_name.to_ascii_lowercase().contains("chinook")
+                && !o.template_name.to_ascii_lowercase().contains("comanche")
+            {
+                return false;
+            }
+            let p = o.get_position();
+            min_x = min_x.min(p.x);
+            max_x = max_x.max(p.x);
+            min_z = min_z.min(p.z);
+            max_z = max_z.max(p.z);
+            count += 1;
+        }
+        if count < 2 {
+            return false;
+        }
+        // Scale rect about center by gather factor.
+        let cx = 0.5 * (min_x + max_x);
+        let cz = 0.5 * (min_z + max_z);
+        let hx = 0.5 * (max_x - min_x) * Self::GROUP_MOVE_CLICK_TO_GATHER_FACTOR;
+        let hz = 0.5 * (max_z - min_z) * Self::GROUP_MOVE_CLICK_TO_GATHER_FACTOR;
+        // Pad tiny groups so a click near the cluster still gathers.
+        let hx = hx.max(20.0);
+        let hz = hz.max(20.0);
+        destination.x >= cx - hx
+            && destination.x <= cx + hx
+            && destination.z >= cz - hz
+            && destination.z <= cz + hz
+    }
+
+    /// C++ AIGroup::groupTightenToPosition — near-to-far, all path to same pos.
+    pub(crate) fn execute_tighten_to_position(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+    ) -> CommandResult {
+        if !destination.x.is_finite() || !destination.z.is_finite() {
+            return CommandResult::InvalidLocation;
+        }
+        // Sort near-to-far (C++ SimpleObjectIterator ITER_SORTED_NEAR_TO_FAR).
+        let mut movers: Vec<(ObjectId, f32)> = Vec::new();
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() || !unit.can_move() {
+                continue;
+            }
+            if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || unit.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            let p = unit.get_position();
+            let dx = p.x - destination.x;
+            let dz = p.z - destination.z;
+            movers.push((unit_id, dx * dx + dz * dz));
+        }
+        movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        let mut any = false;
+        for (unit_id, _) in movers {
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.stop_attack();
+                unit.formation_id = 0;
+                unit.set_guard_position(None);
+                unit.set_guard_target(None);
+                unit.end_guard_retaliate();
+            }
+            if self.path_to_goal_with_state(unit_id, destination, AIState::Moving) {
+                any = true;
+            }
+        }
+        if any {
+            self.apply_player_stealth_mood_delay(units);
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::groupAttackTeam residual.
+    pub(crate) fn execute_attack_team(
+        &mut self,
+        units: &[ObjectId],
+        team_code: u8,
+        _max_shots: i32,
+    ) -> CommandResult {
+        use crate::game_logic::Team;
+        let enemy_team = match team_code {
+            0 => Team::GLA,
+            1 => Team::USA,
+            2 => Team::China,
+            _ => return CommandResult::InvalidTarget,
+        };
+        let mut any = false;
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            // Host residual: allow attack order even before weapon bind (can_attack may be false).
+            if !unit.is_alive() {
+                continue;
+            }
+            if unit.is_kind_of(crate::game_logic::KindOf::Structure) && !unit.can_attack() {
+                continue;
+            }
+            let my_team = unit.team;
+            if my_team == enemy_team {
+                continue;
+            }
+            let origin = unit.get_position();
+            // Nearest living enemy of that team.
+            let mut best: Option<(ObjectId, f32)> = None;
+            for (cid, cand) in self.game_logic.get_objects().iter() {
+                if cand.team != enemy_team || !cand.is_alive() {
+                    continue;
+                }
+                let d = origin.distance(cand.get_position());
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((*cid, d));
+                }
+            }
+            if let Some((tid, _)) = best {
+                // Direct engage residual (don't require full weapon matrix for order).
+                if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                    unit.set_target(Some(tid));
+                    unit.set_force_attack(false);
+                    unit.set_ai_state(AIState::Attacking);
+                    any = true;
+                }
+                let tpos = self.game_logic.get_object(tid).map(|o| o.get_position());
+                if let Some(pos) = tpos {
+                    let _ = self.path_to_goal_with_state(unit_id, pos, AIState::Attacking);
+                }
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
     }
 
     /// C++ AIGroup column path residual (infantry 3-col / vehicle group).
@@ -5454,6 +5639,101 @@ mod group_move_tests {
         assert!(
             logic.is_object_being_sold(s)
                 || logic.get_object(s).map(|o| o.status.sold).unwrap_or(false)
+        );
+    }
+
+    #[test]
+    fn tighten_paths_all_units_to_same_point() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("TZ_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("TZ_V".to_string(), tpl);
+        let a = logic
+            .create_object("TZ_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("TZ_V", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        let dest = Vec3::new(20.0, 0.0, 0.0);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert!(exec.should_tighten_group_move(&[a, b], dest));
+            assert_eq!(
+                exec.execute_tighten_to_position(&[a, b], dest),
+                CommandResult::Success
+            );
+        }
+        // Both should target same destination (path last or target_position).
+        for id in [a, b] {
+            let u = logic.get_object(id).unwrap();
+            let goal = u
+                .movement
+                .path
+                .last()
+                .copied()
+                .or(u.movement.target_position);
+            let g = goal.expect("should have path goal");
+            assert!(
+                (g.x - dest.x).abs() < 1.0 && (g.z - dest.z).abs() < 1.0,
+                "unit {id:?} goal {g:?} != {dest:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn attack_team_engages_member_of_team() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        for (name, _t) in [("AT_U", Team::USA), ("AT_E", Team::GLA)] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Vehicle);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.add_kind_of(KindOf::Attackable);
+            tpl.set_health(200.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let u = logic.create_object("AT_U", Team::USA, Vec3::ZERO).unwrap();
+        let e = logic
+            .create_object("AT_E", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+        {
+            use crate::game_logic::Weapon;
+            let uo = logic.get_object_mut(u).unwrap();
+            uo.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 200.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            // team_code 0 = GLA
+            assert_eq!(
+                exec.execute_attack_team(&[u], 0, -1),
+                CommandResult::Success
+            );
+        }
+        let unit = logic.get_object(u).unwrap();
+        assert!(
+            unit.target == Some(e)
+                || matches!(
+                    unit.ai_state,
+                    AIState::Attacking | AIState::AttackMoving | AIState::Moving
+                ),
+            "target={:?} state={:?}",
+            unit.target,
+            unit.ai_state
         );
     }
 
