@@ -364,10 +364,8 @@ impl VeterancyCrateCollide {
         let Ok(ai_guard) = ai_update.try_lock() else {
             return false;
         };
-        let goal_id = ai_guard
-            .get_goal_object()
-            .and_then(|goal| goal.read().ok().map(|goal_guard| goal_guard.get_id()));
-        goal_id == Some(target_id)
+        let goal_id = ai_guard.get_goal_object_id();
+        goal_id != crate::common::INVALID_ID && goal_id == target_id
     }
 
     fn owner_player_id(&self) -> Option<PlayerId> {

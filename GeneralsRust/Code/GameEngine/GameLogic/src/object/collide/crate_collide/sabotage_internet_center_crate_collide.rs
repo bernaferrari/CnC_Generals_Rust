@@ -333,8 +333,7 @@ impl SabotageInternetCenterCrateCollide {
             let goal_id = ai_update
                 .lock()
                 .ok()
-                .and_then(|ai_guard| ai_guard.get_goal_object())
-                .and_then(|goal_obj| goal_obj.read().ok().map(|goal_guard| goal_guard.get_id()));
+                .map(|ai_guard| ai_guard.get_goal_object_id());
             if goal_id != Some(other_id) {
                 log::debug!(
                     "SabotageInternetCenter: Skipping - target {} is not current goal {:?}",
