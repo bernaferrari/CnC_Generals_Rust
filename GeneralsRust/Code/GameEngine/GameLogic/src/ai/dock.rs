@@ -800,7 +800,6 @@ impl ClassicState for AIDockMoveToEntryState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let goal_object = self.move_helper.get_machine_goal_object()?;
         let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
@@ -825,11 +824,7 @@ impl ClassicState for AIDockMoveToEntryState {
                         if dock.is_allow_passthrough_type().into_string_err()? {
                             if let Ok(mut ai_guard) = ai.lock() {
                                 ai_guard
-                                    .ignore_obstacle(
-                                        goal_object
-                                            .as_ref()
-                                            .and_then(|a| a.read().ok().map(|g| g.get_id())),
-                                    )
+                                    .ignore_obstacle(Some(goal_id))
                                     .map_err(|err| err.to_string())?;
                             }
                         }
@@ -945,7 +940,6 @@ impl ClassicState for AIDockMoveToDockState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let goal_object = self.move_helper.get_machine_goal_object()?;
         let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
@@ -981,11 +975,7 @@ impl ClassicState for AIDockMoveToDockState {
                         if let Some(ai) = owner_guard.get_ai_update_interface() {
                             if let Ok(mut ai_guard) = ai.lock() {
                                 ai_guard
-                                    .ignore_obstacle(
-                                        goal_object
-                                            .as_ref()
-                                            .and_then(|a| a.read().ok().map(|g| g.get_id())),
-                                    )
+                                    .ignore_obstacle(Some(goal_id))
                                     .map_err(|err| err.to_string())?;
                             }
                             self.move_helper.set_adjusts_destination(false);
@@ -1002,8 +992,7 @@ impl ClassicState for AIDockMoveToDockState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let goal_object = self.move_helper.get_machine_goal_object()?;
-        if goal_object.is_none() {
+        if self.move_helper.get_machine_goal_object_id()?.is_none() {
             return Ok(StateReturnType::Failure);
         }
 
@@ -1276,7 +1265,6 @@ impl ClassicState for AIDockMoveToExitState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let goal_object = self.move_helper.get_machine_goal_object()?;
         let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
@@ -1306,11 +1294,7 @@ impl ClassicState for AIDockMoveToExitState {
                         if let Some(ai) = owner_guard.get_ai_update_interface() {
                             if let Ok(mut ai_guard) = ai.lock() {
                                 ai_guard
-                                    .ignore_obstacle(
-                                        goal_object
-                                            .as_ref()
-                                            .and_then(|a| a.read().ok().map(|g| g.get_id())),
-                                    )
+                                    .ignore_obstacle(Some(goal_id))
                                     .map_err(|err| err.to_string())?;
                             }
                             self.move_helper.set_adjusts_destination(false);
@@ -1325,8 +1309,7 @@ impl ClassicState for AIDockMoveToExitState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let goal_object = self.move_helper.get_machine_goal_object()?;
-        if goal_object.is_none() {
+        if self.move_helper.get_machine_goal_object_id()?.is_none() {
             return Ok(StateReturnType::Failure);
         }
 
@@ -1393,11 +1376,10 @@ impl ClassicState for AIDockMoveToRallyState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let goal_object_opt = self.move_helper.get_machine_goal_object()?;
-        let goal_object = match goal_object_opt {
-            Some(obj) => obj,
-            None => return Ok(StateReturnType::Failure),
+        let Some(goal_id) = self.move_helper.get_machine_goal_object_id()? else {
+            return Ok(StateReturnType::Failure);
         };
+        let goal_object = resolve_dock_object(goal_id, "dock")?;
 
         let is_rally_type = match goal_object
             .lock()
