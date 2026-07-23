@@ -3075,14 +3075,15 @@ impl ClassicState for AIFollowState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let target = self
+        let target_id = self
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
             .ok_or_else(|| "AIFollow state missing goal object".to_string())?;
-        self.target_id = target.read().map(|g| g.get_id()).unwrap_or(INVALID_ID);
-
-        if let Ok(target_guard) = target.read() {
-            self.last_target_pos = *target_guard.get_position();
+        self.target_id = target_id;
+        if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |guard| *guard.get_position())
+        {
+            self.last_target_pos = pos;
         }
 
         self.issued_move = false;
@@ -3661,17 +3662,18 @@ impl ClassicState for AIFaceObjectState {
         let owner_guard = owner
             .read()
             .map_err(|_| "face object owner lock poisoned".to_string())?;
-        let goal = self
+        let goal_id = self
             .base
-            .get_machine_goal_object()
+            .get_machine_goal_object_id()
             .ok_or_else(|| "face object missing goal".to_string())?;
-        let goal_guard = goal
-            .read()
-            .map_err(|_| "face object goal lock poisoned".to_string())?;
-        let dx = goal_guard.get_position().x - owner_guard.get_position().x;
-        let dy = goal_guard.get_position().y - owner_guard.get_position().y;
+        let Some(goal_pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |guard| *guard.get_position())
+        else {
+            return Ok(StateReturnType::Failure);
+        };
+        let dx = goal_pos.x - owner_guard.get_position().x;
+        let dy = goal_pos.y - owner_guard.get_position().y;
         let angle = dy.atan2(dx);
-        drop(goal_guard);
         drop(owner_guard);
         if let Ok(mut owner_write) = owner.write() {
             let _ = owner_write.set_orientation(angle);
@@ -3928,11 +3930,15 @@ impl ClassicState for AIRappelIntoState {
         let layer = terrain_guard.get_highest_layer_for_destination(&owner_pos);
         self.dest_z = terrain_guard.get_layer_height(owner_pos.x, owner_pos.y, layer, None, false);
         if self.target_is_bldg {
-            if let Some(goal) = self.base.get_machine_goal_object() {
-                if let Ok(goal_guard) = goal.read() {
-                    self.dest_z += goal_guard
-                        .get_geometry_info()
-                        .get_max_height_above_position();
+            if let Some(goal_id) = self.base.get_machine_goal_object_id() {
+                if let Some(height) =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
+                        goal_guard
+                            .get_geometry_info()
+                            .get_max_height_above_position()
+                    })
+                {
+                    self.dest_z += height;
                 }
             }
         }
@@ -8926,22 +8932,19 @@ fn out_of_weapon_range_object_state(base: &State) -> Result<bool, String> {
     let owner = base
         .get_machine_owner()
         .ok_or_else(|| "attack condition missing owner".to_string())?;
-    let target = base
-        .get_machine_goal_object()
+    let target_id = base
+        .get_machine_goal_object_id()
         .ok_or_else(|| "attack condition missing target".to_string())?;
     let owner_guard = owner
         .lock()
         .map_err(|_| "attack condition owner lock poisoned".to_string())?;
-    let target_guard = target
-        .lock()
-        .map_err(|_| "attack condition target lock poisoned".to_string())?;
     let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
         return Ok(false);
     };
     if weapon.has_leech_range() {
         return Ok(false);
     }
-    Ok(!weapon.is_within_attack_range(owner_guard.get_id(), Some(target_guard.get_id()), None))
+    Ok(!weapon.is_within_attack_range(owner_guard.get_id(), Some(target_id), None))
 }
 
 fn out_of_weapon_range_position_state(base: &State) -> Result<bool, String> {
