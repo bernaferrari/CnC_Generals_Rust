@@ -165,7 +165,9 @@ impl HostDeathType {
             | H::Hack
             | H::Surrender
             | H::Penalty
-            | H::KillGarrisoned => Self::Normal,
+            | H::KillGarrisoned
+            | H::Healing
+            | H::Water => Self::Normal,
         }
     }
 

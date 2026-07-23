@@ -35,6 +35,10 @@ pub enum DamageType {
     Penalty,
     /// C++ DAMAGE_KILL_GARRISONED residual (kill floor(amount) occupants; no structure HP).
     KillGarrisoned,
+    /// C++ DAMAGE_HEALING residual (attemptHealing; amount restores HP, never destroys).
+    Healing,
+    /// C++ DAMAGE_WATER residual (underwater / waveguide HP damage; no dusty FX).
+    Water,
 }
 
 /// Armor types
