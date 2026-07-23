@@ -1040,6 +1040,18 @@ pub struct Object {
     /// C++ StatusDamageHelper m_frameToHeal residual (Avenger paint).
     #[serde(default)]
     pub faerie_fire_until_frame: u32,
+    /// C++ ActiveBody m_currentSubdualDamage residual.
+    #[serde(default)]
+    pub subdual_damage: f32,
+    /// C++ SubdualDamageHealRate residual (frames between heal steps; 0 = no auto-heal).
+    #[serde(default)]
+    pub subdual_heal_rate_frames: u32,
+    /// C++ SubdualDamageHealAmount residual.
+    #[serde(default)]
+    pub subdual_heal_amount: f32,
+    /// Countdown to next subdual heal step.
+    #[serde(default)]
+    pub subdual_heal_countdown: u32,
 
     /// Host residual: America Humvee TransportContain (Slots=5 + passengers fire).
     #[serde(default)]
@@ -1734,6 +1746,10 @@ impl Object {
             continuous_fire_coast_until_frame: 0,
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
+            subdual_damage: 0.0,
+            subdual_heal_rate_frames: 0,
+            subdual_heal_amount: 0.0,
+            subdual_heal_countdown: 0,
             is_humvee_transport: false,
             is_listening_outpost_transport: false,
             is_pathfinder_unit: false,
@@ -2058,6 +2074,10 @@ impl Object {
             continuous_fire_coast_until_frame: 0,
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
+            subdual_damage: 0.0,
+            subdual_heal_rate_frames: 0,
+            subdual_heal_amount: 0.0,
+            subdual_heal_countdown: 0,
             is_humvee_transport: false,
             is_listening_outpost_transport: false,
             is_pathfinder_unit: false,
@@ -2294,6 +2314,64 @@ impl Object {
     /// C++ ActiveBody::onSubdualChange → setDisabled(DISABLED_SUBDUED).
     /// Structures stop production / attack while cooked; residual continuous
     /// while microwave keeps attacking (not full subdual accumulate/heal).
+
+    /// C++ ActiveBody::isSubdued residual (`currentSubdual >= maxHealth`).
+    #[inline]
+    pub fn is_subdued(&self) -> bool {
+        self.health.maximum > 0.0 && self.subdual_damage + 1e-3 >= self.health.maximum
+    }
+
+    /// C++ ActiveBody::internalAddSubdualDamage + onSubdualChange residual.
+    pub fn apply_subdual_damage(&mut self, amount: f32) {
+        if amount <= 0.0 || !amount.is_finite() {
+            return;
+        }
+        // Infantry residual: subdual rarely applies (microwave targets vehicles/structures).
+        if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
+            return;
+        }
+        let was = self.is_subdued();
+        let cap = self.health.maximum.max(1.0);
+        self.subdual_damage = (self.subdual_damage + amount).min(cap);
+        // Default heal rate residual when first hit (retail-ish 30f / 5 dmg step peel).
+        if self.subdual_heal_rate_frames == 0 {
+            self.subdual_heal_rate_frames = 30;
+            self.subdual_heal_amount = 5.0;
+        }
+        self.subdual_heal_countdown = self.subdual_heal_rate_frames;
+        let now = self.is_subdued();
+        if now != was {
+            self.set_disabled_subdued(now);
+        } else if now {
+            self.set_disabled_subdued(true);
+        }
+    }
+
+    /// C++ SubdualDamageHelper::update residual heal step.
+    pub fn tick_subdual_damage(&mut self) {
+        if self.subdual_damage <= 0.0 {
+            if self.status.disabled_subdued && !self.is_emp_disabled() {
+                // Keep subdued clear if no other disable source.
+                // Only clear subdual-driven disable when subdual healed out.
+            }
+            return;
+        }
+        if self.subdual_heal_rate_frames == 0 || self.subdual_heal_amount <= 0.0 {
+            return;
+        }
+        if self.subdual_heal_countdown > 0 {
+            self.subdual_heal_countdown -= 1;
+            return;
+        }
+        let was = self.is_subdued();
+        self.subdual_damage = (self.subdual_damage - self.subdual_heal_amount).max(0.0);
+        self.subdual_heal_countdown = self.subdual_heal_rate_frames;
+        let now = self.is_subdued();
+        if was && !now {
+            self.set_disabled_subdued(false);
+        }
+    }
+
     pub fn set_disabled_subdued(&mut self, subdued: bool) {
         if subdued {
             self.set_status_disabled_subdued(true);
@@ -5970,6 +6048,12 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     ) -> bool {
+        // C++ IsSubdualDamage residual (Microwave/EMP maps to host EMP class).
+        if matches!(damage_type, crate::game_logic::combat::DamageType::EMP) {
+            self.apply_subdual_damage(damage.max(0.0));
+            let _ = (source, death_type);
+            return false;
+        }
         // C++ DAMAGE_STATUS residual: amount is duration msec, not hitpoints.
         if matches!(damage_type, crate::game_logic::combat::DamageType::Status) {
             let frames = ((damage.max(0.0) * 30.0) / 1000.0).ceil() as u32;
@@ -8094,6 +8178,8 @@ impl Object {
     /// C++ FiringTracker::update cool-down after ContinuousFireCoast idle.
     pub fn tick_continuous_fire_coast(&mut self, frame: u32) {
         self.tick_fire_sound_loop(frame);
+        let _ = frame;
+        self.tick_subdual_damage();
         if self.continuous_fire_level == 0 {
             return;
         }
@@ -11208,6 +11294,35 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn emp_subdual_disables_without_hp_loss() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut tmpl = ThingTemplate::new("Tank");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(4), Team::USA);
+        o.health.current = 100.0;
+        o.health.maximum = 100.0;
+        assert!(!o.take_damage_from_typed(40.0, None, DamageType::EMP));
+        assert!((o.health.current - 100.0).abs() < 1e-3);
+        assert!((o.subdual_damage - 40.0).abs() < 1e-3);
+        assert!(!o.is_subdued());
+        assert!(!o.take_damage_from_typed(70.0, None, DamageType::EMP));
+        assert!(o.is_subdued());
+        assert!(o.is_disabled());
+        // Heal residual clears subdual.
+        o.subdual_heal_rate_frames = 1;
+        o.subdual_heal_amount = 50.0;
+        o.subdual_heal_countdown = 0;
+        o.tick_subdual_damage();
+        o.subdual_heal_countdown = 0;
+        o.tick_subdual_damage();
+        o.subdual_heal_countdown = 0;
+        o.tick_subdual_damage();
+        assert!(!o.is_subdued());
     }
 
     #[test]
