@@ -827,8 +827,9 @@ impl AIGroup {
     pub fn group_sell(&self, _cmd_source: CommandSourceType) {
         let current_frame = TheGameLogic::get_frame();
         for &member_id in &self.member_list {
-            let Some(obj) = OBJECT_REGISTRY.get_object(member_id) else {
-                continue;
+            let obj = match OBJECT_REGISTRY.get_object(member_id) {
+                Some(v) => v,
+                None => continue,
             };
             let Ok(obj_ref) = obj.try_read() else {
                 continue;
@@ -928,8 +929,9 @@ impl AIGroup {
         let upgrade_center = THE_UPGRADE_CENTER.clone();
 
         for &member_id in &self.member_list {
-            let Some(obj) = OBJECT_REGISTRY.get_object(member_id) else {
-                continue;
+            let obj = match OBJECT_REGISTRY.get_object(member_id) {
+                Some(v) => v,
+                None => continue,
             };
             let Ok(obj_ref) = obj.try_read() else {
                 continue;

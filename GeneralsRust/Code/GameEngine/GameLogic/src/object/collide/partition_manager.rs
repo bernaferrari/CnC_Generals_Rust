@@ -436,8 +436,9 @@ impl PartitionManager {
                                 continue;
                             }
 
-                            let Some(handle) = OBJECT_REGISTRY.get_object(obj_id) else {
-                                continue;
+                            let handle = match OBJECT_REGISTRY.get_object(obj_id) {
+                                Some(v) => v,
+                                None => continue,
                             };
 
                             let mut allowed = true;

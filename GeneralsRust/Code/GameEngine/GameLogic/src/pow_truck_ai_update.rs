@@ -746,7 +746,11 @@ impl POWTruckAIUpdate {
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return None;
         }
-        for obj in crate::object::registry::OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in crate::object::registry::OBJECT_REGISTRY.get_all_object_ids() {
+            let obj = match crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let obj_id = obj
                 .read()
                 .ok()
@@ -762,7 +766,11 @@ impl POWTruckAIUpdate {
                 continue;
             }
 
-            if let Ok(obj_guard) = obj.read() {
+            let obj_guard = match obj.read() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if true {
                 let dist_sq = ThePartitionManager::get_distance_squared(
                     &owner_guard,
                     &obj_guard,

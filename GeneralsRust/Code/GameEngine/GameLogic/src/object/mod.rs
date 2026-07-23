@@ -11571,7 +11571,11 @@ impl Object {
         if OBJECT_REGISTRY.is_empty() {
             return;
         }
-        for mine in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let mine = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let Ok(mut mine_guard) = mine.write() else {
                 continue;
             };

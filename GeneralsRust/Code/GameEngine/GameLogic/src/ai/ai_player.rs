@@ -2395,7 +2395,11 @@ impl AIPlayer {
         }
         loop {
             let mut best: Option<(f32, Arc<RwLock<Object>>)> = None;
-            for obj in OBJECT_REGISTRY.get_all_objects() {
+            for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+                let obj = match OBJECT_REGISTRY.get_object(obj_id) {
+                    Some(v) => v,
+                    None => continue,
+                };
                 let Ok(obj_guard) = obj.read() else {
                     continue;
                 };
@@ -2437,7 +2441,11 @@ impl AIPlayer {
                 if OBJECT_REGISTRY.is_empty() {
                     // fall through with already_have=false
                 } else {
-                    for cand in OBJECT_REGISTRY.get_all_objects() {
+                    for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+                        let cand = match OBJECT_REGISTRY.get_object(obj_id) {
+                            Some(v) => v,
+                            None => continue,
+                        };
                         let Ok(cg) = cand.read() else {
                             continue;
                         };
@@ -5953,7 +5961,10 @@ impl AIPlayer {
             if OBJECT_REGISTRY.is_empty() {
                 return false;
             }
-            return OBJECT_REGISTRY.get_all_objects().iter().any(|obj| {
+            return OBJECT_REGISTRY.get_all_object_ids().iter().any(|obj_id| {
+                let Some(obj) = OBJECT_REGISTRY.get_object(*obj_id) else {
+                    return false;
+                };
                 obj.read()
                     .ok()
                     .map(|g| {
@@ -6358,7 +6369,11 @@ impl AIPlayer {
                         // C++ GLA hole scan by spawnerID.
                         // Host path: empty dual-world registry → no rebuild-hole residual.
                         if !OBJECT_REGISTRY.is_empty() {
-                            for hole_arc in OBJECT_REGISTRY.get_all_objects() {
+                            for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+                                let hole_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                                    Some(v) => v,
+                                    None => continue,
+                                };
                                 let Ok(hg) = hole_arc.read() else {
                                     continue;
                                 };

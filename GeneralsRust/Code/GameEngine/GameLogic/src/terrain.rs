@@ -1351,8 +1351,16 @@ impl TerrainLogic {
         if OBJECT_REGISTRY.is_empty() {
             return false;
         }
-        for obj in OBJECT_REGISTRY.get_all_objects() {
-            if let Ok(obj_guard) = obj.read() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
+            let obj_guard = match obj.read() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if true {
                 if !obj_guard.is_any_kind_of(&[KindOf::Barrier]) {
                     continue;
                 }

@@ -82,20 +82,22 @@ fn is_point_on_wall(pos: &Coord3D) -> bool {
     if OBJECT_REGISTRY.is_empty() {
         return false;
     }
-    for obj in OBJECT_REGISTRY.get_all_objects() {
-        if let Ok(obj_guard) = obj.read() {
-            if !obj_guard.is_any_kind_of(&[KindOf::Barrier]) {
-                continue;
-            }
-            let wall_pos = obj_guard.get_position();
-            let geom = obj_guard.get_template().get_template_geometry_info();
-            let radius = geom.get_bounding_circle_radius();
-            let dx = wall_pos.x - pos.x;
-            let dy = wall_pos.y - pos.y;
-            let dist_sq = dx * dx + dy * dy;
-            let allowed = radius + cell_pad;
-            if dist_sq <= allowed * allowed {
-                return true;
+    for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+        if let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) {
+            if let Ok(obj_guard) = obj.read() {
+                if !obj_guard.is_any_kind_of(&[KindOf::Barrier]) {
+                    continue;
+                }
+                let wall_pos = obj_guard.get_position();
+                let geom = obj_guard.get_template().get_template_geometry_info();
+                let radius = geom.get_bounding_circle_radius();
+                let dx = wall_pos.x - pos.x;
+                let dy = wall_pos.y - pos.y;
+                let dist_sq = dx * dx + dy * dy;
+                let allowed = radius + cell_pad;
+                if dist_sq <= allowed * allowed {
+                    return true;
+                }
             }
         }
     }
@@ -6978,7 +6980,7 @@ impl AIAttackSquadState {
             crate::player::GameDifficulty::Normal => {
                 let mut best: Option<Arc<RwLock<Object>>> = None;
                 let mut best_dist_sqr = f32::MAX;
-                for obj in objects {
+                for obj in &objects {
                     if let Ok(obj_guard) = obj.read() {
                         if obj_guard.is_off_map() != owner_off_map {
                             continue;

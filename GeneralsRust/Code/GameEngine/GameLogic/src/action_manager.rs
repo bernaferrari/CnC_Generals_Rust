@@ -108,13 +108,19 @@ fn has_special_object_on_target(target_id: ObjectID, special_object_update: &str
     if OBJECT_REGISTRY.is_empty() {
         return false;
     }
-    OBJECT_REGISTRY.get_all_objects().into_iter().any(|obj| {
-        let Ok(guard) = obj.read() else {
-            return false;
-        };
-        guard.get_producer_id() == target_id
-            && guard.find_update_module(special_object_update).is_some()
-    })
+    OBJECT_REGISTRY
+        .get_all_object_ids()
+        .into_iter()
+        .any(|obj_id| {
+            let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) else {
+                return false;
+            };
+            let Ok(guard) = obj.read() else {
+                return false;
+            };
+            guard.get_producer_id() == target_id
+                && guard.find_update_module(special_object_update).is_some()
+        })
 }
 
 fn has_module(object: &Object, name: &str) -> bool {

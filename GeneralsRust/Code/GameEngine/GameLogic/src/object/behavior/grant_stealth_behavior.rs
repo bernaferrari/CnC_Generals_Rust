@@ -374,10 +374,14 @@ impl GrantStealthBehavior {
         if OBJECT_REGISTRY.is_empty() {
             return;
         }
-        let all_objects = OBJECT_REGISTRY.get_all_objects();
+        let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
 
         // C++ lines 143-145: For each object, grant stealth
-        for obj_arc in all_objects {
+        for obj_id in &all_object_ids {
+            let obj_arc = match OBJECT_REGISTRY.get_object(*obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };

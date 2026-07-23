@@ -2053,7 +2053,11 @@ impl ScriptEngine {
             return;
         }
         let tracker = get_named_object_tracker();
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let Ok(obj) = obj_arc.read() else { continue };
             let name = obj.get_name();
             if name.is_empty() {
@@ -3182,8 +3186,16 @@ impl ScriptEngine {
         if OBJECT_REGISTRY.is_empty() {
             return;
         }
-        for obj in OBJECT_REGISTRY.get_all_objects() {
-            if let Ok(mut guard) = obj.write() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
+            let mut guard = match obj.write() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if true {
                 guard.set_receiving_difficulty_bonus(enable);
             }
         }

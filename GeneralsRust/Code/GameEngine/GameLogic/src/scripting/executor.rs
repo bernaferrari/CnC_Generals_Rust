@@ -4626,7 +4626,11 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
         let mut best_target: Option<(f32, ObjectID)> = None;
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let Ok(obj) = obj_arc.read() else {
                 continue;
             };
@@ -12204,8 +12208,16 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
         let mut to_destroy = Vec::new();
-        for obj in OBJECT_REGISTRY.get_all_objects() {
-            if let Ok(guard) = obj.read() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
+            let guard = match obj.read() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if true {
                 if guard.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned) {
                     to_destroy.push(guard.get_id());
                 }
@@ -12672,7 +12684,11 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
         let mut fired = false;
-        for object_arc in OBJECT_REGISTRY.get_all_objects() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let object_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let Ok(object_guard) = object_arc.read() else {
                 continue;
             };
