@@ -338,24 +338,24 @@ impl OverlordContain {
             self.activate_redirected_contain()?;
 
             if self.module_data.experience_sink_for_rider {
-                if let (Some(owner), Ok(obj_guard)) = (self.get_object(), obj.read()) {
-                    if let Ok(owner_guard) = owner.read() {
+                let owner_id = self.get_object_id();
+                if owner_id != crate::common::INVALID_ID {
+                    if let Ok(obj_guard) = obj.read() {
                         if let Some(tracker) = obj_guard.get_experience_tracker() {
-                            tracker.set_experience_sink(owner_guard.get_id());
+                            tracker.set_experience_sink(owner_id);
                         }
                     }
                 }
             }
 
-            if let Some(owner) = self.get_object() {
-                if let Ok(owner_guard) = owner.read() {
-                    if owner_guard.is_stealthed() {
-                        if let Ok(obj_guard) = obj.read() {
-                            if let Some(stealth) = obj_guard.get_stealth() {
-                                if let Ok(mut stealth_guard) = stealth.lock() {
-                                    let _ = stealth_guard.receive_grant(true, 0, 0);
-                                }
-                            }
+            if self
+                .with_owner_object(|owner_guard| owner_guard.is_stealthed())
+                .unwrap_or(false)
+            {
+                if let Ok(obj_guard) = obj.read() {
+                    if let Some(stealth) = obj_guard.get_stealth() {
+                        if let Ok(mut stealth_guard) = stealth.lock() {
+                            let _ = stealth_guard.receive_grant(true, 0, 0);
                         }
                     }
                 }

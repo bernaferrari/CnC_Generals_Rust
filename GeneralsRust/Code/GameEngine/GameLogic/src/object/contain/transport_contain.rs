@@ -423,17 +423,13 @@ impl TransportContain {
         }
 
         // Only our own units can be transported (not allies)
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner) = owner_obj.read() {
-                let owner_player = owner.get_controlling_player();
-                let actual_player = actual_obj.get_controlling_player();
-
-                // Compare player IDs or Arc pointers
-                match (owner_player, actual_player) {
-                    (Some(ref p1), Some(ref p2)) if !Arc::ptr_eq(p1, p2) => return false,
-                    (None, Some(_)) | (Some(_), None) => return false,
-                    _ => {}
-                }
+        if let Some(owner_player) = self.with_owner_object(|owner| owner.get_controlling_player()) {
+            let actual_player = actual_obj.get_controlling_player();
+            // Compare player IDs or Arc pointers
+            match (owner_player, actual_player) {
+                (Some(ref p1), Some(ref p2)) if !Arc::ptr_eq(p1, p2) => return false,
+                (None, Some(_)) | (Some(_), None) => return false,
+                _ => {}
             }
         }
 
@@ -531,13 +527,12 @@ impl TransportContain {
 
         // Set model condition LOADED when first unit enters
         if self.base.get_contain_count() == 1 {
-            if let Some(owner_obj) = self.get_object() {
-                if let Ok(owner) = owner_obj.read() {
-                    if let Some(drawable) = owner.get_drawable() {
-                        if let Ok(mut draw) = drawable.write() {
-                            draw.set_model_condition_state(ModelConditionState::Loaded);
-                        }
-                    }
+            if let Some(drawable) = self
+                .with_owner_object(|owner| owner.get_drawable())
+                .flatten()
+            {
+                if let Ok(mut draw) = drawable.write() {
+                    draw.set_model_condition_state(ModelConditionState::Loaded);
                 }
             }
         }
@@ -603,33 +598,30 @@ impl TransportContain {
             self.extra_slots_in_use -= (transport_slot_count - 1) as i32;
 
             if !self.module_data.exit_bone.is_empty() {
-                if let Some(owner_obj) = self.get_object() {
-                    if let Ok(owner) = owner_obj.read() {
-                        let (_, bone_pos, _) =
-                            owner.get_single_logical_bone_position(&self.module_data.exit_bone);
-                        let _ = rider.set_position(&bone_pos);
-                    }
+                if let Some(bone_pos) = self.with_owner_object(|owner| {
+                    let (_, bone_pos, _) =
+                        owner.get_single_logical_bone_position(&self.module_data.exit_bone);
+                    bone_pos
+                }) {
+                    let _ = rider.set_position(&bone_pos);
                 }
             }
 
             if self.module_data.orient_like_container_on_exit {
-                if let Some(owner_obj) = self.get_object() {
-                    if let Ok(owner) = owner_obj.read() {
-                        let _ = rider.set_orientation(owner.get_orientation());
-                    }
+                if let Some(orient) = self.with_owner_object(|owner| owner.get_orientation()) {
+                    let _ = rider.set_orientation(orient);
                 }
             }
         }
 
         // Clear model condition LOADED when last unit exits
         if self.base.get_contain_count() == 0 {
-            if let Some(owner_obj) = self.get_object() {
-                if let Ok(owner) = owner_obj.read() {
-                    if let Some(drawable) = owner.get_drawable() {
-                        if let Ok(mut draw) = drawable.write() {
-                            draw.clear_model_condition_state(ModelConditionState::Loaded);
-                        }
-                    }
+            if let Some(drawable) = self
+                .with_owner_object(|owner| owner.get_drawable())
+                .flatten()
+            {
+                if let Ok(mut draw) = drawable.write() {
+                    draw.clear_model_condition_state(ModelConditionState::Loaded);
                 }
             }
         }
@@ -664,7 +656,7 @@ impl TransportContain {
         }
 
         if self.module_data.health_regen != 0.0 {
-            let owner = self.get_object();
+            let owner_id = self.get_object_id();
             for object_id in self.base.get_contained_object_ids().to_vec() {
                 if let Some(object) = TheGameLogic::find_object_by_id(object_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
@@ -699,9 +691,14 @@ impl TransportContain {
                     let regen = max_health * self.module_data.health_regen / 100.0
                         * SECONDS_PER_LOGICFRAME_REAL;
                     if let Ok(mut object_guard) = object.write() {
-                        let source_guard = owner.as_ref().and_then(|owner| owner.read().ok());
-                        let source_ref = source_guard.as_deref();
-                        let _ = object_guard.attempt_healing(regen, source_ref);
+                        if owner_id != crate::common::INVALID_ID {
+                            let _ = crate::object::registry::OBJECT_REGISTRY
+                                .with_object(owner_id, |source| {
+                                    object_guard.attempt_healing(regen, Some(source))
+                                });
+                        } else {
+                            let _ = object_guard.attempt_healing(regen, None);
+                        }
                     }
                 }
             }
@@ -741,12 +738,8 @@ impl TransportContain {
     /// Check if exit is currently busy
     pub fn is_exit_busy(&self) -> bool {
         if self.module_data.is_delay_exit_in_air {
-            let Some(owner) = self.get_object() else {
-                return false;
-            };
-            if owner
-                .read()
-                .map(|owner_guard| owner_guard.is_above_terrain())
+            if self
+                .with_owner_object(|owner_guard| owner_guard.is_above_terrain())
                 .unwrap_or(false)
             {
                 return true;
@@ -803,13 +796,10 @@ impl TransportContain {
 
     /// Check if specific rider is free to exit
     fn is_specific_rider_free_to_exit(&self, obj: &Object) -> bool {
-        let Some(owner) = self.get_object() else {
-            return true;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return true;
-        };
-        if let Some(ai) = owner_guard.get_ai_update_interface() {
+        if let Some(ai) = self
+            .with_owner_object(|owner_guard| owner_guard.get_ai_update_interface())
+            .flatten()
+        {
             if let Ok(ai_guard) = ai.lock() {
                 return matches!(
                     ai_guard.get_ai_free_to_exit(obj),
@@ -831,22 +821,17 @@ impl TransportContain {
             return Ok(());
         }
 
-        let (payload_name, payload_count, owner_team) = match self.get_object() {
-            Some(owner) => {
-                if let Ok(owner_guard) = owner.read() {
-                    (
-                        self.module_data.initial_payload.name.clone(),
-                        self.module_data.initial_payload.count.max(0),
-                        owner_guard.get_controlling_player().and_then(|player| {
-                            player.read().ok().and_then(|p| p.get_default_team())
-                        }),
-                    )
-                } else {
-                    (String::new(), 0, None)
-                }
-            }
-            None => (String::new(), 0, None),
-        };
+        let (payload_name, payload_count, owner_team) = self
+            .with_owner_object(|owner_guard| {
+                (
+                    self.module_data.initial_payload.name.clone(),
+                    self.module_data.initial_payload.count.max(0),
+                    owner_guard
+                        .get_controlling_player()
+                        .and_then(|player| player.read().ok().and_then(|p| p.get_default_team())),
+                )
+            })
+            .unwrap_or_else(|| (String::new(), 0, None));
 
         if payload_count == 0 || payload_name.is_empty() {
             self.payload_created = true;
@@ -916,7 +901,7 @@ impl TransportContain {
             return Ok(());
         }
 
-        if let Some(owner_obj) = self.get_object() {
+        {
             let mut any_rider_has_viable_weapon = false;
 
             // Check all riders for viable weapons
@@ -953,13 +938,13 @@ impl TransportContain {
             }
 
             // Update weapon set flag on transport
-            if let Ok(mut owner_mut) = owner_obj.write() {
+            let _ = self.with_owner_object_mut(|owner_mut| {
                 if any_rider_has_viable_weapon {
                     owner_mut.set_weapon_set_flag(WeaponSetType::PlayerUpgrade);
                 } else {
                     owner_mut.clear_weapon_set_flag(WeaponSetType::PlayerUpgrade);
                 }
-            }
+            });
         }
 
         Ok(())
@@ -1038,9 +1023,15 @@ impl TransportContain {
 
     /// Add object to containment
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let owner = self.get_object();
         if super::should_cancel_containment_after_booby_trap(
-            owner.and_then(|o| o.read().ok().map(|g| g.get_id())),
+            {
+                let id = self.get_object_id();
+                if id == crate::common::INVALID_ID {
+                    None
+                } else {
+                    Some(id)
+                }
+            },
             obj_id,
         ) {
             return Ok(());
@@ -1109,10 +1100,17 @@ impl TransportContain {
             .unwrap_or(false);
         if should_add_to_world {
             let _ = self.base.add_or_remove_obj_from_world(obj_id, true);
-            if let Some(owner) = self.get_object() {
-                if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
-                    let _ = obj_guard.set_position(owner_guard.get_position());
-                    obj_guard.set_layer(owner_guard.get_layer());
+            let owner_id = self.get_object_id();
+            if owner_id != crate::common::INVALID_ID {
+                if let Some((pos, layer)) = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(owner_id, |owner_guard| {
+                        (*owner_guard.get_position(), owner_guard.get_layer())
+                    })
+                {
+                    if let Ok(mut obj_guard) = obj.write() {
+                        let _ = obj_guard.set_position(&pos);
+                        obj_guard.set_layer(layer);
+                    }
                 }
             }
         }

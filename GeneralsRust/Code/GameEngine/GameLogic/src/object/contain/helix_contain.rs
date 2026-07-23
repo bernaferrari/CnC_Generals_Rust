@@ -243,14 +243,13 @@ impl HelixContain {
 
             // Handle stealth sharing for portable structures when owner is stealthed
             if contained.is_kind_of(crate::common::KindOf::PortableStructure) {
-                if let Some(owner_obj) = self.get_object() {
-                    if let Ok(owner) = owner_obj.read() {
-                        if owner.is_stealthed() {
-                            if let Some(stealth) = contained.get_stealth() {
-                                if let Ok(mut stealth_guard) = stealth.lock() {
-                                    let _ = stealth_guard.receive_grant(true, 0, 0);
-                                }
-                            }
+                if self
+                    .with_owner_object(|owner| owner.is_stealthed())
+                    .unwrap_or(false)
+                {
+                    if let Some(stealth) = contained.get_stealth() {
+                        if let Ok(mut stealth_guard) = stealth.lock() {
+                            let _ = stealth_guard.receive_grant(true, 0, 0);
                         }
                     }
                 }
@@ -318,27 +317,23 @@ impl HelixContain {
             if let Some(portable_obj) = TheGameLogic::find_object_by_id(_portable_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(_portable_id))
             {
-                if let Some(owner_obj) = self.get_object() {
-                    if let Ok(owner) = owner_obj.read() {
-                        let owner_pos = *owner.get_position();
-                        let owner_orient = owner.get_orientation();
-                        drop(owner);
-
-                        if let Ok(mut portable) = portable_obj.write() {
-                            if let Err(err) = portable.set_position(&owner_pos) {
-                                log::warn!(
-                                    "HelixContain::update failed to place portable structure {}: {}",
-                                    portable.get_id(),
-                                    err
-                                );
-                            }
-                            if let Err(err) = portable.set_orientation(owner_orient) {
-                                log::warn!(
-                                    "HelixContain::update failed to orient portable structure {}: {}",
-                                    portable.get_id(),
-                                    err
-                                );
-                            }
+                if let Some((owner_pos, owner_orient)) =
+                    self.with_owner_object(|owner| (*owner.get_position(), owner.get_orientation()))
+                {
+                    if let Ok(mut portable) = portable_obj.write() {
+                        if let Err(err) = portable.set_position(&owner_pos) {
+                            log::warn!(
+                                "HelixContain::update failed to place portable structure {}: {}",
+                                portable.get_id(),
+                                err
+                            );
+                        }
+                        if let Err(err) = portable.set_orientation(owner_orient) {
+                            log::warn!(
+                                "HelixContain::update failed to orient portable structure {}: {}",
+                                portable.get_id(),
+                                err
+                            );
                         }
                     }
                 }
@@ -621,11 +616,11 @@ impl HelixContain {
             return Ok(());
         }
 
-        let owner = self.get_object().ok_or("Helix object no longer exists")?;
-        let (owner_name, owner_team) = {
-            let owner_guard = owner.read().map_err(|_| "Owner lock poisoned")?;
-            (owner_guard.get_name().to_string(), owner_guard.get_team())
-        };
+        let (owner_name, owner_team) = self
+            .with_owner_object(|owner_guard| {
+                (owner_guard.get_name().to_string(), owner_guard.get_team())
+            })
+            .ok_or("Helix object no longer exists")?;
 
         let factory = TheThingFactory::get().map_err(|e| e.to_string())?;
         let payload_templates = self.module_data.payload_template_name_data.clone();
