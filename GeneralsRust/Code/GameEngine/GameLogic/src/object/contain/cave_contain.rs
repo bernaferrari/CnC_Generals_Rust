@@ -437,7 +437,14 @@ impl CaveContain {
         };
 
         if let Ok(tunnel) = tracker.read() {
-            return Ok(tunnel.get_contained_items_list().clone());
+            return Ok(tunnel
+                .get_contained_item_ids()
+                .iter()
+                .filter_map(|&id| {
+                    TheGameLogic::find_object_by_id(id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+                })
+                .collect());
         }
         Ok(Vec::new())
     }

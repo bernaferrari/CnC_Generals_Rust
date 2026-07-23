@@ -1660,15 +1660,13 @@ impl SupplyTruckAIUpdate {
     }
 
     fn update_drawable_supply_status(&self) {
-        let Some(owner) = self.owner_object() else {
+        if self.object_id == INVALID_ID {
             return;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-        let drawable = owner_guard.get_drawable();
-        drop(owner_guard);
-        let Some(drawable) = drawable else {
+        }
+        let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |owner_guard| owner_guard.get_drawable())
+            .flatten()
+        else {
             return;
         };
         if let Ok(mut draw_guard) = drawable.write() {
@@ -2671,15 +2669,13 @@ impl WorkerAIUpdate {
     }
 
     fn update_drawable_supply_status(&self) {
-        let Some(owner) = self.owner_object() else {
+        if self.object_id == INVALID_ID {
             return;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-        let drawable = owner_guard.get_drawable();
-        drop(owner_guard);
-        let Some(drawable) = drawable else {
+        }
+        let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |owner_guard| owner_guard.get_drawable())
+            .flatten()
+        else {
             return;
         };
         if let Ok(mut draw_guard) = drawable.write() {
