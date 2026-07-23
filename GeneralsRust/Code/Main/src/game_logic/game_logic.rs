@@ -12246,10 +12246,29 @@ impl GameLogic {
                             let limits = wname
                                 .map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name)
                                 .unwrap_or_default();
-                            crate::game_logic::weapon_bootstrap::is_pitch_within_limits(
+                            let src_half = {
+                                let b = &attacker.thing.geometry.bounds_max.y
+                                    - attacker.thing.geometry.bounds_min.y;
+                                (b * 0.5).max(0.0)
+                            };
+                            let (tgt_above, tgt_below) = self
+                                .objects
+                                .get(&target_id)
+                                .map(|t| {
+                                    let h = (t.thing.geometry.bounds_max.y
+                                        - t.thing.geometry.bounds_min.y)
+                                        .max(0.0);
+                                    // Position is typically feet; above ≈ full height, below ≈ 0.
+                                    (h, 0.0_f32)
+                                })
+                                .unwrap_or((0.0, 0.0));
+                            crate::game_logic::weapon_bootstrap::is_pitch_within_limits_geom(
                                 attacker.get_position(),
                                 target_position,
                                 &limits,
+                                src_half,
+                                tgt_above,
+                                tgt_below,
                             )
                         } else {
                             true
@@ -97633,7 +97652,7 @@ mod tests {
         assert!(logic.try_return_to_base_rearm(jet2));
     }
     #[test]
-    fn target_pitch_gate_blocks_strategy_center_flat_shot() {
+    fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         use crate::game_logic::weapon_bootstrap::{
             host_target_pitch_limits_for_weapon_name, is_pitch_within_limits,
         };
@@ -97654,8 +97673,9 @@ mod tests {
         let sc = logic
             .create_object("PitchSc", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("sc");
+        // Deep depression: outside strategy loft and beyond ACCEPTABLE_DZ=10.
         let tgt = logic
-            .create_object("PitchTgt", Team::China, glam::Vec3::new(100.0, 0.0, 0.0))
+            .create_object("PitchTgt", Team::China, glam::Vec3::new(100.0, -80.0, 0.0))
             .expect("tgt");
         if let Some(o) = logic.objects.get_mut(&sc) {
             o.weapon = Some(Weapon {
@@ -97689,10 +97709,10 @@ mod tests {
             .get(&tgt)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        let dealt_flat = test_observed_damage_to(tgt, h0, h1);
+        let dealt_bad = test_observed_damage_to(tgt, h0, h1);
         assert!(
-            dealt_flat.abs() < 0.01,
-            "flat pitch must not deal damage (h0={h0} h1={h1} dealt={dealt_flat})"
+            dealt_bad.abs() < 0.01,
+            "out-of-pitch depression must not deal damage (h0={h0} h1={h1} dealt={dealt_bad})"
         );
 
         // Elevate target into loft window (~60°) and allow fire.
@@ -97724,9 +97744,15 @@ mod tests {
             "lofted pitch must allow fire (h0={h0} h2={h2} dealt={dealt_loft})"
         );
         let lim = host_target_pitch_limits_for_weapon_name("AmericaStrategyCenterArtillery");
-        assert!(!is_pitch_within_limits(
+        // C++ ACCEPTABLE_DZ: near-level shots always pass the pitch gate.
+        assert!(is_pitch_within_limits(
             glam::Vec3::ZERO,
             glam::Vec3::new(100.0, 0.0, 0.0),
+            &lim
+        ));
+        assert!(!is_pitch_within_limits(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(100.0, -80.0, 0.0),
             &lim
         ));
     }
