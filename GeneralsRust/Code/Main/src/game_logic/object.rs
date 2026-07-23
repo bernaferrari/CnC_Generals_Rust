@@ -1009,6 +1009,10 @@ pub struct Object {
     pub continuous_fire_two_shots: u32,
     /// C++ ContinuousFireCoast residual (logic frames; 0 = no auto cool-down timer).
     pub continuous_fire_coast_frames: u32,
+    /// C++ AutoReloadWhenIdle residual (logic frames; 0 = disabled).
+    pub auto_reload_when_idle_frames: u32,
+    /// C++ FiringTracker::m_frameToForceReload residual (0 = none).
+    pub frame_to_force_reload: u32,
     /// Absolute host frame until which coast keeps spin-up (0 = none).
     #[serde(default)]
     pub continuous_fire_coast_until_frame: u32,
@@ -1685,6 +1689,8 @@ impl Object {
             continuous_fire_one_shots: u32::MAX,
             continuous_fire_two_shots: u32::MAX,
             continuous_fire_coast_frames: 0,
+            auto_reload_when_idle_frames: 0,
+            frame_to_force_reload: 0,
             continuous_fire_coast_until_frame: 0,
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
@@ -2000,6 +2006,8 @@ impl Object {
             continuous_fire_one_shots: u32::MAX,
             continuous_fire_two_shots: u32::MAX,
             continuous_fire_coast_frames: 0,
+            auto_reload_when_idle_frames: 0,
+            frame_to_force_reload: 0,
             continuous_fire_coast_until_frame: 0,
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
@@ -7694,6 +7702,55 @@ impl Object {
         self.record_host_continuous_fire();
     }
 
+    /// Stamp AutoReloadWhenIdle deadline after a shot (C++ m_frameToForceReload).
+    pub fn stamp_auto_reload_when_idle(&mut self, frame: u32) {
+        let delay = self.auto_reload_when_idle_frames;
+        if delay == 0 {
+            return;
+        }
+        // Only meaningful when clip is partially empty.
+        let partial = self
+            .weapon
+            .as_ref()
+            .is_some_and(|w| w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(false));
+        if partial {
+            self.frame_to_force_reload = frame.saturating_add(delay);
+        } else {
+            self.frame_to_force_reload = 0;
+        }
+    }
+
+    /// C++ Object::reloadAllAmmo(TRUE) residual — refill primary/secondary clips.
+    pub fn reload_all_ammo(&mut self) {
+        for slot in [0u8, 1u8] {
+            if let Some(w) = self.weapon_slot_mut(slot) {
+                if w.clip_size > 0 {
+                    w.ammo = Some(w.clip_size);
+                }
+            }
+        }
+        self.frame_to_force_reload = 0;
+    }
+
+    /// C++ FiringTracker::update force-reload-when-idle residual.
+    pub fn tick_force_reload_when_idle(&mut self, frame: u32) {
+        let until = self.frame_to_force_reload;
+        if until == 0 || frame < until {
+            return;
+        }
+        let needs =
+            self.weapon.as_ref().is_some_and(|w| {
+                w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(true)
+            }) || self.secondary_weapon.as_ref().is_some_and(|w| {
+                w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(true)
+            });
+        if needs {
+            self.reload_all_ammo();
+        } else {
+            self.frame_to_force_reload = 0;
+        }
+    }
+
     /// Fire at target. `target_is_infantry` selects ScatterRadiusVsInfantry residual.
     pub fn fire_at(&mut self, target_id: ObjectId, current_time: f32) -> bool {
         self.fire_at_ex(target_id, current_time, false, false)
@@ -10564,6 +10621,43 @@ mod tests {
             resolve_host_death_type(None, DamageType::Toxin),
             HostDeathType::Poisoned
         );
+    }
+
+    #[test]
+    fn force_reload_when_idle_refills_clip() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("AR_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("AR_V".to_string(), tpl);
+        let id = logic.create_object("AR_V", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let a = logic.get_object_mut(id).unwrap();
+            a.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.5,
+                clip_size: 4,
+                ammo: Some(1), // partial
+                ..Weapon::default()
+            });
+            a.auto_reload_when_idle_frames = 15;
+            a.stamp_auto_reload_when_idle(100);
+            assert_eq!(a.frame_to_force_reload, 115);
+            a.tick_force_reload_when_idle(114);
+            assert_eq!(a.weapon.as_ref().unwrap().ammo, Some(1));
+            a.tick_force_reload_when_idle(115);
+            assert_eq!(
+                a.weapon.as_ref().unwrap().ammo,
+                Some(4),
+                "idle force reload refills clip"
+            );
+            assert_eq!(a.frame_to_force_reload, 0);
+        }
     }
 
     #[test]
