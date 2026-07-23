@@ -3949,12 +3949,8 @@ impl ClassicState for AIRappelIntoState {
         self.rappel_rate = -ai_guard.get_desired_speed().min(max_rappel_rate);
 
         let mut params = AiCommandParams::new(AiCommandType::RappelInto, CommandSourceType::FromAi);
-        if let Some(goal) = self.base.get_machine_goal_object() {
-            params.obj = Some(
-                goal.read()
-                    .map_err(|_| "rappel goal lock poisoned".to_string())?
-                    .get_id(),
-            );
+        if let Some(goal_id) = self.base.get_machine_goal_object_id() {
+            params.obj = Some(goal_id);
         }
         if let Some(goal_pos) = self.base.get_machine_goal_position() {
             params.pos = goal_pos;
@@ -4067,12 +4063,8 @@ impl ClassicState for AICombatDropState {
             .lock()
             .map_err(|_| "combat drop AI lock poisoned".to_string())?;
         let mut params = AiCommandParams::new(AiCommandType::CombatDrop, CommandSourceType::FromAi);
-        if let Some(goal) = self.base.get_machine_goal_object() {
-            params.obj = Some(
-                goal.read()
-                    .map_err(|_| "combat drop goal lock poisoned".to_string())?
-                    .get_id(),
-            );
+        if let Some(goal_id) = self.base.get_machine_goal_object_id() {
+            params.obj = Some(goal_id);
         }
         if let Some(goal_pos) = self.base.get_machine_goal_position() {
             params.pos = goal_pos;
@@ -7967,18 +7959,23 @@ impl ClassicState for AIDockState {
             .get_machine_owner()
             .ok_or_else(|| "dock state missing machine owner".to_string())?;
 
-        let Some(goal) = self.base.get_machine_goal_object() else {
+        let Some(goal_id) = self.base.get_machine_goal_object_id() else {
             return Ok(StateReturnType::Failure);
         };
 
-        let has_dock = goal
-            .try_read()
-            .ok()
-            .and_then(|guard| guard.with_dock_update_interface(|_| true))
+        let has_dock = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |guard| {
+                guard.with_dock_update_interface(|_| true).unwrap_or(false)
+            })
             .unwrap_or(false);
         if !has_dock {
             return Ok(StateReturnType::Failure);
         }
+        let Some(goal) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
+        else {
+            return Ok(StateReturnType::Failure);
+        };
 
         if let Ok(owner_guard) = owner.try_read() {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
@@ -9762,10 +9759,7 @@ impl ClassicState for AIAttackFireWeaponState {
             }
         }
 
-        let victim_id = self
-            .base
-            .get_machine_goal_object()
-            .and_then(|victim| victim.read().ok().map(|guard| guard.get_id()));
+        let victim_id = self.base.get_machine_goal_object_id();
         owner_guard.set_status(
             ObjectStatusMaskType::from_status(ObjectStatusTypes::IsFiringWeapon),
             true,
@@ -10216,8 +10210,11 @@ impl AIAttackPursueTargetState {
         if self
             .base
             .base
-            .get_machine_goal_object()
-            .and_then(|target| target.read().ok().map(|guard| guard.is_effectively_dead()))
+            .get_machine_goal_object_id()
+            .and_then(|id| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(id, |guard| guard.is_effectively_dead())
+            })
             .unwrap_or(true)
         {
             if let Ok(owner_guard) = owner.read() {
@@ -10362,8 +10359,11 @@ impl ClassicState for AIAttackPursueTargetState {
         if self
             .base
             .base
-            .get_machine_goal_object()
-            .and_then(|target| target.read().ok().map(|guard| guard.is_effectively_dead()))
+            .get_machine_goal_object_id()
+            .and_then(|id| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(id, |guard| guard.is_effectively_dead())
+            })
             .unwrap_or(true)
         {
             return Ok(StateReturnType::Success);
@@ -10616,8 +10616,11 @@ impl AIAttackApproachTargetState {
         if self
             .base
             .base
-            .get_machine_goal_object()
-            .and_then(|target| target.read().ok().map(|guard| guard.is_effectively_dead()))
+            .get_machine_goal_object_id()
+            .and_then(|id| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(id, |guard| guard.is_effectively_dead())
+            })
             .unwrap_or(false)
         {
             if let Ok(owner_guard) = owner.read() {
@@ -10777,8 +10780,11 @@ impl ClassicState for AIAttackApproachTargetState {
         if self
             .base
             .base
-            .get_machine_goal_object()
-            .and_then(|target| target.read().ok().map(|guard| guard.is_effectively_dead()))
+            .get_machine_goal_object_id()
+            .and_then(|id| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(id, |guard| guard.is_effectively_dead())
+            })
             .unwrap_or(false)
         {
             return Ok(StateReturnType::Success);
@@ -10857,10 +10863,10 @@ impl ClassicState for AIAttackApproachTargetState {
                 let turret = ai_guard.get_which_turret_for_cur_weapon();
                 if turret != TurretType::Invalid {
                     if self.attacking_object {
-                        if let Some(victim) = self.base.base.get_machine_goal_object() {
+                        if let Some(victim_id) = self.base.base.get_machine_goal_object_id() {
                             ai_guard.set_turret_target_object(
                                 turret,
-                                victim.read().ok().map(|g| g.get_id()),
+                                Some(victim_id),
                                 self.force_attacking,
                             );
                         }
