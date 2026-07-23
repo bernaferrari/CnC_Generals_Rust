@@ -305,7 +305,6 @@ impl CaveContain {
             let _ = self.base.add_or_remove_obj_from_world(obj_id, false);
         }
 
-        let contained = self.get_contained_items_list()?;
         {
             let contained_ids = self.base.get_contained_object_ids().to_vec();
             self.base.redeploy_objects(&contained_ids)?;
@@ -353,20 +352,14 @@ impl CaveContain {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             let tracker = system.get_tunnel_tracker_for_cave_index(self.cave_index)?;
             let tunnel = tracker.read().map_err(|_| GameError::LockError)?;
-            tunnel.get_contained_items_list().to_vec()
+            tunnel.get_contained_item_ids().to_vec()
         } else {
             return Ok(());
         };
 
         // Now that the lock is released, iterate over the list
-        for obj in full_list {
-            self.remove_from_contain(
-                obj.read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-                expose_stealth_units,
-            )?;
+        for obj_id in full_list {
+            self.remove_from_contain(obj_id, expose_stealth_units)?;
         }
 
         Ok(())
@@ -421,6 +414,20 @@ impl CaveContain {
     }
 
     /// Get list of contained items
+    pub fn get_contained_item_ids(&self) -> GameResult<Vec<ObjectID>> {
+        let tracker = if let Some(cave_system) = &self.cave_system {
+            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            system.get_tunnel_tracker_for_cave_index(self.cave_index)?
+        } else {
+            return Ok(Vec::new());
+        };
+
+        if let Ok(tunnel) = tracker.read() {
+            return Ok(tunnel.get_contained_item_ids().to_vec());
+        }
+        Ok(Vec::new())
+    }
+
     pub fn get_contained_items_list(&self) -> GameResult<Vec<Arc<RwLock<Object>>>> {
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
@@ -632,16 +639,21 @@ impl CaveContain {
 
         // Edge trigger on count == 1 to do capture stuff
         if self.get_contain_count()? == 1 {
-            let contained_list = self.get_contained_items_list()?;
-            if let Some(rider) = contained_list.first() {
-                if let Ok(rider_obj) = rider.read() {
-                    if let Some(controlling_player) = rider_obj.get_controlling_player() {
-                        if let Ok(player) = controlling_player.read() {
-                            let default_team = player.get_default_team();
-                            self.change_team_on_all_connected_caves(
-                                default_team.map(|t| Arc::downgrade(&t)),
-                                true,
-                            )?;
+            if let Ok(ids) = self.get_contained_item_ids() {
+                if let Some(&rider_id) = ids.first() {
+                    if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                    {
+                        if let Ok(rider_obj) = rider.read() {
+                            if let Some(controlling_player) = rider_obj.get_controlling_player() {
+                                if let Ok(player) = controlling_player.read() {
+                                    let default_team = player.get_default_team();
+                                    self.change_team_on_all_connected_caves(
+                                        default_team.map(|t| Arc::downgrade(&t)),
+                                        true,
+                                    )?;
+                                }
+                            }
                         }
                     }
                 }

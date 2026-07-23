@@ -597,7 +597,13 @@ impl BattlePlanUpdate {
         match plan {
             BattlePlanStatus::None => {
                 let now = TheGameLogic::get_frame();
-                let _ = player.iterate_objects(|obj| {
+                let _ = player.iterate_object_ids(|obj_id| {
+                    let obj = match crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                    {
+                        Some(a) => a,
+                        None => return Ok(()),
+                    };
                     if let Ok(mut guard) = obj.write() {
                         let kind_of = guard.get_kind_of();
                         if (kind_of & self.module_data.valid_member_kind_of) != 0
