@@ -2911,6 +2911,21 @@ impl Object {
         )
     }
 
+    /// Ready check with attacker WeaponBonus RATE_OF_FIRE + target FAERIE_FIRE ROF.
+    pub fn weapon_ready_vs_target_bonused(
+        &self,
+        weapon: &Weapon,
+        current_time: f32,
+        target_has_faerie_fire: bool,
+    ) -> bool {
+        let base = self.effective_weapon_reload(weapon.reload_time);
+        let effective = crate::game_logic::host_avenger::effective_reload_vs_target(
+            base,
+            target_has_faerie_fire,
+        );
+        current_time - weapon.last_fire_time >= effective
+    }
+
     /// C++ OBJECT_STATUS_IS_CARBOMB residual.
     pub fn is_car_bomb(&self) -> bool {
         self.status.is_carbomb
@@ -7323,13 +7338,18 @@ impl Object {
         if self.status.weapons_jammed || self.is_disabled() || self.is_shock_stunned() {
             return false;
         }
+        let primary_name = self.thing.template.primary_weapon_name.clone();
+        let secondary_name = self.thing.template.secondary_weapon_name.clone();
         if let Some(weapon) = &self.weapon {
-            if Self::weapon_ready(weapon, current_time) {
+            let reload = self.effective_weapon_reload(weapon.reload_time);
+            if Self::weapon_ready_named(weapon, current_time, primary_name.as_deref(), reload) {
                 return true;
             }
         }
         if let Some(weapon) = &self.secondary_weapon {
-            if Self::weapon_ready(weapon, current_time) {
+            let reload = self.effective_weapon_reload(weapon.reload_time);
+            let name = secondary_name.as_deref().or(primary_name.as_deref());
+            if Self::weapon_ready_named(weapon, current_time, name, reload) {
                 return true;
             }
         }
@@ -7355,7 +7375,7 @@ impl Object {
             let slot = self.weapon_lock_slot;
             if let Some(w) = self.weapon_slot(slot) {
                 let target_faerie = target.is_faerie_fire();
-                if Self::weapon_ready_vs_target(w, current_time, target_faerie)
+                if self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
                     && self.can_target_with(target, w)
                 {
                     return Some(slot);
@@ -7368,11 +7388,11 @@ impl Object {
         }
         let target_faerie = target.is_faerie_fire();
         let primary_ok = self.weapon.as_ref().is_some_and(|w| {
-            Self::weapon_ready_vs_target(w, current_time, target_faerie)
+            self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
                 && self.can_target_with(target, w)
         });
         let secondary_ok = self.secondary_weapon.as_ref().is_some_and(|w| {
-            Self::weapon_ready_vs_target(w, current_time, target_faerie)
+            self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
                 && self.can_target_with(target, w)
         });
 
@@ -10756,6 +10776,37 @@ mod tests {
         // 1 + 6/2 = 4 barrels wrapped -> barrel 0 after 8 shots total from start of loop?
         // started at barrel 1 after 2 shots; +6 shots = 3 more barrel advances -> barrel 0
         assert_eq!(o.weapon_cur_barrel, 0);
+    }
+
+    #[test]
+    fn can_fire_honors_weapon_bonus_rof() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut tmpl = ThingTemplate::new("RofCan");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut o = Object::new(tmpl, ObjectId(1), Team::USA);
+        o.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 1.0,
+            last_fire_time: 0.0,
+            ..Weapon::default()
+        });
+        // Base: not ready at t=0.5
+        assert!(!o.can_fire(0.5));
+        // With 2x ROF, effective reload = 0.5 → ready at t=0.5
+        o.weapon_bonus_enthusiastic = true;
+        // Enthusiastic mult is typically >1; if not, force via horde path.
+        let (_, _, rof, _) = o.weapon_bonus_fields();
+        assert!(rof > 1.0, "expected ROF bonus mult, got {rof}");
+        let need = 1.0 / rof;
+        assert!(
+            o.can_fire(need + 1e-4),
+            "can_fire should honor ROF bonus at t={}",
+            need
+        );
+        assert!(!o.can_fire(need - 0.05));
     }
 
     #[test]
