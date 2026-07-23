@@ -141,6 +141,12 @@ pub enum CommandType {
     },
     Exit,
     Evacuate,
+    /// C++ AIGroup::groupMoveToAndEvacuate — path container then unload.
+    MoveToAndEvacuate {
+        destination: glam::Vec3,
+        /// When true: AICMD_MOVE_TO_POSITION_AND_EVACUATE_AND_EXIT (transport self-destruct residual).
+        and_exit: bool,
+    },
     /// China Hacker field HackInternet residual (start cash interval).
     HackInternet,
     /// Aircraft return-to-base / dock nearest airfield residual.
@@ -2115,6 +2121,14 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             Some(CommandType::AttitudeAggressive)
         }
         "evacuate" | "structureexit" => Some(CommandType::Evacuate),
+        "movetoandevacuate" | "moveevacuate" => Some(CommandType::MoveToAndEvacuate {
+            destination: glam::Vec3::ZERO,
+            and_exit: false,
+        }),
+        "movetoandevacuateandexit" | "moveevacuateexit" => Some(CommandType::MoveToAndEvacuate {
+            destination: glam::Vec3::ZERO,
+            and_exit: true,
+        }),
         "repair" => Some(CommandType::Repair {
             target_id: ObjectId(0),
         }),

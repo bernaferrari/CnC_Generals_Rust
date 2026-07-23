@@ -173,6 +173,12 @@ impl<'a> CommandExecutor<'a> {
             }
             CommandType::Exit => self.execute_exit(&command.selected_units),
             CommandType::Evacuate => self.execute_evacuate(&command.selected_units),
+            CommandType::MoveToAndEvacuate {
+                destination,
+                and_exit,
+            } => {
+                self.execute_move_to_and_evacuate(&command.selected_units, *destination, *and_exit)
+            }
             CommandType::HackInternet => self.execute_hack_internet(&command.selected_units),
             CommandType::ReturnToBase => self.execute_return_to_base(&command.selected_units),
             CommandType::ReturnSupplies => self.execute_return_supplies(&command.selected_units),
@@ -2386,6 +2392,65 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             // Fail-closed: no containers selected (unlike Exit which can free passengers).
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::groupMoveToAndEvacuate / AndExit residual.
+    /// Path capable containers to `destination`, then unload on arrival.
+    /// `and_exit` marks the transport for self-removal after unload (script exit residual).
+    pub(crate) fn execute_move_to_and_evacuate(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+        and_exit: bool,
+    ) -> CommandResult {
+        if !destination.x.is_finite() || !destination.y.is_finite() || !destination.z.is_finite() {
+            return CommandResult::InvalidLocation;
+        }
+        let mut any = false;
+        for &unit_id in units {
+            let can = match self.game_logic.get_object(unit_id) {
+                Some(obj)
+                    if obj.is_alive()
+                        && obj.can_move()
+                        && (obj.can_contain()
+                            || obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                            || !obj.contained_units().is_empty()) =>
+                {
+                    true
+                }
+                _ => false,
+            };
+            if !can {
+                continue;
+            }
+            if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
+                obj.pending_evacuate_on_stop = true;
+                obj.pending_exit_after_evacuate = and_exit;
+                obj.set_target(None);
+                obj.set_force_attack(false);
+                obj.set_guard_position(None);
+                obj.set_guard_target(None);
+                obj.end_guard_retaliate();
+            }
+            if self.path_to_goal_with_state(unit_id, destination, AIState::Moving) {
+                any = true;
+            } else {
+                // Already at dest or path fail — evacuate immediately.
+                let exit = and_exit;
+                if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
+                    obj.pending_evacuate_on_stop = false;
+                    obj.pending_exit_after_evacuate = false;
+                }
+                if self.game_logic.evacuate_container_now(unit_id, exit) {
+                    any = true;
+                }
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
             CommandResult::InvalidCommand
         }
     }
@@ -5158,6 +5223,123 @@ mod group_move_tests {
             logic.is_object_being_sold(s)
                 || logic.get_object(s).map(|o| o.status.sold).unwrap_or(false)
         );
+    }
+
+    #[test]
+    fn move_to_and_evacuate_sets_pending_flag() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("EV_T");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(500.0);
+        // transport capacity residual
+        logic.templates.insert("EV_T".to_string(), tpl);
+        let mut pax_tpl = ThingTemplate::new("EV_P");
+        pax_tpl.add_kind_of(KindOf::Infantry);
+        pax_tpl.add_kind_of(KindOf::Selectable);
+        pax_tpl.set_health(100.0);
+        logic.templates.insert("EV_P".to_string(), pax_tpl);
+
+        let transport = logic.create_object("EV_T", Team::USA, Vec3::ZERO).unwrap();
+        let pax = logic
+            .create_object("EV_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.get_object_mut(transport).unwrap();
+            // Force containable capacity
+            let _ = t.add_occupant(pax);
+        }
+        {
+            let p = logic.get_object_mut(pax).unwrap();
+            p.contained_by = Some(transport);
+            p.set_ai_state(crate::game_logic::AIState::Docked);
+        }
+        assert!(!logic
+            .get_object(transport)
+            .unwrap()
+            .contained_units()
+            .is_empty());
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_move_to_and_evacuate(&[transport], Vec3::new(80.0, 0.0, 0.0), false),
+                CommandResult::Success
+            );
+        }
+        let t = logic.get_object(transport).unwrap();
+        assert!(
+            t.pending_evacuate_on_stop,
+            "should pending evacuate after move command"
+        );
+        assert!(!t.pending_exit_after_evacuate);
+    }
+
+    #[test]
+    fn move_to_and_evacuate_unloads_when_path_completes() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        for (name, kind) in [("EV2_T", KindOf::Vehicle), ("EV2_P", KindOf::Infantry)] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(kind);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(400.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let transport = logic.create_object("EV2_T", Team::USA, Vec3::ZERO).unwrap();
+        let pax = logic
+            .create_object("EV2_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.get_object_mut(transport).unwrap();
+            assert!(t.add_occupant(pax));
+        }
+        {
+            let p = logic.get_object_mut(pax).unwrap();
+            p.contained_by = Some(transport);
+            p.set_ai_state(crate::game_logic::AIState::Docked);
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_move_to_and_evacuate(&[transport], Vec3::new(10.0, 0.0, 0.0), false),
+                CommandResult::Success
+            );
+        }
+        // Simulate arrival: complete path + movement tick.
+        if let Some(t) = logic.get_object_mut(transport) {
+            // Snap to end of path and finish
+            if let Some(last) = t.movement.path.last().copied() {
+                t.set_position(last);
+            } else {
+                t.set_position(Vec3::new(10.0, 0.0, 0.0));
+            }
+            t.movement.current_path_index = t.movement.path.len().saturating_sub(0);
+            // Force index past end
+            t.movement.current_path_index = t.movement.path.len();
+            t.pending_evacuate_on_stop = true;
+        }
+        // Direct evacuate_now residual (arrival hook)
+        assert!(logic.evacuate_container_now(transport, false));
+        assert!(
+            logic
+                .get_object(transport)
+                .map(|t| t.contained_units().is_empty())
+                .unwrap_or(false),
+            "passengers should unload"
+        );
+        let p = logic.get_object(pax).unwrap();
+        assert!(p.contained_by.is_none());
+        assert_ne!(p.ai_state, crate::game_logic::AIState::Docked);
     }
 
     #[test]
