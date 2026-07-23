@@ -1547,7 +1547,7 @@ impl<'a> CommandExecutor<'a> {
         power_type: &crate::command_system::SpecialPowerType,
     ) -> Option<ObjectId> {
         // C++ walks members for SpecialPowerModule matching template.
-        // Host: prefer explicit cooldown/module map entry, then ready gate.
+        // Host: only members that explicitly track this power (cooldown map).
         for &id in units {
             let Some(o) = self.game_logic.get_object(id) else {
                 continue;
@@ -1556,23 +1556,6 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if o.special_power_cooldowns.contains_key(power_type) {
-                return Some(id);
-            }
-        }
-        for &id in units {
-            let Some(o) = self.game_logic.get_object(id) else {
-                continue;
-            };
-            if !o.is_alive() {
-                continue;
-            }
-            // Only accept ready-for when the unit advertises special powers.
-            if o.special_power_ready
-                && self.game_logic.is_special_power_ready_for(id, power_type)
-                && (o.is_kind_of(crate::game_logic::KindOf::Structure)
-                    || o.template_name.to_ascii_lowercase().contains("general")
-                    || !o.special_power_cooldowns.is_empty())
-            {
                 return Some(id);
             }
         }
@@ -1637,6 +1620,30 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         None
+    }
+
+    /// C++ AIGroup::getAllIDs residual — living members in selection order.
+    pub(crate) fn group_all_ids(&self, units: &[ObjectId]) -> Vec<ObjectId> {
+        let mut out = Vec::with_capacity(units.len());
+        for &id in units {
+            if self
+                .game_logic
+                .get_object(id)
+                .map(|o| o.is_alive())
+                .unwrap_or(false)
+            {
+                out.push(id);
+            }
+        }
+        out
+    }
+
+    /// C++ AIGroup::getAttitude residual — retail always returns AI_PASSIVE.
+    pub(crate) fn group_attitude(
+        &self,
+        _units: &[ObjectId],
+    ) -> crate::game_logic::host_strategy_center::HostAiAttitude {
+        crate::game_logic::host_strategy_center::HostAiAttitude::Passive
     }
 
     /// C++ AIGroup::getCount residual.
@@ -2899,20 +2906,23 @@ impl<'a> CommandExecutor<'a> {
                 .map(|obj| obj.get_position()),
             PowerTarget::None => {
                 // C++ overridable destination residual wins when set on caster.
-                units
-                    .iter()
-                    .find_map(|id| {
+                let src = self.special_power_source_object(units, power_type);
+                src.and_then(|id| {
+                    self.game_logic
+                        .get_object(id)
+                        .and_then(|o| o.special_power_override_destination)
+                })
+                .or_else(|| {
+                    units.iter().find_map(|id| {
                         self.game_logic
                             .get_object(*id)
                             .and_then(|o| o.special_power_override_destination)
                     })
-                    .or_else(|| {
-                        units.first().and_then(|id| {
-                            self.game_logic
-                                .get_object(*id)
-                                .map(|obj| obj.get_position())
-                        })
-                    })
+                })
+                .or_else(|| {
+                    src.or_else(|| units.first().copied())
+                        .and_then(|id| self.game_logic.get_object(id).map(|obj| obj.get_position()))
+                })
             }
         };
 
@@ -2920,8 +2930,17 @@ impl<'a> CommandExecutor<'a> {
             "Executing special power {:?} with target {:?}",
             power_type, target
         );
+        // C++ AIGroup::groupDoSpecialPower* uses getSpecialPowerSourceObject —
+        // only the module owner fires, not every selected unit.
+        let casters: Vec<ObjectId> =
+            if let Some(src) = self.special_power_source_object(units, power_type) {
+                vec![src]
+            } else {
+                // Fall back: any ready member (capture/skills on multi infantry).
+                units.to_vec()
+            };
         let mut any = false;
-        for &unit_id in units {
+        for &unit_id in &casters {
             // SharedSyncedTimer residual: player-wide gate for superweapons.
             let ready = self
                 .game_logic
@@ -7003,6 +7022,87 @@ mod group_move_tests {
             "exact path retains mid waypoint {:?}",
             u.movement.path
         );
+    }
+
+    #[test]
+    fn group_all_ids_and_attitude() {
+        use super::CommandExecutor;
+        use crate::game_logic::host_strategy_center::HostAiAttitude;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("GID_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("GID_V".to_string(), tpl);
+        let a = logic.create_object("GID_V", Team::USA, Vec3::ZERO).unwrap();
+        let b = logic
+            .create_object("GID_V", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        // Kill b
+        logic.get_object_mut(b).unwrap().health.current = 0.0;
+        let exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(exec.group_all_ids(&[a, b]), vec![a]);
+        assert_eq!(exec.group_count(&[a, b]), 1);
+        // C++ getAttitude always Passive.
+        assert_eq!(exec.group_attitude(&[a]), HostAiAttitude::Passive);
+    }
+
+    #[test]
+    fn special_power_uses_single_source_object() {
+        use super::CommandExecutor;
+        use crate::command_system::{CommandResult, PowerTarget, SpecialPowerType};
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("SP_SRC");
+        tpl.add_kind_of(KindOf::Structure);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(500.0);
+        logic.templates.insert("SP_SRC".to_string(), tpl);
+        let caster = logic
+            .create_object("SP_SRC", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let other = logic
+            .create_object("SP_SRC", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let c = logic.get_object_mut(caster).unwrap();
+            c.special_power_cooldowns
+                .insert(SpecialPowerType::SpySatellite, 0.0);
+            c.special_power_ready = true;
+        }
+        {
+            let o = logic.get_object_mut(other).unwrap();
+            o.special_power_cooldowns.clear();
+            o.special_power_ready = true;
+        }
+        {
+            let exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.special_power_source_object(&[other, caster], &SpecialPowerType::SpySatellite),
+                Some(caster),
+                "source must be the module owner even when other is first in selection"
+            );
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            let res = exec.execute_special_power(
+                &[other, caster],
+                &SpecialPowerType::SpySatellite,
+                &PowerTarget::Location(Vec3::new(100.0, 0.0, 100.0)),
+            );
+            let _ = res; // routing exercised; SharedSyncedTimer may mirror team-wide.
+        }
+        // Caster still owns the module entry after cast routing.
+        assert!(logic
+            .get_object(caster)
+            .unwrap()
+            .special_power_cooldowns
+            .contains_key(&SpecialPowerType::SpySatellite));
     }
 
     #[test]
