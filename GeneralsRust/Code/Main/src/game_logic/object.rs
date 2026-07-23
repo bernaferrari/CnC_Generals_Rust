@@ -769,6 +769,15 @@ pub struct Object {
     /// C++ WEAPONBONUSCONDITION_PLAYER_UPGRADE residual (WeaponBonusUpgrade).
     #[serde(default)]
     pub weapon_bonus_player_upgrade: bool,
+    /// C++ ARMORSET_PLAYER_UPGRADE residual (ArmorUpgrade).
+    #[serde(default)]
+    pub armor_set_player_upgrade: bool,
+    /// C++ AIUpdate::m_locomotorUpgrade residual (LocomotorSetUpgrade).
+    #[serde(default)]
+    pub locomotor_upgrade: bool,
+    /// C++ TERRAIN_DECAL_CHEMSUIT residual (ArmorUpgrade ChemicalSuits unique case).
+    #[serde(default)]
+    pub terrain_decal_chemsuit: bool,
     /// C++ SpecialPowerModule m_pausedCount>0 residual (StartsPaused / pauseCountdown).
     #[serde(default)]
     pub special_power_paused: std::collections::HashSet<crate::command_system::SpecialPowerType>,
@@ -1775,6 +1784,9 @@ impl Object {
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
             weapon_bonus_player_upgrade: false,
+            armor_set_player_upgrade: false,
+            locomotor_upgrade: false,
+            terrain_decal_chemsuit: false,
             special_power_paused: std::collections::HashSet::new(),
             weapon_set_mine_clearing_detail: false,
             weapon_set_carbomb: false,
@@ -2130,6 +2142,9 @@ impl Object {
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
             weapon_bonus_player_upgrade: false,
+            armor_set_player_upgrade: false,
+            locomotor_upgrade: false,
+            terrain_decal_chemsuit: false,
             special_power_paused: std::collections::HashSet::new(),
             weapon_set_mine_clearing_detail: false,
             weapon_set_carbomb: false,
@@ -10404,6 +10419,21 @@ impl Object {
     /// C++ Object::setWeaponBonusCondition(PLAYER_UPGRADE) residual.
     pub fn set_weapon_bonus_player_upgrade(&mut self, enabled: bool) {
         self.weapon_bonus_player_upgrade = enabled;
+    }
+
+    /// C++ BodyModule::setArmorSetFlag(ARMORSET_PLAYER_UPGRADE) residual.
+    pub fn set_armor_set_player_upgrade(&mut self, enabled: bool) {
+        self.armor_set_player_upgrade = enabled;
+    }
+
+    /// C++ AIUpdateInterface::setLocomotorUpgrade residual.
+    pub fn set_locomotor_upgrade(&mut self, enabled: bool) {
+        self.locomotor_upgrade = enabled;
+    }
+
+    /// C++ Drawable::setTerrainDecal(TERRAIN_DECAL_CHEMSUIT) residual.
+    pub fn set_terrain_decal_chemsuit(&mut self, enabled: bool) {
+        self.terrain_decal_chemsuit = enabled;
     }
 
     /// C++ SpecialPowerModule::startPowerRecharge residual (non-SharedNSync path).
