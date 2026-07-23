@@ -1248,10 +1248,14 @@ impl PartitionManager {
         if OBJECT_REGISTRY.is_empty() {
             return Ok(());
         }
-        let objects = OBJECT_REGISTRY.get_all_objects();
-        let mut seen = HashSet::with_capacity(objects.len());
+        let object_ids = OBJECT_REGISTRY.get_all_object_ids();
+        let mut seen = HashSet::with_capacity(object_ids.len());
 
-        for obj_arc in objects {
+        for obj_id in &object_ids {
+            let obj_arc = match OBJECT_REGISTRY.get_object(*obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
             let Ok(obj) = obj_arc.read() else {
                 continue;
             };
@@ -1313,11 +1317,14 @@ impl PartitionManager {
             return;
         }
 
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
-            if let Ok(obj) = obj_arc.read() {
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let Some((id, xyz)) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
                 let pos = obj.get_position();
-                self.add_object(obj.get_id(), (pos.x, pos.y, pos.z));
-            }
+                (obj.get_id(), (pos.x, pos.y, pos.z))
+            }) else {
+                continue;
+            };
+            self.add_object(id, xyz);
         }
     }
 
@@ -2962,7 +2969,11 @@ impl GameLogic {
 
         if !OBJECT_REGISTRY.is_empty() {
             let _ = with_collision_system_mut(|system| {
-                for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+                for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+                    let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                        Some(v) => v,
+                        None => continue,
+                    };
                     let Ok(obj) = obj_arc.read() else {
                         continue;
                     };

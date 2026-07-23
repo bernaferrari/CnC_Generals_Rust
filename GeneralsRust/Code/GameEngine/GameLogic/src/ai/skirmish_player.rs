@@ -813,7 +813,11 @@ impl AISkirmishPlayer {
                 // Walk all objects for KINDOF_REBUILD_HOLE (C++ getFirstObject loop).
                 // Host path: empty dual-world registry → no rebuild-hole residual.
                 if !OBJECT_REGISTRY.is_empty() {
-                    for candidate_arc in OBJECT_REGISTRY.get_all_objects() {
+                    for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+                        let candidate_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                            Some(v) => v,
+                            None => continue,
+                        };
                         let Ok(candidate_guard) = candidate_arc.read() else {
                             continue;
                         };
