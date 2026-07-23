@@ -1588,6 +1588,8 @@ pub struct GameLogic {
     patriot_assist_lasers: Vec<crate::game_logic::host_base_defense::ResidualPatriotAssistLaser>,
     /// Weapon.ini LaserName residual beams (combat fire → presentation freeze).
     weapon_lasers: Vec<crate::game_logic::host_weapon_laser::ResidualWeaponLaser>,
+    /// C++ ProjectileStreamUpdate residual registry.
+    projectile_streams: crate::game_logic::host_projectile_stream::ProjectileStreamRegistry,
     /// Pending AssistingClipSize residual clips (DelayBetweenShots cadence).
     pending_patriot_assists: Vec<crate::game_logic::host_base_defense::PendingPatriotAssist>,
     /// StealthDetectorUpdate DetectionRate residual scans performed.
@@ -2942,6 +2944,8 @@ impl GameLogic {
             patriot_assist_laser_to_target: 0,
             patriot_assist_lasers: Vec::new(),
             weapon_lasers: Vec::new(),
+            projectile_streams:
+                crate::game_logic::host_projectile_stream::ProjectileStreamRegistry::new(),
             pending_patriot_assists: Vec::new(),
             stealth_detector_rate_scans: 0,
             is_paused: false,
@@ -5932,6 +5936,36 @@ impl GameLogic {
                     &name,
                 );
             }
+            // C++ ProjectileStreamUpdate residual: track projectile positions for stream draw.
+            for p in self.combat_system.projectiles_snapshot() {
+                let sname = if p.exhaust_name.is_empty() {
+                    // Prefer weapon peel from shooter primary when no exhaust name.
+                    self.objects
+                        .get(&p.shooter_id)
+                        .and_then(|o| o.thing.template.primary_weapon_name.as_deref())
+                        .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
+                        .unwrap_or_default()
+                } else {
+                    // Exhaust-bearing projectiles still consult stream peel.
+                    self.objects
+                        .get(&p.shooter_id)
+                        .and_then(|o| o.thing.template.primary_weapon_name.as_deref())
+                        .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
+                        .unwrap_or_default()
+                };
+                if sname.is_empty() {
+                    continue;
+                }
+                self.projectile_streams.add_projectile(
+                    p.shooter_id,
+                    &sname,
+                    p.position,
+                    p.target_id,
+                    Some(p.target_position),
+                    frame,
+                );
+            }
+            self.projectile_streams.cull_idle(frame, 45);
         }
 
         // -----------------------------------------------------------------------
@@ -28299,6 +28333,23 @@ impl GameLogic {
     }
 
     /// Weapon.ini LaserName residual beams still live at the current frame.
+
+    /// C++ ProjectileStreamUpdate presentation residual.
+    pub fn projectile_stream_snapshot(
+        &self,
+    ) -> Vec<(
+        crate::game_logic::ObjectId,
+        String,
+        Vec<glam::Vec3>,
+        Option<crate::game_logic::ObjectId>,
+    )> {
+        self.projectile_streams
+            .snapshot()
+            .into_iter()
+            .map(|(id, s)| (id, s.stream_name.clone(), s.points.clone(), s.target_id))
+            .collect()
+    }
+
     pub fn active_weapon_lasers(
         &self,
     ) -> &[crate::game_logic::host_weapon_laser::ResidualWeaponLaser] {

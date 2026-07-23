@@ -2712,6 +2712,29 @@ fn seed_capable_of_following_waypoint_for(name: &str) -> bool {
         || n.contains("nuke") && n.contains("missile")
 }
 
+/// C++ Weapon.ini ProjectileStreamName residual.
+pub fn host_projectile_stream_name_for_weapon_name(name: &str) -> String {
+    seed_projectile_stream_name_for(name)
+}
+
+fn seed_projectile_stream_name_for(name: &str) -> String {
+    let n = name.to_ascii_lowercase();
+    if n.contains("flame") || n.contains("dragon") {
+        return "DragonTankFlameStream".into();
+    }
+    if n.contains("toxin") && (n.contains("spray") || n.contains("stream")) {
+        return "ToxinStream".into();
+    }
+    if n.contains("microwave") {
+        return "MicrowaveDisableStream".into();
+    }
+    if n.contains("cleanup") || n.contains("hazard") {
+        return "CleanupHazardProjectileStream".into();
+    }
+    // Continuous MG residual streams (optional empty).
+    String::new()
+}
+
 /// Look up the retail primary weapon template name for a host unit template.
 pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str> {
     match template_name {
@@ -5087,6 +5110,14 @@ mod tests {
         assert!(sec_last > 0.0, "secondary last_fire_time must advance");
     }
 
+    #[test]
+    fn projectile_stream_name_seeds() {
+        assert_eq!(
+            host_projectile_stream_name_for_weapon_name("DragonTankFlameWeapon"),
+            "DragonTankFlameStream"
+        );
+        assert!(host_projectile_stream_name_for_weapon_name("AmericaTankCrusaderGun").is_empty());
+    }
     #[test]
     fn shows_ammo_pips_and_waypoint_seeds() {
         assert!(host_shows_ammo_pips_for_weapon_name(
