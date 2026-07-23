@@ -2373,11 +2373,7 @@ impl PresentationFrame {
                 // Use accessors so presentation matches authoritative transform state.
                 position: pos,
                 orientation: obj.get_orientation(),
-                topple_lean_radians: obj
-                    .topple_data
-                    .as_ref()
-                    .map(|t| t.lean_radians)
-                    .unwrap_or(0.0),
+                topple_lean_radians: obj.presentation_topple_lean_radians(),
                 move_destination: obj.movement.target_position,
                 target_location: obj.target_location,
                 guard_target: obj.guard_target,
