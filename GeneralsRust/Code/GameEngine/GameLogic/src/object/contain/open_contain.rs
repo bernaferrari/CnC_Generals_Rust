@@ -602,6 +602,13 @@ impl OpenContain {
         self.object_id
     }
 
+    fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, f)
+    }
+
     /// Update method called once per frame
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
         self.player_who_entered = PlayerMaskType::none();

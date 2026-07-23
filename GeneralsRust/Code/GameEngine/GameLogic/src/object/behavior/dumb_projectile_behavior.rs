@@ -604,23 +604,17 @@ impl DumbProjectileBehavior {
     /// Matches C++ DumbProjectileBehavior::calcFlightPath() from DumbProjectileBehavior.cpp:389-435
     fn init_flight_path(
         &mut self,
-        object: &Arc<RwLock<GameObject>>,
         recalc_num_segments: bool,
         reset_step: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use crate::weapon::bezier::BezierSegment;
 
-        let (start, target) = {
-            let obj_guard = object.read().map_err(|_| {
-                std::io::Error::other("DumbProjectileBehavior failed to read owning object")
-            })?;
-            let start = if self.flight_path_segments == 0 && self.current_step == 0 {
-                *obj_guard.get_position()
-            } else {
-                self.flight_path_start
-            };
-            (start, self.flight_path_end)
+        let start = if self.flight_path_segments == 0 && self.current_step == 0 {
+            self.with_object(|obj_guard| *obj_guard.get_position())?
+        } else {
+            self.flight_path_start
         };
+        let target = self.flight_path_end;
         self.flight_path_start = start;
 
         // Calculate highest terrain along path (C++ lines 382-387)
@@ -675,8 +669,7 @@ impl DumbProjectileBehavior {
     /// Matches C++ DumbProjectileBehavior::Update() movement logic
     fn advance_one_step(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.flight_path.is_empty() {
-            let object = self.get_object()?;
-            self.init_flight_path(&object, true, true)?;
+            self.init_flight_path(true, true)?;
         }
 
         if (self.current_step as usize) >= self.flight_path.len() {
@@ -873,12 +866,8 @@ impl DumbProjectileBehavior {
                                             }
                                         });
 
-                                    if let Ok(projectile_guard) = self.get_object() {
-                                        let guard = projectile_guard.read().map_err(|_| {
-                                            "DumbProjectileBehavior failed to read projectile"
-                                        })?;
-                                        TheGameLogic::destroy_object(&*guard)?;
-                                    }
+                                    let _ =
+                                        TheGameLogic::destroy_object_by_id(self.owner_object_id());
                                     return Ok(());
                                 }
                             }
@@ -1063,10 +1052,8 @@ impl DumbProjectileBehavior {
         self.flight_path_segments = 0;
         self.flight_path.clear();
         self.current_step = 0;
-        if let Ok(projectile) = self.get_object() {
-            if self.init_flight_path(&projectile, true, true).is_err() {
-                let _ = TheGameLogic::destroy_object_by_id(self.owner_object_id());
-            }
+        if self.init_flight_path(true, true).is_err() {
+            let _ = TheGameLogic::destroy_object_by_id(self.owner_object_id());
         }
     }
 
@@ -1128,8 +1115,7 @@ impl UpdateModuleInterface for DumbProjectileBehavior {
                         self.flight_path_end.y += dist * delta.y * inv;
                         self.flight_path_end.z += dist * delta.z * inv;
                         self.flight_path_segments = self.flight_path_segments.max(1);
-                        let object = self.get_object()?;
-                        if self.init_flight_path(&object, false, false).is_err() {
+                        if self.init_flight_path(false, false).is_err() {
                             self.detonate()?;
                             return Ok(crate::modules::UPDATE_SLEEP_NONE);
                         }
