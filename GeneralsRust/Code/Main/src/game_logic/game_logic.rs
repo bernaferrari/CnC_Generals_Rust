@@ -7113,6 +7113,7 @@ impl GameLogic {
             // Expire DISABLED_HACKED / DISABLED_EMP / Frenzy residual timers.
             let mut topple_kill = false;
             let mut lifetime_kill = false;
+            let mut poison_kill = false;
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.tick_disabled_hacked(self.frame);
                 obj.tick_selection_flash();
@@ -7121,6 +7122,19 @@ impl GameLogic {
                 obj.tick_eject_invulnerable(self.frame);
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
+                // C++ PoisonedBehavior::update residual (DoT).
+                if let Some((dot, death_ty)) = obj.tick_poisoned_behavior(self.frame) {
+                    // Apply as UNRESISTABLE so it doesn't re-infect (C++).
+                    let killed = obj.take_damage_from_typed_death(
+                        dot,
+                        None,
+                        crate::game_logic::combat::DamageType::Unresistable,
+                        death_ty,
+                    );
+                    if killed {
+                        poison_kill = true;
+                    }
+                }
                 if let Some(w) = obj.tick_fire_weapon_when_damaged_continuous(self.frame) {
                     // Prefer pending reaction (from onDamage) over continuous same frame.
                     if obj.pending_fire_when_damaged_weapon.is_none() {
@@ -7263,6 +7277,10 @@ impl GameLogic {
             // C++ CreateObjectDie residual (spawn after death FX).
             self.apply_pending_create_object_die(object_id);
             if lifetime_kill {
+                self.mark_object_for_destruction(object_id, None);
+                continue;
+            }
+            if poison_kill {
                 self.mark_object_for_destruction(object_id, None);
                 continue;
             }
