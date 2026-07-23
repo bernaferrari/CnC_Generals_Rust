@@ -851,6 +851,13 @@ pub struct Object {
     /// C++ GuardMode residual (Normal / WithoutPursuit / FlyingUnitsOnly).
     pub guard_mode: GuardMode,
 
+    /// C++ AICMD_MOVE_TO_POSITION_AND_EVACUATE residual — unload on path complete.
+    #[serde(default)]
+    pub pending_evacuate_on_stop: bool,
+    /// C++ AICMD_MOVE_TO_POSITION_AND_EVACUATE_AND_EXIT residual — destroy transport after unload.
+    #[serde(default)]
+    pub pending_exit_after_evacuate: bool,
+
     /// Applied upgrades keyed by upgrade template/tag name.
     pub applied_upgrades: HashSet<String>,
 
@@ -1573,6 +1580,8 @@ impl Object {
             fire_intent_count: 0,
             guard_radius: 0.0,
             guard_mode: GuardMode::Normal,
+            pending_evacuate_on_stop: false,
+            pending_exit_after_evacuate: false,
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
             special_power_cooldown,
@@ -1870,6 +1879,8 @@ impl Object {
             fire_intent_count: 0,
             guard_radius: 0.0,
             guard_mode: GuardMode::Normal,
+            pending_evacuate_on_stop: false,
+            pending_exit_after_evacuate: false,
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
             special_power_cooldown: 10.0,
