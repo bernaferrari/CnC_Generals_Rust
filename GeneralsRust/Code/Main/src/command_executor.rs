@@ -445,30 +445,38 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_attack_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
+        // C++ AIGroup::groupAttackMoveToPosition:
+        //   ableToAttack → aiAttackMoveToPosition; else → aiMoveToPosition.
         let goals = self.group_move_destinations(units, destination);
+        let mut any = false;
         for (unit_id, goal) in goals {
-            // Capability check first (borrow ends before assign_unit_path).
-            let ok = match self.game_logic.get_object(unit_id) {
-                Some(unit) => unit.can_move() && unit.can_attack(),
+            let (can_move, can_attack) = match self.game_logic.get_object(unit_id) {
+                Some(unit) => (unit.can_move(), unit.can_attack()),
                 None => return CommandResult::InvalidTarget,
             };
-            if !ok {
+            if !can_move {
                 continue;
             }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_attack();
             }
-            // Path through host A* like Move — straight-line set_destination skipped
-            // obstacles and left AttackMoving units stuck behind buildings.
             if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
                 return CommandResult::InvalidCommand;
             }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // assign_unit_path leaves AIState::Moving; restore attack-move mode.
-                unit.set_ai_state(AIState::AttackMoving);
+                if can_attack {
+                    unit.set_ai_state(AIState::AttackMoving);
+                } else {
+                    unit.set_ai_state(AIState::Moving);
+                }
             }
+            any = true;
         }
-        CommandResult::Success
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
     }
 
     fn execute_force_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
@@ -523,16 +531,33 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::TargetDestroyed;
         }
 
-        let mut any_attacker = false;
-
+        // C++ groupAttackObjectPrivate: sort attackers near-to-far to victim first.
+        let target_pos = self
+            .game_logic
+            .get_object(target_id)
+            .map(|tg| tg.get_position())
+            .unwrap_or(Vec3::ZERO);
+        let mut ordered: Vec<(ObjectId, f32)> = Vec::new();
         for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.can_attack() || unit.team == target_team {
+                continue;
+            }
+            let p = unit.get_position();
+            let d = (p.x - target_pos.x).hypot(p.z - target_pos.z);
+            ordered.push((unit_id, d));
+        }
+        ordered.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut any_attacker = false;
+        for (unit_id, _) in ordered {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if unit.can_attack() && unit.team != target_team {
-                    unit.set_force_attack(false);
-                    unit.set_target(Some(target_id));
-                    unit.set_ai_state(AIState::Attacking);
-                    any_attacker = true;
-                }
+                unit.set_force_attack(false);
+                unit.set_target(Some(target_id));
+                unit.set_ai_state(AIState::Attacking);
+                any_attacker = true;
             }
         }
 
@@ -699,25 +724,60 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    fn execute_scatter(&mut self, units: &[ObjectId]) -> CommandResult {
-        // Scatter units in deterministic radial offsets to avoid clumping.
+    pub(crate) fn execute_scatter(&mut self, units: &[ObjectId]) -> CommandResult {
+        // C++ AIGroup::groupScatter — far-to-near from group center, push out by
+        // 4 * bounding radius along the unit→center vector (host XZ plane).
+        let mut movers: Vec<(ObjectId, Vec3, f32)> = Vec::new();
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.get_object(unit_id) else {
+                continue;
+            };
+            if !unit.is_alive() || !unit.can_move() {
+                continue;
+            }
+            if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || unit.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            let pos = unit.get_position();
+            let radius = unit.selection_radius.max(5.0);
+            movers.push((unit_id, pos, radius));
+        }
+        if movers.is_empty() {
+            return CommandResult::InvalidCommand;
+        }
+
+        let mut center = Vec3::ZERO;
+        for (_, pos, _) in &movers {
+            center += *pos;
+        }
+        center /= movers.len() as f32;
+
+        movers.sort_by(|a, b| {
+            let da = (a.1.x - center.x).hypot(a.1.z - center.z);
+            let db = (b.1.x - center.x).hypot(b.1.z - center.z);
+            db.partial_cmp(&da).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         let mut any = false;
-        let count = units.len() as f32;
-        for (i, &unit_id) in units.iter().enumerate() {
-            if let Some(unit) = self.game_logic.get_object(unit_id) {
-                let angle = (i as f32) * std::f32::consts::TAU / count.max(1.0);
-                let base_radius = match unit.object_type {
-                    ObjectType::Infantry => 8.0,
-                    ObjectType::Vehicle => 14.0,
-                    ObjectType::Aircraft => 18.0,
-                    _ => 10.0,
-                };
-                let radius = base_radius + (unit.selection_radius * 0.5);
-                let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * radius;
-                let dest = unit.position + offset;
-                if self.path_to_goal_with_state(unit_id, dest, AIState::Moving) {
-                    any = true;
-                }
+        let mut center_nudge = center;
+        for (unit_id, pos, radius) in movers {
+            center_nudge.x -= 0.01;
+            let mut dx = pos.x - center_nudge.x;
+            let mut dz = pos.z - center_nudge.z;
+            let len = (dx * dx + dz * dz).sqrt();
+            if len > 0.001 {
+                dx /= len;
+                dz /= len;
+            } else {
+                dx = 1.0;
+                dz = 0.0;
+            }
+            let push = 4.0 * radius;
+            let dest = Vec3::new(pos.x + dx * push, pos.y, pos.z + dz * push);
+            if self.path_to_goal_with_state(unit_id, dest, AIState::Moving) {
+                any = true;
             }
         }
         if any {
@@ -4299,6 +4359,57 @@ mod group_move_tests {
             "no invented Z ring offset, offset={offset:?}"
         );
         assert!((goal_a - goal_b).length() > 10.0, "goals must not stack");
+    }
+
+    #[test]
+    fn scatter_pushes_outward_from_group_center() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        for name in ["SC_A", "SC_B"] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Vehicle);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(100.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let a = logic
+            .create_object("SC_A", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("SC_B", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        for id in [a, b] {
+            logic.get_object_mut(id).unwrap().selection_radius = 10.0;
+        }
+        let before_a = logic.get_object(a).unwrap().get_position();
+        let before_b = logic.get_object(b).unwrap().get_position();
+        let center = (before_a + before_b) * 0.5;
+
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(exec.execute_scatter(&[a, b]), CommandResult::Success);
+
+        for id in [a, b] {
+            let u = logic.get_object(id).unwrap();
+            assert_eq!(u.ai_state, AIState::Moving, "scatter sets Moving");
+        }
+        for (id, before) in [(a, before_a), (b, before_b)] {
+            let u = logic.get_object(id).unwrap();
+            let goal = u
+                .movement
+                .target_position
+                .or_else(|| u.movement.path.last().copied())
+                .unwrap_or(u.get_position());
+            let before_d = (before.x - center.x).hypot(before.z - center.z);
+            let after_d = (goal.x - center.x).hypot(goal.z - center.z);
+            assert!(
+                after_d > before_d + 5.0,
+                "scatter should push outward id={id:?} before={before_d} after={after_d} goal={goal:?}"
+            );
+        }
     }
 
     #[test]
