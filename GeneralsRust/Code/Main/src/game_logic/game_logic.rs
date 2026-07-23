@@ -7120,6 +7120,12 @@ impl GameLogic {
                 obj.tick_eject_invulnerable(self.frame);
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
+                if let Some(w) = obj.tick_fire_weapon_when_damaged_continuous(self.frame) {
+                    // Prefer pending reaction (from onDamage) over continuous same frame.
+                    if obj.pending_fire_when_damaged_weapon.is_none() {
+                        obj.pending_fire_when_damaged_weapon = Some(w);
+                    }
+                }
                 obj.tick_continuous_fire_coast(self.frame);
                 obj.tick_force_reload_when_idle(self.frame);
                 obj.tick_repulsor_status(self.frame);
@@ -7150,6 +7156,14 @@ impl GameLogic {
                 if !samples.is_empty() {
                     self.apply_structure_topple_crush_samples(object_id, samples);
                 }
+            }
+            // C++ FireWeaponWhenDamagedBehavior forceFire residual (reaction + continuous).
+            if let Some(wname) = self
+                .objects
+                .get_mut(&object_id)
+                .and_then(|o| o.take_pending_fire_when_damaged_weapon())
+            {
+                let _ = self.apply_fire_weapon_when_damaged_named(object_id, &wname);
             }
             if topple_kill {
                 // Completed topple: queue destroy (structure Done bypasses re-topple).
@@ -21830,6 +21844,7 @@ impl GameLogic {
             // Weapon bound via weapon_bootstrap primary; no extra strip.
             // Auto-fire residual runs from update_combat when idle.
 
+            object.ensure_fire_weapon_when_damaged();
             self.objects.insert(id, object);
 
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
@@ -22101,6 +22116,36 @@ impl GameLogic {
         for id in destroy {
             self.mark_object_for_destruction(id, building_team);
         }
+    }
+
+    /// C++ FireWeaponWhenDamagedBehavior forceFireWeapon residual at object position.
+    fn apply_fire_weapon_when_damaged_named(
+        &mut self,
+        source_id: ObjectId,
+        weapon_name: &str,
+    ) -> u32 {
+        let (pos, team) = match self.objects.get(&source_id) {
+            Some(o) => (o.get_position(), o.team),
+            None => return 0,
+        };
+        let (pd, pr, sd, sr) =
+            crate::game_logic::host_fire_weapon_when_damaged::fire_when_damaged_weapon_splash(
+                weapon_name,
+            );
+        // Intended = self so splash doesn't skip others incorrectly... API skips intended_id.
+        // Pass a dummy non-existent intended so all in radius can be hit except we should not hit self.
+        // apply_instant_hit_splash_at skips intended_id only — use source as intended to skip self.
+        self.apply_instant_hit_splash_at(
+            pos,
+            pd,
+            sd,
+            pr,
+            sr,
+            source_id,
+            team,
+            source_id,
+            Some(weapon_name),
+        )
     }
 
     fn try_begin_structure_topple_instead_of_destroy(
@@ -81781,6 +81826,60 @@ mod tests {
     }
 
     /// Residual: TroopCrawlerAssault DEPLOY fire unloads payload and orders attack.
+
+    #[test]
+    fn fire_weapon_when_damaged_reaction_splash() {
+        use crate::game_logic::host_fire_weapon_when_damaged::HostFireWeaponWhenDamagedData;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaBattleshipTarget");
+        t.set_health(500.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("AmericaBattleshipTarget".into(), t);
+        let mut et = ThingTemplate::new("Ranger");
+        et.set_health(100.0);
+        et.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("Ranger".into(), et);
+        let bid = logic
+            .create_object(
+                "AmericaBattleshipTarget",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let eid = logic
+            .create_object("Ranger", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let b = logic.objects.get_mut(&bid).unwrap();
+            b.fire_weapon_when_damaged =
+                Some(HostFireWeaponWhenDamagedData::battleship_target_residual());
+            b.health.current = 500.0;
+            let _ = b.take_damage_from_typed(
+                50.0,
+                None,
+                crate::game_logic::combat::DamageType::Explosive,
+            );
+            assert!(
+                b.pending_fire_when_damaged_weapon.is_some(),
+                "reaction should queue"
+            );
+        }
+        let w = logic
+            .objects
+            .get_mut(&bid)
+            .unwrap()
+            .take_pending_fire_when_damaged_weapon()
+            .unwrap();
+        let hits = logic.apply_fire_weapon_when_damaged_named(bid, &w);
+        assert!(hits >= 1, "splash should hit nearby enemy, hits={hits}");
+        let enemy = logic.objects.get(&eid).unwrap();
+        assert!(
+            enemy.health.current < 100.0 || enemy.status.destroyed,
+            "enemy hp={}",
+            enemy.health.current
+        );
+    }
 
     #[test]
     fn structure_topple_crush_sweep_kills_nearby_infantry() {

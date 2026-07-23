@@ -122,6 +122,7 @@ pub mod host_enum_table_residual;
 pub mod host_env_contain_residual;
 pub mod host_faction_skirmish_residual;
 pub mod host_fire_base;
+mod host_fire_weapon_when_damaged;
 pub mod host_firewall;
 pub mod host_frenzy;
 pub mod host_fx_audio_cursor_residual;

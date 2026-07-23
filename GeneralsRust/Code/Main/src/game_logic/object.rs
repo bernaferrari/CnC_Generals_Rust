@@ -936,6 +936,13 @@ pub struct Object {
     #[serde(default)]
     pub structure_topple_data:
         Option<crate::game_logic::host_structure_topple::HostStructureToppleData>,
+    /// C++ FireWeaponWhenDamagedBehavior residual.
+    #[serde(default)]
+    pub fire_weapon_when_damaged:
+        Option<crate::game_logic::host_fire_weapon_when_damaged::HostFireWeaponWhenDamagedData>,
+    /// Pending reaction weapon name from last onDamage residual (drained by GameLogic).
+    #[serde(default)]
+    pub pending_fire_when_damaged_weapon: Option<String>,
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
@@ -1542,6 +1549,8 @@ impl Object {
             crushable_level: 255,
             topple_data: None,
             structure_topple_data: None,
+            fire_weapon_when_damaged: None,
+            pending_fire_when_damaged_weapon: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -1872,6 +1881,8 @@ impl Object {
             crushable_level: 255,
             topple_data: None,
             structure_topple_data: None,
+            fire_weapon_when_damaged: None,
+            pending_fire_when_damaged_weapon: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -2372,6 +2383,59 @@ impl Object {
         }
         self.status.destroyed = false;
         true
+    }
+
+    /// Attach FireWeaponWhenDamaged residual when template peels match.
+    pub fn ensure_fire_weapon_when_damaged(&mut self) {
+        if self.fire_weapon_when_damaged.is_some() {
+            return;
+        }
+        if let Some(cfg) =
+            crate::game_logic::host_fire_weapon_when_damaged::fire_when_damaged_config_for_template(
+                &self.template_name,
+            )
+        {
+            self.fire_weapon_when_damaged = Some(cfg);
+        }
+    }
+
+    /// C++ FireWeaponWhenDamagedBehavior::onDamage residual.
+    /// Returns weapon name to force-fire at self position.
+    pub fn take_pending_fire_when_damaged_weapon(&mut self) -> Option<String> {
+        self.pending_fire_when_damaged_weapon.take()
+    }
+
+    pub fn on_fire_weapon_when_damaged(
+        &mut self,
+        actual_damage: f32,
+        current_frame: u32,
+    ) -> Option<String> {
+        self.ensure_fire_weapon_when_damaged();
+        let Some(fw) = self.fire_weapon_when_damaged.as_mut() else {
+            return None;
+        };
+        fw.on_damage(
+            actual_damage,
+            self.health.current,
+            self.health.maximum.max(self.max_health).max(1.0),
+            current_frame,
+        )
+    }
+
+    /// C++ FireWeaponWhenDamagedBehavior continuous update residual.
+    pub fn tick_fire_weapon_when_damaged_continuous(
+        &mut self,
+        current_frame: u32,
+    ) -> Option<String> {
+        self.ensure_fire_weapon_when_damaged();
+        let Some(fw) = self.fire_weapon_when_damaged.as_mut() else {
+            return None;
+        };
+        fw.tick_continuous(
+            self.health.current,
+            self.health.maximum.max(self.max_health).max(1.0),
+            current_frame,
+        )
     }
 
     /// Drain C++ applyCrushingDamage residual samples for this frame.
@@ -6514,6 +6578,33 @@ impl Object {
             crate::game_logic::host_damage_log::record(self.id, actual_damage, source, destroyed);
             destroyed
         };
+
+        // C++ FireWeaponWhenDamagedBehavior::onDamage residual (frame filled by GameLogic).
+        if actual_damage > 0.0
+            && !matches!(
+                damage_type,
+                crate::game_logic::combat::DamageType::Healing
+                    | crate::game_logic::combat::DamageType::Status
+                    | crate::game_logic::combat::DamageType::Hack
+                    | crate::game_logic::combat::DamageType::Deploy
+                    | crate::game_logic::combat::DamageType::Disarm
+                    | crate::game_logic::combat::DamageType::KillPilot
+                    | crate::game_logic::combat::DamageType::KillGarrisoned
+            )
+        {
+            self.ensure_fire_weapon_when_damaged();
+            if let Some(fw) = self.fire_weapon_when_damaged.as_mut() {
+                // Frame 0: debounce via serial on data; GameLogic may also call with real frame.
+                if let Some(w) = fw.on_damage(
+                    actual_damage,
+                    self.health.current,
+                    self.health.maximum.max(self.max_health).max(1.0),
+                    fw.last_reaction_frame.saturating_add(2),
+                ) {
+                    self.pending_fire_when_damaged_weapon = Some(w);
+                }
+            }
+        }
 
         self.refresh_model_condition_bits();
         destroyed
