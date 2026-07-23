@@ -109,36 +109,26 @@ impl HealContain {
         self.base.update()?;
 
         // Get contained objects list (need to collect to avoid borrow issues)
-        let contained_objects: Vec<_> = self
-            .base
-            .get_contained_items_list()?
-            .iter()
-            .cloned()
-            .collect();
+        let contained_ids: Vec<_> = self.base.get_contained_object_ids().to_vec();
 
         // Process each contained object for healing
-        for obj in contained_objects {
-            let patient_id = obj
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
+        for patient_id in contained_ids {
             let done_healing = self.do_heal(patient_id, module_data.frames_for_full_heal)?;
 
             if done_healing {
                 // Reserve door for exit
-                let obj_clone = obj.clone();
-                if let Ok(object) = obj.read() {
-                    if let Ok(exit_door) = self
-                        .base
-                        .reserve_door_for_exit(&super::open_contain::ObjectTemplate {}, &object)
-                    {
-                        if exit_door != ExitDoorType::NoneAvailable {
-                            drop(object); // Release lock before calling exit
-                            self.base.exit_object_via_door(
-                                obj_clone.read().map(|g| g.get_id()).unwrap_or(0),
-                                exit_door,
-                            )?;
+                if let Some(obj) = TheGameLogic::find_object_by_id(patient_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(patient_id))
+                {
+                    if let Ok(object) = obj.read() {
+                        if let Ok(exit_door) = self
+                            .base
+                            .reserve_door_for_exit(&super::open_contain::ObjectTemplate {}, &object)
+                        {
+                            if exit_door != ExitDoorType::NoneAvailable {
+                                drop(object); // Release lock before calling exit
+                                self.base.exit_object_via_door(patient_id, exit_door)?;
+                            }
                         }
                     }
                 }

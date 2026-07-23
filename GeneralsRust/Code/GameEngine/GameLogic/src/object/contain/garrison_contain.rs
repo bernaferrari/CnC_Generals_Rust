@@ -2080,12 +2080,16 @@ impl GarrisonContain {
         if let Some(owner_obj) = self.get_object() {
             if let Ok(owner) = owner_obj.read() {
                 let pos = owner.get_position();
-                for obj in self.base.get_contained_items_list()? {
-                    if let Ok(mut contained) = obj.write() {
-                        if let Err(err) = contained.set_position(pos) {
-                            log::debug!(
-                                "GarrisonContain::move_objects_with_me set_position failed: {err}"
-                            );
+                for object_id in self.base.get_contained_object_ids().to_vec() {
+                    if let Some(obj) = TheGameLogic::find_object_by_id(object_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+                    {
+                        if let Ok(mut contained) = obj.write() {
+                            if let Err(err) = contained.set_position(pos) {
+                                log::debug!(
+                                    "GarrisonContain::move_objects_with_me set_position failed: {err}"
+                                );
+                            }
                         }
                     }
                 }
