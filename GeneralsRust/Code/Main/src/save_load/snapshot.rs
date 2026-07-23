@@ -5056,6 +5056,7 @@ impl SnapshotBuilder {
                 rank_level: 1,
                 skill_points: 0,
                 science_purchase_points: 0,
+                kind_of_production_cost_changes: Vec::new(),
                 shared_special_power_cooldowns: std::collections::HashMap::new(),
             });
         }
