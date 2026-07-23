@@ -1194,6 +1194,8 @@ pub struct Object {
     /// AssaultTransportAIUpdate wounded-retrieve / multi-exit path matrix.
     #[serde(default)]
     pub is_troop_crawler_transport: bool,
+    /// C++ AssaultTransportAIUpdate residual state (designated target + members).
+    pub assault_transport: Option<crate::game_logic::host_troop_crawler::HostAssaultTransportState>,
 
     /// Host residual: Overlord / Helix portable GattlingCannon addon installed
     /// (`Upgrade_ChinaOverlordGattlingCannon` / Helix equivalent). Equips AA
@@ -1913,6 +1915,7 @@ impl Object {
             is_listening_outpost_transport: false,
             is_pathfinder_unit: false,
             is_troop_crawler_transport: false,
+            assault_transport: None,
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,
             is_helix_transport: false,
@@ -2279,6 +2282,7 @@ impl Object {
             is_listening_outpost_transport: false,
             is_pathfinder_unit: false,
             is_troop_crawler_transport: false,
+            assault_transport: None,
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,
             is_helix_transport: false,

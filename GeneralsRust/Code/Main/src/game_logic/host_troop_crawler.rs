@@ -21,10 +21,10 @@
 //!
 //! Fail-closed honesty:
 //! - Not full multi-exit-path ExitStart01-nn / ExitDelay 250ms stagger
-//! - Not full HealthRegen%PerSec / DamagePercentToUnits / wounded retrieve matrix
-//! - Not full MembersGetHealedAtLifeRatio healing AI state machine
+//! - Not full HealthRegen%PerSec / DamagePercentToUnits matrix
 //! - Not full IR detector FX / IRParticleSys bones
 //! - Not network transport / deploy replication (network deferred)
+//! - Wounded-retrieve residual is host-simplified (instant enter/exit, no path AI)
 
 use super::Weapon;
 use serde::{Deserialize, Serialize};
@@ -134,6 +134,10 @@ pub struct HostTroopCrawlerRegistry {
     pub deploy_attack_orders: u32,
     /// Stealth detects performed by Troop Crawler residual detector.
     pub detects: u32,
+    /// C++ AssaultTransportAIUpdate wounded members ordered to re-enter.
+    pub wounded_retrieves: u32,
+    /// Contained full-health members ordered back out during assault.
+    pub healthy_redeploys: u32,
 }
 
 impl HostTroopCrawlerRegistry {
@@ -180,6 +184,18 @@ impl HostTroopCrawlerRegistry {
     }
 
     /// Residual honesty: assault deploy residual fired at least once.
+    pub fn record_wounded_retrieve(&mut self) {
+        self.wounded_retrieves = self.wounded_retrieves.saturating_add(1);
+    }
+
+    pub fn record_healthy_redeploy(&mut self) {
+        self.healthy_redeploys = self.healthy_redeploys.saturating_add(1);
+    }
+
+    pub fn honesty_wounded_retrieve_ok(&self) -> bool {
+        self.wounded_retrieves > 0
+    }
+
     pub fn honesty_assault_deploy_ok(&self) -> bool {
         self.assault_deploys > 0
     }
@@ -349,8 +365,57 @@ pub fn honesty_troop_crawler_residual_pack_ok() -> bool {
         && honesty_troop_crawler_body_residual_ok()
 }
 
+/// C++ AssaultTransportAIUpdate per-transport residual state.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HostAssaultTransportState {
+    /// C++ m_designatedTarget.
+    pub designated_target: Option<u32>,
+    /// Outside members still under assault AI control (ObjectId raw).
+    pub member_ids: Vec<u32>,
+    /// Parallel to member_ids: currently returning for heal.
+    pub member_healing: Vec<bool>,
+    /// Assault order is active.
+    pub active: bool,
+}
+
+impl HostAssaultTransportState {
+    pub fn begin(target: u32, members: Vec<u32>) -> Self {
+        let n = members.len();
+        Self {
+            designated_target: Some(target),
+            member_ids: members,
+            member_healing: vec![false; n],
+            active: true,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+/// C++ isMemberWounded: health/max < MembersGetHealedAtLifeRatio (0.5).
+pub fn is_assault_member_wounded(current: f32, maximum: f32) -> bool {
+    let max_h = maximum.max(0.0001);
+    (current / max_h) < TROOP_CRAWLER_MEMBERS_HEAL_LIFE_RATIO
+}
+
+/// C++ isMemberHealthy: health == maxHealth (full only).
+pub fn is_assault_member_healthy(current: f32, maximum: f32) -> bool {
+    (current - maximum).abs() < 0.01 && maximum > 0.0
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn assault_member_wounded_ratio() {
+        assert!(super::is_assault_member_wounded(40.0, 100.0));
+        assert!(!super::is_assault_member_wounded(50.0, 100.0));
+        assert!(!super::is_assault_member_wounded(80.0, 100.0));
+        assert!(super::is_assault_member_healthy(100.0, 100.0));
+        assert!(!super::is_assault_member_healthy(99.0, 100.0));
+    }
+
     use super::*;
 
     #[test]

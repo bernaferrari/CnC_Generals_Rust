@@ -7532,6 +7532,8 @@ impl GameLogic {
         self.tick_hijacker_updates();
         // C++ UndeadBody + BattleBusSlowDeathBehavior residual.
         self.tick_battle_bus_slow_deaths();
+        // C++ AssaultTransportAIUpdate wounded-retrieve residual.
+        self.tick_assault_transport_updates();
 
         // Apply all AI commands (or log-only when GameWorld owns decision apply).
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
@@ -9158,6 +9160,131 @@ impl GameLogic {
         self.car_bomb.record_airborne_parachute_put();
         // Tag air path honesty shared with EjectPilotDie air OCL residual.
         self.usa_pilot.record_air_ejection();
+    }
+
+    /// C++ AssaultTransportAIUpdate wounded-retrieve + healthy re-exit residual.
+    pub fn tick_assault_transport_updates(&mut self) {
+        use crate::game_logic::host_troop_crawler::{
+            is_assault_member_healthy, is_assault_member_wounded,
+        };
+
+        let crawler_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_troop_crawler_style_container()
+                    && o.assault_transport
+                        .as_ref()
+                        .map(|a| a.active)
+                        .unwrap_or(false)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+
+        for crawler_id in crawler_ids {
+            let (target_raw, members) = {
+                let Some(c) = self.objects.get(&crawler_id) else {
+                    continue;
+                };
+                let Some(a) = c.assault_transport.as_ref() else {
+                    continue;
+                };
+                (a.designated_target, a.member_ids.clone())
+            };
+            let Some(target_raw) = target_raw else {
+                continue;
+            };
+            let target_id = ObjectId(target_raw);
+            // Target dead → clear assault.
+            let target_alive = self
+                .objects
+                .get(&target_id)
+                .map(|t| t.is_alive())
+                .unwrap_or(false);
+            if !target_alive {
+                if let Some(c) = self.objects.get_mut(&crawler_id) {
+                    if let Some(a) = c.assault_transport.as_mut() {
+                        a.clear();
+                    }
+                }
+                continue;
+            }
+
+            let mut still_members: Vec<u32> = Vec::new();
+            let crawler_pos = self
+                .objects
+                .get(&crawler_id)
+                .map(|c| c.get_position())
+                .unwrap_or(Vec3::ZERO);
+
+            for mid_raw in members {
+                let mid = ObjectId(mid_raw);
+                let Some(member) = self.objects.get(&mid) else {
+                    continue;
+                };
+                if !member.is_alive() {
+                    continue;
+                }
+                still_members.push(mid_raw);
+                let contained = member.contained_by == Some(crawler_id);
+                let wounded =
+                    is_assault_member_wounded(member.health.current, member.health.maximum);
+                let healthy =
+                    is_assault_member_healthy(member.health.current, member.health.maximum);
+
+                if contained {
+                    // Full health → re-exit and resume attack (C++ isMemberHealthy).
+                    if healthy {
+                        if let Some(c) = self.objects.get_mut(&crawler_id) {
+                            c.remove_occupant(mid);
+                        }
+                        if let Some(unit) = self.objects.get_mut(&mid) {
+                            unit.set_contained_by(None);
+                            let offset = Vec3::new(6.0, 0.0, 0.0);
+                            unit.set_position(crawler_pos + offset);
+                        }
+                        self.apply_engagement_decision_aware(mid, target_id);
+                        self.troop_crawler.record_healthy_redeploy();
+                    }
+                    continue;
+                }
+
+                // Outside + wounded → re-enter for heal.
+                if wounded {
+                    // Instant residual enter (path AI deferred).
+                    if let Some(c) = self.objects.get_mut(&crawler_id) {
+                        if !c.occupants.contains(&mid) && c.can_contain() {
+                            let _ = c.add_occupant(mid);
+                        }
+                    }
+                    if let Some(unit) = self.objects.get_mut(&mid) {
+                        unit.set_contained_by(Some(crawler_id));
+                        unit.stop_moving();
+                        unit.target = None;
+                        unit.set_status_attacking(false);
+                        unit.set_position(crawler_pos);
+                    }
+                    self.troop_crawler.record_wounded_retrieve();
+                    continue;
+                }
+
+                // Outside + not wounded → keep attacking designated target.
+                if let Some(unit) = self.objects.get(&mid) {
+                    if unit.target != Some(target_id) {
+                        self.apply_engagement_decision_aware(mid, target_id);
+                    }
+                }
+            }
+
+            if let Some(c) = self.objects.get_mut(&crawler_id) {
+                if let Some(a) = c.assault_transport.as_mut() {
+                    a.member_ids = still_members;
+                    if a.member_ids.is_empty() && c.occupants.is_empty() {
+                        a.clear();
+                    }
+                }
+            }
+        }
     }
 
     /// C++ UndeadBody + BattleBusSlowDeathBehavior first-life / empty-hulk residual.
@@ -26857,6 +26984,10 @@ impl GameLogic {
     pub fn honesty_troop_crawler_load_unload_ok(&self) -> bool {
         self.troop_crawler.honesty_load_unload_ok()
     }
+    pub fn honesty_troop_crawler_wounded_retrieve_ok(&self) -> bool {
+        self.troop_crawler.honesty_wounded_retrieve_ok()
+    }
+
     pub fn honesty_troop_crawler_assault_deploy_ok(&self) -> bool {
         self.troop_crawler.honesty_assault_deploy_ok()
     }
@@ -27068,7 +27199,9 @@ impl GameLogic {
         crawler_id: ObjectId,
         target_id: ObjectId,
     ) -> u32 {
-        use crate::game_logic::host_troop_crawler::TROOP_CRAWLER_DEPLOY_AUDIO;
+        use crate::game_logic::host_troop_crawler::{
+            is_assault_member_wounded, HostAssaultTransportState, TROOP_CRAWLER_DEPLOY_AUDIO,
+        };
 
         let Some(crawler) = self.objects.get(&crawler_id) else {
             return 0;
@@ -27084,8 +27217,22 @@ impl GameLogic {
             return 0;
         }
 
+        // C++ update ejects healthy contained members; wounded stay aboard to heal.
+        let mut eject_ids: Vec<ObjectId> = Vec::new();
+        for occ_id in occupants.iter().copied() {
+            let wounded = self
+                .objects
+                .get(&occ_id)
+                .map(|u| is_assault_member_wounded(u.health.current, u.health.maximum))
+                .unwrap_or(false);
+            if !wounded {
+                eject_ids.push(occ_id);
+            }
+        }
+
         let mut ordered = 0u32;
-        for (i, occ_id) in occupants.iter().copied().enumerate() {
+        let mut outside_members: Vec<u32> = Vec::new();
+        for (i, occ_id) in eject_ids.into_iter().enumerate() {
             // Remove from container.
             if let Some(crawler) = self.objects.get_mut(&crawler_id) {
                 crawler.remove_occupant(occ_id);
@@ -27105,20 +27252,30 @@ impl GameLogic {
                 unit.set_status_moving(false);
             }
             // GoAggressiveOnExit residual: attack designated target.
-            // apply_engagement sets host target even without a weapon template so
-            // unload residual is same-frame under decision authority.
             self.apply_engagement_decision_aware(occ_id, target_id);
-            // Belt-and-suspenders: ensure host target sticks after unload residual
-            // (attack_target may no-op without weapon; engagement helper should set it).
             if let Some(unit) = self.objects.get_mut(&occ_id) {
                 if unit.target != Some(target_id) {
                     unit.target = Some(target_id);
                     unit.set_status_attacking(true);
                 }
             }
+            outside_members.push(occ_id.0);
             ordered = ordered.saturating_add(1);
             self.troop_crawler.record_deploy_attack_order();
             self.troop_crawler.record_unload();
+        }
+
+        // Track assault members (outside + still-contained wounded) for retrieve residual.
+        if let Some(crawler) = self.objects.get_mut(&crawler_id) {
+            for occ in crawler.occupants.iter() {
+                if !outside_members.contains(&occ.0) {
+                    outside_members.push(occ.0);
+                }
+            }
+            crawler.assault_transport = Some(HostAssaultTransportState::begin(
+                target_id.0,
+                outside_members,
+            ));
         }
 
         self.troop_crawler.record_assault_deploy();
@@ -84925,6 +85082,110 @@ mod tests {
             any_attacking,
             "assault deploy residual must order infantry to attack designated target"
         );
+    }
+
+    #[test]
+    fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+
+        let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        // Clear payload and load two controlled infantry.
+        let old_occ = game_logic
+            .find_object(crawler_id)
+            .map(|c| c.occupants.clone())
+            .unwrap_or_default();
+        for oid in old_occ {
+            if let Some(c) = game_logic.find_object_mut(crawler_id) {
+                c.remove_occupant(oid);
+            }
+            if let Some(u) = game_logic.find_object_mut(oid) {
+                u.set_contained_by(None);
+            }
+            game_logic.destroy_object(oid);
+        }
+        let healthy_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+            .expect("healthy");
+        let wounded_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
+            .expect("wounded");
+        {
+            let h = game_logic.find_object_mut(healthy_id).unwrap();
+            h.health.maximum = 100.0;
+            h.health.current = 100.0;
+        }
+        {
+            let w = game_logic.find_object_mut(wounded_id).unwrap();
+            w.health.maximum = 100.0;
+            w.health.current = 40.0; // < 0.5 ratio
+        }
+        {
+            let c = game_logic.find_object_mut(crawler_id).unwrap();
+            assert!(c.add_occupant(healthy_id));
+            assert!(c.add_occupant(wounded_id));
+        }
+        {
+            let h = game_logic.find_object_mut(healthy_id).unwrap();
+            h.set_contained_by(Some(crawler_id));
+        }
+        {
+            let w = game_logic.find_object_mut(wounded_id).unwrap();
+            w.set_contained_by(Some(crawler_id));
+        }
+
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+
+        let ordered = game_logic.apply_troop_crawler_assault_deploy_for_test(crawler_id, enemy);
+        assert_eq!(ordered, 1, "only healthy member should eject");
+        assert!(
+            game_logic
+                .find_object(healthy_id)
+                .map(|u| u.contained_by.is_none())
+                .unwrap_or(false),
+            "healthy outside"
+        );
+        assert_eq!(
+            game_logic
+                .find_object(wounded_id)
+                .and_then(|u| u.contained_by),
+            Some(crawler_id),
+            "wounded stays aboard"
+        );
+
+        // Wound the outside healthy fighter → retrieve.
+        {
+            let h = game_logic.find_object_mut(healthy_id).unwrap();
+            h.health.current = 30.0;
+        }
+        game_logic.tick_assault_transport_updates();
+        assert_eq!(
+            game_logic
+                .find_object(healthy_id)
+                .and_then(|u| u.contained_by),
+            Some(crawler_id),
+            "wounded outside member retrieved"
+        );
+        assert!(game_logic.honesty_troop_crawler_wounded_retrieve_ok());
+
+        // Full heal aboard → re-exit.
+        {
+            let h = game_logic.find_object_mut(healthy_id).unwrap();
+            h.health.current = 100.0;
+        }
+        game_logic.tick_assault_transport_updates();
+        assert!(
+            game_logic
+                .find_object(healthy_id)
+                .map(|u| u.contained_by.is_none())
+                .unwrap_or(false),
+            "full health re-exits to fight"
+        );
+        assert!(game_logic.troop_crawler.healthy_redeploys > 0);
     }
 
     /// Residual: vehicles rejected from Troop Crawler (AllowInsideKindOf=INFANTRY).
