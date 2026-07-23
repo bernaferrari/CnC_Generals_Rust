@@ -574,6 +574,8 @@ pub struct Object {
     /// C++ m_lift residual (world-Y up accel capacity).
     #[serde(default)]
     pub max_lift: f32,
+    /// C++ LocomotorTemplate::m_liftDamaged residual.
+    pub max_lift_damaged: f32,
     /// C++ m_speedLimitZ residual (vertical speed limit).
     #[serde(default)]
     pub speed_limit_z: f32,
@@ -1541,6 +1543,7 @@ impl Object {
             wander_offset_increasing: true,
             downhill_only: false,
             max_lift: 0.0,
+            max_lift_damaged: 0.0,
             speed_limit_z: 999999.0,
             group_speed_factor: 1.0,
             is_attack_path: false,
@@ -1852,6 +1855,7 @@ impl Object {
             wander_offset_increasing: true,
             downhill_only: false,
             max_lift: 0.0,
+            max_lift_damaged: 0.0,
             speed_limit_z: 999999.0,
             group_speed_factor: 1.0,
             is_attack_path: false,
@@ -4186,7 +4190,7 @@ impl Object {
                 let mut delta = preferred_raw - p.y;
                 delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
                 let preferred = p.y + delta;
-                let lift = if self.max_lift > 0.0 {
+                let lift = if self.effective_max_lift() > 0.0 {
                     self.calc_lift_to_use_at_pt(p.y, preferred)
                 } else {
                     // Fail-closed: no lift template — proportional residual.
@@ -4298,8 +4302,28 @@ impl Object {
     }
 
     /// C++ Locomotor::getMaxLift residual (host world-Y).
+    /// C++ Locomotor::getMaxLift residual (damage-conditioned).
     pub fn get_max_lift(&self) -> f32 {
-        self.max_lift.max(0.0)
+        self.effective_max_lift()
+    }
+
+    /// C++ Locomotor::getMaxLift(BodyDamageType) residual.
+    pub fn effective_max_lift(&self) -> f32 {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let pristine = self.max_lift.max(0.0);
+        let damaged = self.max_lift_damaged.clamp(0.0, pristine.max(0.0));
+        match self.body_damage_state {
+            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
+            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+                if damaged > 0.0 {
+                    damaged.min(pristine)
+                } else if pristine > 0.0 {
+                    pristine * 0.5
+                } else {
+                    0.0
+                }
+            }
+        }
     }
 
     /// C++ Locomotor::calcLiftToUseAtPt residual (simplified).
@@ -10379,6 +10403,40 @@ mod tests {
             resolve_host_death_type(None, DamageType::Toxin),
             HostDeathType::Poisoned
         );
+    }
+
+    #[test]
+    fn effective_max_lift_uses_damaged_locomotor() {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("LIFT_V");
+        tpl.add_kind_of(KindOf::Aircraft);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("LIFT_V".to_string(), tpl);
+        let id = logic
+            .create_object("LIFT_V", Team::USA, Vec3::new(0.0, 50.0, 0.0))
+            .unwrap();
+        {
+            let o = logic.get_object_mut(id).unwrap();
+            o.max_lift = 8.0;
+            o.max_lift_damaged = 3.0;
+            o.health.current = 100.0;
+            o.health.maximum = 100.0;
+            o.refresh_model_condition_bits();
+            assert_eq!(o.body_damage_state, HostBodyDamageType::Pristine);
+            assert!((o.effective_max_lift() - 8.0).abs() < 0.01);
+            o.health.current = 10.0;
+            o.refresh_model_condition_bits();
+            assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
+            assert!(
+                (o.effective_max_lift() - 3.0).abs() < 0.01,
+                "really damaged uses max_lift_damaged"
+            );
+        }
     }
 
     #[test]
