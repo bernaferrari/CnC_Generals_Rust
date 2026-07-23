@@ -190,6 +190,7 @@ pub mod host_scud_launcher;
 pub mod host_sentry_drone;
 pub mod host_shell_campaign_save_residual_wave106;
 pub mod host_slave_drones;
+mod host_slow_death;
 pub mod host_sneak_attack;
 pub mod host_sp_science_upgrade_player_team_residual_wave109;
 pub mod host_special_power_enum_residual;

@@ -2380,6 +2380,7 @@ impl PresentationFrame {
                 position: {
                     let mut p = pos;
                     p.y += obj.presentation_collapse_height_offset();
+                    p.y += obj.presentation_slow_death_sink_offset();
                     let (sx, sz) = obj.presentation_collapse_shudder();
                     p.x += sx;
                     p.z += sz;

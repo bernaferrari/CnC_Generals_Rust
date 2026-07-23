@@ -977,6 +977,9 @@ pub struct Object {
     /// C++ LifetimeUpdate residual.
     #[serde(default)]
     pub lifetime_update: Option<crate::game_logic::host_lifetime_update::HostLifetimeUpdateData>,
+    /// C++ SlowDeathBehavior residual.
+    #[serde(default)]
+    pub slow_death: Option<crate::game_logic::host_slow_death::HostSlowDeathData>,
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
@@ -1595,6 +1598,7 @@ impl Object {
             pending_create_object_die_spawns: Vec::new(),
             create_object_die_transfer_damage: 0.0,
             lifetime_update: None,
+            slow_death: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -1937,6 +1941,7 @@ impl Object {
             pending_create_object_die_spawns: Vec::new(),
             create_object_die_transfer_damage: 0.0,
             lifetime_update: None,
+            slow_death: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -2508,6 +2513,70 @@ impl Object {
     }
 
     /// Attach FireWeaponWhenDamaged residual when template peels match.
+
+    /// C++ SlowDeathBehavior::beginSlowDeath residual.
+    /// Returns true if slow death started (caller should defer destroy).
+    pub fn begin_slow_death(&mut self, current_frame: u32) -> bool {
+        use crate::game_logic::host_slow_death::wants_slow_death;
+        let is_inf = self.is_kind_of(crate::game_logic::KindOf::Infantry);
+        let is_veh = self.is_kind_of(crate::game_logic::KindOf::Vehicle);
+        if !wants_slow_death(&self.template_name, is_inf, is_veh) {
+            return false;
+        }
+        if self
+            .slow_death
+            .as_ref()
+            .map(|s| s.is_active() || s.is_done())
+            .unwrap_or(false)
+        {
+            return self
+                .slow_death
+                .as_ref()
+                .map(|s| s.is_active())
+                .unwrap_or(false);
+        }
+        let mut sd = crate::game_logic::host_slow_death::HostSlowDeathData::default();
+        let ok = if is_inf {
+            sd.begin_infantry(current_frame)
+        } else {
+            sd.begin_vehicle(current_frame)
+        };
+        if !ok {
+            return false;
+        }
+        self.slow_death = Some(sd);
+        // Keep a sliver of HP bookkeeping like structure topple residual.
+        if self.health.current <= 0.0 {
+            self.health.current = 0.01;
+        }
+        // Mark "dead" for AI but not removed yet.
+        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.target = None;
+        self.selected = false;
+        self.status.selected = false;
+        self.status.destroyed = false;
+        true
+    }
+
+    /// C++ SlowDeathBehavior::update residual. True when ready to destroyObject.
+    pub fn tick_slow_death(&mut self, current_frame: u32) -> bool {
+        let Some(sd) = self.slow_death.as_mut() else {
+            return false;
+        };
+        if !sd.tick(current_frame) {
+            return false;
+        }
+        self.health.current = 0.0;
+        self.status.destroyed = true;
+        true
+    }
+
+    pub fn presentation_slow_death_sink_offset(&self) -> f32 {
+        self.slow_death
+            .as_ref()
+            .map(|s| s.sink_offset)
+            .unwrap_or(0.0)
+    }
 
     pub fn ensure_create_object_die(&mut self) {
         if self.create_object_die.is_some() {
@@ -12004,6 +12073,29 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn slow_death_infantry_defers_and_sinks() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("AmericaInfantryRanger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(1), Team::USA);
+        o.health.current = 0.0;
+        assert!(o.begin_slow_death(0));
+        assert!(!o.status.destroyed);
+        assert!(o.slow_death.as_ref().unwrap().is_active());
+        let mut done = false;
+        for f in 0..400 {
+            if o.tick_slow_death(f) {
+                done = true;
+                break;
+            }
+        }
+        assert!(done);
+        assert!(o.status.destroyed);
+        assert!(o.presentation_slow_death_sink_offset() <= 0.0);
     }
 
     #[test]
