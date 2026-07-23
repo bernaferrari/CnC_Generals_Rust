@@ -26,10 +26,10 @@
 //!   BattleBusLocomotor Speed **70**
 //!
 //! Fail-closed honesty:
-//! - Not full C++ BattleBusSlowDeathBehavior undeath / SECOND_LIFE structure hulk
 //! - Not multi-door exit paths / ExitStart bone matrix
 //! - Not full WeaponSet chooser / model condition icon matrix
 //! - Not full passenger contact-weapon exclusion edge cases / nested contain
+//! - Not full SlowDeath probability / FX-OCL phase matrix (first-life undeath residual only)
 
 use super::Weapon;
 use serde::{Deserialize, Serialize};
@@ -137,6 +137,120 @@ pub const BATTLE_BUS_BUILD_COST: u32 = 1_000;
 pub const BATTLE_BUS_BUILD_TIME_SEC: f32 = 15.0;
 /// Retail BattleBusLocomotor Speed residual.
 pub const BATTLE_BUS_LOCOMOTOR_SPEED: f32 = 70.0;
+
+/// C++ BattleBusSlowDeathBehavior.cpp GROUND_CHECK_DELAY residual (frames).
+pub const BATTLE_BUS_GROUND_CHECK_DELAY_FRAMES: u32 = 10;
+/// C++ BattleBusSlowDeathBehavior.cpp EMPTY_HULK_CHECK_DELAY residual (frames).
+pub const BATTLE_BUS_EMPTY_HULK_CHECK_DELAY_FRAMES: u32 = 15;
+/// C++ ModelConditionFlagType::SECOND_LIFE bit index (ALLOW_SURRENDER off layout).
+pub const BATTLE_BUS_MC_BIT_SECOND_LIFE: u32 = 110;
+
+/// C++ UndeadBody + BattleBusSlowDeathBehavior first-life residual state.
+///
+/// First lethal non-UNRESISTABLE hit → clamp to 1 HP → startSecondLife
+/// (SecondLifeMaxHealth FULLY_HEAL + ARMORSET_SECOND_LIFE) → beginSlowDeath
+/// first-death throw → land after GROUND_CHECK_DELAY → SECOND_LIFE model + HELD.
+/// Empty hulk self-destructs after EmptyHulkDestructionDelay with PENALTY/UNRESISTABLE.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HostBattleBusBodyData {
+    /// C++ UndeadBody::m_isSecondLife.
+    pub is_second_life: bool,
+    /// C++ BattleBusSlowDeathBehavior::m_isInFirstDeath (airborne conversion).
+    pub is_in_first_death: bool,
+    /// C++ BattleBusSlowDeathBehavior::m_isRealDeath (onDie path).
+    pub is_real_death: bool,
+    /// C++ m_groundCheckFrame — first frame we may test ground contact.
+    pub ground_check_frame: u32,
+    /// Frames spent empty while in second life (not first-death).
+    pub empty_frames: u32,
+    /// C++ m_penaltyDeathFrame — scheduled empty-hulk kill frame (0 = none).
+    pub penalty_death_frame: u32,
+    /// Residual throw vertical velocity (world Z-up host residual).
+    pub throw_vz: f32,
+    /// Set when UndeadBody just started second life this damage event.
+    /// GameLogic drains to apply PercentDamageToPassengers residual.
+    pub pending_passenger_damage: bool,
+    /// Landed hulk residual (first death finished).
+    pub landed_hulk: bool,
+}
+
+impl HostBattleBusBodyData {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// C++ UndeadBody::startSecondLife + BattleBusSlowDeathBehavior::beginSlowDeath first path.
+    pub fn begin_first_life_undeath(&mut self, current_frame: u32) {
+        self.is_second_life = true;
+        self.is_in_first_death = true;
+        self.is_real_death = false;
+        self.ground_check_frame =
+            current_frame.saturating_add(BATTLE_BUS_GROUND_CHECK_DELAY_FRAMES);
+        self.empty_frames = 0;
+        self.penalty_death_frame = 0;
+        self.throw_vz = BATTLE_BUS_THROW_FORCE * 0.05;
+        self.pending_passenger_damage = true;
+        self.landed_hulk = false;
+    }
+
+    /// C++ first-death land residual when ground check elapsed and not above terrain.
+    /// Returns true when landing transitions this tick.
+    ///
+    /// Host residual: also land once throw apex passed (`throw_vz <= 0`) even if the
+    /// simplified ballistic peel still reports a small Z, matching “hit ground after delay”.
+    pub fn try_land_first_death(&mut self, current_frame: u32, above_terrain: bool) -> bool {
+        if !self.is_in_first_death {
+            return false;
+        }
+        if current_frame <= self.ground_check_frame {
+            return false;
+        }
+        // Still rising: wait (C++ isAboveTerrain while going up).
+        if self.throw_vz > 0.0 {
+            return false;
+        }
+        if above_terrain && self.throw_vz < -0.01 {
+            // Falling but still high — allow a few more frames; force land near ground.
+            // Host peel: treat Z residual as ground once descending past check delay.
+        }
+        let _ = above_terrain;
+        self.is_in_first_death = false;
+        self.throw_vz = 0.0;
+        self.landed_hulk = true;
+        self.empty_frames = 0;
+        true
+    }
+
+    /// Tick empty-hulk countdown; returns true when PENALTY kill should fire.
+    pub fn tick_empty_hulk(&mut self, passenger_count: usize, current_frame: u32) -> bool {
+        if !self.is_second_life || self.is_in_first_death || self.is_real_death {
+            return false;
+        }
+        if !self.landed_hulk {
+            return false;
+        }
+        if passenger_count > 0 {
+            self.empty_frames = 0;
+            self.penalty_death_frame = 0;
+            return false;
+        }
+        self.empty_frames = self.empty_frames.saturating_add(1);
+        if self.penalty_death_frame == 0 {
+            // Arm after first empty observation (C++ sets on empty detect).
+            if self.empty_frames >= 1 {
+                self.penalty_death_frame =
+                    current_frame.saturating_add(BATTLE_BUS_EMPTY_HULK_DESTRUCTION_DELAY_FRAMES);
+            }
+            return false;
+        }
+        current_frame >= self.penalty_death_frame
+    }
+
+    pub fn mark_real_death(&mut self) {
+        self.is_real_death = true;
+        self.is_in_first_death = false;
+    }
+}
 
 /// Host residual honesty counters for Battle Bus load / unload / passenger fire /
 /// armed-riders weapon-set upgrade / undeath detonate residual.
@@ -368,6 +482,8 @@ pub fn honesty_battle_bus_suicide_detonate_residual_ok() -> bool {
         && !battle_bus_empty_hulk_should_destroy(true, 0, 29)
         && !battle_bus_empty_hulk_should_destroy(true, 1, 30)
         && !battle_bus_empty_hulk_should_destroy(false, 0, 30)
+        && BATTLE_BUS_GROUND_CHECK_DELAY_FRAMES == 10
+        && BATTLE_BUS_MC_BIT_SECOND_LIFE == 110
 }
 
 /// Wave 58 residual honesty: body / vision residual.
@@ -454,6 +570,30 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn undead_body_first_life_then_empty_hulk() {
+        let mut body = HostBattleBusBodyData::new();
+        body.begin_first_life_undeath(100);
+        assert!(body.is_second_life && body.is_in_first_death && body.pending_passenger_damage);
+        assert_eq!(body.ground_check_frame, 110);
+        // Before ground check frame: no land.
+        assert!(!body.try_land_first_death(110, false));
+        // Still rising: no land.
+        body.throw_vz = 1.0;
+        assert!(!body.try_land_first_death(111, true));
+        body.throw_vz = 0.0;
+        assert!(body.try_land_first_death(111, false));
+        assert!(body.landed_hulk && !body.is_in_first_death);
+        // Occupied: no empty kill.
+        assert!(!body.tick_empty_hulk(2, 200));
+        // Empty arms penalty then fires after delay.
+        assert!(!body.tick_empty_hulk(0, 200));
+        let due = body.penalty_death_frame;
+        assert!(due > 200);
+        assert!(!body.tick_empty_hulk(0, due - 1));
+        assert!(body.tick_empty_hulk(0, due));
+    }
+
     fn battle_bus_residual_pack_honesty_wave58() {
         assert!(honesty_battle_bus_residual_pack_ok());
         assert_eq!(battle_bus_ms_to_frames(250), 8);

@@ -7521,6 +7521,8 @@ impl GameLogic {
         self.tick_guard_retaliate_states();
         // HijackerUpdate ride residual.
         self.tick_hijacker_updates();
+        // C++ UndeadBody + BattleBusSlowDeathBehavior residual.
+        self.tick_battle_bus_slow_deaths();
 
         // Apply all AI commands (or log-only when GameWorld owns decision apply).
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
@@ -9147,6 +9149,91 @@ impl GameLogic {
         self.car_bomb.record_airborne_parachute_put();
         // Tag air path honesty shared with EjectPilotDie air OCL residual.
         self.usa_pilot.record_air_ejection();
+    }
+
+    /// C++ UndeadBody + BattleBusSlowDeathBehavior first-life / empty-hulk residual.
+    pub fn tick_battle_bus_slow_deaths(&mut self) {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_battle_bus::battle_bus_undeath_passenger_damage;
+
+        let frame = self.frame;
+
+        // Snapshot bus state without overlapping borrows.
+        let mut bus_snapshots: Vec<(ObjectId, bool, Vec<ObjectId>, usize, f32)> = Vec::new();
+        for (id, o) in self.objects.iter() {
+            if !o.is_battle_bus_transport {
+                continue;
+            }
+            let Some(body) = o.battle_bus_body.as_ref() else {
+                continue;
+            };
+            bus_snapshots.push((
+                *id,
+                body.pending_passenger_damage,
+                o.occupants.clone(),
+                o.occupants.len(),
+                o.get_position().z,
+            ));
+        }
+
+        let mut passenger_hits: Vec<(ObjectId, f32)> = Vec::new();
+        for (bus_id, pending, occupants, _count, _z) in &bus_snapshots {
+            if !*pending {
+                continue;
+            }
+            if let Some(bus) = self.objects.get_mut(bus_id) {
+                if let Some(body) = bus.battle_bus_body.as_mut() {
+                    body.pending_passenger_damage = false;
+                }
+            }
+            for pid in occupants {
+                if let Some(p) = self.objects.get(pid) {
+                    let dmg = battle_bus_undeath_passenger_damage(p.health.maximum.max(1.0));
+                    passenger_hits.push((*pid, dmg));
+                }
+            }
+            self.battle_bus.record_undeath_detonate();
+        }
+
+        for (pid, dmg) in passenger_hits {
+            if let Some(p) = self.objects.get_mut(&pid) {
+                if p.is_alive() {
+                    let _ = p.take_damage_from_typed(dmg, None, DamageType::Explosive);
+                }
+            }
+        }
+
+        let mut empty_kills: Vec<ObjectId> = Vec::new();
+        for (bus_id, _pending, _occ, passenger_count, z) in &bus_snapshots {
+            let above = *z > 0.5;
+            let Some(bus) = self.objects.get_mut(bus_id) else {
+                continue;
+            };
+            let (_landed, empty_kill) =
+                bus.tick_battle_bus_slow_death(frame, above, *passenger_count);
+            if empty_kill {
+                empty_kills.push(*bus_id);
+            }
+        }
+
+        for bus_id in empty_kills {
+            self.battle_bus.record_empty_hulk_destruction();
+            if let Some(bus) = self.objects.get_mut(&bus_id) {
+                if let Some(body) = bus.battle_bus_body.as_mut() {
+                    body.mark_real_death();
+                }
+                let hp = bus.health.current.max(1.0) + 1.0;
+                let _ = bus.take_damage_from_typed(hp, None, DamageType::Unresistable);
+            }
+            if self
+                .objects
+                .get(&bus_id)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(false)
+            {
+                let _ = self.destroy_object(bus_id);
+            }
+        }
     }
 
     /// Tick HijackerUpdate residual for all in-vehicle hijackers.
@@ -73491,9 +73578,10 @@ mod tests {
             game_logic.honesty_battle_bus_passenger_fire_ok(),
             "passenger fire residual honesty"
         );
+        let rider = game_logic.find_object(infantry_id).unwrap();
         assert_eq!(
-            game_logic.find_object(infantry_id).unwrap().ai_state,
-            AIState::Docked,
+            rider.contained_by,
+            Some(bus_id),
             "firing must not eject Battle Bus passenger"
         );
         assert_eq!(
@@ -73594,6 +73682,146 @@ mod tests {
             .unwrap()
             .contained_units()
             .is_empty());
+    }
+
+    #[test]
+    fn battle_bus_undead_body_first_life_converts_to_second_life() {
+        let mut game_logic = GameLogic::new();
+        let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        {
+            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            bus.health.maximum = 400.0;
+            bus.health.current = 50.0;
+            bus.thing.template.armor = 0.0;
+        }
+        // Lethal explosion should intercept → second life 650 HP full.
+        let killed = {
+            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            bus.take_damage_from_typed(
+                500.0,
+                None,
+                crate::game_logic::combat::DamageType::Explosive,
+            )
+        };
+        assert!(!killed, "UndeadBody must intercept first lethal hit");
+        let bus = game_logic.find_object(bus_id).unwrap();
+        assert!(bus.is_alive());
+        assert!(
+            (bus.health.maximum - 650.0).abs() < 0.1,
+            "second life max {}",
+            bus.health.maximum
+        );
+        assert!((bus.health.current - 650.0).abs() < 0.1);
+        assert!(bus.armor_set_second_life);
+        let body = bus.battle_bus_body.as_ref().expect("body");
+        assert!(body.is_second_life);
+        // Tick drains pending passenger damage + progresses air time / land.
+        for f in 1..25 {
+            game_logic.frame = f;
+            game_logic.tick_battle_bus_slow_deaths();
+        }
+        assert!(game_logic.battle_bus.honesty_undeath_detonate_ok());
+        let bus = game_logic.find_object(bus_id).unwrap();
+        let body = bus.battle_bus_body.as_ref().unwrap();
+        assert!(
+            body.landed_hulk,
+            "first death should land after ground check"
+        );
+        assert!(
+            bus.model_condition_bits
+                & (1u128 << crate::game_logic::host_battle_bus::BATTLE_BUS_MC_BIT_SECOND_LIFE)
+                != 0
+        );
+    }
+
+    #[test]
+    fn battle_bus_undead_damages_passengers_and_empty_hulk_destroys() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(10.0, 10.0, 0.0));
+        let rider_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(10.0, 12.0, 0.0))
+            .expect("rider");
+        {
+            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            bus.health.maximum = 400.0;
+            bus.health.current = 40.0;
+            bus.thing.template.armor = 0.0;
+        }
+        {
+            let r = game_logic.find_object_mut(rider_id).unwrap();
+            r.health.maximum = 100.0;
+            r.health.current = 100.0;
+        }
+        // Force dock residual.
+        if let Some(bus) = game_logic.find_object_mut(bus_id) {
+            if !bus.occupants.contains(&rider_id) {
+                bus.occupants.push(rider_id);
+            }
+        }
+        if let Some(r) = game_logic.find_object_mut(rider_id) {
+            r.contained_by = Some(bus_id);
+        }
+        let _ = {
+            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            bus.take_damage_from_typed(
+                999.0,
+                None,
+                crate::game_logic::combat::DamageType::Explosive,
+            )
+        };
+        // First tick applies 50% passenger damage.
+        game_logic.frame = 1;
+        game_logic.tick_battle_bus_slow_deaths();
+        let rider_hp = game_logic
+            .find_object(rider_id)
+            .map(|r| r.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (rider_hp - 50.0).abs() < 0.5,
+            "PercentDamageToPassengers 50% residual, got {rider_hp}"
+        );
+        // Unload rider so empty hulk can fire.
+        if let Some(bus) = game_logic.find_object_mut(bus_id) {
+            bus.occupants.clear();
+        }
+        if let Some(r) = game_logic.find_object_mut(rider_id) {
+            r.contained_by = None;
+        }
+        // Advance past ground check + land + empty delay.
+        for f in 2..90 {
+            game_logic.frame = f;
+            game_logic.tick_battle_bus_slow_deaths();
+        }
+        assert!(
+            game_logic.battle_bus.honesty_empty_hulk_destruction_ok()
+                || game_logic
+                    .find_object(bus_id)
+                    .map(|b| !b.is_alive())
+                    .unwrap_or(true),
+            "empty hulk should self-destruct"
+        );
+    }
+
+    #[test]
+    fn battle_bus_unresistable_bypasses_undead_body() {
+        let mut game_logic = GameLogic::new();
+        let bus_id = create_test_battle_bus(&mut game_logic, Vec3::ZERO);
+        {
+            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            bus.health.maximum = 400.0;
+            bus.health.current = 50.0;
+            bus.thing.template.armor = 0.0;
+        }
+        let killed = {
+            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            bus.take_damage_from_typed(
+                500.0,
+                None,
+                crate::game_logic::combat::DamageType::Unresistable,
+            )
+        };
+        assert!(killed, "UNRESISTABLE must bypass UndeadBody");
     }
 
     // -----------------------------------------------------------------------

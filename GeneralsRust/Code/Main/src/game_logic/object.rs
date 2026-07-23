@@ -808,6 +808,10 @@ pub struct Object {
     /// Host residual: Battle Bus style transport (capacity 8 + fire + armed-riders).
     /// Distinct from generic Humvee transport residual for honesty counters.
     pub is_battle_bus_transport: bool,
+    /// C++ UndeadBody + BattleBusSlowDeathBehavior residual.
+    pub battle_bus_body: Option<crate::game_logic::host_battle_bus::HostBattleBusBodyData>,
+    /// C++ BodyModule ARMORSET_SECOND_LIFE residual.
+    pub armor_set_second_life: bool,
 
     /// Host residual: GLA Technical transport (capacity 5, infantry only, no passenger fire).
     /// Fail-closed: not chassis reskin / salvage W3D gunner swap matrix.
@@ -1810,6 +1814,8 @@ impl Object {
             weapon_set_carbomb: false,
             weapon_set_vehicle_hijack: false,
             is_battle_bus_transport: false,
+            battle_bus_body: None,
+            armor_set_second_life: false,
             is_technical_transport: false,
             is_combat_cycle_transport: false,
             combat_cycle_rider: 0,
@@ -2172,6 +2178,8 @@ impl Object {
             weapon_set_carbomb: false,
             weapon_set_vehicle_hijack: false,
             is_battle_bus_transport: false,
+            battle_bus_body: None,
+            armor_set_second_life: false,
             is_technical_transport: false,
             is_combat_cycle_transport: false,
             combat_cycle_rider: 0,
@@ -7356,7 +7364,7 @@ impl Object {
         // C++ DAMAGE_UNRESISTABLE bypasses ArmorTemplate/scalar armor, but Strategy Center
         // HoldTheLinePlanArmorDamageScalar still multiplies body damage (LESS is better).
         let battle_plan_armor = self.battle_plan_armor_damage_scalar();
-        let actual_damage = if matches!(
+        let mut actual_damage = if matches!(
             damage_type,
             crate::game_logic::combat::DamageType::Unresistable
         ) {
@@ -7380,6 +7388,14 @@ impl Object {
                 // relative duration residual; tick converts with current_frame
                 self.repulsor_until_frame = 60; // 2 seconds @ 30Hz
             }
+        }
+
+        // C++ UndeadBody::attemptDamage residual (Battle Bus first life).
+        // Clamp lethal non-UNRESISTABLE damage to leave 1 HP, then startSecondLife.
+        let mut battle_bus_start_second = false;
+        if self.battle_bus_should_intercept_lethal(damage_type, actual_damage) {
+            actual_damage = (self.health.current - 1.0).max(0.0);
+            battle_bus_start_second = true;
         }
 
         // GameWorld damage authority: host logs intent only; HP/destroyed last-write
@@ -7426,6 +7442,11 @@ impl Object {
             destroyed
         };
 
+        // C++ UndeadBody::startSecondLife after ActiveBody::attemptDamage residual.
+        if battle_bus_start_second {
+            self.start_battle_bus_second_life();
+        }
+
         // C++ PoisonedBehavior::onDamage residual.
         if actual_damage > 0.0 {
             let frame = crate::game_logic::host_historic_bonus::logic_frame();
@@ -7459,7 +7480,11 @@ impl Object {
         }
 
         self.refresh_model_condition_bits();
-        destroyed
+        if battle_bus_start_second {
+            false
+        } else {
+            destroyed
+        }
     }
 
     /// C++ AttitudeType residual (Sleep/Passive/Normal/Alert/Aggressive).
@@ -10869,6 +10894,15 @@ impl Object {
         self.max_transport = crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = true;
         self.armed_riders_upgrade_weapon_set = true;
+        if self.battle_bus_body.is_none() {
+            self.battle_bus_body =
+                Some(crate::game_logic::host_battle_bus::HostBattleBusBodyData::new());
+        }
+        // First-life max health residual (UndeadBody / ActiveBody).
+        if self.health.maximum < crate::game_logic::host_battle_bus::BATTLE_BUS_MAX_HEALTH {
+            self.health.maximum = crate::game_logic::host_battle_bus::BATTLE_BUS_MAX_HEALTH;
+            self.health.current = crate::game_logic::host_battle_bus::BATTLE_BUS_MAX_HEALTH;
+        }
         self.record_host_weapon_set();
         self.record_host_contain_capacity();
         self.record_host_stealth_flags();
@@ -10877,6 +10911,121 @@ impl Object {
     /// True when this vehicle is a Battle Bus residual transport.
     pub fn is_battle_bus_style_container(&self) -> bool {
         self.is_battle_bus_transport
+    }
+
+    /// C++ UndeadBody::startSecondLife + BattleBus first-death begin residual.
+    pub fn start_battle_bus_second_life(&mut self) {
+        use crate::game_logic::host_battle_bus::{
+            HostBattleBusBodyData, BATTLE_BUS_MC_BIT_SECOND_LIFE,
+            BATTLE_BUS_SECOND_LIFE_MAX_HEALTH, BATTLE_BUS_THROW_FORCE,
+        };
+        let frame = crate::game_logic::host_historic_bonus::logic_frame();
+        let body = self
+            .battle_bus_body
+            .get_or_insert_with(HostBattleBusBodyData::new);
+        if body.is_second_life && !body.is_in_first_death {
+            // Already converted.
+            return;
+        }
+        body.begin_first_life_undeath(frame);
+        self.health.maximum = BATTLE_BUS_SECOND_LIFE_MAX_HEALTH;
+        self.health.current = BATTLE_BUS_SECOND_LIFE_MAX_HEALTH;
+        self.armor_set_second_life = true;
+        self.status.destroyed = false;
+        self.status.effectively_dead = false;
+        // Throw residual (C++ PhysicsBehavior::applyShock Z = ThrowForce).
+        let _ = self.apply_shock_wave_impulse(glam::Vec3::new(0.0, 0.0, BATTLE_BUS_THROW_FORCE));
+        self.apply_shock_random_rotation(frame);
+        self.stop_moving();
+        self.set_ai_state(AIState::Idle);
+        self.target = None;
+        self.status.attacking = false;
+        let _ = BATTLE_BUS_MC_BIT_SECOND_LIFE; // set on land
+        self.record_host_weapon_set();
+    }
+
+    /// Tick BattleBusSlowDeath first-death air time + empty hulk arming.
+    /// Returns (landed_this_tick, empty_hulk_kill).
+    pub fn tick_battle_bus_slow_death(
+        &mut self,
+        current_frame: u32,
+        _above_terrain_hint: bool,
+        passenger_count: usize,
+    ) -> (bool, bool) {
+        use crate::game_logic::host_battle_bus::BATTLE_BUS_MC_BIT_SECOND_LIFE;
+        if self.battle_bus_body.is_none() {
+            return (false, false);
+        }
+        // Integrate residual throw height (world Z).
+        let (in_first, throw_vz) = self
+            .battle_bus_body
+            .as_ref()
+            .map(|b| (b.is_in_first_death, b.throw_vz))
+            .unwrap_or((false, 0.0));
+        if in_first && throw_vz.abs() > 0.001 {
+            let pos = self.get_position();
+            let mut z = pos.z + throw_vz;
+            let mut new_vz = throw_vz - 0.5; // residual gravity peel
+            if new_vz < 0.0 && z <= 0.0 {
+                z = 0.0;
+                new_vz = 0.0;
+            }
+            self.set_position(glam::Vec3::new(pos.x, pos.y, z.max(0.0)));
+            if let Some(body) = self.battle_bus_body.as_mut() {
+                body.throw_vz = new_vz;
+            }
+        }
+        let above = self.get_position().z > 0.5;
+        let landed = self
+            .battle_bus_body
+            .as_mut()
+            .map(|b| b.try_land_first_death(current_frame, above))
+            .unwrap_or(false);
+        if landed {
+            // C++ setModelConditionState(MODELCONDITION_SECOND_LIFE) + DISABLED_HELD.
+            self.model_condition_bits |= 1u128 << BATTLE_BUS_MC_BIT_SECOND_LIFE;
+            self.stop_moving();
+            self.set_ai_state(AIState::Idle);
+            self.refresh_model_condition_bits();
+        }
+        let empty_kill = self
+            .battle_bus_body
+            .as_mut()
+            .map(|b| b.tick_empty_hulk(passenger_count, current_frame))
+            .unwrap_or(false);
+        (landed, empty_kill)
+    }
+
+    /// True when UndeadBody should intercept a lethal hit (first life only).
+    pub fn battle_bus_should_intercept_lethal(
+        &self,
+        damage_type: crate::game_logic::combat::DamageType,
+        actual_damage: f32,
+    ) -> bool {
+        if !self.is_battle_bus_transport {
+            return false;
+        }
+        // C++ UndeadBody: DAMAGE_UNRESISTABLE bypasses intercept (penalty / script kill).
+        if matches!(
+            damage_type,
+            crate::game_logic::combat::DamageType::Unresistable
+                | crate::game_logic::combat::DamageType::Penalty
+                | crate::game_logic::combat::DamageType::Healing
+                | crate::game_logic::combat::DamageType::Status
+                | crate::game_logic::combat::DamageType::Hack
+                | crate::game_logic::combat::DamageType::Deploy
+                | crate::game_logic::combat::DamageType::Disarm
+                | crate::game_logic::combat::DamageType::KillGarrisoned
+                | crate::game_logic::combat::DamageType::Surrender
+        ) {
+            return false;
+        }
+        let second = self
+            .battle_bus_body
+            .as_ref()
+            .map(|b| b.is_second_life)
+            .unwrap_or(false);
+        !second && actual_damage >= self.health.current && self.health.current > 0.0
     }
 
     /// Install residual GLA Tunnel Network structure:
