@@ -6967,38 +6967,47 @@ impl AIAttackSquadState {
         drop(owner_guard);
 
         let mut squad_guard = squad.lock().ok()?;
-        let objects = squad_guard.get_live_objects();
+        let object_ids = squad_guard.get_live_object_ids();
 
         match difficulty {
             crate::player::GameDifficulty::Easy => {
-                if objects.is_empty() {
+                if object_ids.is_empty() {
                     return None;
                 }
-                let idx = GameLogicRandomValue(0, objects.len().saturating_sub(1) as i32);
-                objects.get(idx as usize).cloned()
+                let idx =
+                    GameLogicRandomValue(0, object_ids.len().saturating_sub(1) as i32) as usize;
+                let id = *object_ids.get(idx)?;
+                OBJECT_REGISTRY.get_object(id)
             }
             crate::player::GameDifficulty::Normal => {
-                let mut best: Option<Arc<RwLock<Object>>> = None;
+                let mut best_id: Option<ObjectID> = None;
                 let mut best_dist_sqr = f32::MAX;
-                for obj in &objects {
-                    if let Ok(obj_guard) = obj.read() {
-                        if obj_guard.is_off_map() != owner_off_map {
-                            continue;
-                        }
-                        let target_pos = *obj_guard.get_position();
-                        let dx = owner_pos.x - target_pos.x;
-                        let dy = owner_pos.y - target_pos.y;
-                        let dist_sqr = dx * dx + dy * dy;
-                        if dist_sqr < best_dist_sqr {
-                            best_dist_sqr = dist_sqr;
-                            best = Some(obj.clone());
-                        }
+                for id in &object_ids {
+                    let Some(dist_sqr) = OBJECT_REGISTRY
+                        .with_object(*id, |obj_guard| {
+                            if obj_guard.is_off_map() != owner_off_map {
+                                return None;
+                            }
+                            let target_pos = *obj_guard.get_position();
+                            let dx = owner_pos.x - target_pos.x;
+                            let dy = owner_pos.y - target_pos.y;
+                            Some(dx * dx + dy * dy)
+                        })
+                        .flatten()
+                    else {
+                        continue;
+                    };
+                    if dist_sqr < best_dist_sqr {
+                        best_dist_sqr = dist_sqr;
+                        best_id = Some(*id);
                     }
                 }
-                best
+                best_id.and_then(|id| OBJECT_REGISTRY.get_object(id))
             }
             crate::player::GameDifficulty::Hard | crate::player::GameDifficulty::Brutal => {
-                objects.first().cloned()
+                object_ids
+                    .first()
+                    .and_then(|id| OBJECT_REGISTRY.get_object(*id))
             }
         }
     }
