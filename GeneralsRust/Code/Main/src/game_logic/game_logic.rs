@@ -1182,6 +1182,9 @@ pub struct GameLogic {
     /// Host CostModifier/Unpause/WeaponBonus upgrade module residuals.
     upgrade_module_residuals:
         crate::game_logic::host_upgrade_module_residuals::HostUpgradeModuleResidualLog,
+    /// Host ReplaceObject / GrantScience / CommandSet upgrade residuals.
+    replace_grant_command_upgrades:
+        crate::game_logic::host_replace_object_upgrade::HostReplaceGrantCommandUpgradeLog,
 
     /// Host China Frenzy ("Rage") residual — temporary ally attack buff in radius.
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
@@ -2772,6 +2775,7 @@ impl GameLogic {
                 crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry::new(),
             defector_special: crate::game_logic::host_defector_special_power::HostDefectorSpecialPowerRegistry::new(),
             upgrade_module_residuals: crate::game_logic::host_upgrade_module_residuals::HostUpgradeModuleResidualLog::default(),
+            replace_grant_command_upgrades: crate::game_logic::host_replace_object_upgrade::HostReplaceGrantCommandUpgradeLog::default(),
             frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
             battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry::new(),
             emergency_repairs:
@@ -23253,6 +23257,16 @@ impl GameLogic {
                 }
                 self.upgrade_module_residuals.record_unpause(upgrade);
             }
+            // C++ CommandSetUpgrade residual.
+            if let Some(cs) =
+                crate::game_logic::host_replace_object_upgrade::command_set_override_for_upgrade(
+                    upgrade,
+                    &obj.template_name,
+                )
+            {
+                obj.set_command_set_override(Some(cs.to_string()));
+                self.replace_grant_command_upgrades.record_command_set(cs);
+            }
             if is_overlord_family_host(&obj.template_name) {
                 if is_gattling_addon_upgrade(upgrade) {
                     obj.install_overlord_gattling_addon();
@@ -23291,6 +23305,55 @@ impl GameLogic {
                 if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
                     player.add_kind_of_production_cost_change(kind, percent);
                     self.upgrade_module_residuals.record_cost(upgrade);
+                }
+            }
+        }
+
+        // C++ GrantScienceUpgrade residual.
+        if let Some(science) =
+            crate::game_logic::host_replace_object_upgrade::grant_science_for_upgrade(upgrade)
+        {
+            let team = self.objects.get(&object_id).map(|o| o.team);
+            if let Some(team) = team {
+                if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
+                    if player.unlock_science(science) {
+                        self.replace_grant_command_upgrades.record_science(science);
+                    }
+                }
+            }
+        }
+
+        // C++ ReplaceObjectUpgrade residual (FakeGLA* → real building).
+        // C++ destroys immediately (pathfinder unmark + destroyObject) before spawn.
+        // Host residual: remove from world map now (skip topple/deferred die list).
+        if crate::game_logic::host_replace_object_upgrade::is_replace_object_upgrade(upgrade) {
+            let info = self
+                .objects
+                .get(&object_id)
+                .map(|o| (o.template_name.clone(), o.team, o.get_position()));
+            if let Some((template_name, team, pos)) = info {
+                if let Some(replacement) =
+                    crate::game_logic::host_replace_object_upgrade::replacement_template_for_fake(
+                        &template_name,
+                    )
+                {
+                    if !self.templates.contains_key(&replacement) {
+                        if let Some(src) = self.templates.get(&template_name).cloned() {
+                            let mut dst = src;
+                            dst.name = replacement.clone();
+                            self.templates.insert(replacement.clone(), dst);
+                        }
+                    }
+                    // Immediate remove — same spirit as C++ destroy-before-create.
+                    let _removed = self.objects.remove(&object_id);
+                    if let Some(new_id) = self.create_object(&replacement, team, pos) {
+                        if let Some(obj) = self.objects.get_mut(&new_id) {
+                            obj.status.under_construction = false;
+                        }
+                        self.replace_grant_command_upgrades
+                            .record_replace(&template_name, &replacement);
+                        let _ = new_id;
+                    }
                 }
             }
         }
@@ -58806,6 +58869,85 @@ mod tests {
     /// C++ SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate::doDisableAttack
     /// setDisabledUntil(DISABLED_EMP, now + DisabledDuration=30000ms).
     /// Fail-closed: not full OCL bomb / spheroid drawable / spark particles.
+
+    #[test]
+    fn replace_object_upgrade_fake_gla_becomes_real() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::GLA, "GLA", true));
+        let mut fake = ThingTemplate::new("FakeGLABarracks");
+        fake.set_health(500.0);
+        fake.add_kind_of(KindOf::Structure);
+        logic.templates.insert("FakeGLABarracks".into(), fake);
+        let mut real = ThingTemplate::new("GLABarracks");
+        real.set_health(1000.0);
+        real.add_kind_of(KindOf::Structure);
+        logic.templates.insert("GLABarracks".into(), real);
+
+        let id = logic
+            .create_object(
+                "FakeGLABarracks",
+                Team::GLA,
+                glam::Vec3::new(10.0, 0.0, 20.0),
+            )
+            .unwrap();
+        logic.apply_upgrade_to_object(id, "Upgrade_BecomeRealGLABarracks");
+        assert!(
+            logic.objects.get(&id).is_none(),
+            "fake must be removed from world"
+        );
+        assert!(
+            logic
+                .objects
+                .values()
+                .any(|o| o.template_name == "GLABarracks" && o.is_alive()),
+            "real barracks must spawn"
+        );
+        assert!(logic.replace_grant_command_upgrades.replace_count >= 1);
+    }
+
+    #[test]
+    fn grant_science_upgrade_moab() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        let mut t = ThingTemplate::new("AmericaCommandCenter");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("AmericaCommandCenter".into(), t);
+        let id = logic
+            .create_object("AmericaCommandCenter", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        logic.apply_upgrade_to_object(id, "Upgrade_AmericaMOAB");
+        let p = logic
+            .players
+            .values()
+            .find(|p| p.team == Team::USA)
+            .unwrap();
+        assert!(
+            p.has_unlocked_science("SCIENCE_MOAB"),
+            "MOAB science must be granted"
+        );
+    }
+
+    #[test]
+    fn command_set_upgrade_emp_mines_on_cc() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("ChinaCommandCenter");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("ChinaCommandCenter".into(), t);
+        let id = logic
+            .create_object("ChinaCommandCenter", Team::China, glam::Vec3::ZERO)
+            .unwrap();
+        logic.apply_upgrade_to_object(id, "Upgrade_ChinaEMPMines");
+        let cs = logic
+            .objects
+            .get(&id)
+            .and_then(|o| o.command_set_override.clone());
+        assert_eq!(cs.as_deref(), Some("ChinaCommandCenterCommandSetUpgrade"));
+    }
 
     #[test]
     fn weapon_set_upgrade_sets_player_upgrade_flag() {

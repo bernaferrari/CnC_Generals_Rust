@@ -192,6 +192,7 @@ pub mod host_raptor;
 pub mod host_red_guard;
 pub mod host_render_terrain_residual;
 pub mod host_repair;
+mod host_replace_object_upgrade;
 pub mod host_residual_acquire;
 pub mod host_rng_residual;
 pub mod host_rocket_buggy;
