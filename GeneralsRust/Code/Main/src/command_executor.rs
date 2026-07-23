@@ -397,6 +397,24 @@ impl<'a> CommandExecutor<'a> {
         if self.should_tighten_group_move(units, destination) {
             return self.execute_tighten_to_position(units, destination);
         }
+        // C++ friend_computeGroundPath + friend_moveFormationToPos residual.
+        if units.len() > 1 && self.compute_ground_path_should_group(units, destination) {
+            let fid0 = units
+                .first()
+                .and_then(|id| self.game_logic.get_object(*id))
+                .map(|o| o.formation_id)
+                .unwrap_or(0);
+            let is_formation = fid0 != 0
+                && units.iter().all(|&id| {
+                    self.game_logic
+                        .get_object(id)
+                        .map(|o| o.formation_id == fid0)
+                        .unwrap_or(false)
+                });
+            if is_formation {
+                return self.execute_move_formation_to_position(units, destination);
+            }
+        }
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
@@ -1484,6 +1502,239 @@ impl<'a> CommandExecutor<'a> {
         } else {
             CommandResult::CannotAttackTarget
         }
+    }
+
+    /// C++ AIData::m_distanceRequiresGroup residual (force group moving when far).
+    const DISTANCE_REQUIRES_GROUP: f32 = 200.0;
+    /// C++ AIData::m_minDistanceForGroup residual.
+    const MIN_DISTANCE_FOR_GROUP: f32 = 40.0;
+
+    /// C++ AIGroup::getCount residual.
+    pub(crate) fn group_count(&self, units: &[ObjectId]) -> usize {
+        units
+            .iter()
+            .filter(|&&id| {
+                self.game_logic
+                    .get_object(id)
+                    .map(|o| o.is_alive())
+                    .unwrap_or(false)
+            })
+            .count()
+    }
+
+    /// C++ AIGroup::getSpeed residual — slowest living mover max_speed.
+    pub(crate) fn group_speed(&self, units: &[ObjectId]) -> f32 {
+        let mut best = f32::INFINITY;
+        let mut saw = false;
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() || !o.can_move() {
+                continue;
+            }
+            if o.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || o.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            if o.contained_by.is_some() {
+                continue;
+            }
+            let spd = o.movement.max_speed.max(0.0);
+            if spd > 0.0 && spd < best {
+                best = spd;
+                saw = true;
+            }
+        }
+        if saw {
+            best
+        } else {
+            0.0
+        }
+    }
+
+    /// C++ AIGroup::getMinMaxAndCenter residual (XZ plane; skip held).
+    /// Returns (min_xz, max_xz, center) or None if empty.
+    pub(crate) fn group_min_max_and_center(
+        &self,
+        units: &[ObjectId],
+    ) -> Option<(glam::Vec2, glam::Vec2, Vec3)> {
+        let mut min_x = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut min_z = f32::INFINITY;
+        let mut max_z = f32::NEG_INFINITY;
+        let mut cx = 0.0f32;
+        let mut cy = 0.0f32;
+        let mut cz = 0.0f32;
+        let mut count = 0u32;
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() || o.contained_by.is_some() {
+                continue;
+            }
+            let p = o.get_position();
+            min_x = min_x.min(p.x);
+            max_x = max_x.max(p.x);
+            min_z = min_z.min(p.z);
+            max_z = max_z.max(p.z);
+            cx += p.x;
+            cy += p.y;
+            cz += p.z;
+            count += 1;
+        }
+        if count == 0 {
+            return None;
+        }
+        let n = count as f32;
+        Some((
+            glam::Vec2::new(min_x, min_z),
+            glam::Vec2::new(max_x, max_z),
+            Vec3::new(cx / n, cy / n, cz / n),
+        ))
+    }
+
+    /// C++ AIGroup::friend_computeGroundPath residual (simplified).
+    /// True when the group should path as a formation/group toward `dest`.
+    pub(crate) fn compute_ground_path_should_group(&self, units: &[ObjectId], dest: Vec3) -> bool {
+        let Some((min, max, center)) = self.group_min_max_and_center(units) else {
+            return false;
+        };
+        let mut num_infantry = 0u32;
+        let mut num_vehicles = 0u32;
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() || o.contained_by.is_some() {
+                continue;
+            }
+            if o.is_kind_of(crate::game_logic::KindOf::Infantry)
+                || o.object_type == crate::game_logic::ObjectType::Infantry
+            {
+                num_infantry += 1;
+            } else if o.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                && !o.is_kind_of(crate::game_logic::KindOf::Aircraft)
+            {
+                num_vehicles += 1;
+            }
+        }
+        if num_infantry + num_vehicles == 0 {
+            return false;
+        }
+
+        // Closest unit → dest distance.
+        let mut closest_sqr = f32::INFINITY;
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() {
+                continue;
+            }
+            let p = o.get_position();
+            let d2 = (p.x - dest.x).powi(2) + (p.z - dest.z).powi(2);
+            closest_sqr = closest_sqr.min(d2);
+        }
+        let bbox_dx = max.x - min.x;
+        let bbox_dz = max.y - min.y;
+        let mut span_sqr = bbox_dx * bbox_dx + bbox_dz * bbox_dz;
+        let req = Self::DISTANCE_REQUIRES_GROUP;
+        let min_d = Self::MIN_DISTANCE_FOR_GROUP;
+        if span_sqr > req * req {
+            // Use group span as the distance metric (C++).
+            closest_sqr = span_sqr;
+        }
+        if closest_sqr < min_d * min_d {
+            return false;
+        }
+        let mut close_enough = closest_sqr > req * req;
+        if num_infantry > 6 {
+            close_enough = true;
+        }
+        if num_vehicles > 4 {
+            close_enough = true;
+        }
+        // Formation already stamped → always group-path.
+        let fid0 = units
+            .first()
+            .and_then(|id| self.game_logic.get_object(*id))
+            .map(|o| o.formation_id)
+            .unwrap_or(0);
+        if fid0 != 0
+            && units.iter().all(|&id| {
+                self.game_logic
+                    .get_object(id)
+                    .map(|o| o.formation_id == fid0)
+                    .unwrap_or(false)
+            })
+        {
+            close_enough = true;
+        }
+        let _ = center;
+        close_enough
+    }
+
+    /// C++ AIGroup::friend_moveFormationToPos residual.
+    /// Paths each formation member to dest + stamped offset.
+    pub(crate) fn execute_move_formation_to_position(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+    ) -> CommandResult {
+        if !destination.x.is_finite() || !destination.z.is_finite() {
+            return CommandResult::InvalidLocation;
+        }
+        // Ensure formation stamps exist.
+        let need_stamp = {
+            let fid0 = units
+                .first()
+                .and_then(|id| self.game_logic.get_object(*id))
+                .map(|o| o.formation_id)
+                .unwrap_or(0);
+            fid0 == 0
+                || !units.iter().all(|&id| {
+                    self.game_logic
+                        .get_object(id)
+                        .map(|o| o.formation_id == fid0 && fid0 != 0)
+                        .unwrap_or(false)
+                })
+        };
+        if need_stamp {
+            let _ = self.execute_create_formation(units);
+        }
+        let goals = self.group_move_destinations(units, destination);
+        let mut any = false;
+        for (unit_id, goal) in goals {
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.stop_attack();
+            }
+            if self.game_logic.assign_unit_path(unit_id, goal, &[]) {
+                if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                    unit.set_ai_state(AIState::Moving);
+                }
+                any = true;
+            } else if self.path_to_goal_with_state(unit_id, goal, AIState::Moving) {
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ AIGroup::groupFollowPath residual (empty body in retail) —
+    /// host uses non-exact waypoint follow.
+    pub(crate) fn execute_follow_path(
+        &mut self,
+        units: &[ObjectId],
+        path: &[Vec3],
+    ) -> CommandResult {
+        self.execute_follow_waypoint_path(units, path, false, false)
     }
 
     /// C++ AIGroup::isMember residual.
@@ -6576,6 +6827,93 @@ mod group_move_tests {
         assert_eq!(u.ai_state, AIState::AttackingGround);
         assert_eq!(u.max_shots_to_fire, 3);
         assert!(u.force_attack);
+    }
+
+    #[test]
+    fn group_geometry_and_formation_move() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("GG_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("GG_V".to_string(), tpl);
+        let a = logic
+            .create_object("GG_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("GG_V", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.group_count(&[a, b]), 2);
+            let (min, max, center) = exec.group_min_max_and_center(&[a, b]).unwrap();
+            assert!((center.x - 20.0).abs() < 0.1);
+            assert!((max.x - min.x - 40.0).abs() < 0.1);
+            assert!(exec.group_speed(&[a, b]) >= 0.0);
+            assert_eq!(
+                exec.execute_create_formation(&[a, b]),
+                CommandResult::Success
+            );
+            let dest = Vec3::new(300.0, 0.0, 0.0);
+            assert!(exec.compute_ground_path_should_group(&[a, b], dest));
+            assert_eq!(
+                exec.execute_move_formation_to_position(&[a, b], dest),
+                CommandResult::Success
+            );
+        }
+        let ga = logic
+            .get_object(a)
+            .unwrap()
+            .movement
+            .path
+            .last()
+            .copied()
+            .or(logic.get_object(a).unwrap().movement.target_position)
+            .unwrap();
+        let gb = logic
+            .get_object(b)
+            .unwrap()
+            .movement
+            .path
+            .last()
+            .copied()
+            .or(logic.get_object(b).unwrap().movement.target_position)
+            .unwrap();
+        assert!(
+            (ga.x - gb.x).abs() > 20.0,
+            "formation move keeps offset ga={ga:?} gb={gb:?}"
+        );
+    }
+
+    #[test]
+    fn follow_path_alias_paths_units() {
+        use super::CommandExecutor;
+        use crate::command_system::CommandResult;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("FP_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("FP_V".to_string(), tpl);
+        let id = logic.create_object("FP_V", Team::USA, Vec3::ZERO).unwrap();
+        let path = vec![Vec3::new(10.0, 0.0, 0.0), Vec3::new(50.0, 0.0, 0.0)];
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_follow_path(&[id], &path),
+                CommandResult::Success
+            );
+        }
+        let u = logic.get_object(id).unwrap();
+        assert!(!u.movement.path.is_empty() || u.movement.target_position.is_some());
     }
 
     #[test]
