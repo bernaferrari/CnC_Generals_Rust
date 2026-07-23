@@ -11450,7 +11450,7 @@ impl Object {
     /// * `defection_type` - Type of defection (0 = normal)
     pub fn defect(&mut self, new_team: Option<Arc<RwLock<Team>>>, defection_type: u32) {
         // C++ parity: contained units do not defect.
-        if self.get_container().is_some() {
+        if self.get_container_id().is_some() {
             return;
         }
 
