@@ -2814,6 +2814,22 @@ pub fn host_weapon_is_kill_garrisoned_damage(name: &str) -> bool {
     }
 }
 
+/// C++ Weapon.ini / body DamageType=HEALING residual (medics, rebuild holes, flight deck).
+pub fn host_weapon_is_healing_damage(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("heal")
+        || n.contains("medic")
+        || n.contains("ambulance")
+        || (n.contains("repair") && !n.contains("air"))
+        || n.contains("rebuildhole")
+}
+
+/// C++ DamageType=WATER residual (terrain underwater / waveguide).
+pub fn host_weapon_is_water_damage(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("waterdamage") || n.contains("waveguide") || n == "water"
+}
+
 /// C++ Weapon.ini DamageStatusType residual name (OBJECT_STATUS bit name).
 pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static str> {
     if !host_weapon_is_status_damage(name) {
@@ -5213,6 +5229,13 @@ mod tests {
         assert!(!host_weapon_is_disarm_damage("AmericaTankCrusaderGun"));
     }
 
+    #[test]
+    fn healing_water_damage_peels() {
+        assert!(host_weapon_is_healing_damage("AmericaInfantryMedicHeal"));
+        assert!(host_weapon_is_healing_damage("AmbulanceHealWeapon"));
+        assert!(host_weapon_is_water_damage("WaveGuideWaterDamage"));
+        assert!(!host_weapon_is_healing_damage("AmericaTankCrusaderGun"));
+    }
     #[test]
     fn deploy_hack_surrender_kill_garrisoned_peels() {
         assert!(host_weapon_is_deploy_damage("TroopCrawlerAssault"));
