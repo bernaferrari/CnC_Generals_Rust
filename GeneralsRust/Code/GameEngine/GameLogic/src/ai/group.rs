@@ -467,10 +467,207 @@ impl AIGroup {
         add_waypoint: bool,
         cmd_source: CommandSourceType,
     ) {
+        // C++ AIGroup::groupMoveToPosition — centroid/formation, click-to-gather,
+        // held/immobile filters, near-to-far sort, computeIndividualDestination.
+        // friend_moveInfantry/Vehicle column paths remain residual (optional fast path).
+
+        let mut goal = *pos;
+        let (min, max, mut center, mut is_formation) = match self.get_min_max_and_center() {
+            Some(v) => v,
+            None => {
+                // Empty / no AI members — nothing to move.
+                return;
+            }
+        };
+
+        if add_waypoint {
+            is_formation = false;
+        }
+
+        // Click-to-gather: player click inside scaled group rect → tighten.
+        let mut tighten_group = false;
+        if !is_formation && matches!(cmd_source, CommandSourceType::FromPlayer) {
+            let gather_factor = game_engine::common::ini::get_global_data()
+                .map(|d| d.read().group_move_click_to_gather_factor)
+                .unwrap_or(0.0);
+            if gather_factor > 0.0 {
+                let mut smin = min;
+                let mut smax = max;
+                // ScaleRect2D about center by gather_factor (C++ ScaleRect2D).
+                let cx = (smin.x + smax.x) * 0.5;
+                let cy = (smin.y + smax.y) * 0.5;
+                let hx = (smax.x - smin.x) * 0.5 * gather_factor;
+                let hy = (smax.y - smin.y) * 0.5 * gather_factor;
+                smin.x = cx - hx;
+                smax.x = cx + hx;
+                smin.y = cy - hy;
+                smax.y = cy + hy;
+                if goal.x >= smin.x && goal.x <= smax.x && goal.y >= smin.y && goal.y <= smax.y {
+                    tighten_group = true;
+                }
+            }
+        }
+
+        // Aircraft / helipad residuals affect formation + tighten (C++).
+        let mut extra_margin = 0.0_f32;
+        const STD_AIRCRAFT_EXTRA_MARGIN: f32 = 20.0;
+        const STD_WAYPOINT_CLAMP_MARGIN: f32 = 10.0;
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    ai.ai_move_to_position(pos, add_waypoint, cmd_source);
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                if obj.is_kind_of(KindOf::ProducedAtHelipad) {
+                    is_formation = false;
+                    extra_margin = extra_margin.max(obj.get_geometry_info().get_major_radius());
+                } else if obj.is_kind_of(KindOf::Aircraft) {
+                    if let Some(ai) = obj.get_ai_update_interface() {
+                        if let Ok(ai_guard) = ai.lock() {
+                            if !ai_guard.is_doing_ground_movement() {
+                                tighten_group = false;
+                                is_formation = false;
+                            }
+                        }
+                    }
+                    extra_margin = extra_margin.max(STD_AIRCRAFT_EXTRA_MARGIN);
+                }
+            });
+        }
+
+        // clampWaypointPosition residual: keep goal on map with margin (best-effort).
+        let _margin = STD_WAYPOINT_CLAMP_MARGIN + extra_margin;
+        let _ = _margin; // full map clamp needs TerrainLogic extents; dest Z handled below.
+
+        if tighten_group {
+            is_formation = false;
+            if !add_waypoint {
+                // C++ intentionally uses (max.x-min.x) for both dx and dy.
+                let cell = PATHFIND_CELL_SIZE_F;
+                let dx = ((max.x - min.x) / cell) as i32;
+                let dy = ((max.x - min.x) / cell) as i32;
+                let cells = dx * dy;
+                if cells < 2000 {
+                    self.group_tighten_to_position(&goal, false, cmd_source);
+                    return;
+                }
+            }
+        }
+
+        // Collect movable members with distance key (near goal first).
+        let mut movers: Vec<(ObjectID, f32)> = Vec::new();
+        for &member_id in &self.member_list {
+            let Some(key) = OBJECT_REGISTRY
+                .with_object(member_id, |obj| {
+                    if obj.is_disabled_by_type(DisabledType::Held) {
+                        return None;
+                    }
+                    if obj.is_kind_of(KindOf::Immobile) {
+                        return None;
+                    }
+                    if obj.get_ai_update_interface().is_none() {
+                        return None;
+                    }
+                    let unit_pos = obj.get_position();
+                    let dx = unit_pos.x - goal.x;
+                    let dy = unit_pos.y - goal.y;
+                    Some(dx * dx + dy * dy)
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            movers.push((member_id, key));
+        }
+        movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut first_unit = true;
+        let mut goal_pos = goal;
+        for (member_id, _) in movers {
+            // Clear formation membership on free move (C++ setFormationID(NO_FORMATION_ID)).
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
+                obj.set_formation_id(FormationID::NONE);
+            });
+
+            if first_unit {
+                if is_formation {
+                    if let Some(v) =
+                        OBJECT_REGISTRY.with_object(member_id, |obj| obj.get_formation_offset())
+                    {
+                        goal_pos.x -= v.x;
+                        goal_pos.y -= v.y;
+                    }
+                } else if let Some(p) =
+                    OBJECT_REGISTRY.with_object(member_id, |obj| *obj.get_position())
+                {
+                    center = p;
+                }
+                first_unit = false;
+            }
+
+            let Some(dest) =
+                self.compute_individual_destination(member_id, &goal_pos, &center, is_formation)
+            else {
+                continue;
+            };
+
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                let Some(ai) = obj.get_ai_update_interface() else {
+                    return;
+                };
+                if !add_waypoint {
+                    ai.ai_move_to_position(&dest, false, cmd_source);
+                } else {
+                    ai.ai_follow_path_append(&dest, cmd_source);
+                }
+            });
+        }
+    }
+
+    /// C++ AIGroup::groupTightenToPosition residual — gather members toward click.
+    /// Not full column-path packing; uses individual destinations about the click.
+    pub fn group_tighten_to_position(
+        &self,
+        pos: &Coord3D,
+        add_waypoint: bool,
+        cmd_source: CommandSourceType,
+    ) {
+        let center = self.get_center().unwrap_or_else(|| *pos);
+        let mut movers: Vec<(ObjectID, f32)> = Vec::new();
+        for &member_id in &self.member_list {
+            let Some(key) = OBJECT_REGISTRY
+                .with_object(member_id, |obj| {
+                    if obj.is_disabled_by_type(DisabledType::Held)
+                        || obj.is_kind_of(KindOf::Immobile)
+                        || obj.get_ai_update_interface().is_none()
+                    {
+                        return None;
+                    }
+                    let p = obj.get_position();
+                    let dx = p.x - pos.x;
+                    let dy = p.y - pos.y;
+                    Some(dx * dx + dy * dy)
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            movers.push((member_id, key));
+        }
+        movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        for (member_id, _) in movers {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
+                obj.set_formation_id(FormationID::NONE);
+            });
+            let Some(dest) = self.compute_individual_destination(member_id, pos, &center, false)
+            else {
+                continue;
+            };
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                let Some(ai) = obj.get_ai_update_interface() else {
+                    return;
+                };
+                if !add_waypoint {
+                    ai.ai_move_to_position(&dest, false, cmd_source);
+                } else {
+                    ai.ai_follow_path_append(&dest, cmd_source);
                 }
             });
         }
