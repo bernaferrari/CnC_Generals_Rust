@@ -87,7 +87,6 @@ impl NetworkClock {
 mod tests {
 
     #[test]
-    #[test]
     fn presentation_path_applies_pose_without_object_registry() {
         let src = include_str!("cnc_game_engine.rs");
         assert!(
@@ -207,7 +206,6 @@ mod tests {
         );
     }
 
-    #[test]
     #[test]
     fn show_shell_menu_sets_shell_active_for_wnd_residual() {
         let src = include_str!("cnc_game_engine.rs");
@@ -9886,6 +9884,7 @@ impl CnCGameEngine {
         let command_type = match kind {
             PendingMapCommand::AttackMove => crate::command_system::CommandType::AttackMoveTo {
                 destination: location,
+                max_shots: -1,
             },
             PendingMapCommand::Guard(mode) => {
                 if let Some(tid) = target_object {
@@ -12484,8 +12483,10 @@ impl CnCGameEngine {
                 if let crate::command_system::CommandType::MoveTo { destination, .. } =
                     command.command_type
                 {
-                    command.command_type =
-                        crate::command_system::CommandType::AttackMoveTo { destination };
+                    command.command_type = crate::command_system::CommandType::AttackMoveTo {
+                        destination,
+                        max_shots: -1,
+                    };
                 }
             }
             self.game_logic.queue_command(command);
@@ -15736,8 +15737,10 @@ impl CnCGameEngine {
                 if let crate::command_system::CommandType::MoveTo { destination, .. } =
                     command.command_type
                 {
-                    command.command_type =
-                        crate::command_system::CommandType::AttackMoveTo { destination };
+                    command.command_type = crate::command_system::CommandType::AttackMoveTo {
+                        destination,
+                        max_shots: -1,
+                    };
                 }
             }
             self.game_logic.queue_command(command);

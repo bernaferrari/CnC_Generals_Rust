@@ -23,6 +23,10 @@ fn screen_to_world(screen: Vec2, viewport_size: Vec2, world_min: Vec3, world_max
     )
 }
 
+fn default_max_shots_cmd() -> i32 {
+    -1
+}
+
 /// All possible command types that can be issued in the game
 /// Based on MSG_* types from MessageStream.h starting at MSG_BEGIN_NETWORK_MESSAGES = 1000
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,6 +53,9 @@ pub enum CommandType {
     },
     AttackMoveTo {
         destination: Vec3,
+        /// C++ maxShotsToFire residual (-1 / NO_MAX = unlimited).
+        #[serde(default = "default_max_shots_cmd")]
+        max_shots: i32,
     },
     ForceMoveTo {
         destination: Vec3,
@@ -1068,7 +1075,10 @@ impl CommandSystem {
 
         if auto_attack {
             if let CommandType::MoveTo { destination, .. } = command_type {
-                command_type = CommandType::AttackMoveTo { destination };
+                command_type = CommandType::AttackMoveTo {
+                    destination,
+                    max_shots: -1,
+                };
             }
         }
 
@@ -2249,7 +2259,8 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         }),
         "removebeacon" | "deletebeacon" => Some(CommandType::RemoveBeacon),
         "attackmove" | "attackmoveto" => Some(CommandType::AttackMoveTo {
-            destination: glam::Vec3::ZERO, // filled by dispatch from cursor/world
+            destination: glam::Vec3::ZERO, // filled by dispatch from cursor/world,
+            max_shots: -1,
         }),
         "setrallypoint" => Some(CommandType::SetRallyPoint {
             location: glam::Vec3::ZERO, // filled by dispatch
@@ -3233,8 +3244,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
-    #[test]
     fn right_click_ctrl_force_attacks_object_residual() {
         use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
@@ -3424,7 +3433,6 @@ mod tests {
         }
     }
 
-    #[test]
     #[test]
     fn command_type_from_button_name_view_and_formation_residual() {
         use crate::command_system::{command_type_from_button_name, CommandType};

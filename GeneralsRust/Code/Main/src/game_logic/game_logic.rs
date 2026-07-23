@@ -7864,11 +7864,15 @@ impl GameLogic {
                     .and_then(|pid| self.players.get(&pid))
                     .map(|p| p.is_local)
                     .unwrap_or(false);
+                // C++ attack-move auto-acquire: Idle OR AttackMoving/is_attack_path.
                 let idle = matches!(o.ai_state, AIState::Idle) && o.target.is_none();
-                (
-                    is_local,
-                    idle && o.auto_acquire_when_idle && o.is_alive() && o.can_attack(),
-                )
+                let attack_moving = matches!(o.ai_state, AIState::AttackMoving) || o.is_attack_path;
+                let want = (idle || attack_moving)
+                    && o.auto_acquire_when_idle
+                    && o.is_alive()
+                    && o.can_attack()
+                    && o.target.is_none();
+                (is_local, want)
             };
             if do_check {
                 // C++ AutoAcquireEnemiesWhenIdle applies to player and AI units.
@@ -9385,10 +9389,12 @@ impl GameLogic {
         unit_id: ObjectId,
         is_player_controlled: bool,
     ) -> Option<ObjectId> {
-        let idle = self.objects.get(&unit_id).map(|o| {
-            matches!(o.ai_state, AIState::Idle) && !o.status.attacking && o.target.is_none()
+        let eligible = self.objects.get(&unit_id).map(|o| {
+            let idle = matches!(o.ai_state, AIState::Idle) && !o.status.attacking;
+            let attack_moving = matches!(o.ai_state, AIState::AttackMoving) || o.is_attack_path;
+            (idle || attack_moving) && o.target.is_none() && o.is_alive()
         })?;
-        if !idle {
+        if !eligible {
             return None;
         }
         if !self.mood_allows_attack(unit_id, is_player_controlled) {
@@ -44312,25 +44318,30 @@ impl GameLogic {
         if let Some(player) = self.players.get(&player_id) {
             let selected = player.selected_objects.clone();
             for &object_id in &selected {
-                let is_mobile = self
+                let (is_mobile, can_attack) = self
                     .objects
                     .get(&object_id)
-                    .map(|obj| obj.is_mobile())
-                    .unwrap_or(false);
+                    .map(|obj| (obj.is_mobile(), obj.can_attack() || obj.weapon.is_some()))
+                    .unwrap_or((false, false));
                 if is_mobile {
                     self.move_object_with_pathfinding(
                         object_id,
                         target_position,
-                        Some(AIState::AttackMoving),
+                        Some(if can_attack {
+                            AIState::AttackMoving
+                        } else {
+                            AIState::Moving
+                        }),
                     );
+                    if let Some(obj) = self.objects.get_mut(&object_id) {
+                        if can_attack {
+                            obj.is_attack_path = true;
+                            obj.auto_acquire_when_idle = true;
+                            obj.set_max_shots_to_fire(-1);
+                        }
+                    }
                 }
             }
-            log::trace!(
-                "{} commanded {} units to attack-move to {:?}",
-                player_id,
-                selected.len(),
-                target_position
-            );
         }
     }
 
@@ -62825,6 +62836,7 @@ mod tests {
         logic.queue_command(GameCommand {
             command_type: CommandType::AttackMoveTo {
                 destination: glam::Vec3::new(50.0, 0.0, 50.0),
+                max_shots: -1,
             },
             player_id: 0,
             command_id: 1,

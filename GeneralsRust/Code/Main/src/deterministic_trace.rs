@@ -422,9 +422,10 @@ pub fn summarize_command(command: &CommandType) -> String {
             }
             result
         }
-        CommandType::AttackMoveTo { destination } => {
-            format_vec_command("AttackMoveTo", *destination)
-        }
+        CommandType::AttackMoveTo {
+            destination,
+            max_shots: -1,
+        } => format_vec_command("AttackMoveTo", *destination),
         CommandType::ForceMoveTo { destination } => format_vec_command("ForceMoveTo", *destination),
         CommandType::AddWaypoint { destination } => format_vec_command("AddWaypoint", *destination),
         CommandType::Attack { target_id } => format!("Attack:{}", target_id.0),

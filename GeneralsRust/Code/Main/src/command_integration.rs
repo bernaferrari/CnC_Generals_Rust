@@ -489,6 +489,7 @@ impl InputCommandProcessor {
                     if self.issue_immediate_command(
                         CommandType::AttackMoveTo {
                             destination: self.mouse_world_pos,
+                            max_shots: -1,
                         },
                         game_logic,
                     ) {
@@ -530,6 +531,7 @@ impl InputCommandProcessor {
                 if self.issue_immediate_command(
                     CommandType::AttackMoveTo {
                         destination: self.mouse_world_pos,
+                        max_shots: -1,
                     },
                     game_logic,
                 ) {
