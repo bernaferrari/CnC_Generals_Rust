@@ -490,10 +490,6 @@ impl DozerAIUpdate {
         }
     }
 
-    fn owner_object(&self) -> Option<Arc<RwLock<Object>>> {
-        TheGameLogic::find_object_by_id(self.object_id)
-    }
-
     pub fn get_repair_health_per_second(&self) -> Real {
         self.data.repair_health_percent_per_second
     }
@@ -504,7 +500,7 @@ impl DozerAIUpdate {
 
     pub fn get_bored_range(&self) -> Real {
         let mut range = self.data.bored_range;
-        let player_id = self.owner_object().and_then(|obj| {
+        let player_id = TheGameLogic::find_object_by_id(self.object_id).and_then(|obj| {
             let guard = obj.read().ok()?;
             guard.get_controlling_player_id()
         });
@@ -611,7 +607,7 @@ impl DozerAIUpdate {
         if task == DozerTask::Invalid {
             return;
         }
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
         let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
@@ -706,7 +702,7 @@ impl DozerAIUpdate {
                 point.valid = false;
             }
         }
-        if let Some(owner) = self.owner_object() {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(owner_guard) = owner.read() {
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
@@ -718,7 +714,7 @@ impl DozerAIUpdate {
     }
 
     fn internal_task_complete_or_cancelled(&mut self, task: DozerTask) {
-        if let Some(owner) = self.owner_object() {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(mut owner_guard) = owner.write() {
                 if task == DozerTask::Build || task == DozerTask::Repair {
                     owner_guard.clear_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
@@ -775,7 +771,7 @@ impl DozerAIUpdate {
     }
 
     pub fn set_repair_target(&mut self, target_id: ObjectID, cmd_source: CommandSourceType) {
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
         let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
@@ -806,7 +802,7 @@ impl DozerAIUpdate {
         target_id: ObjectID,
         cmd_source: CommandSourceType,
     ) {
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
         let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
@@ -992,7 +988,7 @@ impl DozerAIUpdate {
         if self.current_task == DozerTask::Repair {
             let target_id = self.get_task_target(DozerTask::Repair);
             if let (Some(owner), Some(target)) = (
-                self.owner_object(),
+                TheGameLogic::find_object_by_id(self.object_id),
                 TheGameLogic::find_object_by_id(target_id),
             ) {
                 if let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) {
@@ -1052,7 +1048,7 @@ impl DozerAIUpdate {
             return;
         };
 
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
         let Some(target) = TheGameLogic::find_object_by_id(task.target_id) else {
