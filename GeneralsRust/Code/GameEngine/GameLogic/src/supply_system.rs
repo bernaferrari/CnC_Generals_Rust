@@ -794,6 +794,17 @@ fn owner_from_state(state: &dyn StateImplementation) -> Option<Arc<RwLock<Object
     let owner_id = owner_id_from_state(state)?;
     resolve_supply_object(owner_id).ok()
 }
+
+fn owner_ai_from_state(
+    state: &dyn StateImplementation,
+) -> Option<Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>> {
+    let owner_id = owner_id_from_state(state)?;
+    let owner = resolve_supply_object(owner_id).ok()?;
+    owner
+        .read()
+        .ok()
+        .and_then(|guard| guard.get_ai_update_interface())
+}
 fn owner_ai_and_truck(
     state: &State,
 ) -> Result<(ObjectID, Arc<Mutex<dyn AIUpdateInterface>>), String> {
@@ -1368,15 +1379,7 @@ impl SupplyTruckStateMachine {
     }
 
     fn owner_docking(state: &dyn StateImplementation, _data: &StateTransitionUserData) -> bool {
-        let owner = match owner_from_state(state) {
-            Some(owner) => owner,
-            None => return false,
-        };
-        let ai = match owner
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-        {
+        let ai = match owner_ai_from_state(state) {
             Some(ai) => ai,
             None => return false,
         };
@@ -1388,15 +1391,7 @@ impl SupplyTruckStateMachine {
     }
 
     fn owner_idle(state: &dyn StateImplementation, _data: &StateTransitionUserData) -> bool {
-        let owner = match owner_from_state(state) {
-            Some(owner) => owner,
-            None => return false,
-        };
-        let ai = match owner
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-        {
+        let ai = match owner_ai_from_state(state) {
             Some(ai) => ai,
             None => return false,
         };
@@ -1407,15 +1402,7 @@ impl SupplyTruckStateMachine {
         state: &dyn StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
-        let owner = match owner_from_state(state) {
-            Some(owner) => owner,
-            None => return false,
-        };
-        let ai = match owner
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-        {
+        let ai = match owner_ai_from_state(state) {
             Some(ai) => ai,
             None => return false,
         };
@@ -1436,15 +1423,7 @@ impl SupplyTruckStateMachine {
         state: &dyn StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
-        let owner = match owner_from_state(state) {
-            Some(owner) => owner,
-            None => return false,
-        };
-        let ai = match owner
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-        {
+        let ai = match owner_ai_from_state(state) {
             Some(ai) => ai,
             None => return false,
         };
@@ -1465,15 +1444,7 @@ impl SupplyTruckStateMachine {
         state: &dyn StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
-        let owner = match owner_from_state(state) {
-            Some(owner) => owner,
-            None => return false,
-        };
-        let ai = match owner
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-        {
+        let ai = match owner_ai_from_state(state) {
             Some(ai) => ai,
             None => return false,
         };
@@ -1491,15 +1462,7 @@ impl SupplyTruckStateMachine {
         state: &dyn StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
-        let owner = match owner_from_state(state) {
-            Some(owner) => owner,
-            None => return false,
-        };
-        let ai = match owner
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-        {
+        let ai = match owner_ai_from_state(state) {
             Some(ai) => ai,
             None => return false,
         };
@@ -1517,15 +1480,7 @@ impl SupplyTruckStateMachine {
         state: &dyn StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
-        let owner = match owner_from_state(state) {
-            Some(owner) => owner,
-            None => return false,
-        };
-        let ai = match owner
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-        {
+        let ai = match owner_ai_from_state(state) {
             Some(ai) => ai,
             None => return false,
         };
