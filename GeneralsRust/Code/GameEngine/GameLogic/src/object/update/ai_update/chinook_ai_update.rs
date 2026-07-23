@@ -644,12 +644,8 @@ impl ChinookAIUpdate {
         }
     }
 
-    fn owner_object(&self) -> Option<Arc<RwLock<Object>>> {
-        TheGameLogic::find_object_by_id(self.object_id)
-    }
-
     fn get_potential_rappeller(&self) -> Option<Arc<RwLock<Object>>> {
-        let owner = self.owner_object()?;
+        let owner = TheGameLogic::find_object_by_id(self.object_id)?;
         let owner_guard = owner.read().ok()?;
         let contain = owner_guard.get_contain()?;
         for object_id in contain.get_contained_objects() {
@@ -694,7 +690,7 @@ impl ChinookAIUpdate {
     }
 
     fn start_combat_drop(&mut self) -> bool {
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return false;
         };
         let Ok(mut owner_guard) = owner.write() else {
@@ -801,7 +797,7 @@ impl ChinookAIUpdate {
         let Some(mut state) = self.combat_drop_state.take() else {
             return true;
         };
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return true;
         };
         let Ok(owner_guard) = owner.read() else {
@@ -917,7 +913,7 @@ impl ChinookAIUpdate {
     }
 
     fn finish_combat_drop(&mut self, owner_dead: bool) {
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             self.combat_drop_state = None;
             self.combat_drop_started = false;
             return;
@@ -986,7 +982,7 @@ impl ChinookAIUpdate {
         if self.airfield_for_healing != INVALID_ID && self.airfield_for_healing != id {
             if let (Some(airfield), Some(owner)) = (
                 TheGameLogic::find_object_by_id(self.airfield_for_healing),
-                self.owner_object(),
+                TheGameLogic::find_object_by_id(self.object_id),
             ) {
                 if let Ok(guard) = airfield.read() {
                     let _ = guard.with_parking_place_behavior(|pp| {
@@ -1032,7 +1028,7 @@ impl ChinookAIUpdate {
         }
         let mut result = self.base.get_state() == SupplyTruckState::Idle;
         if result && self.flight_status == ChinookFlightStatus::Landed {
-            if let Some(owner) = self.owner_object() {
+            if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
                 if let Ok(guard) = owner.read() {
                     if let Some(contain) = guard.get_contain() {
                         if contain.has_objects_wanting_to_enter_or_exit() {
@@ -1053,7 +1049,7 @@ impl ChinookAIUpdate {
         if !self.base.is_available_for_supplying() {
             return false;
         }
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return false;
         };
         let Ok(guard) = owner.read() else {
@@ -1093,7 +1089,7 @@ impl ChinookAIUpdate {
     }
 
     pub fn get_upgraded_supply_boost(&self) -> u32 {
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return 0;
         };
         let Ok(owner_guard) = owner.read() else {
@@ -1143,7 +1139,7 @@ impl ChinookAIUpdate {
         match params.cmd {
             AiCommandType::MoveToPositionAndEvacuate
             | AiCommandType::MoveToPositionAndEvacuateAndExit => {
-                let Some(owner) = self.owner_object() else {
+                let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
                     return true;
                 };
                 let Ok(owner_guard) = owner.read() else {
@@ -1179,7 +1175,7 @@ impl ChinookAIUpdate {
     }
 
     pub fn private_idle(&mut self, cmd_source: CommandSourceType) {
-        if let Some(owner) = self.owner_object() {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
                 if let Some(contain) = guard.get_contain() {
                     if let Some(rider_id) = contain.friend_get_rider() {
@@ -1209,7 +1205,7 @@ impl ChinookAIUpdate {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
-        if let Some(owner) = self.owner_object() {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
                 if !guard.test_status(crate::common::ObjectStatusTypes::CanAttack) {
                     return;
@@ -1273,7 +1269,7 @@ impl ChinookAIUpdate {
         if victim.is_none() {
             return;
         }
-        if let Some(owner) = self.owner_object() {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
                 if !guard.test_status(crate::common::ObjectStatusTypes::CanAttack) {
                     return;
@@ -1367,7 +1363,7 @@ impl ChinookAIUpdate {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
-        if let Some(owner) = self.owner_object() {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
                 if !guard.test_status(crate::common::ObjectStatusTypes::CanAttack) {
                     return;
@@ -1445,7 +1441,7 @@ impl ChinookAIUpdate {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
-        if let Some(owner) = self.owner_object() {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
                 if let Some(contain) = guard.get_contain() {
                     if let Some(rider_id) = contain.friend_get_rider() {
@@ -1492,7 +1488,7 @@ impl ChinookAIUpdate {
         ) {
             return;
         }
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
         let Some(repair_depot) = TheGameLogic::find_object_by_id(repair_depot_id) else {
@@ -1532,7 +1528,10 @@ impl ChinookAIUpdate {
         let target = target_id.and_then(TheGameLogic::find_object_by_id);
         if let Some(target_obj) = target.as_ref() {
             if cmd_source == CommandSourceType::FromPlayer {
-                if let (Some(owner), Ok(target_guard)) = (self.owner_object(), target_obj.read()) {
+                if let (Some(owner), Ok(target_guard)) = (
+                    TheGameLogic::find_object_by_id(self.object_id),
+                    target_obj.read(),
+                ) {
                     if let Ok(owner_guard) = owner.read() {
                         if !ActionManager::can_enter_object(
                             &*owner_guard,
@@ -1551,7 +1550,7 @@ impl ChinookAIUpdate {
         if target.is_none() {
             let mut tmp = local_pos;
             let mut options = crate::helpers::FindPositionOptions::default();
-            if let Some(owner) = self.owner_object() {
+            if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
                 if let Ok(owner_guard) = owner.read() {
                     options.max_radius =
                         owner_guard.get_geometry_info().get_bounding_circle_radius() * 100.0;
@@ -1579,7 +1578,7 @@ impl ChinookAIUpdate {
     }
 
     fn update_rotor_wash(&self) {
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
         let Ok(owner_guard) = owner.read() else {
@@ -1635,7 +1634,7 @@ impl ChinookAIUpdate {
         if self.airfield_for_healing != INVALID_ID {
             if let (Some(airfield), Some(owner)) = (
                 TheGameLogic::find_object_by_id(self.airfield_for_healing),
-                self.owner_object(),
+                TheGameLogic::find_object_by_id(self.object_id),
             ) {
                 if let (Ok(airfield_guard), Ok(owner_guard)) = (airfield.read(), owner.read()) {
                     let mut healed = false;
@@ -1667,7 +1666,7 @@ impl ChinookAIUpdate {
             }
         }
 
-        if let Some(owner) = self.owner_object() {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
                 if let Some(contain) = guard.get_contain() {
                     if self.base.get_state() == SupplyTruckState::Idle {
@@ -1740,7 +1739,7 @@ impl ChinookAIUpdate {
     }
 
     fn update_flight_status(&mut self, ai: &mut dyn AIUpdateInterface) {
-        let Some(owner) = self.owner_object() else {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
         let Ok(guard) = owner.read() else {
