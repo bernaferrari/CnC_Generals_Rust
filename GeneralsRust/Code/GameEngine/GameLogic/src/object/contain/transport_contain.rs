@@ -553,21 +553,21 @@ impl TransportContain {
         }
 
         // Handle special case: Jarmen Kell + Combat Bike weapon timer transfer
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(mut owner) = owner_obj.write() {
-                if let Ok(rider) = obj.read() {
-                    if owner.is_kind_of(KindOf::CliffJumper)
-                        && rider.is_kind_of(KindOf::Hero)
-                        && rider.is_kind_of(KindOf::Salvager)
-                    {
-                        // Transfer weapon timers between bike and rider
-                        if let (Some(bike_weapon), Some(rider_weapon)) = (
-                            owner.get_weapon_in_slot_mut(crate::weapon::WeaponSlotType::Secondary),
-                            rider.get_weapon_in_slot(crate::weapon::WeaponSlotType::Secondary),
-                        ) {
-                            bike_weapon.transfer_next_shot_stats_from(&rider_weapon);
+        if let Ok(rider) = obj.read() {
+            if rider.is_kind_of(KindOf::Hero) && rider.is_kind_of(KindOf::Salvager) {
+                if let Some(rider_weapon) =
+                    rider.get_weapon_in_slot(crate::weapon::WeaponSlotType::Secondary)
+                {
+                    let rider_weapon = rider_weapon.clone();
+                    let _ = self.with_owner_object_mut(|owner| {
+                        if owner.is_kind_of(KindOf::CliffJumper) {
+                            if let Some(bike_weapon) = owner
+                                .get_weapon_in_slot_mut(crate::weapon::WeaponSlotType::Secondary)
+                            {
+                                bike_weapon.transfer_next_shot_stats_from(&rider_weapon);
+                            }
                         }
-                    }
+                    });
                 }
             }
         }

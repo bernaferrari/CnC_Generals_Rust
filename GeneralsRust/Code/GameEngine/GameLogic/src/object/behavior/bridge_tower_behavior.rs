@@ -295,51 +295,56 @@ impl BridgeTowerBehavior {
             return Ok(());
         }
 
-        let source_object = self.get_object()?;
-        let source_guard = source_object
-            .read()
-            .map_err(|e| format!("source lock poisoned: {}", e))?;
+        self.with_object(
+            |source_guard| -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                for (tower_type, tower_id) in &tower_ids {
+                    if *tower_type == self.tower_type || *tower_id == OBJECT_INVALID_ID {
+                        continue;
+                    }
 
-        for (tower_type, tower_id) in &tower_ids {
-            if *tower_type == self.tower_type || *tower_id == OBJECT_INVALID_ID {
-                continue;
-            }
+                    if let Some(result) =
+                        OBJECT_REGISTRY.with_object_mut(*tower_id, |tower_write| {
+                            if let Some(body) = tower_write.get_body_module() {
+                                let body_guard = match body.lock() {
+                                    Ok(g) => g,
+                                    Err(_) => {
+                                        return Err(
+                                            Box::<dyn std::error::Error + Send + Sync>::from(
+                                                "BridgeTowerBehavior: body lock poisoned",
+                                            ),
+                                        );
+                                    }
+                                };
+                                let max_health = body_guard.get_max_health();
+                                if max_health > 0.0 {
+                                    let amount = healing_percentage * max_health;
+                                    tower_write.attempt_healing(amount, Some(source_guard))?;
+                                }
+                            }
+                            Ok(())
+                        })
+                    {
+                        result?;
+                    }
+                }
 
-            if let Some(result) = OBJECT_REGISTRY.with_object_mut(*tower_id, |tower_write| {
-                if let Some(body) = tower_write.get_body_module() {
-                    let body_guard = match body.lock() {
-                        Ok(g) => g,
-                        Err(_) => {
-                            return Err(Box::<dyn std::error::Error + Send + Sync>::from(
-                                "BridgeTowerBehavior: body lock poisoned",
-                            ));
-                        }
-                    };
+                let mut bridge_write = bridge_object
+                    .write()
+                    .map_err(|e| format!("bridge lock poisoned: {}", e))?;
+                if let Some(body) = bridge_write.get_body_module() {
+                    let body_guard = body
+                        .lock()
+                        .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
                     let max_health = body_guard.get_max_health();
                     if max_health > 0.0 {
                         let amount = healing_percentage * max_health;
-                        tower_write.attempt_healing(amount, Some(&*source_guard))?;
+                        bridge_write.attempt_healing(amount, Some(source_guard))?;
                     }
                 }
-                Ok(())
-            }) {
-                result?;
-            }
-        }
 
-        let mut bridge_write = bridge_object
-            .write()
-            .map_err(|e| format!("bridge lock poisoned: {}", e))?;
-        if let Some(body) = bridge_write.get_body_module() {
-            let body_guard = body
-                .lock()
-                .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
-            let max_health = body_guard.get_max_health();
-            if max_health > 0.0 {
-                let amount = healing_percentage * max_health;
-                bridge_write.attempt_healing(amount, Some(&*source_guard))?;
-            }
-        }
+                Ok(())
+            },
+        )??;
 
         Ok(())
     }
