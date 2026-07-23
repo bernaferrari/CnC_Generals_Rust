@@ -1185,6 +1185,8 @@ pub struct GameLogic {
     /// Host ReplaceObject / GrantScience / CommandSet upgrade residuals.
     replace_grant_command_upgrades:
         crate::game_logic::host_replace_object_upgrade::HostReplaceGrantCommandUpgradeLog,
+    /// Host SubObjectsUpgrade residual log.
+    sub_objects_upgrades: crate::game_logic::host_sub_objects_upgrade::HostSubObjectsUpgradeLog,
 
     /// Host China Frenzy ("Rage") residual — temporary ally attack buff in radius.
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
@@ -2776,6 +2778,7 @@ impl GameLogic {
             defector_special: crate::game_logic::host_defector_special_power::HostDefectorSpecialPowerRegistry::new(),
             upgrade_module_residuals: crate::game_logic::host_upgrade_module_residuals::HostUpgradeModuleResidualLog::default(),
             replace_grant_command_upgrades: crate::game_logic::host_replace_object_upgrade::HostReplaceGrantCommandUpgradeLog::default(),
+            sub_objects_upgrades: crate::game_logic::host_sub_objects_upgrade::HostSubObjectsUpgradeLog::default(),
             frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
             battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry::new(),
             emergency_repairs:
@@ -23205,6 +23208,19 @@ impl GameLogic {
 
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.apply_upgrade_tag(upgrade);
+            // C++ SubObjectsUpgrade residual (BombTruck loads / Helix BombWing).
+            {
+                let applied =
+                    crate::game_logic::host_sub_objects_upgrade::sub_objects_for_upgrade_tags(
+                        &obj.applied_upgrades,
+                        &obj.template_name,
+                    );
+                if applied.matched {
+                    obj.sub_object_visibility
+                        .apply_show_hide(&applied.show, &applied.hide);
+                    self.sub_objects_upgrades.record(&applied.show);
+                }
+            }
             // C++ ModelConditionUpgrade residual.
             let _ = crate::game_logic::host_model_condition_upgrade::apply_model_condition_upgrade(
                 &mut obj.model_condition_bits,
@@ -58869,6 +58885,67 @@ mod tests {
     /// C++ SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate::doDisableAttack
     /// setDisabledUntil(DISABLED_EMP, now + DisabledDuration=30000ms).
     /// Fail-closed: not full OCL bomb / spheroid drawable / spark particles.
+
+    #[test]
+    fn sub_objects_upgrade_bomb_truck_bio_load() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("GLAVehicleBombTruck");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("GLAVehicleBombTruck".into(), t);
+        let id = logic
+            .create_object("GLAVehicleBombTruck", Team::GLA, glam::Vec3::ZERO)
+            .unwrap();
+        logic.apply_upgrade_to_object(id, "Upgrade_GLABombTruckBioBomb");
+        let o = logic.objects.get(&id).unwrap();
+        assert!(
+            o.sub_object_visibility.is_shown("Bombload02"),
+            "bio bomb must show Bombload02"
+        );
+        assert!(logic.sub_objects_upgrades.honesty_ok());
+    }
+
+    #[test]
+    fn sub_objects_upgrade_helix_bomb_wing() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("ChinaVehicleHelix");
+        t.set_health(500.0);
+        t.add_kind_of(KindOf::Aircraft);
+        logic.templates.insert("ChinaVehicleHelix".into(), t);
+        let id = logic
+            .create_object("ChinaVehicleHelix", Team::China, glam::Vec3::ZERO)
+            .unwrap();
+        logic.apply_upgrade_to_object(id, "Upgrade_HelixNapalmBomb");
+        assert!(logic
+            .objects
+            .get(&id)
+            .unwrap()
+            .sub_object_visibility
+            .is_shown("BombWing"));
+    }
+
+    #[test]
+    fn sub_objects_upgrade_bomb_truck_both_loads() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("GLAVehicleBombTruck");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("GLAVehicleBombTruck".into(), t);
+        let id = logic
+            .create_object("GLAVehicleBombTruck", Team::GLA, glam::Vec3::ZERO)
+            .unwrap();
+        logic.apply_upgrade_to_object(id, "Upgrade_GLABombTruckBioBomb");
+        logic.apply_upgrade_to_object(id, "Upgrade_GLABombTruckHighExplosiveBomb");
+        assert!(logic
+            .objects
+            .get(&id)
+            .unwrap()
+            .sub_object_visibility
+            .is_shown("Bombload04"));
+    }
 
     #[test]
     fn replace_object_upgrade_fake_gla_becomes_real() {
