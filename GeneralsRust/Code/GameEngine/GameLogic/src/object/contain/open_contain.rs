@@ -611,13 +611,17 @@ impl OpenContain {
             let next = countdown.saturating_sub(1);
             self.door_close_countdown.store(next, Ordering::Relaxed);
             if next == 0 {
-                if let Some(owner) = self.get_object() {
-                    if let Ok(mut owner_guard) = owner.write() {
-                        let _ = owner_guard.clear_and_set_model_condition_flags(
-                            MODELCONDITION_DOOR_1_OPENING,
-                            MODELCONDITION_DOOR_1_CLOSING,
-                        );
-                    }
+                let owner_id = self.get_object_id();
+                if owner_id != crate::common::INVALID_ID {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        owner_id,
+                        |owner_guard| {
+                            let _ = owner_guard.clear_and_set_model_condition_flags(
+                                MODELCONDITION_DOOR_1_OPENING,
+                                MODELCONDITION_DOOR_1_CLOSING,
+                            );
+                        },
+                    );
                 }
             }
         }
@@ -833,22 +837,25 @@ impl OpenContain {
             .unwrap_or(false);
         if enclosing {
             let _ = self.add_or_remove_obj_from_world(obj_id, true);
-            if let Some(owner) = self.get_object() {
-                if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
-                    if let Err(err) = obj_guard.set_position(owner_guard.get_position()) {
-                        log::warn!(
-                            "OpenContain::remove_from_contain failed to place object {}: {}",
-                            obj_guard.get_id(),
-                            err
-                        );
-                    }
-                }
-            }
         }
-        if let Some(owner) = self.get_object() {
-            if let Ok(owner_guard) = owner.read() {
+        let owner_id = self.get_object_id();
+        if owner_id != crate::common::INVALID_ID {
+            if let Some((pos, layer)) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |owner_guard| {
+                    (*owner_guard.get_position(), owner_guard.get_layer())
+                })
+            {
                 if let Ok(mut obj_guard) = obj.write() {
-                    obj_guard.set_layer(owner_guard.get_layer());
+                    if enclosing {
+                        if let Err(err) = obj_guard.set_position(&pos) {
+                            log::warn!(
+                                "OpenContain::remove_from_contain failed to place object {}: {}",
+                                obj_guard.get_id(),
+                                err
+                            );
+                        }
+                    }
+                    obj_guard.set_layer(layer);
                 }
             }
         }
@@ -913,18 +920,13 @@ impl OpenContain {
         let _ = was_selected;
 
         // Object-level containment processing (matches C++ Object::onContainedBy).
-        let container = self
-            .get_object()
-            .ok_or_else(|| GameError::ModuleError("OpenContain has no owning object".into()))?;
+        let container_id = self.get_object_id();
+        if container_id == crate::common::INVALID_ID {
+            return Err(GameError::ModuleError("OpenContain has no owning object".into()).into());
+        }
         if let Ok(mut contained) = obj.write() {
             contained
-                .on_contained_by(
-                    container
-                        .read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID),
-                )
+                .on_contained_by(container_id)
                 .map_err(|e| GameError::ModuleError(e.to_string()))?;
 
             if let Some(player) = contained.get_controlling_player() {
@@ -949,18 +951,13 @@ impl OpenContain {
         };
 
         // Object-level containment removal processing (matches C++ Object::onRemovedFrom).
-        let container = self
-            .get_object()
-            .ok_or_else(|| GameError::ModuleError("OpenContain has no owning object".into()))?;
+        let container_id = self.get_object_id();
+        if container_id == crate::common::INVALID_ID {
+            return Err(GameError::ModuleError("OpenContain has no owning object".into()).into());
+        }
         if let Ok(mut contained) = obj.write() {
             contained
-                .on_removed_from(
-                    container
-                        .read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID),
-                )
+                .on_removed_from(container_id)
                 .map_err(|e| GameError::ModuleError(e.to_string()))?;
         }
 
@@ -985,10 +982,7 @@ impl OpenContain {
             return;
         }
 
-        let object_id = self
-            .get_object()
-            .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
-            .unwrap_or(0);
+        let object_id = self.get_object_id();
 
         let mut event = AudioEventRts::new(enter_sound.get_event_name());
         if object_id != 0 {
@@ -1144,8 +1138,8 @@ impl OpenContain {
         &self.contained_object_ids
     }
 
-    pub fn get_contained_items_list(&self) -> GameResult<Vec<Arc<RwLock<Object>>>> {
-        Ok(self.resolve_contained_objects())
+    pub fn get_contained_items_list(&self) -> GameResult<Vec<ObjectID>> {
+        Ok(self.contained_object_ids.clone())
     }
 
     /// Check if passenger is allowed to fire
@@ -1212,13 +1206,17 @@ impl OpenContain {
     ) -> GameResult<ExitDoorType> {
         let _ = (obj_type, specific_object);
         if self.module_data.door_open_time > 0 {
-            if let Some(owner) = self.get_object() {
-                if let Ok(mut owner_guard) = owner.write() {
-                    let _ = owner_guard.clear_and_set_model_condition_flags(
-                        MODELCONDITION_DOOR_1_CLOSING,
-                        MODELCONDITION_DOOR_1_OPENING,
-                    );
-                }
+            let owner_id = self.get_object_id();
+            if owner_id != crate::common::INVALID_ID {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    owner_id,
+                    |owner_guard| {
+                        let _ = owner_guard.clear_and_set_model_condition_flags(
+                            MODELCONDITION_DOOR_1_CLOSING,
+                            MODELCONDITION_DOOR_1_OPENING,
+                        );
+                    },
+                );
             }
         }
         Ok(ExitDoorType::Primary)
@@ -1776,10 +1774,7 @@ impl OpenContain {
             return;
         }
 
-        let object_id = self
-            .get_object()
-            .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
-            .unwrap_or(0);
+        let object_id = self.get_object_id();
 
         let mut event = AudioEventRts::new(exit_sound.get_event_name());
         if object_id != 0 {
@@ -1916,13 +1911,17 @@ impl ContainModuleInterface for OpenContain {
         _spawn: Option<&Object>,
     ) -> ExitDoorType {
         if self.module_data.door_open_time > 0 {
-            if let Some(owner) = self.get_object() {
-                if let Ok(mut owner_guard) = owner.write() {
-                    let _ = owner_guard.clear_and_set_model_condition_flags(
-                        MODELCONDITION_DOOR_1_CLOSING,
-                        MODELCONDITION_DOOR_1_OPENING,
-                    );
-                }
+            let owner_id = self.get_object_id();
+            if owner_id != crate::common::INVALID_ID {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    owner_id,
+                    |owner_guard| {
+                        let _ = owner_guard.clear_and_set_model_condition_flags(
+                            MODELCONDITION_DOOR_1_CLOSING,
+                            MODELCONDITION_DOOR_1_OPENING,
+                        );
+                    },
+                );
             }
         }
         ExitDoorType::Primary

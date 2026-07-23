@@ -427,15 +427,10 @@ impl OverlordContain {
 
     /// Get contained items list.
     /// Matches C++ OverlordContain::getContainedItemsList
-    pub fn get_contained_items_list(&self) -> GameResult<Vec<Arc<RwLock<Object>>>> {
+    pub fn get_contained_items_list(&self) -> GameResult<Vec<ObjectID>> {
         if let Some(redirected) = self.get_redirected_contain() {
             if let Ok(guard) = redirected.lock() {
-                let items: Vec<_> = guard
-                    .get_contained_objects()
-                    .iter()
-                    .filter_map(|obj_id| TheGameLogic::find_object_by_id(*obj_id))
-                    .collect();
-                return Ok(items);
+                return Ok(guard.get_contained_objects().to_vec());
             }
         }
 

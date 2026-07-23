@@ -326,12 +326,6 @@ impl ArtilleryBarragePower {
             .ok_or_else(|| "Artillery Barrage requires an owning object".to_string())?;
         let owner_guard = owner
             .read()
-            .map_err(|_| "owner lock poisoned".to_string())?;
-        let owner = self
-            .resolve_owner_object()
-            .ok_or_else(|| "Artillery Barrage requires an owning object".to_string())?;
-        let owner_guard = owner
-            .read()
             .map_err(|_| "Artillery barrage owner lock poisoned".to_string())?;
 
         let ctx = live_creation_context();
