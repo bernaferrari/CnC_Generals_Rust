@@ -7081,6 +7081,7 @@ impl GameLogic {
                 obj.tick_eject_invulnerable(self.frame);
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
+                obj.tick_continuous_fire_coast(self.frame);
                 obj.tick_repulsor_status(self.frame);
                 obj.tick_spy_vision_disabled(self.frame);
                 if obj.tick_disguise_transition() {
@@ -14289,6 +14290,7 @@ impl GameLogic {
                     }
                     if let Some(tid) = attacker.target {
                         attacker.record_shot_at_target(tid);
+                        attacker.stamp_continuous_fire_coast(self.frame);
                     }
                     // C++ STEALTH_NOT_WHILE_ATTACKING residual: combat fire breaks stealth.
                     if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
