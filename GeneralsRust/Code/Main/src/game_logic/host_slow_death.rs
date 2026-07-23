@@ -50,6 +50,11 @@ pub struct HostSlowDeathData {
     pub sink_offset: f32,
     /// C++ destructionAltitude residual (stop sinking around this altitude).
     pub destruction_altitude: f32,
+    /// C++ FlingForce residual (applied once on begin as horizontal kick).
+    pub fling_vx: f32,
+    pub fling_vz: f32,
+    pub fling_vy: f32,
+    pub fling_applied: bool,
 }
 
 impl Default for HostSlowDeathData {
@@ -62,6 +67,10 @@ impl Default for HostSlowDeathData {
             sink_rate_per_frame: 0.0,
             sink_offset: 0.0,
             destruction_altitude: -10.0,
+            fling_vx: 0.0,
+            fling_vz: 0.0,
+            fling_vy: 0.0,
+            fling_applied: false,
         }
     }
 }
@@ -89,7 +98,23 @@ impl HostSlowDeathData {
             sink_rate_per_frame: INFANTRY_SINK_RATE_PER_SEC / SLOW_DEATH_LOGIC_FPS,
             sink_offset: 0.0,
             destruction_altitude: -10.0,
+            fling_vx: 0.0,
+            fling_vz: 0.0,
+            fling_vy: 0.0,
+            fling_applied: false,
         }
+    }
+
+    /// Infantry with FlingForce residual (e.g. exploded death type peel).
+    pub fn infantry_fling_residual(current_frame: u32, force: f32, angle: f32) -> Self {
+        let mut s = Self::infantry_residual(current_frame);
+        // force is magnitude; pitch residual ~30 deg upward peel.
+        let pitch = 0.5_f32; // ~sin
+        s.fling_vx = angle.cos() * force * 0.15;
+        s.fling_vz = angle.sin() * force * 0.15;
+        s.fling_vy = force * 0.08 * pitch;
+        s.fling_applied = false;
+        s
     }
 
     pub fn vehicle_residual(current_frame: u32) -> Self {
@@ -102,7 +127,24 @@ impl HostSlowDeathData {
             sink_rate_per_frame: 0.0,
             sink_offset: 0.0,
             destruction_altitude: -10.0,
+            fling_vx: 0.0,
+            fling_vz: 0.0,
+            fling_vy: 0.0,
+            fling_applied: false,
         }
+    }
+
+    /// Consume one-shot fling impulse residual.
+    pub fn take_fling_impulse(&mut self) -> Option<(f32, f32, f32)> {
+        if self.fling_applied {
+            return None;
+        }
+        if self.fling_vx == 0.0 && self.fling_vz == 0.0 && self.fling_vy == 0.0 {
+            self.fling_applied = true;
+            return None;
+        }
+        self.fling_applied = true;
+        Some((self.fling_vx, self.fling_vy, self.fling_vz))
     }
 
     /// Begin slow death. Returns false if already active/done.
@@ -171,7 +213,17 @@ pub fn wants_slow_death(template_name: &str, is_infantry: bool, is_vehicle: bool
     if is_vehicle {
         let n = template_name.to_ascii_lowercase();
         // Aircraft often have specialized slow death; still delay generic vehicles.
-        if n.contains("jet") || n.contains("comanche") || n.contains("chinook") {
+        if n.contains("jet")
+            || n.contains("comanche")
+            || n.contains("chinook")
+            || n.contains("raptor")
+            || n.contains("aurora")
+            || n.contains("mig")
+            || n.contains("fighter")
+            || n.contains("bomber")
+            || n.contains("helicopter")
+            || n.contains("helix")
+        {
             return false; // specialized residual elsewhere
         }
         return true;
