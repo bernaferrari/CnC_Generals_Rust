@@ -956,6 +956,13 @@ pub struct Object {
     #[serde(default)]
     pub poisoned_behavior:
         Option<crate::game_logic::host_poisoned_behavior::HostPoisonedBehaviorData>,
+    /// C++ ObjectDefectionHelper residual.
+    #[serde(default)]
+    pub defection_helper: Option<crate::game_logic::host_defection_helper::HostDefectionHelperData>,
+    /// C++ FireWeaponPower residual pending attack.
+    #[serde(default)]
+    pub fire_weapon_power:
+        Option<crate::game_logic::host_fire_weapon_power::HostFireWeaponPowerRequest>,
     /// C++ FireWeaponWhenDamagedBehavior residual.
     #[serde(default)]
     pub fire_weapon_when_damaged:
@@ -1618,6 +1625,8 @@ impl Object {
             fire_weapon_when_dead_fired: false,
             bone_fx_damage: None,
             poisoned_behavior: None,
+            defection_helper: None,
+            fire_weapon_power: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
@@ -1969,6 +1978,8 @@ impl Object {
             fire_weapon_when_dead_fired: false,
             bone_fx_damage: None,
             poisoned_behavior: None,
+            defection_helper: None,
+            fire_weapon_power: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
@@ -2325,6 +2336,67 @@ impl Object {
             .as_ref()
             .map(|p| p.tint_poisoned)
             .unwrap_or(false)
+    }
+
+    /// C++ Object::defect / friend_setUndetectedDefector + DefectionHelper timer.
+    pub fn begin_undetected_defection(&mut self, now: u32, protection_frames: u32, with_fx: bool) {
+        if self.defection_helper.is_none() {
+            self.defection_helper =
+                Some(crate::game_logic::host_defection_helper::HostDefectionHelperData::default());
+        }
+        if let Some(d) = self.defection_helper.as_mut() {
+            crate::game_logic::host_defection_helper::defect_team_residual(
+                d,
+                now,
+                protection_frames,
+                with_fx,
+            );
+        }
+    }
+
+    pub fn is_undetected_defector(&self) -> bool {
+        self.defection_helper
+            .as_ref()
+            .map(|d| d.is_undetected_defector())
+            .unwrap_or(false)
+    }
+
+    pub fn blow_defector_cover(&mut self) {
+        if let Some(d) = self.defection_helper.as_mut() {
+            d.blow_cover();
+        }
+    }
+
+    /// C++ ObjectDefectionHelper::update residual.
+    pub fn tick_defection_helper(&mut self, now: u32) {
+        let firing = self.status.is_firing_weapon;
+        let dead =
+            self.status.destroyed || self.status.effectively_dead || self.health.current <= 0.0;
+        if let Some(d) = self.defection_helper.as_mut() {
+            d.tick(now, firing, dead);
+        }
+    }
+
+    /// C++ FireWeaponPower::doSpecialPower residual.
+    pub fn activate_fire_weapon_power(&mut self, target: Option<(f32, f32)>) -> bool {
+        if self.is_disabled() {
+            return false;
+        }
+        let shots =
+            crate::game_logic::host_fire_weapon_power::max_shots_for_template(&self.template_name);
+        self.fire_weapon_power = Some(match target {
+            Some((x, z)) => {
+                crate::game_logic::host_fire_weapon_power::HostFireWeaponPowerRequest::at_location(
+                    shots, x, z,
+                )
+            }
+            None => crate::game_logic::host_fire_weapon_power::HostFireWeaponPowerRequest::at_self(
+                shots,
+            ),
+        });
+        // C++ reloadAllAmmo(TRUE) residual.
+        self.reload_all_ammo();
+        true
     }
 
     pub fn is_alive(&self) -> bool {
@@ -3568,6 +3640,14 @@ impl Object {
         if until_frame > self.status.eject_invulnerable_until_frame {
             self.status.eject_invulnerable_until_frame = until_frame;
         }
+        // C++ goInvulnerable uses defection helper without defector FX flash.
+        let now = crate::game_logic::host_historic_bonus::logic_frame();
+        let frames = until_frame.saturating_sub(now).max(1);
+        self.begin_undetected_defection(
+            now,
+            frames.min(crate::game_logic::host_defection_helper::DEFECTION_DETECTION_TIME_MAX),
+            false,
+        );
     }
 
     /// Expire InvulnerableTime when the host frame passes the residual timer.
@@ -11505,6 +11585,9 @@ impl Object {
     /// Host weapon fire residual + status channel log.
     pub fn set_status_firing_weapon(&mut self, firing: bool) {
         self.status.is_firing_weapon = firing;
+        if firing {
+            self.blow_defector_cover();
+        }
         crate::game_logic::host_status_log::record_firing(self.id, firing);
     }
 
@@ -12526,6 +12609,40 @@ mod tests {
         );
         assert!(inf.front_crushed && inf.back_crushed);
         assert!(!inf.is_alive() || inf.health.current <= 0.0);
+    }
+
+    #[test]
+    fn defection_timer_expires_and_blows_on_fire() {
+        use crate::game_logic::host_defection_helper::DEFAULT_DEFECTION_PROTECTION_FRAMES;
+        let mut t = ThingTemplate::new("AmericaInfantryPilot");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(301), Team::USA);
+        o.begin_undetected_defection(0, 30, true);
+        assert!(o.is_undetected_defector());
+        for f in 0..29 {
+            o.tick_defection_helper(f);
+        }
+        assert!(o.is_undetected_defector());
+        o.tick_defection_helper(30);
+        assert!(!o.is_undetected_defector());
+
+        o.begin_undetected_defection(0, DEFAULT_DEFECTION_PROTECTION_FRAMES, true);
+        assert!(o.is_undetected_defector());
+        o.status.is_firing_weapon = true;
+        o.tick_defection_helper(5);
+        assert!(!o.is_undetected_defector());
+    }
+
+    #[test]
+    fn fire_weapon_power_queues_shots() {
+        let mut t = ThingTemplate::new("SpectreHowitzerMarker");
+        t.set_health(100.0);
+        let mut o = Object::new(t, ObjectId(302), Team::USA);
+        assert!(o.activate_fire_weapon_power(Some((100.0, 200.0))));
+        let req = o.fire_weapon_power.as_ref().unwrap();
+        assert_eq!(req.shots_remaining, 3);
+        assert!(req.has_location);
     }
 
     #[test]

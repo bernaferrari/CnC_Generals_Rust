@@ -251,6 +251,12 @@ pub struct RenderableObject {
     /// C++ TINT_STATUS_POISONED residual.
     #[serde(default)]
     pub poison_tinted: bool,
+    /// C++ UNDETECTED_DEFECTOR residual.
+    #[serde(default)]
+    pub undetected_defector: bool,
+    /// C++ DefectionHelper selection flash residual.
+    #[serde(default)]
+    pub defector_flash: bool,
     /// C++ FXListDie death FX residual name.
     #[serde(default)]
     pub death_fx_name: Option<String>,
@@ -2508,6 +2514,12 @@ impl PresentationFrame {
                     .and_then(|e| e.fx_name.clone()),
                 bone_fx_name: obj.bone_fx_damage.as_ref().and_then(|b| b.last_fx.clone()),
                 poison_tinted: obj.is_poison_tinted(),
+                undetected_defector: obj.is_undetected_defector(),
+                defector_flash: obj
+                    .defection_helper
+                    .as_ref()
+                    .map(|d| d.flash_this_frame || d.final_white_flash)
+                    .unwrap_or(false),
                 death_fx_name: obj.pending_death_fx.clone(),
                 death_type_name: if obj.status.destroyed || !obj.is_alive() {
                     obj.status.death_type.as_name().to_string()

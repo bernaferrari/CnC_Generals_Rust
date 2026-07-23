@@ -7114,6 +7114,7 @@ impl GameLogic {
             let mut topple_kill = false;
             let mut lifetime_kill = false;
             let mut poison_kill = false;
+            let mut defector_audio: Vec<String> = Vec::new();
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.tick_disabled_hacked(self.frame);
                 obj.tick_selection_flash();
@@ -7122,6 +7123,35 @@ impl GameLogic {
                 obj.tick_eject_invulnerable(self.frame);
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
+                // C++ ObjectDefectionHelper::update residual.
+                obj.tick_defection_helper(self.frame);
+                // Snapshot FireWeaponPower residual before further mut uses.
+                let fwp_shot = obj.fire_weapon_power.as_ref().and_then(|req| {
+                    if req.shots_remaining == 0 {
+                        None
+                    } else if req.has_location {
+                        Some((req.target_x, req.target_z, true))
+                    } else {
+                        let p = obj.get_position();
+                        Some((p.x, p.z, false))
+                    }
+                });
+                if let Some((tx, tz, _has_loc)) = fwp_shot {
+                    obj.target_location = Some(glam::Vec3::new(tx, 0.0, tz));
+                    obj.set_ai_state(crate::game_logic::AIState::Attacking);
+                    if let Some(req) = obj.fire_weapon_power.as_mut() {
+                        req.shots_remaining = req.shots_remaining.saturating_sub(1);
+                        if req.shots_remaining == 0 {
+                            obj.fire_weapon_power = None;
+                        }
+                    }
+                }
+                // Drain defector audio residual (collect then queue outside obj borrow).
+                defector_audio = obj
+                    .defection_helper
+                    .as_mut()
+                    .map(|d| d.drain_audio())
+                    .unwrap_or_default();
                 // C++ PoisonedBehavior::update residual (DoT).
                 if let Some((dot, death_ty)) = obj.tick_poisoned_behavior(self.frame) {
                     // Apply as UNRESISTABLE so it doesn't re-infect (C++).
@@ -7279,6 +7309,13 @@ impl GameLogic {
             if lifetime_kill {
                 self.mark_object_for_destruction(object_id, None);
                 continue;
+            }
+            for a in defector_audio {
+                self.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new(a.as_str())
+                        .with_object(object_id)
+                        .with_priority(80),
+                );
             }
             if poison_kill {
                 self.mark_object_for_destruction(object_id, None);
