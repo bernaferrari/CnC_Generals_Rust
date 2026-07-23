@@ -949,6 +949,9 @@ pub struct Object {
     /// C++ FireWeaponWhenDead residual once-fired flag.
     #[serde(default)]
     pub fire_weapon_when_dead_fired: bool,
+    /// C++ BoneFXDamage residual.
+    #[serde(default)]
+    pub bone_fx_damage: Option<crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData>,
     /// C++ FireWeaponWhenDamagedBehavior residual.
     #[serde(default)]
     pub fire_weapon_when_damaged:
@@ -1609,6 +1612,7 @@ impl Object {
             keep_object_die: None,
             wave_guide_data: None,
             fire_weapon_when_dead_fired: false,
+            bone_fx_damage: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
@@ -1958,6 +1962,7 @@ impl Object {
             keep_object_die: None,
             wave_guide_data: None,
             fire_weapon_when_dead_fired: false,
+            bone_fx_damage: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
@@ -4693,6 +4698,18 @@ impl Object {
         };
         self.body_damage_state = state;
         crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
+        // C++ BoneFXDamage::onBodyDamageStateChange residual.
+        if old_state != state {
+            if self.bone_fx_damage.is_none()
+                && crate::game_logic::host_bone_fx_damage::wants_bone_fx(&self.template_name)
+            {
+                self.bone_fx_damage =
+                    Some(crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::default());
+            }
+            if let Some(bfx) = self.bone_fx_damage.as_mut() {
+                let _ = bfx.on_body_damage_state_change(&self.template_name, old_state, state);
+            }
+        }
         // C++ TransitionDamageFX::onBodyDamageStateChange residual.
         self.ensure_transition_damage_fx();
         if let Some(cfg) = self.transition_damage_fx.as_ref() {
@@ -6275,6 +6292,37 @@ impl Object {
         }
         if !self_crushing_other {
             return false;
+        }
+        // C++ SquishCollide residual: infantry/crushable under tank with velocity
+        // toward victim takes immediate HUGE crush damage (tight radius).
+        // Physics front/back crush points still run below for vehicles/props.
+        if other.is_kind_of(crate::game_logic::KindOf::Infantry)
+            || other.crushable_level < self.crusher_level
+        {
+            use crate::game_logic::host_squish_collide::{
+                should_skip_squish_for_goal_ability, velocity_toward_victim, within_squish_radius,
+                SQUISH_HUGE_DAMAGE,
+            };
+            if !is_ally && !should_skip_squish_for_goal_ability(&other.template_name) {
+                let us = self.get_position();
+                let them = other.get_position();
+                let vel = self.movement.velocity;
+                let toward = velocity_toward_victim((us.x, us.z), (them.x, them.z), (vel.x, vel.z));
+                let crusher_r = self.selection_radius.max(5.0);
+                if toward && within_squish_radius((us.x, us.z), (them.x, them.z), crusher_r) {
+                    other.front_crushed = true;
+                    other.back_crushed = true;
+                    other.apply_crush_die_model_conditions();
+                    let _ = other.take_damage_from_typed_death(
+                        SQUISH_HUGE_DAMAGE,
+                        Some(self.id),
+                        crate::game_logic::combat::DamageType::Crush,
+                        crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
+                    );
+                    self.add_physics_overlap(other.id);
+                    return true;
+                }
+            }
         }
         // add overlap
         let oid = other.id;
@@ -12374,6 +12422,66 @@ mod tests {
         o.set_position(glam::Vec3::new(0.0, 3.0, 0.0));
         assert!(o.tick_height_die(3, 0.0));
         assert!(o.status.destroyed);
+    }
+
+    #[test]
+    fn squish_requires_velocity_toward_victim() {
+        use crate::game_logic::host_squish_collide::velocity_toward_victim;
+        assert!(velocity_toward_victim((0.0, 0.0), (5.0, 0.0), (2.0, 0.0)));
+        assert!(!velocity_toward_victim((0.0, 0.0), (5.0, 0.0), (-2.0, 0.0)));
+
+        let mut vt = ThingTemplate::new("CrusherTank");
+        vt.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(vt, ObjectId(101), Team::USA);
+        tank.crusher_level = 1;
+        tank.set_orientation(0.0);
+        // Moving toward infantry (+X).
+        tank.movement.velocity = glam::Vec3::new(5.0, 0.0, 0.0);
+        tank.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
+        tank.selection_radius = 8.0;
+
+        let mut it = ThingTemplate::new("CrushableInf");
+        it.add_kind_of(KindOf::Infantry);
+        let mut inf = Object::new(it, ObjectId(102), Team::GLA);
+        inf.crushable_level = 0;
+        inf.selection_radius = 5.0;
+        inf.set_position(glam::Vec3::new(4.0, 0.0, 0.0));
+        inf.health.current = 100.0;
+        inf.health.maximum = 100.0;
+
+        assert!(
+            tank.check_for_overlap_collision(&mut inf, false),
+            "squish must kill when moving toward infantry in tight radius"
+        );
+        assert!(inf.front_crushed && inf.back_crushed);
+        assert!(!inf.is_alive() || inf.health.current <= 0.0);
+    }
+
+    #[test]
+    fn bone_fx_fires_on_body_damage_worsen() {
+        let mut t = ThingTemplate::new("GLAVehicleScudLauncher");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(t, ObjectId(103), Team::GLA);
+        o.health.current = 1000.0;
+        o.health.maximum = 1000.0;
+        o.refresh_model_condition_bits();
+        // Drop into damaged band.
+        o.health.current = 400.0;
+        o.refresh_model_condition_bits();
+        assert!(
+            o.bone_fx_damage
+                .as_ref()
+                .map(|b| b.transitions > 0)
+                .unwrap_or(false),
+            "BoneFX must fire on damage transition"
+        );
+        assert!(o
+            .bone_fx_damage
+            .as_ref()
+            .and_then(|b| b.last_fx.as_ref())
+            .map(|s| s.contains("Damaged") || s.contains("BoneFX"))
+            .unwrap_or(false));
     }
 
     #[test]
