@@ -7144,6 +7144,20 @@ impl GameLogic {
                 // C++ ToppleUpdate::update residual (trees / crushable props).
                 topple_kill = obj.tick_topple();
                 // C++ StructureToppleUpdate::update residual (buildings).
+                // C++ HeightDieUpdate residual (bombs/missiles).
+                if !topple_kill && obj.tick_height_die(self.frame, 0.0) {
+                    topple_kill = true;
+                }
+                // C++ HelicopterSlowDeathBehavior residual.
+                if !topple_kill
+                    && obj
+                        .helicopter_slow_death
+                        .as_ref()
+                        .map(|h| h.is_active())
+                        .unwrap_or(false)
+                {
+                    topple_kill = obj.tick_helicopter_slow_death(self.frame, 0.0);
+                }
                 if !topple_kill
                     && obj
                         .slow_death
@@ -21926,6 +21940,7 @@ impl GameLogic {
             object.ensure_fx_list_die();
             object.ensure_create_object_die();
             object.ensure_lifetime_update(self.frame);
+            object.ensure_height_die(self.frame);
             self.objects.insert(id, object);
 
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
@@ -22147,6 +22162,28 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
+        // Helicopter spiral crash residual takes priority over generic slow death.
+        if obj
+            .helicopter_slow_death
+            .as_ref()
+            .map(|h| h.done)
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        if obj
+            .helicopter_slow_death
+            .as_ref()
+            .map(|h| h.is_active())
+            .unwrap_or(false)
+        {
+            let _ = killer;
+            return true;
+        }
+        if obj.begin_helicopter_slow_death() {
+            let _ = killer;
+            return true;
+        }
         // Already finished slow death → allow destroy.
         if obj
             .slow_death
@@ -22173,9 +22210,6 @@ impl GameLogic {
         false
     }
 
-    /// If `id` is a standing structure topple candidate, start fall and defer destroy.
-
-    /// C++ StructureToppleUpdate::applyCrushingDamage / doDamageLine residual.
     fn apply_structure_topple_crush_samples(
         &mut self,
         building_id: ObjectId,
@@ -82114,6 +82148,59 @@ mod tests {
             "ranger should be crushed under topple sweep, hp={}",
             ranger.health.current
         );
+    }
+
+    #[test]
+    fn height_die_kills_bomb_via_object_tick() {
+        use crate::game_logic::host_height_die::HostHeightDieData;
+        use crate::game_logic::{Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaAuroraBomb");
+        t.set_health(10.0);
+        logic.templates.insert("AmericaAuroraBomb".into(), t);
+        let id = logic
+            .create_object(
+                "AmericaAuroraBomb",
+                Team::USA,
+                glam::Vec3::new(0.0, 80.0, 0.0),
+            )
+            .unwrap();
+        {
+            let o = logic.objects.get_mut(&id).unwrap();
+            o.height_die = Some(HostHeightDieData::with_target(5.0, true, 0));
+            o.set_position(glam::Vec3::new(0.0, 80.0, 0.0));
+            assert!(!o.tick_height_die(1, 0.0));
+            o.set_position(glam::Vec3::new(0.0, 3.0, 0.0));
+            assert!(o.tick_height_die(2, 0.0));
+        }
+        assert!(logic.objects.get(&id).unwrap().status.destroyed);
+    }
+
+    #[test]
+    fn helicopter_slow_death_defers_destroy() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaComanche");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Aircraft);
+        logic.templates.insert("AmericaComanche".into(), t);
+        let id = logic
+            .create_object(
+                "AmericaComanche",
+                Team::USA,
+                glam::Vec3::new(0.0, 50.0, 0.0),
+            )
+            .unwrap();
+        logic.mark_object_for_destruction(id, None);
+        assert!(logic
+            .objects
+            .get(&id)
+            .unwrap()
+            .helicopter_slow_death
+            .as_ref()
+            .map(|h| h.is_active())
+            .unwrap_or(false));
+        assert!(logic.objects_to_destroy.iter().all(|e| e.id != id));
     }
 
     #[test]
