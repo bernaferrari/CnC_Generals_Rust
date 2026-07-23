@@ -860,11 +860,18 @@ impl AsyncAiPlayer {
 
         let mut immediate_threats = Vec::new();
         let owned_positions: Vec<Coord3D> = OBJECT_REGISTRY
-            .get_all_objects()
+            .get_all_object_ids()
             .into_iter()
-            .filter_map(|arc| arc.read().ok().map(|g| (g.get_id(), *g.get_position(), g.get_controlling_player_id())))
-            .filter(|(_, _, owner)| owner.map(|id| id as u32 == self.player_id).unwrap_or(false))
-            .map(|(_, pos, _)| pos)
+            .filter_map(|id| {
+                OBJECT_REGISTRY.with_object(id, |g| {
+                    (
+                        g.get_controlling_player_id(),
+                        *g.get_position(),
+                    )
+                })
+            })
+            .filter(|(owner, _)| owner.map(|id| id as u32 == self.player_id).unwrap_or(false))
+            .map(|(_, pos)| pos)
             .collect();
 
         for enemy in enemies.values() {
