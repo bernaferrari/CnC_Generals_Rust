@@ -1690,7 +1690,7 @@ impl<'a> CommandExecutor<'a> {
             if !is_body_condition_better(dmg, BODY_REALLYDAMAGED) {
                 continue;
             }
-            let spd = o.movement.max_speed.max(0.0);
+            let spd = o.effective_max_speed().max(0.0);
             if spd > 0.0 && spd < best {
                 best = spd;
                 saw = true;
@@ -7091,20 +7091,26 @@ mod group_move_tests {
         {
             let h = logic.get_object_mut(healthy).unwrap();
             h.movement.max_speed = 40.0;
+            h.movement.max_speed_damaged = 20.0;
             h.health.current = 100.0;
             h.health.maximum = 100.0;
+            h.refresh_model_condition_bits();
         }
         {
             let d = logic.get_object_mut(damaged).unwrap();
-            d.movement.max_speed = 5.0; // would drag group if counted
+            d.movement.max_speed = 40.0;
+            d.movement.max_speed_damaged = 5.0;
             d.health.current = 10.0; // REALLYDAMAGED
             d.health.maximum = 100.0;
+            d.refresh_model_condition_bits();
         }
         {
             let s = logic.get_object_mut(slow_healthy).unwrap();
             s.movement.max_speed = 20.0;
+            s.movement.max_speed_damaged = 10.0;
             s.health.current = 100.0;
             s.health.maximum = 100.0;
+            s.refresh_model_condition_bits();
         }
         let exec = CommandExecutor::new(&mut logic, 0);
         let spd = exec.group_speed(&[healthy, damaged, slow_healthy]);
@@ -7115,8 +7121,39 @@ mod group_move_tests {
         let leader = exec
             .group_leader_id(&[healthy, damaged, slow_healthy])
             .expect("leader");
-        // Center ~ (0+30+10)/3 = 13.3 → slow_healthy at 10 is closest among movers
         assert_eq!(leader, slow_healthy);
+    }
+
+    #[test]
+    fn effective_max_speed_uses_damaged_locomotor() {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("ES_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("ES_V".to_string(), tpl);
+        let id = logic.create_object("ES_V", Team::USA, Vec3::ZERO).unwrap();
+        {
+            let o = logic.get_object_mut(id).unwrap();
+            o.movement.max_speed = 30.0;
+            o.movement.max_speed_damaged = 12.0;
+            o.health.current = 100.0;
+            o.health.maximum = 100.0;
+            o.refresh_model_condition_bits();
+            assert_eq!(o.body_damage_state, HostBodyDamageType::Pristine);
+            assert!((o.effective_max_speed() - 30.0).abs() < 0.01);
+            o.health.current = 10.0;
+            o.refresh_model_condition_bits();
+            assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
+            assert!(
+                (o.effective_max_speed() - 12.0).abs() < 0.01,
+                "really damaged uses max_speed_damaged"
+            );
+        }
     }
 
     #[test]

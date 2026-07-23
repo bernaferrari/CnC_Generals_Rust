@@ -4447,6 +4447,69 @@ impl Object {
     }
 
     /// C++ privateAttackObject max-shots residual.
+    /// C++ Locomotor::getMaxSpeedForCondition residual.
+    /// Better than MovementPenaltyDamageState (REALLYDAMAGED) → pristine max;
+    /// else → max_speed_damaged (clamped by pristine max).
+    pub fn effective_max_speed(&self) -> f32 {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let pristine = self.movement.max_speed.max(0.0);
+        let damaged = self
+            .movement
+            .max_speed_damaged
+            .clamp(0.0, pristine.max(0.0));
+        // Penalty threshold = ReallyDamaged (GameData.ini residual).
+        match self.body_damage_state {
+            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
+            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+                if damaged > 0.0 {
+                    damaged.min(pristine)
+                } else {
+                    pristine * 0.5
+                }
+            }
+        }
+    }
+
+    /// C++ Locomotor::getMaxTurnRate residual (damage-conditioned).
+    pub fn effective_turn_rate(&self) -> f32 {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let pristine = self.movement.turn_rate.max(0.0);
+        let damaged = self
+            .movement
+            .turn_rate_damaged
+            .clamp(0.0, pristine.max(0.0));
+        match self.body_damage_state {
+            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
+            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+                if damaged > 0.0 {
+                    damaged.min(pristine)
+                } else {
+                    pristine * 0.5
+                }
+            }
+        }
+    }
+
+    /// C++ Locomotor::getMaxAcceleration residual (damage-conditioned).
+    pub fn effective_acceleration(&self) -> f32 {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let pristine = self.movement.acceleration.max(0.0);
+        let damaged = self
+            .movement
+            .acceleration_damaged
+            .clamp(0.0, pristine.max(0.0));
+        match self.body_damage_state {
+            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
+            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+                if damaged > 0.0 {
+                    damaged.min(pristine)
+                } else {
+                    pristine * 0.5
+                }
+            }
+        }
+    }
+
     pub fn set_max_shots_to_fire(&mut self, max_shots: i32) {
         self.max_shots_to_fire = max_shots;
         self.record_host_combat_attack();
@@ -4589,7 +4652,7 @@ impl Object {
         mut desired_speed: f32,
         dt: f32,
     ) {
-        let max_speed = self.movement.max_speed.max(0.01);
+        let max_speed = self.effective_max_speed().max(0.01);
         desired_speed = desired_speed.clamp(self.min_speed, max_speed);
         let actual = self.movement.velocity.length();
         if self.braking > 0.0 && !self.no_slow_down_as_approaching_dest {
@@ -7037,7 +7100,7 @@ impl Object {
     pub fn can_pursue_target(&self, victim: &Object) -> bool {
         // Need victim physics (velocity).
         let victim_speed = victim.forward_speed_2d().abs();
-        let our_max = self.movement.max_speed;
+        let our_max = self.effective_max_speed();
         if our_max <= 0.0 {
             return false;
         }
@@ -9014,7 +9077,7 @@ impl Object {
             }
 
             // C++ locoUpdate_moveTowardsPosition residual (treads-like host default).
-            let max_speed = self.movement.max_speed.max(0.0);
+            let max_speed = self.effective_max_speed().max(0.0);
             let mut desired_speed = max_speed * self.group_speed_factor.clamp(0.0, 1.0);
             // Cap by blocked speed residual (convert frame→sec: blocked is per-frame).
             if self.is_blocked && self.cur_max_blocked_speed.is_finite() {
