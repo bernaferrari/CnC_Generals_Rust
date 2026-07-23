@@ -1112,7 +1112,7 @@ impl StateMachine {
         }
 
         // Goal ID is set but the object no longer resolves.
-        self.get_goal_object().is_none()
+        self.get_goal_object_id() == crate::common::INVALID_ID
     }
 
     /// Halt the state machine

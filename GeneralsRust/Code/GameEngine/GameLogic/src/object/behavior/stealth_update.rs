@@ -520,11 +520,17 @@ impl StealthUpdate {
 
         let mut has_black_market = false;
         if let Ok(player_guard) = player_arc.read() {
-            let _ = player_guard.iterate_objects(|object_arc| {
+            let _ = player_guard.iterate_object_ids(|object_id| {
                 if has_black_market {
                     return Ok(());
                 }
 
+                let object_arc = match crate::helpers::TheGameLogic::find_object_by_id(object_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+                {
+                    Some(a) => a,
+                    None => return Ok(()),
+                };
                 let Ok(object_guard) = object_arc.read() else {
                     return Ok(());
                 };
