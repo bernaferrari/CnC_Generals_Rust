@@ -1016,6 +1016,12 @@ pub struct ObjectStatus {
     /// Vehicle stays alive but cannot act; team is typically Neutral.
     #[serde(default)]
     pub disabled_unmanned: bool,
+    /// C++ DAMAGE_DEPLOY residual edge (AssaultTransport beginAssault signal).
+    #[serde(default)]
+    pub pending_deploy_assault: bool,
+    /// C++ DAMAGE_KILL_GARRISONED residual: floor(amount) occupants pending clear.
+    #[serde(default)]
+    pub pending_kill_garrisoned: u32,
     /// C++ DISABLED_HACKED residual (Black Lotus DisableVehicleHack).
     /// Vehicle stays alive on its team but cannot move/attack until frame expires.
     #[serde(default)]

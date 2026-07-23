@@ -2315,6 +2315,39 @@ impl Object {
     /// Structures stop production / attack while cooked; residual continuous
     /// while microwave keeps attacking (not full subdual accumulate/heal).
 
+    /// C++ KINDOF_CAN_SURRENDER residual (infantry primarily).
+    pub fn can_surrender_from_damage(&self) -> bool {
+        if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
+            return true;
+        }
+        let n = self.template_name.to_ascii_lowercase();
+        n.contains("infantry")
+            || n.contains("ranger")
+            || n.contains("rebel")
+            || n.contains("redguard")
+            || n.contains("tankhunter")
+            || n.contains("pathfinder")
+            || n.contains("colonel")
+            || n.contains("jarmen")
+            || n.contains("hijacker")
+            || n.contains("worker")
+            || n.contains("pilot")
+    }
+
+    /// Consume pending DAMAGE_DEPLOY assault signal (GameLogic combat path).
+    pub fn take_pending_deploy_assault(&mut self) -> bool {
+        let v = self.status.pending_deploy_assault;
+        self.status.pending_deploy_assault = false;
+        v
+    }
+
+    /// Consume pending DAMAGE_KILL_GARRISONED occupant kill count.
+    pub fn take_pending_kill_garrisoned(&mut self) -> u32 {
+        let v = self.status.pending_kill_garrisoned;
+        self.status.pending_kill_garrisoned = 0;
+        v
+    }
+
     /// Residual mine / demo-trap / booby identity for DAMAGE_DISARM targeting.
     pub fn is_disarmable_mine(&self) -> bool {
         use crate::game_logic::host_mines::can_clear_mine_kind;
@@ -6082,6 +6115,48 @@ impl Object {
             let _ = (source, death_type, damage);
             return self.disarm_mine_safe();
         }
+        // C++ DAMAGE_DEPLOY residual: no HP on victim.
+        // AssaultTransportAI::beginAssault is source-side (GameLogic combat path).
+        if matches!(damage_type, crate::game_logic::combat::DamageType::Deploy) {
+            let _ = (source, death_type, damage);
+            return false;
+        }
+        // C++ DAMAGE_HACK residual: fire does not deal HP (effect is timer-driven).
+        if matches!(damage_type, crate::game_logic::combat::DamageType::Hack) {
+            let _ = (source, death_type, damage);
+            return false;
+        }
+        // C++ DAMAGE_KILL_GARRISONED residual: structure HP untouched; occupants
+        // cleared by GameLogic using pending kill count = floor(amount).
+        if matches!(
+            damage_type,
+            crate::game_logic::combat::DamageType::KillGarrisoned
+        ) {
+            let _ = (source, death_type);
+            let kills = damage.max(0.0).floor() as u32;
+            self.status.pending_kill_garrisoned =
+                self.status.pending_kill_garrisoned.saturating_add(kills);
+            return false;
+        }
+        // C++ DAMAGE_SURRENDER residual: lethal hit on surrender-capable infantry
+        // sets surrendered instead of destroying (ActiveBody commented path residual).
+        if matches!(
+            damage_type,
+            crate::game_logic::combat::DamageType::Surrender
+        ) {
+            let _ = death_type;
+            if self.can_surrender_from_damage() {
+                let would_kill = damage >= self.health.current && self.health.current > 0.0;
+                if would_kill {
+                    self.set_surrendered(true);
+                    self.status.attacking = false;
+                    self.target = None;
+                    return false;
+                }
+            }
+            // Non-lethal or non-capable: fall through to normal HP.
+        }
+        // DAMAGE_PENALTY: normal HP path (no special intercept).
         // C++ DAMAGE_KILL_PILOT residual: unmanned vehicle, no HP damage.
         if matches!(
             damage_type,
@@ -11365,6 +11440,59 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        // DEPLOY: no HP, sets pending assault signal.
+        let mut tt = ThingTemplate::new("TroopCrawler");
+        tt.set_health(100.0);
+        let mut crawler = Object::new(tt, ObjectId(1), Team::China);
+        crawler.health.current = 100.0;
+        assert!(!crawler.take_damage_from_typed(50.0, None, DamageType::Deploy));
+        assert!((crawler.health.current - 100.0).abs() < 1e-3);
+        assert!(!crawler.status.destroyed);
+
+        // HACK: no HP.
+        let mut ht = ThingTemplate::new("Tank");
+        ht.set_health(100.0);
+        ht.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(ht, ObjectId(2), Team::USA);
+        tank.health.current = 100.0;
+        assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Hack));
+        assert!((tank.health.current - 100.0).abs() < 1e-3);
+
+        // SURRENDER lethal on infantry: surrendered, not destroyed.
+        let mut it = ThingTemplate::new("Ranger");
+        it.set_health(50.0);
+        it.add_kind_of(KindOf::Infantry);
+        let mut ranger = Object::new(it, ObjectId(3), Team::USA);
+        ranger.health.current = 50.0;
+        assert!(!ranger.take_damage_from_typed(50.0, None, DamageType::Surrender));
+        assert!(ranger.is_surrendered);
+        assert!(ranger.is_alive());
+        assert!((ranger.health.current - 50.0).abs() < 1e-3);
+
+        // KILL_GARRISONED: structure HP untouched; pending count = floor(amount).
+        let mut st = ThingTemplate::new("Bunker");
+        st.set_health(500.0);
+        st.add_kind_of(KindOf::Structure);
+        let mut bunker = Object::new(st, ObjectId(4), Team::GLA);
+        bunker.health.current = 500.0;
+        assert!(!bunker.take_damage_from_typed(3.7, None, DamageType::KillGarrisoned));
+        assert!((bunker.health.current - 500.0).abs() < 1e-3);
+        assert_eq!(bunker.take_pending_kill_garrisoned(), 3);
+
+        // PENALTY: normal HP path.
+        let mut pt = ThingTemplate::new("Tank");
+        pt.set_health(100.0);
+        let mut penalized = Object::new(pt, ObjectId(5), Team::USA);
+        penalized.health.current = 100.0;
+        let _ = penalized.take_damage_from_typed(25.0, None, DamageType::Penalty);
+        assert!((penalized.health.current - 75.0).abs() < 1e-3);
     }
 
     #[test]

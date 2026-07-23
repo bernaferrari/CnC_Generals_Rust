@@ -2786,6 +2786,34 @@ pub fn host_weapon_is_disarm_damage(name: &str) -> bool {
         || (n.contains("worker") && n.contains("mine"))
 }
 
+/// C++ Weapon.ini DamageType=DEPLOY residual (TroopCrawlerAssault).
+pub fn host_weapon_is_deploy_damage(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("assault") && (n.contains("deploy") || n.contains("crawler") || n.contains("troop"))
+        || n == "troopcrawlerassault"
+        || n.contains("deployweapon")
+}
+
+/// C++ Weapon.ini DamageType=HACK residual (Black Lotus / Hacker).
+pub fn host_weapon_is_hack_damage(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("hack") || n.contains("blacklotus") || n.contains("capturebuilding")
+}
+
+/// C++ Weapon.ini DamageType=SURRENDER residual.
+pub fn host_weapon_is_surrender_damage(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("surrender")
+}
+
+/// C++ Weapon.ini DamageType=KILL_GARRISONED residual (building clearers).
+pub fn host_weapon_is_kill_garrisoned_damage(name: &str) -> bool {
+    crate::game_logic::host_bunker_buster::is_kill_garrisoned_clearer_weapon(name) || {
+        let n = name.to_ascii_lowercase();
+        n.contains("buildingclearer") || n.contains("killgarrison") || n.contains("clearbuilding")
+    }
+}
+
 /// C++ Weapon.ini DamageStatusType residual name (OBJECT_STATUS bit name).
 pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static str> {
     if !host_weapon_is_status_damage(name) {
@@ -5184,6 +5212,15 @@ mod tests {
         assert!(host_weapon_is_disarm_damage("WorkerMineDisarmingWeapon"));
         assert!(!host_weapon_is_disarm_damage("AmericaTankCrusaderGun"));
     }
+
+    #[test]
+    fn deploy_hack_surrender_kill_garrisoned_peels() {
+        assert!(host_weapon_is_deploy_damage("TroopCrawlerAssault"));
+        assert!(host_weapon_is_hack_damage("BlackLotusDisableVehicleHack"));
+        assert!(host_weapon_is_surrender_damage("SurrenderWeapon"));
+        assert!(!host_weapon_is_deploy_damage("AmericaTankCrusaderGun"));
+    }
+
     #[test]
     fn kill_pilot_damage_peel() {
         assert!(host_weapon_is_kill_pilot_damage(

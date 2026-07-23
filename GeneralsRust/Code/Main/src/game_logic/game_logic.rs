@@ -34738,6 +34738,25 @@ impl GameLogic {
     }
 
     /// Apply KILL_GARRISONED residual: kill `floor(damage)` garrisoned occupants.
+
+    /// Consume object-level DAMAGE_KILL_GARRISONED pending count into contain kills.
+    fn flush_pending_kill_garrisoned(
+        &mut self,
+        target_id: ObjectId,
+        attacker_id: Option<ObjectId>,
+        attacker_team: Team,
+    ) -> u32 {
+        let pending = self
+            .objects
+            .get_mut(&target_id)
+            .map(|o| o.take_pending_kill_garrisoned())
+            .unwrap_or(0);
+        if pending == 0 {
+            return 0;
+        }
+        self.apply_kill_garrisoned_to_target(target_id, attacker_team, pending as f32, attacker_id)
+    }
+
     /// Fail-closed: no structure HP damage (C++ ActiveBody KillGarrisoned path).
     fn apply_kill_garrisoned_to_target(
         &mut self,

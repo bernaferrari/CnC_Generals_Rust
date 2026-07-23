@@ -953,6 +953,11 @@ pub fn map_host_damage_type(dt: crate::game_logic::combat::DamageType) -> Damage
         H::Status => DamageType::Status,
         H::KillPilot => DamageType::KillPilot,
         H::Disarm => DamageType::Disarm,
+        H::Deploy => DamageType::Deploy,
+        H::Hack => DamageType::Hack,
+        H::Surrender => DamageType::Surrender,
+        H::Penalty => DamageType::Penalty,
+        H::KillGarrisoned => DamageType::KillGarrisoned,
     }
 }
 
@@ -1014,14 +1019,14 @@ pub fn map_store_damage_type(
         G::Status => H::Status,
         G::KillPilot => H::KillPilot,
         G::Disarm => H::Disarm,
+        G::Deploy => H::Deploy,
+        G::Hack => H::Hack,
+        G::Surrender => H::Surrender,
+        G::Penalty => H::Penalty,
+        G::KillGarrisoned => H::KillGarrisoned,
         G::Unresistable
         | G::Healing
-        | G::Hack
-        | G::Surrender
-        | G::Deploy
-        | G::Penalty
         | G::Toppling
-        | G::KillGarrisoned
         | G::SubdualMissile
         | G::SubdualVehicle
         | G::SubdualBuilding
@@ -1063,6 +1068,18 @@ pub fn host_damage_type_for_weapon_name(name: &str) -> crate::game_logic::combat
     }
     if crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage(name) {
         return crate::game_logic::combat::DamageType::Disarm;
+    }
+    if crate::game_logic::weapon_bootstrap::host_weapon_is_deploy_damage(name) {
+        return crate::game_logic::combat::DamageType::Deploy;
+    }
+    if crate::game_logic::weapon_bootstrap::host_weapon_is_hack_damage(name) {
+        return crate::game_logic::combat::DamageType::Hack;
+    }
+    if crate::game_logic::weapon_bootstrap::host_weapon_is_surrender_damage(name) {
+        return crate::game_logic::combat::DamageType::Surrender;
+    }
+    if crate::game_logic::weapon_bootstrap::host_weapon_is_kill_garrisoned_damage(name) {
+        return crate::game_logic::combat::DamageType::KillGarrisoned;
     }
     crate::game_logic::combat::DamageType::Bullet
 }
