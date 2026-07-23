@@ -929,6 +929,9 @@ pub struct Object {
     /// Host residual mine / demo-trap / timed demo-charge state.
     /// `None` for ordinary units/structures. Fail-closed: not full C++
     /// MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate modules.
+    /// C++ ToppleUpdate residual (trees / crushable props).
+    #[serde(default)]
+    pub topple_data: Option<crate::game_logic::host_topple::HostToppleData>,
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
@@ -1533,6 +1536,7 @@ impl Object {
             bounce_audio_pending: 0,
             crusher_level: 0,
             crushable_level: 255,
+            topple_data: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -1861,6 +1865,7 @@ impl Object {
             bounce_audio_pending: 0,
             crusher_level: 0,
             crushable_level: 255,
+            topple_data: None,
             front_crushed: false,
             back_crushed: false,
             physics_current_overlap: None,
@@ -2314,6 +2319,89 @@ impl Object {
     /// C++ ActiveBody::onSubdualChange → setDisabled(DISABLED_SUBDUED).
     /// Structures stop production / attack while cooked; residual continuous
     /// while microwave keeps attacking (not full subdual accumulate/heal).
+
+    /// Attach residual ToppleUpdate when template is topple-capable.
+    pub fn ensure_topple_data(&mut self) {
+        if self.topple_data.is_none()
+            && crate::game_logic::host_topple::is_topple_capable_template(&self.template_name)
+        {
+            self.topple_data = Some(crate::game_logic::host_topple::HostToppleData::default());
+        }
+    }
+
+    /// C++ Object::topple residual.
+    /// Returns true if the object should be destroyed immediately (start-topple kill).
+    pub fn apply_topple(
+        &mut self,
+        dir_x: f32,
+        dir_y: f32,
+        topple_speed: f32,
+        options: u32,
+    ) -> bool {
+        if self.status.destroyed || !self.is_alive() {
+            return false;
+        }
+        self.ensure_topple_data();
+        let kill_now = {
+            let Some(td) = self.topple_data.as_mut() else {
+                return false;
+            };
+            if !td.is_able_to_be_toppled() {
+                return false;
+            }
+            td.apply_toppling_force(dir_x, dir_y, topple_speed, options)
+        };
+        if kill_now {
+            self.health.current = 0.0;
+            self.status.destroyed = true;
+            self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+        }
+        kill_now
+    }
+
+    /// C++ ToppleUpdate::update residual. Returns true if death-by-topple this frame.
+    pub fn tick_topple(&mut self) -> bool {
+        let Some(td) = self.topple_data.as_mut() else {
+            return false;
+        };
+        if !td.tick() {
+            return false;
+        }
+        // deathByToppling: UNRESISTABLE + DEATH_TOPPLED
+        self.health.current = 0.0;
+        self.status.destroyed = true;
+        self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+        true
+    }
+
+    /// C++ ToppleUpdate::onCollide residual when other crushes this prop.
+    pub fn try_topple_from_crusher(
+        &mut self,
+        crusher_level: u8,
+        from_x: f32,
+        from_z: f32,
+        speed: f32,
+    ) -> bool {
+        if !crate::game_logic::host_topple::crusher_can_topple(crusher_level) {
+            return false;
+        }
+        self.ensure_topple_data();
+        let Some(td) = self.topple_data.as_ref() else {
+            return false;
+        };
+        if !td.is_able_to_be_toppled() {
+            return false;
+        }
+        let pos = self.get_position();
+        let dx = pos.x - from_x;
+        let dz = pos.z - from_z;
+        self.apply_topple(
+            dx,
+            dz,
+            speed.max(1.0),
+            crate::game_logic::host_topple::TOPPLE_OPTIONS_NONE,
+        )
+    }
 
     /// C++ KINDOF_CAN_SURRENDER residual (infantry primarily).
     pub fn can_surrender_from_damage(&self) -> bool {
@@ -11454,6 +11542,32 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn topple_residual_falls_and_dies() {
+        use crate::game_logic::host_topple::{HostToppleData, TOPPLE_OPTIONS_NO_BOUNCE};
+        use crate::game_logic::{Team, ThingTemplate};
+        let mut t = ThingTemplate::new("TreeOak");
+        t.set_health(50.0);
+        let mut tree = Object::new(t, ObjectId(1), Team::Neutral);
+        tree.health.current = 50.0;
+        tree.topple_data = Some(HostToppleData::default());
+        assert!(!tree.apply_topple(1.0, 0.0, 2.0, TOPPLE_OPTIONS_NO_BOUNCE));
+        assert!(tree.is_alive());
+        let mut died = false;
+        for _ in 0..600 {
+            if tree.tick_topple() {
+                died = true;
+                break;
+            }
+        }
+        assert!(died);
+        assert!(tree.status.destroyed);
+        assert_eq!(
+            tree.status.death_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::Toppled
+        );
     }
 
     #[test]

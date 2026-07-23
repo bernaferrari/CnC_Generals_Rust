@@ -39,6 +39,8 @@ pub enum DamageType {
     Healing,
     /// C++ DAMAGE_WATER residual (underwater / waveguide HP damage; no dusty FX).
     Water,
+    /// C++ DAMAGE_CRUSH residual (SquishCollide / PhysicsUpdate crush).
+    Crush,
 }
 
 /// Armor types
