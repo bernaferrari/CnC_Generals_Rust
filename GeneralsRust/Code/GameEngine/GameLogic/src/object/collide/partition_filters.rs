@@ -308,7 +308,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterLineOfSight {
             return false;
         };
         let target_pos = obj.get_position();
-        let target_id = obj.as_object_handle().as_ref().map(|_| obj.get_id());
+        let target_id = Some(obj.get_id()).filter(|id| *id != crate::common::INVALID_ID);
 
         super::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
             Some(self.obj_id),
