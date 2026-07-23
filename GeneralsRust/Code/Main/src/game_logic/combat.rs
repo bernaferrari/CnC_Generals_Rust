@@ -25,6 +25,16 @@ pub enum DamageType {
     KillPilot,
     /// C++ DAMAGE_DISARM residual (safe mine clear without detonation).
     Disarm,
+    /// C++ DAMAGE_DEPLOY residual (AssaultTransport beginAssault; no HP).
+    Deploy,
+    /// C++ DAMAGE_HACK residual (timer-based hack; no HP on fire).
+    Hack,
+    /// C++ DAMAGE_SURRENDER residual (infantry surrender instead of death).
+    Surrender,
+    /// C++ DAMAGE_PENALTY residual (game-rule HP damage; no radar event).
+    Penalty,
+    /// C++ DAMAGE_KILL_GARRISONED residual (kill floor(amount) occupants; no structure HP).
+    KillGarrisoned,
 }
 
 /// Armor types
