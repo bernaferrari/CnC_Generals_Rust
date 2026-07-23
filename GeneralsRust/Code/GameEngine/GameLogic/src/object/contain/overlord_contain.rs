@@ -614,12 +614,6 @@ impl OverlordContain {
             .filter(|id| *id != crate::common::INVALID_ID)
     }
 
-    pub fn friend_get_rider_object(&self) -> Option<Arc<RwLock<Object>>> {
-        let rider_id = self.friend_get_rider()?;
-        crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
-    }
-
     /// Flash selected for visible contained units.
     /// Matches C++ OverlordContain::clientVisibleContainedFlashAsSelected (OverlordContain.h:89)
     pub fn client_visible_contained_flash_as_selected(&self) -> GameResult<()> {
