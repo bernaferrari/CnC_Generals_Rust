@@ -7649,11 +7649,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let Ok(guard) = machine.lock() else {
             return INVALID_ID;
         };
-        // StateMachine stores goal_object_id; get_goal_object resolves Arc.
-        guard
-            .get_goal_object()
-            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-            .unwrap_or(INVALID_ID)
+        guard.get_goal_object_id()
     }
 
     fn set_goal_object(&mut self, obj_id: Option<ObjectID>) {
@@ -7729,7 +7725,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
         let mut other_pos = None;
         let mut other_idle = false;
-        let mut other_goal_obj: Option<Arc<RwLock<Object>>> = None;
+        let mut other_goal_id = INVALID_ID;
         let mut other_goal_pos: Option<Coord3D> = None;
         let mut found_other = false;
 
@@ -7760,7 +7756,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 other_pos = Some(pos);
                 if let Ok(aig) = ai.try_lock() {
                     other_idle = aig.is_idle();
-                    other_goal_obj = aig.get_goal_object();
+                    other_goal_id = aig.get_goal_object_id();
                     other_goal_pos = aig.get_goal_position();
                 }
                 found_other = true;
@@ -7783,13 +7779,8 @@ impl AIUpdateInterface for UnitAIUpdate {
 
         if let Some(machine) = self.ai_state_machine.as_ref() {
             if let Ok(mut guard) = machine.lock() {
-                if let Some(goal_obj) = other_goal_obj.as_ref() {
-                    let gid = goal_obj
-                        .read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(INVALID_ID);
-                    guard.set_goal_object(gid);
+                if other_goal_id != INVALID_ID {
+                    guard.set_goal_object(other_goal_id);
                 } else if let Some(gp) = other_goal_pos {
                     guard.set_goal_position(gp);
                 }
@@ -8346,17 +8337,12 @@ impl AIUpdateInterface for UnitAIUpdate {
             }
         }
 
-        let goal_obj = self.get_goal_object();
-        if let Some(ref obj) = goal_obj {
-            if let Ok(g) = obj.read() {
-                if g.get_id() == from_id {
-                    self.set_goal_object(
-                        new_target
-                            .as_ref()
-                            .and_then(|a| a.read().ok().map(|g| g.get_id())),
-                    );
-                }
-            }
+        if self.get_goal_object_id() == from_id {
+            self.set_goal_object(
+                new_target
+                    .as_ref()
+                    .and_then(|a| a.read().ok().map(|g| g.get_id())),
+            );
         }
 
         for turret in [TurretType::Primary, TurretType::Secondary] {

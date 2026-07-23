@@ -1397,6 +1397,10 @@ impl AIStateMachine {
         self.base.get_goal_object()
     }
 
+    pub fn get_goal_object_id(&self) -> crate::common::ObjectID {
+        self.base.get_goal_object_id()
+    }
+
     pub fn is_idle(&self) -> bool {
         self.base.is_in_idle_state()
     }
