@@ -114,6 +114,23 @@ pub enum CommandType {
     Surrender {
         surrendered: bool,
     },
+    /// C++ AIGroup::groupDoCommandButton residual — dispatch by button name.
+    DoCommandButton {
+        button: String,
+    },
+    /// C++ AIGroup::groupDoCommandButtonAtPosition residual.
+    DoCommandButtonAtPosition {
+        button: String,
+        location: glam::Vec3,
+    },
+    /// C++ AIGroup::groupDoCommandButtonAtObject residual.
+    DoCommandButtonAtObject {
+        button: String,
+        target: crate::game_logic::ObjectId,
+    },
+    /// C++ AIGroup::groupExecuteRailedTransport residual.
+    ExecuteRailedTransport,
+
     Deploy,
     Gather {
         target_id: ObjectId,
@@ -2166,6 +2183,10 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         }),
         "surrender" => Some(CommandType::Surrender { surrendered: true }),
         "unsurrender" => Some(CommandType::Surrender { surrendered: false }),
+        "docommandbutton" => Some(CommandType::DoCommandButton {
+            button: String::new(),
+        }),
+        "executerailedtransport" | "railedtransport" => Some(CommandType::ExecuteRailedTransport),
         "deploy" => Some(CommandType::Deploy),
         "cheer" | "allcheer" | "groupcheer" => Some(CommandType::Cheer),
         "createformation" | "formation" => Some(CommandType::CreateFormation),
