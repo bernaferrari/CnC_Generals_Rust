@@ -588,6 +588,19 @@ impl BattleBusSlowDeathBehavior {
             .into()
         })
     }
+    fn with_object<R>(&self, f: impl FnOnce(&GameObject) -> R) -> Option<R> {
+        if self.object_id == OBJECT_INVALID_ID {
+            return None;
+        }
+        OBJECT_REGISTRY.with_object(self.object_id, f)
+    }
+
+    fn with_object_mut<R>(&self, f: impl FnOnce(&mut GameObject) -> R) -> Option<R> {
+        if self.object_id == OBJECT_INVALID_ID {
+            return None;
+        }
+        OBJECT_REGISTRY.with_object_mut(self.object_id, f)
+    }
 
     fn get_current_frame(&self) -> UnsignedInt {
         TheGameLogic::get_frame()
@@ -836,26 +849,20 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
     }
 
     fn get_probability_modifier(&self, damage_info: &DamageInfo) -> Int {
-        let object = match self.get_object() {
-            Ok(obj) => obj,
-            Err(_) => return self.module_data.base.probability_modifier,
-        };
-
-        let obj_read = match object.read() {
-            Ok(o) => o,
-            Err(_) => return self.module_data.base.probability_modifier,
-        };
-
         let overkill_damage =
             damage_info.output.actual_damage_dealt - damage_info.output.actual_damage_clipped;
-        let max_health = if let Some(body_arc) = obj_read.get_body_module() {
-            if let Ok(body_guard) = body_arc.lock() {
-                body_guard.get_max_health()
+        let Some(max_health) = self.with_object(|obj_read| {
+            if let Some(body_arc) = obj_read.get_body_module() {
+                if let Ok(body_guard) = body_arc.lock() {
+                    body_guard.get_max_health()
+                } else {
+                    1.0
+                }
             } else {
                 1.0
             }
-        } else {
-            1.0
+        }) else {
+            return self.module_data.base.probability_modifier;
         };
 
         let overkill_percent = if max_health > 0.0 {
@@ -870,20 +877,13 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
     }
 
     fn is_die_applicable(&self, damage_info: &DamageInfo) -> bool {
-        let object = match self.get_object() {
-            Ok(obj) => obj,
-            Err(_) => return false,
-        };
-
-        let obj_read = match object.read() {
-            Ok(o) => o,
-            Err(_) => return false,
-        };
-
-        self.module_data
-            .base
-            .die_mux_data
-            .is_die_applicable(&*obj_read, damage_info)
+        self.with_object(|obj_read| {
+            self.module_data
+                .base
+                .die_mux_data
+                .is_die_applicable(obj_read, damage_info)
+        })
+        .unwrap_or(false)
     }
 
     fn get_slow_death_phase(&self) -> u32 {
