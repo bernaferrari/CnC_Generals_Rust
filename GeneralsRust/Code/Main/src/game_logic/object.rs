@@ -3011,6 +3011,8 @@ impl Object {
 
     pub fn set_position(&mut self, position: Vec3) {
         self.thing.set_position(position);
+        // Keep compatibility shadow in sync (many call sites still read `position`).
+        self.position = position;
     }
 
     pub fn get_orientation(&self) -> f32 {
