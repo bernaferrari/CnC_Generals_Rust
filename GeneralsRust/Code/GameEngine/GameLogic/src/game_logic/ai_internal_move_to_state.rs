@@ -117,19 +117,23 @@ impl AIInternalMoveToState {
         if let Ok(goal) = self.get_machine_goal_position() {
             self.goal_position = goal;
         }
-        if let Ok(Some(goal_obj)) = self.get_machine_goal_object() {
-            if let Ok(goal_guard) = goal_obj.read() {
-                let mut goal_pos = *goal_guard.get_position();
-                if owner_guard.is_kind_of(KindOf::Projectile) {
-                    let half_height = goal_guard
-                        .get_geometry_info()
-                        .get_max_height_above_position()
-                        * 0.5;
-                    goal_pos.z += half_height;
-                    if goal_guard.get_position().z < goal_pos.z {
+        if let Ok(Some(goal_id)) = self.get_machine_goal_object_id() {
+            if let Some(goal_pos) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
+                    let mut goal_pos = *goal_guard.get_position();
+                    if owner_guard.is_kind_of(KindOf::Projectile) {
+                        let half_height = goal_guard
+                            .get_geometry_info()
+                            .get_max_height_above_position()
+                            * 0.5;
                         goal_pos.z += half_height;
+                        if goal_guard.get_position().z < goal_pos.z {
+                            goal_pos.z += half_height;
+                        }
                     }
-                }
+                    goal_pos
+                })
+            {
                 self.goal_position = goal_pos;
             }
         }
@@ -164,19 +168,23 @@ impl AIInternalMoveToState {
             .lock()
             .map_err(|_| "AIInternalMoveToState AI lock poisoned".to_string())?;
 
-        if let Ok(Some(goal_obj)) = self.get_machine_goal_object() {
-            if let Ok(goal_guard) = goal_obj.read() {
-                let mut new_goal = *goal_guard.get_position();
-                if owner_guard.is_kind_of(KindOf::Projectile) {
-                    let half_height = goal_guard
-                        .get_geometry_info()
-                        .get_max_height_above_position()
-                        * 0.5;
-                    new_goal.z += half_height;
-                    if goal_guard.get_position().z < new_goal.z {
+        if let Ok(Some(goal_id)) = self.get_machine_goal_object_id() {
+            if let Some(new_goal) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
+                    let mut new_goal = *goal_guard.get_position();
+                    if owner_guard.is_kind_of(KindOf::Projectile) {
+                        let half_height = goal_guard
+                            .get_geometry_info()
+                            .get_max_height_above_position()
+                            * 0.5;
                         new_goal.z += half_height;
+                        if goal_guard.get_position().z < new_goal.z {
+                            new_goal.z += half_height;
+                        }
                     }
-                }
+                    new_goal
+                })
+            {
                 self.goal_position = new_goal;
                 if !self.is_same_position(&owner_pos, &self.path_goal_position, &new_goal) {
                     self.path_timestamp = 0;
