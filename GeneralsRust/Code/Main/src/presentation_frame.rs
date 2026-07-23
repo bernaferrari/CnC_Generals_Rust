@@ -2371,7 +2371,14 @@ impl PresentationFrame {
                     }
                 },
                 // Use accessors so presentation matches authoritative transform state.
-                position: pos,
+                position: {
+                    let mut p = pos;
+                    p.y += obj.presentation_collapse_height_offset();
+                    let (sx, sz) = obj.presentation_collapse_shudder();
+                    p.x += sx;
+                    p.z += sz;
+                    p
+                },
                 orientation: obj.get_orientation(),
                 topple_lean_radians: obj.presentation_topple_lean_radians(),
                 move_destination: obj.movement.target_position,
