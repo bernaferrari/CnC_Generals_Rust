@@ -1110,6 +1110,8 @@ pub struct GameLogic {
     battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry,
     /// C++ HighlanderBody residual clamps.
     highlander_body_reg: crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry,
+    /// C++ DeployStyleAIUpdate residual counters.
+    deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry,
     /// C++ UpgradeDie residual removals.
     upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry,
 
@@ -2769,6 +2771,7 @@ impl GameLogic {
             battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry::new(),
             highlander_body_reg:
                 crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry::new(),
+            deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
             tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry::new(
             ),
@@ -3214,6 +3217,7 @@ impl GameLogic {
         self.overlord_bunker_residual_exits = 0;
         self.battle_bus.clear();
         self.highlander_body_reg.clear();
+        self.deploy_style_reg.clear();
         self.upgrade_die_reg.clear();
         self.tunnel_network.clear();
         self.combat_chinook.clear();
@@ -3981,10 +3985,29 @@ impl GameLogic {
         waypoints: &[Vec3],
     ) -> bool {
         // C++ DeployStyle: move order packs unit before pathing residual.
+        let mut started_undeploy = false;
+        let mut block_path = false;
         if let Some(unit) = self.objects.get_mut(&unit_id) {
-            if unit.is_deployed() {
+            if let Some(ds) = unit.deploy_style.as_mut() {
+                if !ds.is_ready_to_move() {
+                    if ds.begin_undeploy(self.frame) {
+                        started_undeploy = true;
+                    }
+                    unit.set_deployed(false);
+                    unit.stop_moving();
+                    block_path = true;
+                }
+            } else if unit.is_deployed() {
                 unit.set_deployed(false);
             }
+        }
+        if started_undeploy {
+            self.deploy_style_reg.record_undeploy();
+        }
+        if block_path {
+            self.deploy_style_reg.record_blocked_move();
+            // Path blocked until pack completes; re-issue move after ReadyToMove.
+            return false;
         }
         let (start, can_move, is_aircraft) = match self.objects.get(&unit_id) {
             Some(unit) => (
@@ -7534,6 +7557,8 @@ impl GameLogic {
         self.tick_battle_bus_slow_deaths();
         // C++ AssaultTransportAIUpdate wounded-retrieve residual.
         self.tick_assault_transport_updates();
+        // C++ DeployStyleAIUpdate pack/unpack residual.
+        self.tick_deploy_style_updates();
 
         // Apply all AI commands (or log-only when GameWorld owns decision apply).
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
@@ -9160,6 +9185,67 @@ impl GameLogic {
         self.car_bomb.record_airborne_parachute_put();
         // Tag air path honesty shared with EjectPilotDie air OCL residual.
         self.usa_pilot.record_air_ejection();
+    }
+
+    /// C++ DeployStyleAIUpdate pack/unpack timer residual.
+    pub fn tick_deploy_style_updates(&mut self) {
+        let frame = self.frame;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.deploy_style.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let Some(ds) = obj.deploy_style.as_mut() else {
+                continue;
+            };
+            let (ready_atk, ready_mv) = ds.tick(frame);
+            if ready_atk {
+                obj.set_deployed(true);
+            }
+            if ready_mv {
+                obj.set_deployed(false);
+            }
+        }
+    }
+
+    /// Ensure DeployStyle unit is unpacking/unpacked before fire residual.
+    /// Returns false if fire should be deferred this frame.
+    pub fn ensure_deploy_style_ready_to_fire(&mut self, id: ObjectId) -> bool {
+        let frame = self.frame;
+        let mut started = false;
+        let mut blocked = false;
+        let ready = {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                return true;
+            };
+            let Some(ds) = obj.deploy_style.as_mut() else {
+                return true;
+            };
+            if ds.is_ready_to_attack() {
+                true
+            } else {
+                if ds.begin_deploy(frame) {
+                    started = true;
+                    obj.stop_moving();
+                    obj.set_status_moving(false);
+                } else {
+                    blocked = true;
+                }
+                false
+            }
+        };
+        if started {
+            self.deploy_style_reg.record_deploy();
+        }
+        if blocked {
+            self.deploy_style_reg.record_blocked_fire();
+        }
+        ready
     }
 
     /// C++ AssaultTransportAIUpdate wounded-retrieve + healthy re-exit residual.
@@ -12832,6 +12918,12 @@ impl GameLogic {
             let target_id = attacker.target;
             let target_location = attacker.target_location;
             let overcharge = attacker.overcharge_enabled;
+            drop(attacker);
+
+            // C++ DeployStyleAIUpdate: must unpack before fire when in attack range.
+            if !self.ensure_deploy_style_ready_to_fire(attacker_id) {
+                continue;
+            }
 
             let mut fired_slot: Option<u8> = None;
 
@@ -21734,6 +21826,7 @@ impl GameLogic {
             if crate::game_logic::host_highlander_body::is_highlander_body_template(template_name) {
                 object.install_highlander_body();
             }
+            object.install_deploy_style_if_needed();
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -26650,6 +26743,10 @@ impl GameLogic {
     /// Residual honesty: Battle Bus load → docked → unload path.
     pub fn honesty_battle_bus_load_unload_ok(&self) -> bool {
         self.battle_bus.honesty_load_unload_ok()
+    }
+
+    pub fn honesty_deploy_style_ok(&self) -> bool {
+        self.deploy_style_reg.honesty_deploy_ok() && self.deploy_style_reg.honesty_undeploy_ok()
     }
 
     pub fn honesty_highlander_body_ok(&self) -> bool {
@@ -74096,6 +74193,60 @@ mod tests {
             )
         };
         assert!(killed2);
+    }
+
+    #[test]
+    fn deploy_style_sentry_must_unpack_before_fire_and_pack_before_move() {
+        let mut game_logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("AmericaVehicleSentryDrone");
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleSentryDrone".into(), tpl);
+        let id = game_logic
+            .create_object(
+                "AmericaVehicleSentryDrone",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("sentry");
+        {
+            let o = game_logic.find_object_mut(id).unwrap();
+            assert!(o.deploy_style.is_some(), "install DeployStyle residual");
+            assert!(o.deploy_style_allows_move());
+            assert!(!o.deploy_style_allows_fire());
+        }
+        // Fire blocked until unpack completes.
+        assert!(!game_logic.ensure_deploy_style_ready_to_fire(id));
+        assert!(game_logic.deploy_style_reg.deploys > 0);
+        // Advance unpack 30 frames.
+        for f in 1..=30 {
+            game_logic.frame = f;
+            game_logic.tick_deploy_style_updates();
+        }
+        assert!(
+            game_logic.ensure_deploy_style_ready_to_fire(id),
+            "ready to attack after unpack"
+        );
+        assert!(game_logic.find_object(id).unwrap().is_deployed());
+
+        // Move while deployed starts pack and blocks path.
+        assert!(!game_logic.assign_unit_path(id, Vec3::new(100.0, 0.0, 0.0), &[]));
+        assert!(game_logic.deploy_style_reg.undeploys > 0);
+        // Pack completes → can path.
+        let start = game_logic.frame;
+        for f in 1..=30 {
+            game_logic.frame = start + f;
+            game_logic.tick_deploy_style_updates();
+        }
+        assert!(game_logic
+            .find_object(id)
+            .unwrap()
+            .deploy_style_allows_move());
+        assert!(game_logic.assign_unit_path(id, Vec3::new(100.0, 0.0, 0.0), &[]));
     }
 
     #[test]
