@@ -707,10 +707,10 @@ impl TurretAI {
         let mut best_target: Option<Arc<RwLock<Object>>> = None;
         let mut best_distance_sqr = f32::MAX;
 
-        if let Some(owner_arc) = self.owner_object() {
-            if let Ok(owner_ref) = owner_arc.try_read() {
-                let owner_pos = owner_ref.get_position();
-
+        if self.owner_id != crate::common::INVALID_ID {
+            if let Some(owner_pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.owner_id, |owner_ref| *owner_ref.get_position())
+            {
                 for target in targets {
                     if let Ok(target_ref) = target.try_read() {
                         let target_pos = target_ref.get_position();
@@ -1134,23 +1134,20 @@ fn turret_out_of_weapon_range_object(
         .base_state()
         .get_machine_owner()
         .ok_or_else(|| "turret fire missing owner".to_string())?;
-    let target = state
+    let target_id = state
         .base_state()
-        .get_machine_goal_object()
+        .get_machine_goal_object_id()
         .ok_or_else(|| "turret fire missing target".to_string())?;
     let owner_guard = owner
         .read()
         .map_err(|_| "turret fire owner lock poisoned".to_string())?;
-    let target_guard = target
-        .read()
-        .map_err(|_| "turret fire target lock poisoned".to_string())?;
     let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
         return Ok(false);
     };
     if weapon.has_leech_range() {
         return Ok(false);
     }
-    Ok(!weapon.is_within_attack_range(owner_guard.get_id(), Some(target_guard.get_id()), None))
+    Ok(!weapon.is_within_attack_range(owner_guard.get_id(), Some(target_id), None))
 }
 
 pub struct TurretStateMachine {
