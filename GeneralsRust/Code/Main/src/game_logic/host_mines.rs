@@ -863,6 +863,41 @@ pub fn damage_at_distance(base_damage: f32, radius: f32, distance: f32) -> f32 {
     }
 }
 
+/// C++ GenerateMinefieldBehavior::upgradeImplementation residual.
+/// China mines upgrade places a ring of ChinaStandardMine around the structure.
+pub const CHINA_STRUCTURE_MINE_RING_COUNT: u32 = 8;
+pub const CHINA_STRUCTURE_MINE_RING_RADIUS: f32 = 40.0;
+pub const CHINA_STANDARD_MINE_TEMPLATE: &str = "ChinaStandardMine";
+pub const UPGRADE_CHINA_MINES: &str = "Upgrade_ChinaMines";
+pub const UPGRADE_CHINA_EMP_MINES: &str = "Upgrade_ChinaEMPMines";
+
+pub fn is_china_mines_upgrade(upgrade: &str) -> bool {
+    let n = upgrade.to_ascii_lowercase();
+    (n.contains("chinamines") || n.contains("china_mines") || n.contains("chinaempmines"))
+        && !n.contains("cluster")
+}
+
+/// World positions for structure mine ring residual (evenly spaced on circle).
+pub fn structure_minefield_positions(
+    center: glam::Vec3,
+    count: u32,
+    radius: f32,
+) -> Vec<glam::Vec3> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let a = (i as f32) * std::f32::consts::TAU / (count as f32);
+        out.push(glam::Vec3::new(
+            center.x + radius * a.cos(),
+            center.y,
+            center.z + radius * a.sin(),
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1102,5 +1137,13 @@ mod tests {
         assert!(honesty_cluster_mines_ocl_residual_ok());
         assert_eq!(BURTON_MAX_REMOTE_CHARGES, 8);
         assert_eq!(SUPERWEAPON_CLUSTER_MINES_RELOAD_FRAMES, 7_200);
+    }
+
+    #[test]
+    fn structure_mine_ring_has_8() {
+        let pts = structure_minefield_positions(glam::Vec3::ZERO, 8, 40.0);
+        assert_eq!(pts.len(), 8);
+        let d0 = (pts[0].x * pts[0].x + pts[0].z * pts[0].z).sqrt();
+        assert!((d0 - 40.0).abs() < 0.01);
     }
 }
