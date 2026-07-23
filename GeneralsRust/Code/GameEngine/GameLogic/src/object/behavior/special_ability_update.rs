@@ -669,55 +669,42 @@ impl SpecialAbilityUpdate {
     }
 
     fn init_laser(&mut self, special_object_id: ObjectID, target_id: Option<ObjectID>) -> bool {
-        let Some(owner) = self.get_object() else {
+        let bone_name = self
+            .module_data
+            .special_object_attach_to_bone_name
+            .as_str()
+            .to_string();
+        let owner_id = self.get_object_id();
+        let Some(start_pos) = self.with_object(|owner_guard| {
+            let (found, start_pos, _mat) =
+                owner_guard.get_single_logical_bone_position(bone_name.as_str());
+            if found {
+                start_pos
+            } else {
+                *owner_guard.get_position()
+            }
+        }) else {
             self.kill_special_objects();
             return false;
         };
 
-        let owner_guard = match owner.read() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.kill_special_objects();
-                return false;
-            }
-        };
-        let owner_id = owner_guard.get_id();
-        let (found, start_pos, _mat) = owner_guard.get_single_logical_bone_position(
-            self.module_data.special_object_attach_to_bone_name.as_str(),
-        );
-        let start_pos = if found {
-            start_pos
-        } else {
-            *owner_guard.get_position()
-        };
-
         let end_pos = if let Some(id) = target_id {
-            TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-                .and_then(|target| {
-                    target.read().ok().map(|guard| {
-                        guard
-                            .get_geometry_info()
-                            .get_center_position(guard.get_position())
-                    })
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(id, |guard| {
+                    guard
+                        .get_geometry_info()
+                        .get_center_position(guard.get_position())
                 })
                 .unwrap_or(start_pos)
         } else {
             start_pos
         };
 
-        let Some(special_object) = TheGameLogic::find_object_by_id(special_object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(special_object_id))
+        let Some(client_modules) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(special_object_id, |guard| guard.client_update_modules())
         else {
             self.kill_special_objects();
             return false;
-        };
-        let client_modules = {
-            let Ok(guard) = special_object.read() else {
-                self.kill_special_objects();
-                return false;
-            };
-            guard.client_update_modules()
         };
 
         for module in client_modules {
@@ -742,153 +729,156 @@ impl SpecialAbilityUpdate {
     }
 
     fn is_within_start_ability_range(&self) -> bool {
-        let Some(obj) = self.get_object() else {
-            return false;
-        };
-        let obj_guard = match obj.read() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-
         let mut range = self.module_data.start_ability_range;
         let undersize = PATHFIND_CELL_SIZE_F * 0.25;
         range = (range - undersize).max(0.0);
+        let target_id = self.target_id;
+        let target_pos = self.target_pos;
+        let requires_los = self.module_data.approach_requires_los;
 
-        let mut dist_sq = 0.0;
-        let mut target_arc: Option<Arc<RwLock<Object>>> = None;
+        self.with_object(|obj_guard| {
+            let mut dist_sq = 0.0;
+            let mut has_target = false;
 
-        if self.target_id != INVALID_ID {
-            if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                if let Ok(target_guard) = target.read() {
-                    dist_sq = ThePartitionManager::get_distance_squared(
-                        &obj_guard,
-                        &target_guard,
-                        crate::common::FROM_BOUNDING_SPHERE_2D,
-                    );
-                }
-                target_arc = Some(target);
+            if target_id != INVALID_ID {
+                has_target = true;
+                let Some(d) =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target| {
+                        ThePartitionManager::get_distance_squared(
+                            obj_guard,
+                            target,
+                            crate::common::FROM_BOUNDING_SPHERE_2D,
+                        )
+                    })
+                else {
+                    return false;
+                };
+                dist_sq = d;
+            } else if target_pos.x != 0.0 || target_pos.y != 0.0 || target_pos.z != 0.0 {
+                dist_sq = ThePartitionManager::get_distance_squared_to_pos(
+                    obj_guard,
+                    &target_pos,
+                    crate::common::FROM_BOUNDING_SPHERE_2D,
+                );
+            } else {
+                return true;
             }
-        } else if self.target_pos.x != 0.0 || self.target_pos.y != 0.0 || self.target_pos.z != 0.0 {
-            dist_sq = ThePartitionManager::get_distance_squared_to_pos(
-                &obj_guard,
-                &self.target_pos,
-                crate::common::FROM_BOUNDING_SPHERE_2D,
-            );
-        } else {
-            return true;
-        }
 
-        if dist_sq > range * range {
-            return false;
-        }
+            if dist_sq > range * range {
+                return false;
+            }
 
-        if range == 0.0 && self.target_id != INVALID_ID {
-            return dist_sq <= 0.0;
-        }
+            if range == 0.0 && target_id != INVALID_ID {
+                return dist_sq <= 0.0;
+            }
 
-        if self.module_data.approach_requires_los {
-            if let Some(target) = target_arc {
+            if requires_los && has_target {
                 if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
-                    if let Ok(target_guard) = target.read() {
-                        let src_pos = obj_guard.get_position();
-                        let tgt_pos = target_guard.get_position();
-                        return terrain.is_clear_line_of_sight(src_pos, tgt_pos);
-                    }
+                    return crate::object::registry::OBJECT_REGISTRY
+                        .with_object(target_id, |target| {
+                            terrain.is_clear_line_of_sight(
+                                obj_guard.get_position(),
+                                target.get_position(),
+                            )
+                        })
+                        .unwrap_or(false);
                 }
             }
-        }
 
-        true
+            true
+        })
+        .unwrap_or(false)
     }
 
     fn is_within_ability_abort_range(&self) -> bool {
-        let Some(obj) = self.get_object() else {
-            return false;
-        };
-        let obj_guard = match obj.read() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-
         let mut range = self.module_data.start_ability_range;
         let undersize = PATHFIND_CELL_SIZE_F * 0.25;
         range = (range - undersize).max(0.0);
+        let abort_range = self.module_data.ability_abort_range;
+        let target_id = self.target_id;
+        let target_pos = self.target_pos;
+        let requires_los = self.module_data.approach_requires_los;
 
-        let mut dist_sq = 0.0;
-        let mut target_arc: Option<Arc<RwLock<Object>>> = None;
+        self.with_object(|obj_guard| {
+            let mut dist_sq = 0.0;
+            let mut has_target = false;
 
-        if self.target_id != INVALID_ID {
-            if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                if let Ok(target_guard) = target.read() {
-                    dist_sq = ThePartitionManager::get_distance_squared(
-                        &obj_guard,
-                        &target_guard,
-                        crate::common::FROM_BOUNDING_SPHERE_2D,
-                    );
-                }
-                target_arc = Some(target);
+            if target_id != INVALID_ID {
+                has_target = true;
+                let Some(d) =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target| {
+                        ThePartitionManager::get_distance_squared(
+                            obj_guard,
+                            target,
+                            crate::common::FROM_BOUNDING_SPHERE_2D,
+                        )
+                    })
+                else {
+                    return false;
+                };
+                dist_sq = d;
+            } else if target_pos.x != 0.0 || target_pos.y != 0.0 || target_pos.z != 0.0 {
+                dist_sq = ThePartitionManager::get_distance_squared_to_pos(
+                    obj_guard,
+                    &target_pos,
+                    crate::common::FROM_BOUNDING_SPHERE_2D,
+                );
+            } else {
+                return true;
             }
-        } else if self.target_pos.x != 0.0 || self.target_pos.y != 0.0 || self.target_pos.z != 0.0 {
-            dist_sq = ThePartitionManager::get_distance_squared_to_pos(
-                &obj_guard,
-                &self.target_pos,
-                crate::common::FROM_BOUNDING_SPHERE_2D,
-            );
-        } else {
-            return true;
-        }
 
-        if dist_sq > self.module_data.ability_abort_range * self.module_data.ability_abort_range {
-            return false;
-        }
+            if dist_sq > abort_range * abort_range {
+                return false;
+            }
 
-        if range == 0.0 && self.target_id != INVALID_ID {
-            return dist_sq <= 0.0;
-        }
+            if range == 0.0 && target_id != INVALID_ID {
+                return dist_sq <= 0.0;
+            }
 
-        if self.module_data.approach_requires_los {
-            if let Some(target) = target_arc {
+            if requires_los && has_target {
                 if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
-                    if let Ok(target_guard) = target.read() {
-                        let src_pos = obj_guard.get_position();
-                        let tgt_pos = target_guard.get_position();
-                        return terrain.is_clear_line_of_sight(src_pos, tgt_pos);
-                    }
+                    return crate::object::registry::OBJECT_REGISTRY
+                        .with_object(target_id, |target| {
+                            terrain.is_clear_line_of_sight(
+                                obj_guard.get_position(),
+                                target.get_position(),
+                            )
+                        })
+                        .unwrap_or(false);
                 }
             }
-        }
 
-        true
+            true
+        })
+        .unwrap_or(false)
     }
 
     fn approach_target(&mut self) -> bool {
-        let Some(obj) = self.get_object() else {
-            return false;
-        };
-        let obj_guard = match obj.read() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-
-        if self.target_id != INVALID_ID {
-            if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(_target_guard) = target.read() {
+        let target_id = self.target_id;
+        let target_pos = self.target_pos;
+        self.with_object(|obj_guard| {
+            if target_id != INVALID_ID {
+                if crate::object::registry::OBJECT_REGISTRY
+                    .with_object(target_id, |_| ())
+                    .is_some()
+                {
+                    if let Some(ai) = obj_guard.get_ai_update_interface() {
                         let _ = ai.lock().map(|mut ai_guard| {
-                            ai_guard.ignore_obstacle(target.read().ok().map(|g| g.get_id()))
+                            ai_guard.ignore_obstacle(Some(target_id));
                         });
+                        ai.ai_move_to_object(target_id, CMD_FROM_AI);
+                        return true;
                     }
-                    ai.ai_move_to_object(self.target_id, CMD_FROM_AI);
+                }
+            } else if target_pos.x != 0.0 || target_pos.y != 0.0 || target_pos.z != 0.0 {
+                if let Some(ai) = obj_guard.get_ai_update_interface() {
+                    ai.ai_move_to_position(&target_pos, false, CMD_FROM_AI);
                     return true;
                 }
             }
-        } else if self.target_pos.x != 0.0 || self.target_pos.y != 0.0 || self.target_pos.z != 0.0 {
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                ai.ai_move_to_position(&self.target_pos, false, CMD_FROM_AI);
-                return true;
-            }
-        }
-        false
+            false
+        })
+        .unwrap_or(false)
     }
 
     fn start_preparation(&mut self) {
@@ -910,17 +900,25 @@ impl SpecialAbilityUpdate {
             crate::object::special_power_types::SpecialPowerType::InfantryCaptureBuilding => {
                 self.capture_flash_phase = 0.0;
                 if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                    if let (Ok(target_guard), Some(owner)) =
-                        (target.read(), self.get_object())
+                    let Ok(target_guard) = target.read() else {
+                        return;
+                    };
+                    if self.with_object(|o| o.relationship_to(&target_guard))
+                        == Some(Relationship::Allies)
                     {
-                        if owner.read().ok().map(|o| o.relationship_to(&target_guard))
-                            == Some(Relationship::Allies)
+                        return;
+                    }
+                    // Booby-trap detonation still needs a short-lived owner Arc for &Object.
+                    if let Some(owner) = self.get_object() {
+                        if target_guard
+                            .check_and_detonate_booby_trap(owner.read().ok().as_deref())
                         {
-                            return;
-                        }
-                        if target_guard.check_and_detonate_booby_trap(owner.read().ok().as_deref()) {
                             if target_guard.is_effectively_dead()
-                                || owner.read().ok().map(|o| o.is_effectively_dead()).unwrap_or(false)
+                                || owner
+                                    .read()
+                                    .ok()
+                                    .map(|o| o.is_effectively_dead())
+                                    .unwrap_or(false)
                             {
                                 return;
                             }
@@ -928,9 +926,10 @@ impl SpecialAbilityUpdate {
                     }
                 }
 
-                if let Some(obj) = self.get_object() {
-                    if let Ok(mut obj_guard) = obj.write() {
-                        obj_guard.clear_and_set_model_condition_flags(
+                let prep_frames = self.prep_frames;
+                let _ = self.with_object_mut(|obj_guard| {
+                    obj_guard
+                        .clear_and_set_model_condition_flags(
                             ModelConditionFlags::Unpacking,
                             ModelConditionFlags::empty(),
                         )
@@ -939,11 +938,10 @@ impl SpecialAbilityUpdate {
                                 "SpecialAbilityUpdate::process_mode_specific clear_and_set flags: {err}"
                             )
                         });
-                        if self.prep_frames > 0 {
-                            obj_guard.set_animation_completion_time(self.prep_frames);
-                        }
+                    if prep_frames > 0 {
+                        obj_guard.set_animation_completion_time(prep_frames);
                     }
-                }
+                });
 
                 if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
                     let _ = TheRadar::try_infiltration_event(target);
@@ -968,9 +966,9 @@ impl SpecialAbilityUpdate {
                     }
                     if let Some(special_object_id) = self.create_special_object() {
                         let _ = self.init_laser(special_object_id, Some(self.target_id));
-                        if let Some(obj) = self.get_object() {
-                            if let Ok(mut obj_guard) = obj.write() {
-                                obj_guard.clear_and_set_model_condition_flags(
+                        let _ = self.with_object_mut(|obj_guard| {
+                            obj_guard
+                                .clear_and_set_model_condition_flags(
                                     ModelConditionFlags::Unpacking,
                                     ModelConditionFlags::FiringA,
                                 )
@@ -979,8 +977,7 @@ impl SpecialAbilityUpdate {
                                         "SpecialAbilityUpdate::process_mode_specific firing flags: {err}"
                                     )
                                 });
-                            }
-                        }
+                        });
                     }
                     let _ = TheRadar::try_infiltration_event(target);
                 }
@@ -994,14 +991,12 @@ impl SpecialAbilityUpdate {
             spm.mark_special_power_triggered(None);
         });
 
-        if let Some(obj) = self.get_object() {
-            if let Ok(mut obj_guard) = obj.write() {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    ai.ai_idle(CMD_FROM_AI);
-                }
-                obj_guard.set_status(crate::common::ObjectStatusMaskType::IS_USING_ABILITY, true);
+        let _ = self.with_object_mut(|obj_guard| {
+            if let Some(ai) = obj_guard.get_ai_update_interface() {
+                ai.ai_idle(CMD_FROM_AI);
             }
-        }
+            obj_guard.set_status(crate::common::ObjectStatusMaskType::IS_USING_ABILITY, true);
+        });
 
         if let Some(sound) = self.module_data.prep_sound_loop.as_ref() {
             if let Some(audio) = TheAudio::get() {
@@ -1147,17 +1142,20 @@ impl SpecialAbilityUpdate {
         match template.get_special_power_type() {
             crate::object::special_power_types::SpecialPowerType::MissileDefenderLaserGuidedMissiles => {
                 if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                    if let Some(obj) = self.get_object() {
-                        if let Ok(mut obj_guard) = obj.write() {
-                            obj_guard.set_weapon_lock(
-                                WeaponSlotType::Secondary,
-                                WeaponLockType::LockedTemporarily,
+                    let target_id = target.read().ok().map(|g| g.get_id()).unwrap_or(0);
+                    let _ = self.with_object_mut(|obj_guard| {
+                        obj_guard.set_weapon_lock(
+                            WeaponSlotType::Secondary,
+                            WeaponLockType::LockedTemporarily,
+                        );
+                        if let Some(ai) = obj_guard.get_ai_update_interface() {
+                            ai.ai_attack_object(
+                                target_id,
+                                crate::weapon::NO_MAX_SHOTS_LIMIT,
+                                CMD_FROM_AI,
                             );
-                            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                                ai.ai_attack_object(target.read().ok().map(|g| g.get_id()).unwrap_or(0), crate::weapon::NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
-                            }
                         }
-                    }
+                    });
                     drop(target);
                 }
             }
@@ -1209,10 +1207,7 @@ impl SpecialAbilityUpdate {
                             .ok()
                             .map(|target| target.get_id())
                             .unwrap_or(INVALID_ID);
-                        let owner_id = self
-                            .get_object()
-                            .and_then(|owner| owner.read().ok().map(|owner| owner.get_id()))
-                            .unwrap_or(INVALID_ID);
+                        let owner_id = self.get_object_id();
                         module.with_module(|module| {
                             if let Some(sticky_bomb) =
                                 module.get_sticky_bomb_control_interface()
@@ -1408,10 +1403,7 @@ impl SpecialAbilityUpdate {
                                 .ok()
                                 .map(|target| target.get_id())
                                 .unwrap_or(INVALID_ID);
-                            let owner_id = self
-                                .get_object()
-                                .and_then(|owner| owner.read().ok().map(|owner| owner.get_id()))
-                                .unwrap_or(INVALID_ID);
+                            let owner_id = self.get_object_id();
                             module.with_module(|module| {
                                 if let Some(sticky_bomb) =
                                     module.get_sticky_bomb_control_interface()
@@ -1431,15 +1423,12 @@ impl SpecialAbilityUpdate {
                     Some(target) => target,
                     None => return,
                 };
-                let Some(obj) = self.get_object() else {
-                    return;
-                };
                 let template_name = target
                     .read()
                     .ok()
                     .map(|g| g.get_template().get_name().to_string());
                 if let Some(template_name) = template_name {
-                    if let Ok(obj_guard) = obj.read() {
+                    let _ = self.with_object(|obj_guard| {
                         if let Some(module) = obj_guard.find_update_module("StealthUpdate") {
                             module.with_module(|module| {
                                 if let Some(disguise) =
@@ -1452,7 +1441,7 @@ impl SpecialAbilityUpdate {
                                 }
                             });
                         }
-                    }
+                    });
                 }
             }
             _ => {
@@ -1597,37 +1586,41 @@ impl SpecialAbilityUpdate {
 
         self.anim_frames = self.anim_frames.saturating_sub(1);
         if self.anim_frames == 0 {
-            if let Some(obj) = self.get_object() {
-                if let Ok(mut obj_guard) = obj.write() {
-                    obj_guard
-                        .clear_model_condition_flags(
-                            ModelConditionFlags::Unpacking | ModelConditionFlags::Packing,
-                        )
-                        .unwrap_or_else(|err| {
-                            log::debug!(
+            let packing_state = self.packing_state;
+            let flip_after_unpack = self.module_data.flip_object_after_unpacking;
+            let flip_after_pack = self.module_data.flip_object_after_packing;
+            let _ = self.with_object_mut(|obj_guard| {
+                obj_guard
+                    .clear_model_condition_flags(
+                        ModelConditionFlags::Unpacking | ModelConditionFlags::Packing,
+                    )
+                    .unwrap_or_else(|err| {
+                        log::debug!(
                             "SpecialAbilityUpdate::handle_packing_processing clear flags: {err}"
                         )
-                        });
-                    match self.packing_state {
-                        PackingState::Unpacking => {
-                            if self.module_data.flip_object_after_unpacking {
-                                let orientation = obj_guard.get_orientation();
-                                let _ = obj_guard.set_orientation(orientation + PI);
-                            }
-                            self.packing_state = PackingState::Unpacked;
-                        }
-                        PackingState::Packing => {
-                            if self.module_data.flip_object_after_packing {
-                                let orientation = obj_guard.get_orientation();
-                                let _ = obj_guard.set_orientation(orientation + PI);
-                            }
-                            self.packing_state = PackingState::Packed;
-                            self.finish_ability();
-                            return true;
-                        }
-                        _ => {}
+                    });
+                match packing_state {
+                    PackingState::Unpacking if flip_after_unpack => {
+                        let orientation = obj_guard.get_orientation();
+                        let _ = obj_guard.set_orientation(orientation + PI);
                     }
+                    PackingState::Packing if flip_after_pack => {
+                        let orientation = obj_guard.get_orientation();
+                        let _ = obj_guard.set_orientation(orientation + PI);
+                    }
+                    _ => {}
                 }
+            });
+            match packing_state {
+                PackingState::Unpacking => {
+                    self.packing_state = PackingState::Unpacked;
+                }
+                PackingState::Packing => {
+                    self.packing_state = PackingState::Packed;
+                    self.finish_ability();
+                    return true;
+                }
+                _ => {}
             }
             return false;
         }
@@ -1681,32 +1674,32 @@ impl SpecialAbilityUpdate {
         self.packing_state = PackingState::Packing;
         self.anim_frames = (self.module_data.pack_time as Real * variation) as u32;
 
-        if let Some(obj) = self.get_object() {
-            if let Ok(mut obj_guard) = obj.write() {
-                obj_guard
-                    .clear_and_set_model_condition_flags(
-                        ModelConditionFlags::Unpacking,
-                        ModelConditionFlags::Packing,
-                    )
-                    .unwrap_or_else(|err| {
-                        log::debug!("SpecialAbilityUpdate::start_packing set flags: {err}")
-                    });
+        let owner_id = self.get_object_id();
+        let _ = self.with_object_mut(|obj_guard| {
+            obj_guard
+                .clear_and_set_model_condition_flags(
+                    ModelConditionFlags::Unpacking,
+                    ModelConditionFlags::Packing,
+                )
+                .unwrap_or_else(|err| {
+                    log::debug!("SpecialAbilityUpdate::start_packing set flags: {err}")
+                });
 
-                if let Some(sound) = self.module_data.pack_sound.as_ref() {
-                    if let Some(audio) = TheAudio::get() {
-                        let mut event = sound.clone();
-                        event.set_object_id(obj_guard.get_id());
-                        let handle = audio.add_audio_event(&event);
-                        event.set_playing_handle(handle);
-                    }
-                }
+            if self.anim_frames > 0 {
+                obj_guard.set_animation_completion_time(self.anim_frames);
+            }
 
-                if self.anim_frames > 0 {
-                    obj_guard.set_animation_completion_time(self.anim_frames);
-                }
-
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    let _ = ai.lock().map(|mut ai_guard| ai_guard.ai_busy(CMD_FROM_AI));
+            if let Some(ai) = obj_guard.get_ai_update_interface() {
+                let _ = ai.lock().map(|mut ai_guard| ai_guard.ai_busy(CMD_FROM_AI));
+            }
+        });
+        if let Some(sound) = self.module_data.pack_sound.as_ref() {
+            if let Some(audio) = TheAudio::get() {
+                if owner_id != INVALID_ID {
+                    let mut event = sound.clone();
+                    event.set_object_id(owner_id);
+                    let handle = audio.add_audio_event(&event);
+                    event.set_playing_handle(handle);
                 }
             }
         }
@@ -1725,32 +1718,32 @@ impl SpecialAbilityUpdate {
         self.packing_state = PackingState::Unpacking;
         self.anim_frames = (self.module_data.unpack_time as Real * variation) as u32;
 
-        if let Some(obj) = self.get_object() {
-            if let Ok(mut obj_guard) = obj.write() {
-                obj_guard
-                    .clear_and_set_model_condition_flags(
-                        ModelConditionFlags::Packing,
-                        ModelConditionFlags::Unpacking,
-                    )
-                    .unwrap_or_else(|err| {
-                        log::debug!("SpecialAbilityUpdate::start_unpacking set flags: {err}")
-                    });
+        let owner_id = self.get_object_id();
+        let _ = self.with_object_mut(|obj_guard| {
+            obj_guard
+                .clear_and_set_model_condition_flags(
+                    ModelConditionFlags::Packing,
+                    ModelConditionFlags::Unpacking,
+                )
+                .unwrap_or_else(|err| {
+                    log::debug!("SpecialAbilityUpdate::start_unpacking set flags: {err}")
+                });
 
-                if let Some(sound) = self.module_data.unpack_sound.as_ref() {
-                    if let Some(audio) = TheAudio::get() {
-                        let mut event = sound.clone();
-                        event.set_object_id(obj_guard.get_id());
-                        let handle = audio.add_audio_event(&event);
-                        event.set_playing_handle(handle);
-                    }
-                }
+            if self.anim_frames > 0 {
+                obj_guard.set_animation_completion_time(self.anim_frames);
+            }
 
-                if self.anim_frames > 0 {
-                    obj_guard.set_animation_completion_time(self.anim_frames);
-                }
-
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    let _ = ai.lock().map(|mut ai_guard| ai_guard.ai_busy(CMD_FROM_AI));
+            if let Some(ai) = obj_guard.get_ai_update_interface() {
+                let _ = ai.lock().map(|mut ai_guard| ai_guard.ai_busy(CMD_FROM_AI));
+            }
+        });
+        if let Some(sound) = self.module_data.unpack_sound.as_ref() {
+            if let Some(audio) = TheAudio::get() {
+                if owner_id != INVALID_ID {
+                    let mut event = sound.clone();
+                    event.set_object_id(owner_id);
+                    let handle = audio.add_audio_event(&event);
+                    event.set_playing_handle(handle);
                 }
             }
         }
@@ -1766,37 +1759,33 @@ impl SpecialAbilityUpdate {
             || self.target_pos.z != 0.0;
 
         if self.module_data.flee_range_after_completion > 0.0 && valid_target {
-            if let Some(obj) = self.get_object() {
-                if let Ok(obj_guard) = obj.read() {
-                    let (dir_x, dir_y) = obj_guard.get_unit_direction_vector_2d();
-                    let mut pos = *obj_guard.get_position();
-                    let scale = self.module_data.flee_range_after_completion;
-                    if self.module_data.flip_object_after_unpacking
-                        || self.module_data.flip_object_after_packing
-                    {
-                        pos.x += dir_x * scale;
-                        pos.y += dir_y * scale;
-                    } else {
-                        pos.x -= dir_x * scale;
-                        pos.y -= dir_y * scale;
-                    }
+            let scale = self.module_data.flee_range_after_completion;
+            let flip = self.module_data.flip_object_after_unpacking
+                || self.module_data.flip_object_after_packing;
+            let target_id = self.target_id;
+            let _ = self.with_object(|obj_guard| {
+                let (dir_x, dir_y) = obj_guard.get_unit_direction_vector_2d();
+                let mut pos = *obj_guard.get_position();
+                if flip {
+                    pos.x += dir_x * scale;
+                    pos.y += dir_y * scale;
+                } else {
+                    pos.x -= dir_x * scale;
+                    pos.y -= dir_y * scale;
+                }
 
-                    if let Some(ai) = obj_guard.get_ai_update_interface() {
-                        if let Some(physics) = obj_guard.get_physics() {
-                            physics.apply_motive_force(&Coord3D::ZERO);
-                        }
-                        ai.ai_move_to_position(&pos, false, CMD_FROM_AI);
-                        if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                            if let Ok(_target_guard) = target.read() {
-                                let _ = ai.lock().map(|mut guard| {
-                                    let _ = guard
-                                        .ignore_obstacle(target.read().ok().map(|g| g.get_id()));
-                                });
-                            }
-                        }
+                if let Some(ai) = obj_guard.get_ai_update_interface() {
+                    if let Some(physics) = obj_guard.get_physics() {
+                        physics.apply_motive_force(&Coord3D::ZERO);
+                    }
+                    ai.ai_move_to_position(&pos, false, CMD_FROM_AI);
+                    if target_id != INVALID_ID {
+                        let _ = ai.lock().map(|mut guard| {
+                            let _ = guard.ignore_obstacle(Some(target_id));
+                        });
                     }
                 }
-            }
+            });
         } else if let Some(ai) = self
             .with_object(|obj_guard| obj_guard.get_ai_update_interface())
             .flatten()
@@ -1823,14 +1812,12 @@ impl SpecialAbilityUpdate {
             if template.get_special_power_type()
                 == crate::object::special_power_types::SpecialPowerType::MissileDefenderLaserGuidedMissiles
             {
-                if let Some(obj) = self.get_object() {
-                    if let Ok(mut obj_guard) = obj.write() {
-                        obj_guard.set_weapon_lock(
-                            WeaponSlotType::Primary,
-                            WeaponLockType::LockedTemporarily,
-                        );
-                    }
-                }
+                let _ = self.with_object_mut(|obj_guard| {
+                    obj_guard.set_weapon_lock(
+                        WeaponSlotType::Primary,
+                        WeaponLockType::LockedTemporarily,
+                    );
+                });
             }
         }
     }
@@ -1840,16 +1827,21 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         self.validate_special_objects();
 
+        if self.get_object_id() == INVALID_ID {
+            return Ok(UPDATE_SLEEP_FOREVER);
+        }
+
+        if self
+            .with_object(|obj_guard| obj_guard.is_effectively_dead())
+            .unwrap_or(true)
+        {
+            self.on_exit(true);
+            return Ok(self.calc_sleep_time());
+        }
+
         let Some(obj) = self.get_object() else {
             return Ok(UPDATE_SLEEP_FOREVER);
         };
-
-        if let Ok(obj_guard) = obj.read() {
-            if obj_guard.is_effectively_dead() {
-                self.on_exit(true);
-                return Ok(self.calc_sleep_time());
-            }
-        }
 
         if !self.active {
             return Ok(self.calc_sleep_time());
