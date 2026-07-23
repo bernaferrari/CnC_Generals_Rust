@@ -4583,8 +4583,8 @@ impl Object {
 
     /// Get the current victim/target position of this object
     pub fn get_current_victim_pos(&self) -> Option<Coord3D> {
-        let victim = self.get_current_victim()?;
-        victim.read().ok().map(|v| *v.get_position())
+        let victim_id = self.get_current_victim_id()?;
+        crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |v| *v.get_position())
     }
 
     /// Convenience method for getting ID (alias for get_id())
