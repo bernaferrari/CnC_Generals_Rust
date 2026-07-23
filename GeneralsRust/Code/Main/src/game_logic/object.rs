@@ -936,6 +936,10 @@ pub struct Object {
     #[serde(default)]
     pub structure_topple_data:
         Option<crate::game_logic::host_structure_topple::HostStructureToppleData>,
+    /// C++ StructureCollapseUpdate residual (civilian buildings sink on death).
+    #[serde(default)]
+    pub structure_collapse_data:
+        Option<crate::game_logic::host_structure_collapse::HostStructureCollapseData>,
     /// C++ FireWeaponWhenDamagedBehavior residual.
     #[serde(default)]
     pub fire_weapon_when_damaged:
@@ -1549,6 +1553,7 @@ impl Object {
             crushable_level: 255,
             topple_data: None,
             structure_topple_data: None,
+            structure_collapse_data: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             front_crushed: false,
@@ -1881,6 +1886,7 @@ impl Object {
             crushable_level: 255,
             topple_data: None,
             structure_topple_data: None,
+            structure_collapse_data: None,
             fire_weapon_when_damaged: None,
             pending_fire_when_damaged_weapon: None,
             front_crushed: false,
@@ -2336,6 +2342,74 @@ impl Object {
     /// C++ ActiveBody::onSubdualChange → setDisabled(DISABLED_SUBDUED).
     /// Structures stop production / attack while cooked; residual continuous
     /// while microwave keeps attacking (not full subdual accumulate/heal).
+
+    /// C++ StructureCollapseUpdate::onDie / beginStructureCollapse residual.
+    pub fn begin_structure_collapse(&mut self, current_frame: u32) -> bool {
+        if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
+            return false;
+        }
+        if !crate::game_logic::host_structure_collapse::is_structure_collapse_candidate(
+            &self.template_name,
+            true,
+        ) {
+            return false;
+        }
+        if self
+            .structure_collapse_data
+            .as_ref()
+            .map(|d| !d.is_standing())
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        let mut data =
+            crate::game_logic::host_structure_collapse::HostStructureCollapseData::default();
+        let radius = self.selection_radius.max(10.0);
+        data.building_height = (self.health.maximum.max(100.0) * 0.12)
+            .clamp(15.0, 60.0)
+            .max(radius * 0.8);
+        // Mid delay residual (average of 15–30).
+        data.begin(current_frame, 22);
+        self.structure_collapse_data = Some(data);
+        self.selected = false;
+        self.status.selected = false;
+        self.set_ai_state(crate::game_logic::AIState::Idle);
+        if self.health.current <= 0.0 {
+            self.health.current = 0.01;
+        }
+        self.status.destroyed = false;
+        true
+    }
+
+    /// C++ StructureCollapseUpdate::update residual. True when collapse completes.
+    pub fn tick_structure_collapse(&mut self, current_frame: u32) -> bool {
+        let Some(sc) = self.structure_collapse_data.as_mut() else {
+            return false;
+        };
+        if !sc.tick(current_frame) {
+            return false;
+        }
+        self.health.current = 0.0;
+        self.status.destroyed = true;
+        self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+        true
+    }
+
+    /// Presentation vertical offset from structure collapse residual.
+    pub fn presentation_collapse_height_offset(&self) -> f32 {
+        self.structure_collapse_data
+            .as_ref()
+            .map(|d| d.collapse_height_offset())
+            .unwrap_or(0.0)
+    }
+
+    /// Presentation shudder residual from structure collapse.
+    pub fn presentation_collapse_shudder(&self) -> (f32, f32) {
+        self.structure_collapse_data
+            .as_ref()
+            .map(|d| (d.shudder_x, d.shudder_z))
+            .unwrap_or((0.0, 0.0))
+    }
 
     /// C++ StructureToppleUpdate::onDie / beginStructureTopple residual.
     /// Call when a structure reaches lethal damage instead of instant destroy.
@@ -11739,6 +11813,28 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn structure_collapse_on_lethal() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut t = ThingTemplate::new("CivilianBarn01");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Structure);
+        let mut b = Object::new(t, ObjectId(1), Team::Neutral);
+        b.health.current = 100.0;
+        assert!(b.begin_structure_collapse(5));
+        assert!(b.structure_collapse_data.as_ref().unwrap().is_active());
+        let mut done = false;
+        for f in 5..800 {
+            if b.tick_structure_collapse(f) {
+                done = true;
+                break;
+            }
+        }
+        assert!(done);
+        assert!(b.status.destroyed);
+        assert!(b.presentation_collapse_height_offset() < -1.0);
     }
 
     #[test]

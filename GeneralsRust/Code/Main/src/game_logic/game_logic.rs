@@ -7136,6 +7136,9 @@ impl GameLogic {
                 // C++ ToppleUpdate::update residual (trees / crushable props).
                 topple_kill = obj.tick_topple();
                 // C++ StructureToppleUpdate::update residual (buildings).
+                if !topple_kill && obj.structure_collapse_data.is_some() {
+                    topple_kill = obj.tick_structure_collapse(self.frame);
+                }
                 if !topple_kill && obj.structure_topple_data.is_some() {
                     topple_kill = obj.tick_structure_topple(self.frame);
                 }
@@ -22169,7 +22172,18 @@ impl GameLogic {
         if !obj.is_kind_of(KindOf::Structure) {
             return false;
         }
-        if obj
+        // Already finished collapse or topple → allow normal destroy.
+        let collapse_done = obj
+            .structure_collapse_data
+            .as_ref()
+            .map(|d| {
+                matches!(
+                    d.state,
+                    crate::game_logic::host_structure_collapse::HostStructureCollapseState::Done
+                )
+            })
+            .unwrap_or(false);
+        let topple_done = obj
             .structure_topple_data
             .as_ref()
             .map(|d| {
@@ -22178,24 +22192,35 @@ impl GameLogic {
                     crate::game_logic::host_structure_topple::HostStructureToppleState::Done
                 )
             })
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        if collapse_done || topple_done {
             return false;
         }
+        // Mid-animation: keep deferring destroy.
         if obj
-            .structure_topple_data
+            .structure_collapse_data
             .as_ref()
             .map(|d| d.is_active())
             .unwrap_or(false)
+            || obj
+                .structure_topple_data
+                .as_ref()
+                .map(|d| d.is_active())
+                .unwrap_or(false)
         {
             let _ = killer;
             return true;
         }
-        if !obj.begin_structure_topple(frame, attacker_pos) {
-            return false;
+        // Prefer StructureCollapse for civilian/prop peels; else StructureTopple.
+        if obj.begin_structure_collapse(frame) {
+            let _ = killer;
+            return true;
         }
-        let _ = killer;
-        true
+        if obj.begin_structure_topple(frame, attacker_pos) {
+            let _ = killer;
+            return true;
+        }
+        false
     }
 
     /// Find object by ID
@@ -81932,6 +81957,47 @@ mod tests {
             "ranger should be crushed under topple sweep, hp={}",
             ranger.health.current
         );
+    }
+
+    #[test]
+    fn structure_collapse_defers_destruction() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("CivilianBarn01");
+        t.set_health(80.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("CivilianBarn01".into(), t);
+        let id = logic
+            .create_object(
+                "CivilianBarn01",
+                Team::Neutral,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        logic.mark_object_for_destruction(id, None);
+        assert!(
+            logic
+                .objects
+                .get(&id)
+                .unwrap()
+                .structure_collapse_data
+                .is_some(),
+            "civilian should collapse"
+        );
+        assert!(logic.objects_to_destroy.iter().all(|e| e.id != id));
+        let mut finished = false;
+        for _ in 0..800 {
+            logic.frame = logic.frame.saturating_add(1);
+            if let Some(obj) = logic.objects.get_mut(&id) {
+                if obj.tick_structure_collapse(logic.frame) {
+                    finished = true;
+                    break;
+                }
+            }
+        }
+        assert!(finished);
+        logic.mark_object_for_destruction(id, None);
+        assert!(logic.objects_to_destroy.iter().any(|e| e.id == id));
     }
 
     #[test]
