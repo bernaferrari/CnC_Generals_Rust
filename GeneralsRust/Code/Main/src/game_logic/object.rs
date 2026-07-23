@@ -7166,18 +7166,31 @@ impl Object {
     }
 
     /// C++ Weapon::isWithinAttackRange residual (primary then secondary).
+    /// When LeechRange is active for a slot, max range is waived (C++ hasLeechRange).
     pub fn is_within_attack_range(&self, other: &Object) -> bool {
         let dist = self.distance_to_object(other);
         if let Some(w) = &self.weapon {
-            let range = w.range * self.battle_plan_range_multiplier();
-            if dist <= range + 1e-3 && dist + 1e-4 >= w.min_range {
+            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
+                // min range still enforced under leech
+            } else if self.leech_range_active_primary {
                 return true;
+            } else {
+                let range = w.range * self.battle_plan_range_multiplier();
+                if dist <= range + 1e-3 {
+                    return true;
+                }
             }
         }
         if let Some(w) = &self.secondary_weapon {
-            let range = w.range * self.battle_plan_range_multiplier();
-            if dist <= range + 1e-3 && dist + 1e-4 >= w.min_range {
+            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
+                // min range still enforced
+            } else if self.leech_range_active_secondary {
                 return true;
+            } else {
+                let range = w.range * self.battle_plan_range_multiplier();
+                if dist <= range + 1e-3 {
+                    return true;
+                }
             }
         }
         false
@@ -7187,15 +7200,25 @@ impl Object {
     pub fn is_within_attack_range_pos(&self, pos: glam::Vec3) -> bool {
         let dist = self.distance_to_pos(pos);
         if let Some(w) = &self.weapon {
-            let range = w.range * self.battle_plan_range_multiplier();
-            if dist <= range + 1e-3 && dist + 1e-4 >= w.min_range {
+            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
+            } else if self.leech_range_active_primary {
                 return true;
+            } else {
+                let range = w.range * self.battle_plan_range_multiplier();
+                if dist <= range + 1e-3 {
+                    return true;
+                }
             }
         }
         if let Some(w) = &self.secondary_weapon {
-            let range = w.range * self.battle_plan_range_multiplier();
-            if dist <= range + 1e-3 && dist + 1e-4 >= w.min_range {
+            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
+            } else if self.leech_range_active_secondary {
                 return true;
+            } else {
+                let range = w.range * self.battle_plan_range_multiplier();
+                if dist <= range + 1e-3 {
+                    return true;
+                }
             }
         }
         false
@@ -10620,6 +10643,42 @@ mod tests {
         assert_eq!(
             resolve_host_death_type(None, DamageType::Toxin),
             HostDeathType::Poisoned
+        );
+    }
+
+    #[test]
+    fn leech_range_waives_max_in_is_within_attack_range() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut atk_t = ThingTemplate::new("LR_A");
+        atk_t.add_kind_of(KindOf::Vehicle);
+        atk_t.set_health(100.0);
+        let mut vic_t = ThingTemplate::new("LR_V");
+        vic_t.add_kind_of(KindOf::Infantry);
+        vic_t.set_health(50.0);
+        let mut atk = Object::new(atk_t, ObjectId(1), Team::USA);
+        let mut vic = Object::new(vic_t, ObjectId(2), Team::GLA);
+        atk.set_position(Vec3::ZERO);
+        vic.set_position(Vec3::new(500.0, 0.0, 0.0)); // far beyond weapon range
+        atk.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            min_range: 0.0,
+            ..Weapon::default()
+        });
+        // Force leech template name path: set flags directly (activate needs name peel).
+        assert!(!atk.is_within_attack_range(&vic));
+        atk.leech_range_active_primary = true;
+        assert!(
+            atk.is_within_attack_range(&vic),
+            "leech must waive max range once active"
+        );
+        // Min range still blocks under leech.
+        atk.weapon.as_mut().unwrap().min_range = 600.0;
+        assert!(
+            !atk.is_within_attack_range(&vic),
+            "min range still enforced with leech"
         );
     }
 
