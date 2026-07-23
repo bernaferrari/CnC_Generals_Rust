@@ -147,6 +147,7 @@ pub mod host_historic_bonus;
 pub mod host_humvee;
 pub mod host_inferno_cannon;
 pub mod host_jarmen_kell;
+mod host_jet_slow_death;
 pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;

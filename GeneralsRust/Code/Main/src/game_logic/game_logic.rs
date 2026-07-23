@@ -7148,6 +7148,16 @@ impl GameLogic {
                 if !topple_kill && obj.tick_height_die(self.frame, 0.0) {
                     topple_kill = true;
                 }
+                // C++ JetSlowDeathBehavior residual.
+                if !topple_kill
+                    && obj
+                        .jet_slow_death
+                        .as_ref()
+                        .map(|j| j.is_active())
+                        .unwrap_or(false)
+                {
+                    topple_kill = obj.tick_jet_slow_death(self.frame, 0.0);
+                }
                 // C++ HelicopterSlowDeathBehavior residual.
                 if !topple_kill
                     && obj
@@ -22162,7 +22172,24 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
-        // Helicopter spiral crash residual takes priority over generic slow death.
+        // Jet crash residual.
+        if obj.jet_slow_death.as_ref().map(|j| j.done).unwrap_or(false) {
+            return false;
+        }
+        if obj
+            .jet_slow_death
+            .as_ref()
+            .map(|j| j.is_active())
+            .unwrap_or(false)
+        {
+            let _ = killer;
+            return true;
+        }
+        if obj.begin_jet_slow_death() {
+            let _ = killer;
+            return true;
+        }
+        // Helicopter spiral crash residual.
         if obj
             .helicopter_slow_death
             .as_ref()
@@ -82174,6 +82201,33 @@ mod tests {
             assert!(o.tick_height_die(2, 0.0));
         }
         assert!(logic.objects.get(&id).unwrap().status.destroyed);
+    }
+
+    #[test]
+    fn jet_slow_death_defers_destroy() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("AmericaJetRaptor");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Aircraft);
+        logic.templates.insert("AmericaJetRaptor".into(), t);
+        let id = logic
+            .create_object(
+                "AmericaJetRaptor",
+                Team::USA,
+                glam::Vec3::new(0.0, 80.0, 0.0),
+            )
+            .unwrap();
+        logic.mark_object_for_destruction(id, None);
+        assert!(logic
+            .objects
+            .get(&id)
+            .unwrap()
+            .jet_slow_death
+            .as_ref()
+            .map(|j| j.is_active())
+            .unwrap_or(false));
+        assert!(logic.objects_to_destroy.iter().all(|e| e.id != id));
     }
 
     #[test]
