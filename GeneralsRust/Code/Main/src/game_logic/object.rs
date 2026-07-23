@@ -802,6 +802,12 @@ pub struct Object {
     /// C++ AICMD_GO_PRONE residual duration (seconds).
     #[serde(default)]
     pub prone_timer: f32,
+    /// C++ Drawable::setEmoticon residual — icon name (empty = none).
+    #[serde(default)]
+    pub emoticon_name: String,
+    /// Remaining logic frames for emoticon (C++ duration frames).
+    #[serde(default)]
+    pub emoticon_frames_left: i32,
 
     /// C++ Object::m_formationID residual (0 = NO_FORMATION_ID).
     pub formation_id: u32,
@@ -811,6 +817,12 @@ pub struct Object {
     /// Toggleable weapon/overcharge state flags
     pub overcharge_enabled: bool,
     pub active_weapon_slot: u8,
+    /// C++ WeaponSet lock residual.
+    #[serde(default)]
+    pub weapon_lock_type: WeaponLockType,
+    /// Slot held by the lock (PRIMARY=0, SECONDARY=1, TERTIARY=2).
+    #[serde(default)]
+    pub weapon_lock_slot: u8,
 
     /// C++ Weapon PRE_ATTACK residual: target being wound up against.
     #[serde(default)]
@@ -1183,6 +1195,18 @@ pub struct Object {
     /// C++ StealthForbiddenConditions TAKING_DAMAGE residual.
     #[serde(default)]
     pub stealth_breaks_on_damage: bool,
+}
+
+/// C++ WeaponLockType (WeaponSet.h) residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum WeaponLockType {
+    #[default]
+    NotLocked = 0,
+    /// Locked until clip empty / attack state exits.
+    LockedTemporarily = 1,
+    /// Locked until explicitly unlocked or lock changes.
+    LockedPermanently = 2,
 }
 
 /// C++ `GuardMode` (GameCommon.h) residual for AIGroup::groupGuard*.
@@ -1569,10 +1593,14 @@ impl Object {
             contained_by: None,
             cheer_timer: 0.0,
             prone_timer: 0.0,
+            emoticon_name: String::new(),
+            emoticon_frames_left: 0,
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
             active_weapon_slot: 0,
+            weapon_lock_type: WeaponLockType::NotLocked,
+            weapon_lock_slot: 0,
             pre_attack_target: None,
             pre_attack_ready_at: 0.0,
             consecutive_shot_target: None,
@@ -1870,10 +1898,14 @@ impl Object {
             contained_by: None,
             cheer_timer: 0.0,
             prone_timer: 0.0,
+            emoticon_name: String::new(),
+            emoticon_frames_left: 0,
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
             active_weapon_slot: 0,
+            weapon_lock_type: WeaponLockType::NotLocked,
+            weapon_lock_slot: 0,
             pre_attack_target: None,
             pre_attack_ready_at: 0.0,
             consecutive_shot_target: None,
@@ -7017,6 +7049,22 @@ impl Object {
     ///     also when primary cannot fire and secondary is ready.
     /// - Else primary when ready + in range; else secondary (alternate fire residual).
     pub fn select_combat_weapon_slot(&self, target: &Object, current_time: f32) -> Option<u8> {
+        // C++ WeaponSet lock: locked slot wins while ready/in-range.
+        if self.weapon_lock_type != WeaponLockType::NotLocked {
+            let slot = self.weapon_lock_slot;
+            if let Some(w) = self.weapon_slot(slot) {
+                let target_faerie = target.is_faerie_fire();
+                if Self::weapon_ready_vs_target(w, current_time, target_faerie)
+                    && self.can_target_with(target, w)
+                {
+                    return Some(slot);
+                }
+            }
+            // Temporary lock may fall through if clip empty / not ready.
+            if self.weapon_lock_type == WeaponLockType::LockedPermanently {
+                return Some(self.weapon_lock_slot);
+            }
+        }
         let target_faerie = target.is_faerie_fire();
         let primary_ok = self.weapon.as_ref().is_some_and(|w| {
             Self::weapon_ready_vs_target(w, current_time, target_faerie)
@@ -8778,6 +8826,18 @@ impl Object {
             }
         }
 
+        if self.emoticon_frames_left > 0 {
+            // dt is seconds; logic is 30Hz — consume fractional frames.
+            let frames = (dt * 30.0).max(0.0);
+            let next = self.emoticon_frames_left as f32 - frames;
+            if next <= 0.0 {
+                self.emoticon_frames_left = 0;
+                self.emoticon_name.clear();
+            } else {
+                self.emoticon_frames_left = next.ceil() as i32;
+            }
+        }
+
         let was_ready = self.special_power_ready;
         // C++ SpecialPowerModule::getReadyFrame residual: while isDisabled (or
         // pauseCountdown), availableOnFrame slides with the logic frame — countdown
@@ -9686,6 +9746,59 @@ impl Object {
 
     pub fn record_host_weapon_slot(&self) {
         crate::game_logic::host_weapon_slot_log::record(self.id, self.active_weapon_slot);
+    }
+
+    /// C++ Object::setWeaponLock residual.
+    /// Returns false if the requested slot has no weapon.
+    pub fn set_weapon_lock(&mut self, slot: u8, lock_type: WeaponLockType) -> bool {
+        if lock_type == WeaponLockType::NotLocked {
+            self.release_weapon_lock(WeaponLockType::LockedPermanently);
+            return true;
+        }
+        if self.weapon_slot(slot).is_none() {
+            return false;
+        }
+        // Permanent lock cannot be overridden by temporary (C++ WeaponSet residual).
+        if self.weapon_lock_type == WeaponLockType::LockedPermanently
+            && lock_type == WeaponLockType::LockedTemporarily
+        {
+            return false;
+        }
+        self.weapon_lock_type = lock_type;
+        self.weapon_lock_slot = slot;
+        self.set_active_weapon_slot(slot);
+        true
+    }
+
+    /// C++ Object::releaseWeaponLock residual.
+    pub fn release_weapon_lock(&mut self, lock_type: WeaponLockType) {
+        match lock_type {
+            WeaponLockType::NotLocked => {}
+            WeaponLockType::LockedTemporarily => {
+                if self.weapon_lock_type == WeaponLockType::LockedTemporarily {
+                    self.weapon_lock_type = WeaponLockType::NotLocked;
+                }
+            }
+            WeaponLockType::LockedPermanently => {
+                // Permanent release clears any lock.
+                self.weapon_lock_type = WeaponLockType::NotLocked;
+            }
+        }
+    }
+
+    pub fn is_weapon_locked(&self) -> bool {
+        self.weapon_lock_type != WeaponLockType::NotLocked
+    }
+
+    /// C++ Drawable::setEmoticon residual (duration in logic frames @ 30Hz).
+    pub fn set_emoticon(&mut self, name: &str, duration_frames: i32) {
+        if name.is_empty() || duration_frames <= 0 {
+            self.emoticon_name.clear();
+            self.emoticon_frames_left = 0;
+            return;
+        }
+        self.emoticon_name = name.to_string();
+        self.emoticon_frames_left = duration_frames;
     }
 
     pub fn set_active_weapon_slot(&mut self, slot: u8) {
