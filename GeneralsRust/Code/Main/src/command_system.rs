@@ -109,6 +109,14 @@ pub enum CommandType {
     FollowWaypointPath {
         waypoints: Vec<glam::Vec3>,
         exact: bool,
+        /// C++ groupFollowWaypointPathAsTeam residual.
+        #[serde(default)]
+        as_team: bool,
+    },
+    /// C++ AIGroup::groupDoCommandButtonUsingWaypoints residual.
+    DoCommandButtonUsingWaypoints {
+        button: String,
+        waypoints: Vec<glam::Vec3>,
     },
     /// C++ AIGroup::groupSurrender residual (test-key path).
     Surrender {
@@ -2176,10 +2184,24 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "followwaypointpath" | "followwaypoints" => Some(CommandType::FollowWaypointPath {
             waypoints: Vec::new(),
             exact: false,
+            as_team: false,
         }),
         "followwaypointpathexact" => Some(CommandType::FollowWaypointPath {
             waypoints: Vec::new(),
             exact: true,
+            as_team: false,
+        }),
+        "followwaypointpathasteam" | "followwaypointsasteam" => {
+            Some(CommandType::FollowWaypointPath {
+                waypoints: Vec::new(),
+                exact: false,
+                as_team: true,
+            })
+        }
+        "followwaypointpathasteamexact" => Some(CommandType::FollowWaypointPath {
+            waypoints: Vec::new(),
+            exact: true,
+            as_team: true,
         }),
         "surrender" => Some(CommandType::Surrender { surrendered: true }),
         "unsurrender" => Some(CommandType::Surrender { surrendered: false }),
