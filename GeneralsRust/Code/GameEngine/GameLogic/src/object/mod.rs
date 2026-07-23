@@ -7741,13 +7741,10 @@ impl Object {
         let guard = ai.lock().ok()?;
         let id = guard.get_goal_object_id();
         if id != INVALID_ID {
-            return Some(id);
+            Some(id)
+        } else {
+            None
         }
-        let goal = guard.get_goal_object()?;
-        goal.read()
-            .ok()
-            .map(|g| g.get_id())
-            .filter(|id| *id != INVALID_ID)
     }
 
     pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {

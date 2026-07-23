@@ -257,17 +257,12 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
             return UpdateSleepTime::None;
         }
 
-        let victim = obj_guard.get_current_victim();
-        let master_victim = master_guard.get_current_victim();
+        let victim_id = obj_guard.get_current_victim_id();
+        let master_victim_id = master_guard.get_current_victim_id();
 
-        if let Some(master_victim) = master_victim {
-            if let Ok(victim_guard) = master_victim.read() {
-                self.primary_victim_id = victim_guard.get_id();
-            }
+        if let Some(master_victim_id) = master_victim_id {
+            self.primary_victim_id = master_victim_id;
         }
-
-        let primary_victim =
-            crate::helpers::TheGameLogic::find_object_by_id(self.primary_victim_id);
 
         let master_path_dist_to_goal = Self::ai_goal_distance(&master_ai);
         let my_path_dist_to_goal = Self::ai_goal_distance(&my_ai);
@@ -354,30 +349,17 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
             }
 
             if may_self_task && my_ai.get_last_command_source() != CommandSourceType::FromAi {
-                if let Some(new_target) = obj_guard.get_current_victim() {
-                    if victim
-                        .as_ref()
-                        .map(|v| Arc::ptr_eq(v, &new_target))
-                        .unwrap_or(false)
-                        == false
-                    {
-                        my_ai.ai_attack_object(
-                            new_target.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                            999,
-                            CommandSourceType::FromAi,
-                        );
+                if let Some(new_target_id) = obj_guard.get_current_victim_id() {
+                    if victim_id != Some(new_target_id) {
+                        my_ai.ai_attack_object(new_target_id, 999, CommandSourceType::FromAi);
                         self.is_self_tasking = true;
                     }
                 }
             }
 
-            if victim.is_none() {
-                if let Some(primary) = primary_victim {
-                    my_ai.ai_attack_object(
-                        primary.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                        999,
-                        CommandSourceType::FromAi,
-                    );
+            if victim_id.is_none() {
+                if self.primary_victim_id != OBJECT_INVALID_ID {
+                    my_ai.ai_attack_object(self.primary_victim_id, 999, CommandSourceType::FromAi);
                 } else if !master_guard.is_attacking() {
                     // Auto acquire mode; leave idle.
                 }
