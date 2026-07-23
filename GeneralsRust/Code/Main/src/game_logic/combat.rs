@@ -21,6 +21,8 @@ pub enum DamageType {
     Falling,
     /// C++ DAMAGE_STATUS residual (doStatusDamage; amount = duration msec).
     Status,
+    /// C++ DAMAGE_KILL_PILOT residual (vehicle unmanned; no HP).
+    KillPilot,
 }
 
 /// Armor types

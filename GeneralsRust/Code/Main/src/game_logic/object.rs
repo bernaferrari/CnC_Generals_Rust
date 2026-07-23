@@ -6048,6 +6048,24 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     ) -> bool {
+        // C++ DAMAGE_KILL_PILOT residual: unmanned vehicle, no HP damage.
+        if matches!(
+            damage_type,
+            crate::game_logic::combat::DamageType::KillPilot
+        ) {
+            if self.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                || self.is_kind_of(crate::game_logic::KindOf::Aircraft)
+            {
+                // C++ car-bomb dead-man residual when sniped.
+                if self.is_car_bomb() {
+                    // Detonation handled by combat caller; mark unmanned edge.
+                }
+                self.apply_kill_pilot_unmanned();
+                self.set_team(crate::game_logic::Team::Neutral);
+            }
+            let _ = (source, death_type, damage);
+            return false;
+        }
         // C++ IsSubdualDamage residual (Microwave/EMP maps to host EMP class).
         if matches!(damage_type, crate::game_logic::combat::DamageType::EMP) {
             self.apply_subdual_damage(damage.max(0.0));
@@ -11294,6 +11312,22 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn kill_pilot_damage_unmans_vehicle_without_hp_loss() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut tmpl = ThingTemplate::new("Tank");
+        tmpl.set_health(200.0);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut o = Object::new(tmpl, ObjectId(5), Team::China);
+        o.health.current = 200.0;
+        o.health.maximum = 200.0;
+        assert!(!o.take_damage_from_typed(1.0, None, DamageType::KillPilot));
+        assert!((o.health.current - 200.0).abs() < 1e-3);
+        assert!(o.is_unmanned());
+        assert_eq!(o.team, Team::Neutral);
     }
 
     #[test]

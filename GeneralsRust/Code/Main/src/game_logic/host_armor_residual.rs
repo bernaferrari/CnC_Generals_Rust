@@ -951,6 +951,7 @@ pub fn map_host_damage_type(dt: crate::game_logic::combat::DamageType) -> Damage
         H::Unresistable => DamageType::Unresistable,
         H::Falling => DamageType::Falling,
         H::Status => DamageType::Status,
+        H::KillPilot => DamageType::KillPilot,
     }
 }
 
@@ -1010,6 +1011,7 @@ pub fn map_store_damage_type(
         G::Microwave => H::EMP,
         G::Falling => H::Falling,
         G::Status => H::Status,
+        G::KillPilot => H::KillPilot,
         G::Unresistable
         | G::Healing
         | G::Hack
@@ -1018,7 +1020,6 @@ pub fn map_store_damage_type(
         | G::Disarm
         | G::Penalty
         | G::Toppling
-        | G::KillPilot
         | G::KillGarrisoned
         | G::SubdualMissile
         | G::SubdualVehicle
@@ -1055,6 +1056,9 @@ pub fn host_damage_type_for_weapon_name(name: &str) -> crate::game_logic::combat
     }
     if crate::game_logic::weapon_bootstrap::host_weapon_is_status_damage(name) {
         return crate::game_logic::combat::DamageType::Status;
+    }
+    if crate::game_logic::weapon_bootstrap::host_weapon_is_kill_pilot_damage(name) {
+        return crate::game_logic::combat::DamageType::KillPilot;
     }
     crate::game_logic::combat::DamageType::Bullet
 }
