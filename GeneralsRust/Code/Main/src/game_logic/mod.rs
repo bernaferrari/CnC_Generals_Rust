@@ -233,6 +233,7 @@ pub mod host_troop_crawler;
 pub mod host_tunnel_network;
 pub mod host_ui_presentation_residual;
 pub mod host_unit_training;
+mod host_upgrade_module_residuals;
 pub mod host_upgrades;
 pub mod host_usa_pilot;
 pub mod host_usa_tanks;
