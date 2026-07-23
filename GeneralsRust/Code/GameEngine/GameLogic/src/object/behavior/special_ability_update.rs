@@ -1309,15 +1309,12 @@ impl SpecialAbilityUpdate {
                     Some(target) => target,
                     None => return,
                 };
-                let owner = match self.get_object() {
-                    Some(owner) => owner,
-                    None => return,
+                if self.get_object_id() == INVALID_ID {
+                    return;
+                }
+                let Ok(mut target_guard) = target.write() else {
+                    return;
                 };
-                let (target_guard, owner_guard) =
-                    match (target.write(), owner.write()) {
-                        (Ok(t), Ok(o)) => (t, o),
-                        _ => return,
-                    };
                 let cash = target_guard
                     .get_controlling_player()
                     .and_then(|player| player.read().ok().map(|guard| guard.get_money().get_money()))
@@ -1329,20 +1326,25 @@ impl SpecialAbilityUpdate {
                             .write()
                             .map(|mut p| p.get_money_mut().withdraw(cash));
                     }
-                    if let Some(owner_player) = owner_guard.get_controlling_player() {
+                    if let Some(owner_player) = self
+                        .with_object(|owner_guard| owner_guard.get_controlling_player())
+                        .flatten()
+                    {
                         let _ = owner_player
                             .write()
                             .map(|mut p| p.get_money_mut().deposit(cash));
                     }
 
-                    let mut pos = *owner_guard.get_position();
-                    pos.z += 20.0;
-                    let text = TheGameText::fetch("GUI:AddCash");
-                    let _ = TheInGameUI::add_floating_text(
-                        &format!("{} {}", text, cash),
-                        &pos,
-                        Color::rgb(0, 255, 0),
-                    );
+                    if let Some(mut pos) = self.with_object(|owner_guard| *owner_guard.get_position())
+                    {
+                        pos.z += 20.0;
+                        let text = TheGameText::fetch("GUI:AddCash");
+                        let _ = TheInGameUI::add_floating_text(
+                            &format!("{} {}", text, cash),
+                            &pos,
+                            Color::rgb(0, 255, 0),
+                        );
+                    }
 
                     let mut tpos = *target_guard.get_position();
                     tpos.z += 30.0;
