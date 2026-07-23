@@ -204,6 +204,12 @@ impl CrateCollide {
                 ))
             })
     }
+    fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Result<R, CollisionError> {
+        let object_id = self.base_module.get_object_id();
+        OBJECT_REGISTRY.with_object(object_id, f).ok_or_else(|| {
+            CollisionError::InvalidObject(format!("crate collide object {} unavailable", object_id))
+        })
+    }
 
     pub fn is_collected(&self) -> Result<bool, CollisionError> {
         let state = self.state.lock().map_err(|e| {
@@ -445,12 +451,7 @@ impl CrateCollide {
     }
 
     fn is_crate_above_terrain(&self) -> bool {
-        let Ok(handle) = self.get_object() else {
-            return false;
-        };
-        handle
-            .read()
-            .map(|guard| guard.is_above_terrain())
+        self.with_object(|guard| guard.is_above_terrain())
             .unwrap_or(false)
     }
 
@@ -553,12 +554,10 @@ impl CrateCollide {
     }
 
     fn get_object_position(&self) -> Result<Coord3D, CollisionError> {
-        let handle = self.get_object()?;
-        let guard = handle
-            .read()
-            .map_err(|_| CollisionError::InvalidObject("Crate object lock poisoned".to_string()))?;
-        let pos = *guard.get_position();
-        Ok(Coord3D::new(pos.x, pos.y, pos.z))
+        self.with_object(|guard| {
+            let pos = *guard.get_position();
+            Coord3D::new(pos.x, pos.y, pos.z)
+        })
     }
 
     fn destroy_crate_object(&self) -> Result<(), CollisionError> {

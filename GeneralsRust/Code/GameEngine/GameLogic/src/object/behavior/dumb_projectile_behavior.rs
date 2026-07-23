@@ -686,85 +686,78 @@ impl DumbProjectileBehavior {
         }
 
         let step = self.flight_path[self.current_step as usize];
-        let object = self.get_object()?;
-        let mut obj_guard = object.write().map_err(|_| {
-            std::io::Error::other("DumbProjectileBehavior failed to write owning object")
-        })?;
+        let orient = self.module_data.orient_to_flight_path && !self.module_data.tumble_randomly;
+        let current_step = self.current_step as usize;
+        let flight_path = self.flight_path.clone();
+        let should_detonate = self.with_object_mut(|obj_guard| {
+            let old_pos = *obj_guard.get_position();
+            obj_guard.set_position(&step)?;
 
-        // Update position (C++ line 453)
-        let old_pos = *obj_guard.get_position();
-        obj_guard.set_position(&step)?;
+            if orient {
+                let (prev_pos, cur_pos) = if current_step > 0 {
+                    let prev = flight_path[current_step - 1];
+                    (prev, step)
+                } else if flight_path.len() > 1 {
+                    (flight_path[0], flight_path[1])
+                } else {
+                    (old_pos, step)
+                };
 
-        // Orient to flight path if configured (C++ lines 455-460)
-        if self.module_data.orient_to_flight_path && !self.module_data.tumble_randomly {
-            let (prev_pos, cur_pos) = if (self.current_step as usize) > 0 {
-                let prev = self.flight_path[(self.current_step - 1) as usize];
-                (prev, step)
-            } else if self.flight_path.len() > 1 {
-                (self.flight_path[0], self.flight_path[1])
-            } else {
-                (old_pos, step)
-            };
-
-            let direction = Coord3D::new(
-                cur_pos.x - prev_pos.x,
-                cur_pos.y - prev_pos.y,
-                cur_pos.z - prev_pos.z,
-            );
-
-            if direction.length() > 0.001 {
-                // Build transform matrix aligned to flight direction (matches buildTransformMatrix usage).
-                let forward = direction.normalize();
-                let mut up = Coord3D::new(0.0, 0.0, 1.0);
-                let mut right = forward.cross(up);
-                if right.length() < 0.001 {
-                    up = Coord3D::new(0.0, 1.0, 0.0);
-                    right = forward.cross(up);
-                }
-                let right = right.normalize();
-                let corrected_up = right.cross(forward);
-                let transform = crate::common::Matrix3D::from_cols(
-                    Vec4::new(right.x, right.y, right.z, 0.0),
-                    Vec4::new(corrected_up.x, corrected_up.y, corrected_up.z, 0.0),
-                    Vec4::new(forward.x, forward.y, forward.z, 0.0),
-                    Vec4::new(step.x, step.y, step.z, 1.0),
+                let direction = Coord3D::new(
+                    cur_pos.x - prev_pos.x,
+                    cur_pos.y - prev_pos.y,
+                    cur_pos.z - prev_pos.z,
                 );
-                obj_guard.set_transform_matrix(&transform);
-            }
-        }
 
-        // Tumble randomly if configured (C++ lines 462-465)
-        if self.module_data.tumble_randomly {
-            // Random tumbling is set up during projectile launch in projectileFireAtObjectOrPosition
-            // The PhysicsBehavior handles the actual rotation updates each frame
-            // Matches C++ DumbProjectileBehavior.cpp:363-368
-            // Note: Physics system integration pending - tumble rates would be applied there
-        }
-
-        // Update layer and detect bridge transition (C++ lines 654-669).
-        let old_layer = obj_guard.get_layer();
-        if let Ok(terrain) = crate::terrain::THE_TERRAIN_LOGIC.read() {
-            let new_layer_path =
-                terrain.get_highest_layer_for_destination(obj_guard.get_position());
-            let new_layer = terrain_layer_to_logic_layer(new_layer_path);
-            obj_guard.set_layer(new_layer);
-
-            if old_layer != PathfindLayerEnum::Ground && new_layer == PathfindLayerEnum::Ground {
-                let mut tmp = *obj_guard.get_position();
-                tmp.z = 9999.0;
-                let test_layer = terrain.get_highest_layer_for_destination(&tmp);
-                if terrain_layer_to_logic_layer(test_layer) == old_layer {
-                    const FUDGE: Real = 2.0;
-                    tmp.z = terrain.get_layer_height(tmp.x, tmp.y, test_layer, None, true) + FUDGE;
-                    let _ = obj_guard.set_position(&tmp);
-                    drop(obj_guard);
-                    self.detonate()?;
-                    return Ok(());
+                if direction.length() > 0.001 {
+                    let forward = direction.normalize();
+                    let mut up = Coord3D::new(0.0, 0.0, 1.0);
+                    let mut right = forward.cross(up);
+                    if right.length() < 0.001 {
+                        up = Coord3D::new(0.0, 1.0, 0.0);
+                        right = forward.cross(up);
+                    }
+                    let right = right.normalize();
+                    let corrected_up = right.cross(forward);
+                    let transform = crate::common::Matrix3D::from_cols(
+                        Vec4::new(right.x, right.y, right.z, 0.0),
+                        Vec4::new(corrected_up.x, corrected_up.y, corrected_up.z, 0.0),
+                        Vec4::new(forward.x, forward.y, forward.z, 0.0),
+                        Vec4::new(step.x, step.y, step.z, 1.0),
+                    );
+                    obj_guard.set_transform_matrix(&transform);
                 }
             }
-        }
 
-        drop(obj_guard);
+            // Update layer and detect bridge transition (C++ lines 654-669).
+            let old_layer = obj_guard.get_layer();
+            if let Ok(terrain) = crate::terrain::THE_TERRAIN_LOGIC.read() {
+                let new_layer_path =
+                    terrain.get_highest_layer_for_destination(obj_guard.get_position());
+                let new_layer = terrain_layer_to_logic_layer(new_layer_path);
+                obj_guard.set_layer(new_layer);
+
+                if old_layer != PathfindLayerEnum::Ground && new_layer == PathfindLayerEnum::Ground
+                {
+                    let mut tmp = *obj_guard.get_position();
+                    tmp.z = 9999.0;
+                    let test_layer = terrain.get_highest_layer_for_destination(&tmp);
+                    if terrain_layer_to_logic_layer(test_layer) == old_layer {
+                        const FUDGE: Real = 2.0;
+                        tmp.z =
+                            terrain.get_layer_height(tmp.x, tmp.y, test_layer, None, true) + FUDGE;
+                        let _ = obj_guard.set_position(&tmp);
+                        return Ok::<bool, Box<dyn std::error::Error + Send + Sync>>(true);
+                    }
+                }
+            }
+            Ok(false)
+        })??;
+
+        if should_detonate {
+            self.detonate()?;
+            return Ok(());
+        }
 
         // Check for collision with terrain (C++ lines 467-475)
         self.check_collision(&step)?;
@@ -933,15 +926,7 @@ impl DumbProjectileBehavior {
             detonation_result.map_err(|err| std::io::Error::other(err.to_string()))?;
 
             if self.module_data.detonate_calls_kill {
-                let object = self.get_object()?;
-                let max_health = object
-                    .read()
-                    .map_err(|_| {
-                        std::io::Error::other(
-                            "DumbProjectileBehavior failed to read object for max health",
-                        )
-                    })?
-                    .get_max_health();
+                let max_health = self.with_object(|obj| obj.get_max_health())?;
                 let mut damage_info = crate::damage::DamageInfo::with_simple(
                     max_health,
                     OBJECT_INVALID_ID,
@@ -949,27 +934,18 @@ impl DumbProjectileBehavior {
                     crate::damage::DeathType::Detonated,
                 );
                 damage_info.sync_from_input();
-                let mut obj_guard = object.write().map_err(|_| {
-                    std::io::Error::other("DumbProjectileBehavior failed to write object for kill")
-                })?;
-                obj_guard.attempt_damage(&mut damage_info).map_err(
-                    |err: Box<dyn std::error::Error + Send + Sync>| {
-                        std::io::Error::other(err.to_string())
-                    },
-                )?;
+                self.with_object_mut(|obj_guard| {
+                    obj_guard.attempt_damage(&mut damage_info).map_err(
+                        |err: Box<dyn std::error::Error + Send + Sync>| {
+                            std::io::Error::other(err.to_string())
+                        },
+                    )
+                })??;
             } else {
                 let _ = TheGameLogic::destroy_object_by_id(object_id);
             }
         } else {
-            let object = self.get_object()?;
-            let max_health = object
-                .read()
-                .map_err(|_| {
-                    std::io::Error::other(
-                        "DumbProjectileBehavior failed to read object for max health",
-                    )
-                })?
-                .get_max_health();
+            let max_health = self.with_object(|obj| obj.get_max_health())?;
             let mut damage_info = crate::damage::DamageInfo::with_simple(
                 max_health,
                 OBJECT_INVALID_ID,
@@ -977,16 +953,13 @@ impl DumbProjectileBehavior {
                 crate::damage::DeathType::Detonated,
             );
             damage_info.sync_from_input();
-            let mut obj_guard = object.write().map_err(|_| {
-                std::io::Error::other(
-                    "DumbProjectileBehavior failed to write object for detonation",
+            self.with_object_mut(|obj_guard| {
+                obj_guard.attempt_damage(&mut damage_info).map_err(
+                    |err: Box<dyn std::error::Error + Send + Sync>| {
+                        std::io::Error::other(err.to_string())
+                    },
                 )
-            })?;
-            obj_guard.attempt_damage(&mut damage_info).map_err(
-                |err: Box<dyn std::error::Error + Send + Sync>| {
-                    std::io::Error::other(err.to_string())
-                },
-            )?;
+            })??;
         }
 
         let _ = self.with_object(|obj_guard| {

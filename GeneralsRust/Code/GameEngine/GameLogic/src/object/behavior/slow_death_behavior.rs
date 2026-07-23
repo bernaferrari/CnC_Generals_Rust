@@ -661,17 +661,16 @@ impl SlowDeathBehavior {
         }
 
         let phase_index = phase.to_index();
-        let object = self.get_object()?;
-        let obj_read = object.read().map_err(|e| format!("Lock error: {}", e))?;
+        let object_id = self.get_object_id();
+        let position = self.with_object(|obj| *obj.get_position())?;
 
         // Execute FX list if present (C++ lines 323-331)
         let fx_list = &data.fx[phase_index];
         if !fx_list.is_empty() {
-            // Pick a random FX from the list (C++ line 326)
             let idx = GameLogicRandomValue(0, fx_list.len() as Int - 1) as usize;
             if let Some(fx) = fx_list.get(idx) {
                 // Matches C++ SlowDeathBehavior.cpp:330 - FXList::doFXObj(fxl, getObject(), NULL)
-                if let Err(e) = fx.do_fx_obj(&object, None) {
+                if let Err(e) = fx.do_fx_obj_ids(object_id, None, None) {
                     log::warn!("Failed to execute FX for phase {:?}: {}", phase, e);
                 }
             }
@@ -680,11 +679,10 @@ impl SlowDeathBehavior {
         // Execute OCL if present (C++ lines 333-341)
         let ocl_list = &data.ocls[phase_index];
         if !ocl_list.is_empty() {
-            // Pick a random OCL from the list (C++ line 335)
             let idx = GameLogicRandomValue(0, ocl_list.len() as Int - 1) as usize;
             if let Some(ocl) = ocl_list.get(idx) {
                 // Matches C++ SlowDeathBehavior.cpp:340 - ObjectCreationList::create(ocl, getObject(), NULL)
-                if let Err(e) = ObjectCreationList::create(ocl, &object, None) {
+                if let Err(e) = ocl.create_at_position(&position, object_id) {
                     log::warn!("Failed to execute OCL for phase {:?}: {}", phase, e);
                 }
             }
@@ -693,14 +691,9 @@ impl SlowDeathBehavior {
         // Execute weapon if present (C++ lines 343-354)
         let weapon_list = &data.weapons[phase_index];
         if !weapon_list.is_empty() {
-            // Pick a random weapon from the list (C++ line 345)
             let idx = GameLogicRandomValue(0, weapon_list.len() as Int - 1) as usize;
             if let Some(weapon) = weapon_list.get(idx) {
-                let position = *obj_read.get_position();
-                let object_id = obj_read.get_id();
-                drop(obj_read); // Release lock before firing weapon
-
-                // Matches C++ SlowDeathBehavior.cpp:352 - TheWeaponStore->createAndFireTempWeapon(wt, getObject(), getObject()->getPosition())
+                // Matches C++ SlowDeathBehavior.cpp:352 - TheWeaponStore->createAndFireTempWeapon(...)
                 if let Some(weapon_store) = TheWeaponStore::get() {
                     if let Err(e) = weapon_store
                         .create_and_fire_temp_weapon_at_pos(weapon, object_id, &position)
@@ -743,8 +736,6 @@ impl UpdateModuleInterface for SlowDeathBehavior {
         }
 
         let data = &self.module_data;
-        let object = self.get_object()?;
-
         // Get current time scale from LOD manager (C++ line 367)
         let time_scale = TheGameLODManager::get_slow_death_scale();
 
@@ -767,6 +758,7 @@ impl UpdateModuleInterface for SlowDeathBehavior {
 
         // Handle flung objects (C++ lines 390-429)
         if (self.flags & (1 << Self::FLUNG_INTO_AIR)) != 0 {
+            let object = self.get_object()?;
             if (self.flags & (1 << Self::BOUNCED)) == 0 {
                 // Keep extending timers while airborne
                 self.sink_frame += 1;
@@ -823,15 +815,16 @@ impl UpdateModuleInterface for SlowDeathBehavior {
 
         // Handle sinking (C++ lines 431-438)
         if now >= self.sink_frame && data.sink_rate > 0.0 {
-            let mut obj_write = object.write().map_err(|e| format!("Lock error: {}", e))?;
+            let sink_delta = data.sink_rate / self.accelerated_time_scale;
+            let _ = self.with_object_mut(|obj_write| {
+                // Disable physics so we can control the sink
+                obj_write.set_disabled(DisabledType::Held);
 
-            // Disable physics so we can control the sink
-            obj_write.set_disabled(DisabledType::Held);
-
-            // Sink the object
-            let mut pos = *obj_write.get_position();
-            pos.z -= data.sink_rate / self.accelerated_time_scale;
-            obj_write.set_position(&pos)?;
+                // Sink the object
+                let mut pos = *obj_write.get_position();
+                pos.z -= sink_delta;
+                obj_write.set_position(&pos)
+            })??;
         }
 
         // Handle midpoint effects (C++ lines 440-444)
@@ -844,11 +837,7 @@ impl UpdateModuleInterface for SlowDeathBehavior {
         if now >= self.destruction_frame {
             self.do_phase_stuff(SlowDeathPhaseType::Final)?;
             // Matches C++ line 449: TheGameLogic->destroyObject(obj)
-            let obj_id = object
-                .read()
-                .map_err(|e| format!("Lock error: {}", e))?
-                .get_id();
-            crate::helpers::TheGameLogic::remove_object(obj_id);
+            crate::helpers::TheGameLogic::remove_object(self.get_object_id());
             return Ok(UPDATE_SLEEP_NONE);
         }
 
@@ -863,28 +852,32 @@ impl DieModuleInterface for SlowDeathBehavior {
         &mut self,
         damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let object = self.get_object()?;
-        let obj_write = object.write().map_err(|e| format!("Lock error: {}", e))?;
-
         // Check if this die module is applicable (C++ lines 460-461)
         if !self.is_die_applicable(damage_info) {
             return Ok(());
         }
 
-        // Check if AI is already in dead state (C++ lines 463-470)
-        if let Some(ai) = obj_write.get_ai_update_interface() {
-            if ai.is_ai_in_dead_state() {
-                return Ok(()); // Another AI already handled death
+        let already_dead = self.with_object_mut(|obj_write| {
+            if let Some(ai) = obj_write.get_ai_update_interface() {
+                if ai.is_ai_in_dead_state() {
+                    return true;
+                }
+                ai.mark_as_dead();
             }
-            ai.mark_as_dead();
+            // Deselect this unit for all players (C++ line 473)
+            let _ = crate::helpers::TheGameLogic::deselect_object(
+                obj_write,
+                crate::common::PLAYERMASK_ALL,
+                true,
+            );
+            false
+        })?;
+        if already_dead {
+            return Ok(());
         }
 
-        // Deselect this unit for all players (C++ line 473)
-        crate::helpers::TheGameLogic::deselect_object(
-            &*obj_write,
-            crate::common::PLAYERMASK_ALL,
-            true,
-        )?;
+        let object = self.get_object()?;
+        let obj_write = object.write().map_err(|e| format!("Lock error: {}", e))?;
 
         // Calculate total probability from all applicable slow death behaviors (C++ lines 475-484)
         let mut total_probability: Int = 0;
@@ -966,15 +959,22 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
         }
 
         let data = &self.module_data;
-        let object = self.get_object()?;
-        let mut obj_write = object.write().map_err(|e| format!("Lock error: {}", e))?;
+        let sink_rate = data.sink_rate;
+        let (is_infantry, is_hulk) = self.with_object(|obj| {
+            (
+                obj.is_kind_of(KindOf::Infantry),
+                obj.is_kind_of(KindOf::Hulk),
+            )
+        })?;
 
         // Handle infantry sinking - disable shadow decals (C++ lines 198-212)
-        if data.sink_rate > 0.0 && obj_write.is_kind_of(KindOf::Infantry) {
-            if let Some(drawable) = obj_write.get_drawable() {
-                drawable.set_shadows_enabled(false);
-                drawable.set_terrain_decal_fade_target(0.0, -0.2);
-            }
+        if sink_rate > 0.0 && is_infantry {
+            let _ = self.with_object_mut(|obj_write| {
+                if let Some(drawable) = obj_write.get_drawable() {
+                    drawable.set_shadows_enabled(false);
+                    drawable.set_terrain_decal_fade_target(0.0, -0.2);
+                }
+            })?;
         }
 
         // Get LOD time scale (C++ line 216)
@@ -983,18 +983,14 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
 
         // Check for instant death (C++ lines 219-224)
         if time_scale == 0.0 && !data.has_non_lod_effects() {
-            let obj_id = obj_write.get_id();
-            drop(obj_write);
-            crate::helpers::TheGameLogic::remove_object(obj_id);
+            crate::helpers::TheGameLogic::remove_object(self.get_object_id());
             return Ok(());
         }
 
         let now = TheGameLogic::get_frame();
 
         // Calculate timing - check for hulk lifetime override (C++ lines 228-243)
-        if obj_write.is_kind_of(KindOf::Hulk)
-            && TheGameLogic::get_hulk_max_lifetime_override() != -1
-        {
+        if is_hulk && TheGameLogic::get_hulk_max_lifetime_override() != -1 {
             // Scripts want hulks gone quickly
             self.sink_frame = now + 1;
             self.midpoint_frame = now + (LOGICFRAMES_PER_SECOND / 2) + 1;
@@ -1020,6 +1016,10 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
                 ) as UnsignedInt);
             self.accelerated_time_scale = time_scale;
         }
+
+        // Fling / model-condition work still needs a short-lived owner Arc.
+        let object = self.get_object()?;
+        let mut obj_write = object.write().map_err(|e| format!("Lock error: {}", e))?;
 
         // Handle fling force (C++ lines 247-301)
         if data.fling_force > 0.0 {
