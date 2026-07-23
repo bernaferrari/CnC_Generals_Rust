@@ -225,6 +225,31 @@ pub const MC_BIT_DAMAGED: u32 = 3;
 pub const MC_BIT_REALLYDAMAGED: u32 = 4;
 pub const MC_BIT_RUBBLE: u32 = 5;
 pub const MC_BIT_ATTACKING: u32 = 34;
+
+/// C++ MODELCONDITION_PREATTACK_A residual index.
+pub const MC_BIT_PREATTACK_A: u32 = 35;
+/// C++ MODELCONDITION_FIRING_A residual index.
+pub const MC_BIT_FIRING_A: u32 = 36;
+/// C++ MODELCONDITION_BETWEEN_FIRING_SHOTS_A residual index.
+pub const MC_BIT_BETWEEN_FIRING_SHOTS_A: u32 = 37;
+/// C++ MODELCONDITION_RELOADING_A residual index.
+pub const MC_BIT_RELOADING_A: u32 = 38;
+/// C++ MODELCONDITION_PREATTACK_B residual index.
+pub const MC_BIT_PREATTACK_B: u32 = 39;
+/// C++ MODELCONDITION_FIRING_B residual index.
+pub const MC_BIT_FIRING_B: u32 = 40;
+/// C++ MODELCONDITION_BETWEEN_FIRING_SHOTS_B residual index.
+pub const MC_BIT_BETWEEN_FIRING_SHOTS_B: u32 = 41;
+/// C++ MODELCONDITION_RELOADING_B residual index.
+pub const MC_BIT_RELOADING_B: u32 = 42;
+/// C++ MODELCONDITION_PREATTACK_C residual index.
+pub const MC_BIT_PREATTACK_C: u32 = 43;
+/// C++ MODELCONDITION_FIRING_C residual index.
+pub const MC_BIT_FIRING_C: u32 = 44;
+/// C++ MODELCONDITION_BETWEEN_FIRING_SHOTS_C residual index.
+pub const MC_BIT_BETWEEN_FIRING_SHOTS_C: u32 = 45;
+/// C++ MODELCONDITION_RELOADING_C residual index.
+pub const MC_BIT_RELOADING_C: u32 = 46;
 pub const MC_BIT_MOVING: u32 = 49;
 /// C++ MODELCONDITION_DISGUISED residual bit index.
 pub const MC_BIT_DISGUISED: u32 = 116;

@@ -7363,16 +7363,70 @@ impl Object {
         self.face_position(other.get_position(), dt)
     }
 
+    /// C++ WeaponSet model-condition residual for PREATTACK/FIRING/BETWEEN/RELOADING A/B/C.
+    ///
+    /// Maps `weapon_fire_status` + active slot onto ModelConditionFlags bits
+    /// (ALLOW_SURRENDER-off layout: PREATTACK_A=35 .. RELOADING_C=46).
+    pub fn sync_weapon_model_conditions_from_status(&mut self) {
+        use crate::game_logic::host_enum_table_residual::{
+            MC_BIT_BETWEEN_FIRING_SHOTS_A, MC_BIT_BETWEEN_FIRING_SHOTS_B,
+            MC_BIT_BETWEEN_FIRING_SHOTS_C, MC_BIT_FIRING_A, MC_BIT_FIRING_B, MC_BIT_FIRING_C,
+            MC_BIT_PREATTACK_A, MC_BIT_PREATTACK_B, MC_BIT_PREATTACK_C, MC_BIT_RELOADING_A,
+            MC_BIT_RELOADING_B, MC_BIT_RELOADING_C,
+        };
+        const WEAPON_MC_BITS: [u32; 12] = [
+            MC_BIT_PREATTACK_A,
+            MC_BIT_FIRING_A,
+            MC_BIT_BETWEEN_FIRING_SHOTS_A,
+            MC_BIT_RELOADING_A,
+            MC_BIT_PREATTACK_B,
+            MC_BIT_FIRING_B,
+            MC_BIT_BETWEEN_FIRING_SHOTS_B,
+            MC_BIT_RELOADING_B,
+            MC_BIT_PREATTACK_C,
+            MC_BIT_FIRING_C,
+            MC_BIT_BETWEEN_FIRING_SHOTS_C,
+            MC_BIT_RELOADING_C,
+        ];
+        for b in WEAPON_MC_BITS {
+            self.model_condition_bits &= !(1u128 << b);
+        }
+        let base = match self.active_weapon_slot {
+            1 => 4usize,
+            2 => 8usize,
+            _ => 0usize,
+        };
+        let idx = match self.weapon_fire_status {
+            WeaponFireStatus::PreAttack => Some(base),
+            WeaponFireStatus::BetweenFiringShots => Some(base + 2),
+            WeaponFireStatus::ReloadingClip => Some(base + 3),
+            WeaponFireStatus::ReadyToFire | WeaponFireStatus::OutOfAmmo => {
+                if self.status.is_firing_weapon {
+                    Some(base + 1)
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some(i) = idx {
+            self.model_condition_bits |= 1u128 << WEAPON_MC_BITS[i];
+        } else if self.status.is_firing_weapon {
+            self.model_condition_bits |= 1u128 << WEAPON_MC_BITS[base + 1];
+        }
+    }
+
     /// C++ Weapon::getStatus residual refresh for the active/primary slot.
     pub fn refresh_weapon_fire_status(&mut self, current_time: f32) {
         // Pre-attack wind-up wins while armed.
         if self.pre_attack_ready_at > current_time + 1e-6 {
             self.weapon_fire_status = WeaponFireStatus::PreAttack;
+            self.sync_weapon_model_conditions_from_status();
             return;
         }
         let slot = self.active_weapon_slot;
         let Some(weapon) = self.weapon_slot(slot).or_else(|| self.weapon.as_ref()) else {
             self.weapon_fire_status = WeaponFireStatus::OutOfAmmo;
+            self.sync_weapon_model_conditions_from_status();
             return;
         };
         let name = if slot == 1 {
@@ -7385,38 +7439,37 @@ impl Object {
             self.thing.template.primary_weapon_name.as_deref()
         };
         let reload = self.effective_weapon_reload(weapon.reload_time);
-        // Empty non-auto clip → OUT_OF_AMMO.
         if !Self::weapon_has_ammo_for_shot(weapon, name) {
             self.weapon_fire_status = WeaponFireStatus::OutOfAmmo;
+            self.sync_weapon_model_conditions_from_status();
             return;
         }
-        // Clip reload window: last_fire set and ammo just refilled with clip_reload.
         if weapon.clip_size > 0 {
             let clip_reload = if weapon.clip_reload_time > 0.0 {
                 weapon.clip_reload_time
             } else {
                 reload
             };
-            // Heuristic: ammo full right after fire with long delay → reloading.
-            // Prefer explicit: if not ready and ammo was consumed mid-clip, BETWEEN; if empty was auto-reloading handled in consume.
             if current_time - weapon.last_fire_time < reload - 1e-6 {
-                // Mid-clip gap vs full-clip reload: empty clip auto path sets ammo full then waits clip_reload.
                 if weapon.ammo == Some(weapon.clip_size)
-                    && weapon.clip_size > 0
                     && clip_reload > reload + 1e-4
                     && current_time - weapon.last_fire_time < clip_reload
                 {
                     self.weapon_fire_status = WeaponFireStatus::ReloadingClip;
+                    self.sync_weapon_model_conditions_from_status();
                     return;
                 }
                 self.weapon_fire_status = WeaponFireStatus::BetweenFiringShots;
+                self.sync_weapon_model_conditions_from_status();
                 return;
             }
         } else if current_time - weapon.last_fire_time < reload - 1e-6 {
             self.weapon_fire_status = WeaponFireStatus::BetweenFiringShots;
+            self.sync_weapon_model_conditions_from_status();
             return;
         }
         self.weapon_fire_status = WeaponFireStatus::ReadyToFire;
+        self.sync_weapon_model_conditions_from_status();
     }
 
     pub fn can_fire(&self, current_time: f32) -> bool {
@@ -8004,6 +8057,7 @@ impl Object {
                 self.record_host_combat_attack();
                 self.pre_attack_ready_at = current_time + pre_delay;
                 self.weapon_fire_status = WeaponFireStatus::PreAttack;
+                self.sync_weapon_model_conditions_from_status();
                 self.record_host_combat_attack();
                 // C++ Weapon::preFireWeapon LeechRange activate residual.
                 self.activate_leech_range_for_slot(slot);
@@ -10950,6 +11004,37 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn weapon_status_sets_between_firing_model_condition() {
+        use crate::game_logic::host_enum_table_residual::{
+            MC_BIT_BETWEEN_FIRING_SHOTS_A, MC_BIT_PREATTACK_A,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut tmpl = ThingTemplate::new("McFire");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
+        let tgt = Object::new(tmpl, ObjectId(2), Team::GLA);
+        atk.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 1.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        });
+        assert!(atk.fire_at(tgt.id, 1.0));
+        assert_eq!(atk.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
+        assert_ne!(
+            atk.model_condition_bits & (1u128 << MC_BIT_BETWEEN_FIRING_SHOTS_A),
+            0
+        );
+        atk.pre_attack_ready_at = 5.0;
+        atk.refresh_weapon_fire_status(4.0);
+        assert_eq!(atk.weapon_fire_status, WeaponFireStatus::PreAttack);
+        assert_ne!(atk.model_condition_bits & (1u128 << MC_BIT_PREATTACK_A), 0);
     }
 
     #[test]
