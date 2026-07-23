@@ -762,29 +762,65 @@ pub fn is_pitch_within_limits(
     target_pos: glam::Vec3,
     limits: &HostTargetPitchLimits,
 ) -> bool {
+    // No geometry extents available — treat target as a point (height 0).
+    is_pitch_within_limits_geom(source_pos, target_pos, limits, 0.0, 0.0, 0.0)
+}
+
+/// C++ `Weapon` pitch check with `GeometryInfo::calcPitches` residual.
+///
+/// `source_half_height`: half of source geometry height (center above position).
+/// `target_height_above` / `target_height_below`: C++ getMaxHeightAbove/BelowPosition.
+pub fn is_pitch_within_limits_geom(
+    source_pos: glam::Vec3,
+    target_pos: glam::Vec3,
+    limits: &HostTargetPitchLimits,
+    source_half_height: f32,
+    target_height_above: f32,
+    target_height_below: f32,
+) -> bool {
     if limits.is_unlimited() {
         return true;
     }
-    let dx = target_pos.x - source_pos.x;
+
+    // C++ Weapon::isWithinAttackPitch ACCCEPTABLE_DZ residual (up-axis).
+    // Host uses Y-up; C++ used Z-up.
+    const ACCEPTABLE_DZ: f32 = 10.0;
     let dy = target_pos.y - source_pos.y;
+    if dy.abs() < ACCEPTABLE_DZ {
+        return true;
+    }
+
+    let dx = target_pos.x - source_pos.x;
     let dz = target_pos.z - source_pos.z;
     let horiz = (dx * dx + dz * dz).sqrt();
-    // Near-vertical residual: if almost on top, use sign of dy.
-    let pitch = if horiz < 1e-3 {
-        if dy >= 0.0 {
+    let src_center_y = source_pos.y + source_half_height.max(0.0);
+
+    // GeometryInfo::calcPitches residual: pitches to top-center and bottom-center.
+    let max_dz = (target_pos.y + target_height_above.max(0.0)) - src_center_y;
+    let min_dz = (target_pos.y - target_height_below.max(0.0)) - src_center_y;
+
+    let (mut min_pitch, mut max_pitch) = if horiz < 1e-3 {
+        let s = if dy >= 0.0 {
             std::f32::consts::FRAC_PI_2
         } else {
             -std::f32::consts::FRAC_PI_2
-        }
+        };
+        (s, s)
     } else {
-        dy.atan2(horiz)
+        (min_dz.atan2(horiz), max_dz.atan2(horiz))
     };
-    // C++ allows if any of min/max geometry pitches overlap the window.
-    // Host residual: single center pitch must lie in [min, max].
-    pitch >= limits.min_pitch - 1e-4 && pitch <= limits.max_pitch + 1e-4
+    if min_pitch > max_pitch {
+        std::mem::swap(&mut min_pitch, &mut max_pitch);
+    }
+
+    let wmin = limits.min_pitch;
+    let wmax = limits.max_pitch;
+    // Intersection between geometry pitch span and weapon loft window.
+    (min_pitch >= wmin && min_pitch <= wmax)
+        || (max_pitch >= wmin && max_pitch <= wmax)
+        || (min_pitch <= wmin && max_pitch >= wmax)
 }
 
-/// C++ AutoReloadsClip residual (not stored on host Weapon to avoid mass literal churn).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostReloadType {
     Auto,
@@ -792,7 +828,6 @@ pub enum HostReloadType {
     ReturnToBase,
 }
 
-/// Resolve AutoReloadsClip / reload type residual for a weapon name.
 pub fn host_reload_type_for_weapon_name(name: &str) -> HostReloadType {
     use gamelogic::weapon::{with_weapon_store, WeaponReloadType as GlReload};
     let _ = ensure_host_weapon_store();
@@ -5364,11 +5399,26 @@ mod tests {
         let sc = seed_target_pitch_limits_for("AmericaStrategyCenterArtillery");
         assert!(!sc.is_unlimited());
         assert!((sc.min_pitch - 45f32.to_radians()).abs() < 1e-3);
-        // Same height: pitch ~0 — out of strategy center loft window.
-        assert!(!is_pitch_within_limits(
+        // C++ ACCEPTABLE_DZ=10: same height always allowed regardless of loft window.
+        assert!(is_pitch_within_limits(
             glam::Vec3::ZERO,
             glam::Vec3::new(100.0, 0.0, 0.0),
             &sc
+        ));
+        // Large negative elevation outside strategy loft without geometry span.
+        assert!(!is_pitch_within_limits(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(100.0, -80.0, 0.0),
+            &sc
+        ));
+        // Geometry span can bridge into loft window (building-height residual).
+        assert!(is_pitch_within_limits_geom(
+            glam::Vec3::ZERO,
+            glam::Vec3::new(100.0, 20.0, 0.0),
+            &sc,
+            0.0,
+            100.0,
+            0.0,
         ));
         // Steep loft into window.
         let dy = (100.0_f32) * 45f32.to_radians().tan() + 5.0;
