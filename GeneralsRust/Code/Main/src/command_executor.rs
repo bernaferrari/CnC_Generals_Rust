@@ -3356,6 +3356,21 @@ impl<'a> CommandExecutor<'a> {
                         .game_logic
                         .activate_cash_hack(self.current_player_id, Some(unit_id));
                     // Always treat as success residual once activated (even 0 stolen).
+                } else if *power_type == SpecialPowerType::BaikonurRocket {
+                    // C++ BaikonurLaunchPower: no-loc → door; location → door + detonation.
+                    match target {
+                        PowerTarget::Location(loc) => {
+                            let _ = self.game_logic.activate_baikonur_launch_door(unit_id);
+                            if !self.game_logic.activate_baikonur_detonation(unit_id, *loc) {
+                                continue;
+                            }
+                        }
+                        PowerTarget::None | PowerTarget::Object(_) => {
+                            if !self.game_logic.activate_baikonur_launch_door(unit_id) {
+                                continue;
+                            }
+                        }
+                    }
                 } else if *power_type == SpecialPowerType::CleanupArea {
                     if !self.game_logic.activate_cleanup_area(
                         self.current_player_id,

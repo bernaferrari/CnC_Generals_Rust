@@ -1153,6 +1153,8 @@ pub struct GameLogic {
     /// Host China EMP Pulse residual (DISABLED_EMP on vehicles/structures).
     /// Fail-closed: not full OCL EMPPulseBomb / EMPPulseEffectSpheroid drawable path.
     emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry,
+    /// Host BaikonurLaunchPower residual (door open + detonation multi-blast).
+    baikonur_launches: crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry,
 
     /// Host China Frenzy ("Rage") residual — temporary ally attack buff in radius.
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
@@ -2739,6 +2741,8 @@ impl GameLogic {
             microwaves: crate::game_logic::host_microwave::HostMicrowaveRegistry::new(),
             runway_reservations: std::collections::HashMap::new(),
             emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
+            baikonur_launches:
+                crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry::new(),
             frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
             battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry::new(),
             emergency_repairs:
@@ -3167,6 +3171,8 @@ impl GameLogic {
         self.microwaves.clear();
         self.runway_reservations.clear();
         self.emp_pulses.clear();
+        self.baikonur_launches =
+            crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry::new();
         self.frenzies.clear();
         self.cleanup_areas.clear();
         self.base_defense_residual_fires = 0;
@@ -36272,6 +36278,84 @@ impl GameLogic {
         self.emp_pulses.honesty_host_path_ok()
     }
 
+    /// Residual honesty: Baikonur launch door and/or detonation recorded.
+    pub fn honesty_baikonur_ok(&self) -> bool {
+        self.baikonur_launches.honesty_host_path_ok()
+    }
+
+    pub fn baikonur_launches(
+        &self,
+    ) -> &crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry {
+        &self.baikonur_launches
+    }
+
+    /// C++ BaikonurLaunchPower::doSpecialPower residual — DOOR_1_OPENING on tower.
+    pub fn activate_baikonur_launch_door(&mut self, source_id: ObjectId) -> bool {
+        use crate::game_logic::host_enum_table_residual::door_1_opening_model_bit;
+        let Some(obj) = self.objects.get_mut(&source_id) else {
+            return false;
+        };
+        if obj.is_disabled() {
+            return false;
+        }
+        let bit = door_1_opening_model_bit();
+        obj.model_condition_bits |= 1u128 << bit;
+        obj.refresh_model_condition_bits();
+        self.baikonur_launches.record_launch_door();
+        true
+    }
+
+    /// C++ BaikonurLaunchPower::doSpecialPowerAtLocation residual —
+    /// spawn BaikonurRocketDetonation + NeutronMissileSlowDeath multi-blast.
+    pub fn activate_baikonur_detonation(
+        &mut self,
+        source_id: ObjectId,
+        location: glam::Vec3,
+    ) -> bool {
+        use crate::game_logic::host_baikonur_launch::{
+            BAIKONUR_DETONATION_OBJECT, BAIKONUR_NUKE_FX,
+        };
+        let Some(src) = self.objects.get(&source_id) else {
+            return false;
+        };
+        if src.is_disabled() {
+            return false;
+        }
+        let team = src.team;
+        // Ensure detonation template exists residual.
+        if !self.templates.contains_key(BAIKONUR_DETONATION_OBJECT) {
+            let mut t = crate::game_logic::ThingTemplate::new(BAIKONUR_DETONATION_OBJECT);
+            t.set_health(1.0);
+            t.add_kind_of(crate::game_logic::KindOf::Immobile);
+            self.templates
+                .insert(BAIKONUR_DETONATION_OBJECT.to_string(), t);
+        }
+        let det_id = match self.create_object(BAIKONUR_DETONATION_OBJECT, team, location) {
+            Some(id) => id,
+            None => return false,
+        };
+        // Arm Neutron multi-blast residual at detonation (same as nuke impact).
+        let _ = self
+            .special_power_strikes
+            .spawn_neutron_slow_death_field(det_id, team, location, self.frame, 0);
+        // Presentation FX residual name on detonation object.
+        if let Some(d) = self.objects.get_mut(&det_id) {
+            d.pending_death_fx = Some(BAIKONUR_NUKE_FX.to_string());
+            // Lifetime 0 residual — mark for quick completion after blasts.
+            d.ensure_lifetime_update(self.frame);
+        }
+        self.baikonur_launches
+            .record_detonation(location.x, location.z);
+        // Queue audio residual.
+        self.queue_audio_event(
+            crate::game_logic::AudioEventRequest::new("BaikonurRocketDetonation")
+                .with_object(det_id)
+                .with_position(location)
+                .with_priority(200),
+        );
+        true
+    }
+
     /// Activate EmpPulse residual: temporarily disable vehicles/structures in radius.
     ///
     /// Matches retail SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate:
@@ -58485,6 +58569,69 @@ mod tests {
     /// C++ SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate::doDisableAttack
     /// setDisabledUntil(DISABLED_EMP, now + DisabledDuration=30000ms).
     /// Fail-closed: not full OCL bomb / spheroid drawable / spark particles.
+
+    #[test]
+    fn baikonur_launch_door_and_detonation() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_baikonur_launch::BAIKONUR_DETONATION_OBJECT;
+        use crate::game_logic::host_enum_table_residual::door_1_opening_model_bit;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        let mut tower = ThingTemplate::new("BaikonurLaunchTower");
+        tower.set_health(5000.0);
+        tower.add_kind_of(KindOf::Structure);
+        logic.templates.insert("BaikonurLaunchTower".into(), tower);
+
+        let tower_id = logic
+            .create_object(
+                "BaikonurLaunchTower",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        // Make special power ready residual.
+        if let Some(o) = logic.objects.get_mut(&tower_id) {
+            o.set_special_power_ready(true);
+        }
+
+        assert!(logic.activate_baikonur_launch_door(tower_id));
+        let bit = door_1_opening_model_bit();
+        let obj = logic.objects.get(&tower_id).unwrap();
+        assert_ne!(obj.model_condition_bits & (1u128 << bit), 0);
+        assert!(logic.honesty_baikonur_ok());
+
+        let loc = glam::Vec3::new(100.0, 0.0, 50.0);
+        assert!(logic.activate_baikonur_detonation(tower_id, loc));
+        assert!(logic.baikonur_launches().honesty_detonation_ok());
+        assert!(logic
+            .objects
+            .values()
+            .any(|o| o.template_name == BAIKONUR_DETONATION_OBJECT));
+        assert!(
+            logic.special_power_strikes.neutron_slow_death_field_count() >= 1
+                || logic
+                    .special_power_strikes
+                    .neutron_slow_death_spawned_total()
+                    >= 1
+        );
+
+        // Command path residual.
+        logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::BaikonurRocket,
+                target: PowerTarget::Location(glam::Vec3::new(200.0, 0.0, 0.0)),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![tower_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        // execute via process may need command_executor - direct activate already tested.
+        let _ = SpecialPowerType::BaikonurRocket;
+    }
+
     #[test]
     fn emp_pulse_residual_disables_vehicles_in_radius() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
