@@ -161,7 +161,20 @@ pub fn is_bunker_structure_name(template_name: &str) -> bool {
 /// Whether residual attacker is a KILL_GARRISONED clearer (Microwave Tank residual).
 pub fn is_kill_garrisoned_clearer(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
-    n.contains("microwave") || n == "testmicrowave" || n.contains("buildingclearer")
+    // Microwave clearer + flame/toxin/ranger residual clearers that retail marks
+    // AllowAttackGarrisonedBldgs (KILL_GARRISONED / occupant-clear path).
+    n.contains("microwave")
+        || n == "testmicrowave"
+        || n.contains("buildingclearer")
+        || n.contains("dragon")
+        || n.contains("toxin")
+        || n.contains("ranger")
+        || n.contains("flame")
+}
+
+/// Weapon-name residual for AllowAttackGarrisonedBldgs / KILL_GARRISONED clearers.
+pub fn is_kill_garrisoned_clearer_weapon(weapon_name: &str) -> bool {
+    crate::game_logic::weapon_bootstrap::host_allow_attack_garrisoned_for_weapon_name(weapon_name)
 }
 
 /// Slot-aware residual: bunker-buster full bust (kill occupants + bunker mult damage).
@@ -361,6 +374,19 @@ mod tests {
         assert!(!is_bunker_buster_carrier("ChinaVehicleNukeCannon"));
     }
 
+    #[test]
+    fn allow_garrisoned_units_are_kill_clearers() {
+        assert!(is_kill_garrisoned_clearer("AmericaTankDragon"));
+        assert!(is_kill_garrisoned_clearer("GLAVehicleToxinTractor"));
+        assert!(is_kill_garrisoned_clearer("AmericaInfantryRanger"));
+        assert!(is_kill_garrisoned_clearer_weapon("DragonTankFlameWeapon"));
+        assert!(is_kill_garrisoned_clearer_weapon("ToxinSprayWeapon"));
+        assert!(is_kill_garrisoned_clearer_weapon(
+            "MicrowaveTankBuildingClearer"
+        ));
+        assert!(!is_kill_garrisoned_clearer("AmericaTankCrusader"));
+        assert!(!is_kill_garrisoned_clearer_weapon("AmericaTankCrusaderGun"));
+    }
     #[test]
     fn bunker_structure_name_matrix() {
         assert!(is_bunker_structure_name("TestBunker"));
