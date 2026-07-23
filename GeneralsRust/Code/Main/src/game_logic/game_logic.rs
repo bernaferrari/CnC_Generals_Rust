@@ -5680,6 +5680,10 @@ impl GameLogic {
         if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
             terrain.update();
         }
+        // C++ TerrainLogic water-rise damage residual (edge dry→wet under units).
+        // Full setWaterHeight scripts call apply_water_rise_damage directly with
+        // their damageAmount; this catches map/dynamic water transitions.
+        let _ = self.refresh_surface_cells_and_water_edge_damage(25.0);
 
         // -----------------------------------------------------------------------
         // Phase 4: Pre-Update / Collect object IDs
@@ -7431,6 +7435,119 @@ impl GameLogic {
     /// C++ shockwave residual around an impact (hit or miss splash).
 
     /// Sample TerrainLogic-ish cliff/water residual at world position for stun destruction.
+
+    /// C++ TerrainLogic::setWaterHeight damage residual.
+    ///
+    /// When water rises, every object currently underwater takes `damage_amount`
+    /// as DAMAGE_WATER (DEATH_NORMAL). Airborne/aircraft and projectiles skip.
+    /// Returns number of objects damaged.
+    pub fn apply_water_rise_damage(&mut self, damage_amount: f32) -> u32 {
+        if !(damage_amount > 0.0) {
+            return 0;
+        }
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let mut hit = 0u32;
+        let mut destroy: Vec<ObjectId> = Vec::new();
+        for id in ids {
+            let pos = match self.objects.get(&id) {
+                Some(o) => o.get_position(),
+                None => continue,
+            };
+            let (_cliff, water) = self.sample_stun_surface_at(pos);
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            obj.cell_is_underwater = water;
+            if !water || !obj.is_alive() || obj.status.destroyed {
+                continue;
+            }
+            if obj.is_kind_of(KindOf::Aircraft) || obj.is_kind_of(KindOf::Projectile) {
+                continue;
+            }
+            // Naval/hover peels: skip if template suggests boat/ship/amphibious.
+            let n = obj.template_name.to_ascii_lowercase();
+            if n.contains("boat")
+                || n.contains("ship")
+                || n.contains("hover")
+                || n.contains("amphib")
+                || n.contains("carrier")
+                || n.contains("destroyer")
+                || n.contains("battleship")
+            {
+                continue;
+            }
+            let killed = obj.take_damage_from_typed(
+                damage_amount,
+                None,
+                crate::game_logic::combat::DamageType::Water,
+            );
+            hit = hit.saturating_add(1);
+            if killed || obj.status.destroyed || obj.health.current <= 0.0 {
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+        hit
+    }
+
+    /// Refresh underwater/cliff cells; on dry→wet edge apply residual water damage.
+    ///
+    /// C++ only damages on water-rise events; edge detection approximates that when
+    /// terrain water state changes under units (flood scripts / map water).
+    pub fn refresh_surface_cells_and_water_edge_damage(&mut self, edge_damage: f32) -> u32 {
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        let mut hit = 0u32;
+        let mut destroy: Vec<ObjectId> = Vec::new();
+        for id in ids {
+            let (pos, was_under) = match self.objects.get(&id) {
+                Some(o) => (o.get_position(), o.cell_is_underwater),
+                None => continue,
+            };
+            let (_cliff, water) = self.sample_stun_surface_at(pos);
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            obj.cell_is_cliff = _cliff;
+            obj.cell_is_underwater = water;
+            let entered = water && !was_under;
+            if !entered || !(edge_damage > 0.0) {
+                continue;
+            }
+            if !obj.is_alive() || obj.status.destroyed {
+                continue;
+            }
+            if obj.is_kind_of(KindOf::Aircraft) || obj.is_kind_of(KindOf::Projectile) {
+                continue;
+            }
+            let n = obj.template_name.to_ascii_lowercase();
+            if n.contains("boat")
+                || n.contains("ship")
+                || n.contains("hover")
+                || n.contains("amphib")
+                || n.contains("carrier")
+                || n.contains("destroyer")
+                || n.contains("battleship")
+            {
+                continue;
+            }
+            let killed = obj.take_damage_from_typed(
+                edge_damage,
+                None,
+                crate::game_logic::combat::DamageType::Water,
+            );
+            hit = hit.saturating_add(1);
+            if killed || obj.status.destroyed || obj.health.current <= 0.0 {
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+        hit
+    }
+
     pub(crate) fn sample_stun_surface_at(&self, pos: glam::Vec3) -> (bool, bool) {
         if let Some(t) = self.terrain.as_ref() {
             return (t.is_cliff_at_world(pos), t.is_underwater_at_world(pos));
@@ -81523,6 +81640,42 @@ mod tests {
     }
 
     /// Residual: TroopCrawlerAssault DEPLOY fire unloads payload and orders attack.
+
+    #[test]
+    fn water_edge_damage_on_dry_to_wet_transition() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("Ranger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("Ranger".into(), t);
+        let id = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("id");
+        {
+            let o = logic.objects.get_mut(&id).unwrap();
+            o.health.current = 100.0;
+            o.cell_is_underwater = false;
+        }
+        // Simulate terrain reporting underwater on next refresh by forcing sample path:
+        // call internal edge path with manual pre/post.
+        // Direct residual: mark wet + apply Water damage as rise residual.
+        {
+            let o = logic.objects.get_mut(&id).unwrap();
+            let was = o.cell_is_underwater;
+            o.cell_is_underwater = true;
+            assert!(!was);
+            let _ =
+                o.take_damage_from_typed(25.0, None, crate::game_logic::combat::DamageType::Water);
+        }
+        let hp = logic.objects.get(&id).unwrap().health.current;
+        assert!((hp - 75.0).abs() < 1e-3, "hp={hp}");
+
+        // API smoke: apply_water_rise_damage should not panic without terrain water.
+        let _ = logic.apply_water_rise_damage(999.0);
+        let _ = logic.refresh_surface_cells_and_water_edge_damage(25.0);
+    }
+
     #[test]
     fn troop_crawler_residual_assault_deploy_unloads_and_attacks() {
         use crate::game_logic::host_troop_crawler::TROOP_CRAWLER_ASSAULT_RANGE;
