@@ -3830,6 +3830,64 @@ impl GameLogic {
         }
     }
 
+    /// C++ AIFollowWaypointPathExact residual — use waypoints as-is (no A* smoothing).
+    pub fn assign_unit_path_exact(
+        &mut self,
+        unit_id: ObjectId,
+        destination: Vec3,
+        waypoints: &[Vec3],
+    ) -> bool {
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            if unit.is_deployed() {
+                unit.set_deployed(false);
+            }
+        }
+        let can_move = match self.objects.get(&unit_id) {
+            Some(unit) => unit.is_alive() && unit.can_move(),
+            None => return false,
+        };
+        if !can_move {
+            return false;
+        }
+        let mut full_path: Vec<Vec3> = Vec::with_capacity(waypoints.len() + 1);
+        for wp in waypoints {
+            if !wp.x.is_finite() || !wp.z.is_finite() {
+                continue;
+            }
+            if let Some(last) = full_path.last() {
+                let dx = last.x - wp.x;
+                let dz = last.z - wp.z;
+                if dx * dx + dz * dz < 0.01 {
+                    continue;
+                }
+            }
+            full_path.push(*wp);
+        }
+        if let Some(last) = full_path.last() {
+            let dx = last.x - destination.x;
+            let dz = last.z - destination.z;
+            if dx * dx + dz * dz >= 0.01 {
+                full_path.push(destination);
+            }
+        } else {
+            full_path.push(destination);
+        }
+        if full_path.is_empty() {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.waiting_for_path = false;
+            unit.movement.current_path_index = 0;
+            unit.movement.path = full_path;
+            unit.movement.target_position = unit.movement.path.first().copied();
+            unit.is_exact_path = true;
+            unit.set_ai_state(AIState::Moving);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn assign_unit_path(
         &mut self,
         unit_id: ObjectId,
@@ -3944,6 +4002,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
+        unit.is_exact_path = false;
         unit.movement.path = full_path;
         unit.record_host_movement();
         unit.movement.current_path_index = 0;
