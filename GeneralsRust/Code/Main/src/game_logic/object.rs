@@ -7371,6 +7371,85 @@ impl Object {
     /// C++ Object::getAmmoPipShowingInfo residual.
     ///
     /// Returns `(clip_size, remaining_ammo)` for the first ShowsAmmoPips weapon.
+
+    /// C++ Weapon::getPercentReadyToFire residual for one slot (0.0..1.0).
+    pub fn weapon_slot_percent_ready_to_fire(&self, slot: u8, current_time: f32) -> f32 {
+        let Some(weapon) = self.weapon_slot(slot) else {
+            return 0.0;
+        };
+        let name = if slot == 1 {
+            self.thing.template.secondary_weapon_name.as_deref().or(self
+                .thing
+                .template
+                .primary_weapon_name
+                .as_deref())
+        } else {
+            self.thing.template.primary_weapon_name.as_deref()
+        };
+        // Prefer live WeaponFireStatus when this is the active slot.
+        let status = if slot == self.active_weapon_slot {
+            self.weapon_fire_status
+        } else {
+            // Approximate status from ammo/reload without mutating.
+            if !Self::weapon_has_ammo_for_shot(weapon, name) {
+                WeaponFireStatus::OutOfAmmo
+            } else {
+                let reload = self.effective_weapon_reload(weapon.reload_time);
+                if current_time - weapon.last_fire_time < reload - 1e-6 {
+                    if weapon.clip_size > 0
+                        && weapon.ammo == Some(weapon.clip_size)
+                        && weapon.clip_reload_time > reload + 1e-4
+                    {
+                        WeaponFireStatus::ReloadingClip
+                    } else {
+                        WeaponFireStatus::BetweenFiringShots
+                    }
+                } else {
+                    WeaponFireStatus::ReadyToFire
+                }
+            }
+        };
+        match status {
+            WeaponFireStatus::OutOfAmmo | WeaponFireStatus::PreAttack => 0.0,
+            WeaponFireStatus::ReadyToFire => 1.0,
+            WeaponFireStatus::BetweenFiringShots | WeaponFireStatus::ReloadingClip => {
+                let reload =
+                    if status == WeaponFireStatus::ReloadingClip && weapon.clip_reload_time > 0.0 {
+                        weapon.clip_reload_time
+                    } else {
+                        self.effective_weapon_reload(weapon.reload_time)
+                    };
+                if reload <= 1e-6 {
+                    return 1.0;
+                }
+                let elapsed = (current_time - weapon.last_fire_time).max(0.0);
+                if elapsed >= reload {
+                    1.0
+                } else {
+                    (elapsed / reload).clamp(0.0, 1.0)
+                }
+            }
+        }
+    }
+
+    /// C++ Object::getMostPercentReadyToFireAnyWeapon residual (0..100).
+    pub fn get_most_percent_ready_to_fire_any_weapon(&self, current_time: f32) -> u32 {
+        let mut most = 0u32;
+        for slot in [0u8, 1u8] {
+            if self.weapon_slot(slot).is_none() {
+                continue;
+            }
+            let pct = (self.weapon_slot_percent_ready_to_fire(slot, current_time) * 100.0) as u32;
+            if pct > most {
+                most = pct;
+            }
+            if most >= 100 {
+                return 100;
+            }
+        }
+        most.min(100)
+    }
+
     pub fn get_ammo_pip_showing_info(&self) -> Option<(u32, u32)> {
         use crate::game_logic::weapon_bootstrap::host_shows_ammo_pips_for_weapon_name;
         for slot in [0u8, 1u8] {
@@ -11071,6 +11150,29 @@ mod tests {
         assert_eq!(stop.len(), 1);
         assert!(!stop[0].start);
         assert_eq!(o.fire_sound_loop_until_frame, 0);
+    }
+
+    #[test]
+    fn most_percent_ready_between_shots_progresses() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut tmpl = ThingTemplate::new("PctReady");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
+        let tgt = Object::new(tmpl, ObjectId(2), Team::GLA);
+        o.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 1.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        });
+        assert_eq!(o.get_most_percent_ready_to_fire_any_weapon(0.0), 100);
+        assert!(o.fire_at(tgt.id, 1.0));
+        assert_eq!(o.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
+        let mid = o.get_most_percent_ready_to_fire_any_weapon(1.5);
+        assert!(mid > 0 && mid < 100, "mid={mid}");
+        assert_eq!(o.get_most_percent_ready_to_fire_any_weapon(2.0), 100);
     }
 
     #[test]
