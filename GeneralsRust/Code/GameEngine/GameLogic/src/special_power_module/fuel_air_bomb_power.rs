@@ -197,15 +197,21 @@ impl FuelAirBombPower {
         targeting: &TargetingInfo,
         current_frame: UnsignedInt,
     ) -> Result<(), String> {
+        let owner_id = self
+            .resolve_owner_object_id()
+            .ok_or_else(|| "Fuel Air Bomb requires an owning object".to_string())?;
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |g| g.is_disabled())
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
         let owner = self
             .resolve_owner_object()
             .ok_or_else(|| "Fuel Air Bomb requires an owning object".to_string())?;
         let owner_guard = owner
             .read()
             .map_err(|_| "Fuel Air Bomb owner lock poisoned".to_string())?;
-        if owner_guard.is_disabled() {
-            return Ok(());
-        }
 
         let target_coord = self.resolve_target_position(targeting);
         let owner_pos = *owner_guard.get_position();
