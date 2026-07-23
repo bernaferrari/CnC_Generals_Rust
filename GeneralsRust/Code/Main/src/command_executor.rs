@@ -1659,8 +1659,14 @@ impl<'a> CommandExecutor<'a> {
             .count()
     }
 
-    /// C++ AIGroup::getSpeed residual — slowest living mover max_speed.
+    /// C++ AIGroup::getSpeed / recompute residual —
+    /// slowest non-held, non-immobile locomotor among members whose body
+    /// damage state is BETTER than MovementPenaltyDamageState (REALLYDAMAGED).
+    /// Heavily damaged units do not drag the whole group down.
     pub(crate) fn group_speed(&self, units: &[ObjectId]) -> f32 {
+        use crate::game_logic::host_ai_path_combat_residual_wave105::{
+            calc_damage_state_residual, is_body_condition_better, BODY_REALLYDAMAGED,
+        };
         let mut best = f32::INFINITY;
         let mut saw = false;
         for &id in units {
@@ -1676,6 +1682,12 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if o.contained_by.is_some() {
+                continue; // HELD residual — skip riders
+            }
+            let max_h = o.health.maximum.max(1.0);
+            let dmg = calc_damage_state_residual(o.health.current, max_h);
+            // C++: only if IS_CONDITION_BETTER(damageState, movementPenaltyDamageState)
+            if !is_body_condition_better(dmg, BODY_REALLYDAMAGED) {
                 continue;
             }
             let spd = o.movement.max_speed.max(0.0);
@@ -1689,6 +1701,37 @@ impl<'a> CommandExecutor<'a> {
         } else {
             0.0
         }
+    }
+
+    /// C++ AIGroup::recompute leadership residual —
+    /// closest non-immobile, non-held member to group center.
+    pub(crate) fn group_leader_id(&self, units: &[ObjectId]) -> Option<ObjectId> {
+        let (_, _, center) = self.group_min_max_and_center(units)?;
+        let mut best_id = None;
+        let mut best_d2 = f32::INFINITY;
+        for &id in units {
+            let Some(o) = self.game_logic.get_object(id) else {
+                continue;
+            };
+            if !o.is_alive() || !o.can_move() {
+                continue;
+            }
+            if o.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || o.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            if o.contained_by.is_some() {
+                continue;
+            }
+            let p = o.get_position();
+            let d2 = (p.x - center.x).powi(2) + (p.z - center.z).powi(2);
+            if d2 < best_d2 {
+                best_d2 = d2;
+                best_id = Some(id);
+            }
+        }
+        best_id
     }
 
     /// C++ AIGroup::getMinMaxAndCenter residual (XZ plane; skip held).
@@ -7022,6 +7065,58 @@ mod group_move_tests {
             "exact path retains mid waypoint {:?}",
             u.movement.path
         );
+    }
+
+    #[test]
+    fn group_speed_ignores_really_damaged_and_picks_leader() {
+        use super::CommandExecutor;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("GS_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(100.0);
+        logic.templates.insert("GS_V".to_string(), tpl);
+        let healthy = logic
+            .create_object("GS_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let damaged = logic
+            .create_object("GS_V", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+        let slow_healthy = logic
+            .create_object("GS_V", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let h = logic.get_object_mut(healthy).unwrap();
+            h.movement.max_speed = 40.0;
+            h.health.current = 100.0;
+            h.health.maximum = 100.0;
+        }
+        {
+            let d = logic.get_object_mut(damaged).unwrap();
+            d.movement.max_speed = 5.0; // would drag group if counted
+            d.health.current = 10.0; // REALLYDAMAGED
+            d.health.maximum = 100.0;
+        }
+        {
+            let s = logic.get_object_mut(slow_healthy).unwrap();
+            s.movement.max_speed = 20.0;
+            s.health.current = 100.0;
+            s.health.maximum = 100.0;
+        }
+        let exec = CommandExecutor::new(&mut logic, 0);
+        let spd = exec.group_speed(&[healthy, damaged, slow_healthy]);
+        assert!(
+            (spd - 20.0).abs() < 0.01,
+            "group speed should be slowest healthy (20), not crippled 5; got {spd}"
+        );
+        let leader = exec
+            .group_leader_id(&[healthy, damaged, slow_healthy])
+            .expect("leader");
+        // Center ~ (0+30+10)/3 = 13.3 → slow_healthy at 10 is closest among movers
+        assert_eq!(leader, slow_healthy);
     }
 
     #[test]
