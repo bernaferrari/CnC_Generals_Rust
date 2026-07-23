@@ -2357,6 +2357,9 @@ impl Object {
             None => (1.0, 0.0),
         };
         let mut data = crate::game_logic::host_structure_topple::HostStructureToppleData::default();
+        let radius = self.selection_radius.max(10.0);
+        data.facing_width = radius;
+        data.building_height = (self.health.maximum.max(100.0) * 0.15).clamp(20.0, 80.0);
         data.begin(current_frame, dx, dz, 0);
         self.structure_topple_data = Some(data);
         // C++ marks AI dead and deselects while building is still "alive" for fall.
@@ -2369,6 +2372,25 @@ impl Object {
         }
         self.status.destroyed = false;
         true
+    }
+
+    /// Drain C++ applyCrushingDamage residual samples for this frame.
+    pub fn take_structure_topple_crush_samples(
+        &mut self,
+    ) -> Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample> {
+        let pos = self.get_position();
+        let Some(st) = self.structure_topple_data.as_mut() else {
+            return Vec::new();
+        };
+        if !(st.is_active()
+            || matches!(
+                st.state,
+                crate::game_logic::host_structure_topple::HostStructureToppleState::Done
+            ))
+        {
+            return Vec::new();
+        }
+        st.take_crush_sweep_samples(pos.x, pos.z)
     }
 
     /// C++ StructureToppleUpdate::update residual. True when fall completes.

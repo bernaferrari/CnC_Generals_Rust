@@ -7130,8 +7130,25 @@ impl GameLogic {
                 // C++ ToppleUpdate::update residual (trees / crushable props).
                 topple_kill = obj.tick_topple();
                 // C++ StructureToppleUpdate::update residual (buildings).
-                if !topple_kill {
+                if !topple_kill && obj.structure_topple_data.is_some() {
                     topple_kill = obj.tick_structure_topple(self.frame);
+                }
+            }
+            // C++ StructureToppleUpdate::applyCrushingDamage residual.
+            if self
+                .objects
+                .get(&object_id)
+                .and_then(|o| o.structure_topple_data.as_ref())
+                .map(|d| d.is_active() || topple_kill)
+                .unwrap_or(false)
+            {
+                let samples = self
+                    .objects
+                    .get_mut(&object_id)
+                    .map(|o| o.take_structure_topple_crush_samples())
+                    .unwrap_or_default();
+                if !samples.is_empty() {
+                    self.apply_structure_topple_crush_samples(object_id, samples);
                 }
             }
             if topple_kill {
@@ -22022,6 +22039,70 @@ impl GameLogic {
     }
 
     /// If `id` is a standing structure topple candidate, start fall and defer destroy.
+
+    /// C++ StructureToppleUpdate::applyCrushingDamage / doDamageLine residual.
+    fn apply_structure_topple_crush_samples(
+        &mut self,
+        building_id: ObjectId,
+        samples: Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample>,
+    ) {
+        if samples.is_empty() {
+            return;
+        }
+        let building_team = self.objects.get(&building_id).map(|o| o.team);
+        let mut destroy: Vec<ObjectId> = Vec::new();
+        const SAMPLE_RADIUS: f32 = 18.0;
+        let victims: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for id in victims {
+            if id == building_id {
+                continue;
+            }
+            let Some(obj) = self.objects.get(&id) else {
+                continue;
+            };
+            if !obj.is_alive() || obj.status.destroyed {
+                continue;
+            }
+            if obj.is_kind_of(KindOf::Structure) {
+                continue;
+            }
+            let pos = obj.get_position();
+            let mut best_dmg = 0.0_f32;
+            for s in &samples {
+                let dx = pos.x - s.x;
+                let dz = pos.z - s.z;
+                if dx * dx + dz * dz <= SAMPLE_RADIUS * SAMPLE_RADIUS {
+                    best_dmg = best_dmg.max(s.damage);
+                }
+            }
+            if best_dmg <= 0.0 {
+                continue;
+            }
+            let killed = if let Some(obj) = self.objects.get_mut(&id) {
+                obj.take_damage_from_typed_death(
+                    best_dmg,
+                    Some(building_id),
+                    crate::game_logic::combat::DamageType::Crush,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
+                )
+            } else {
+                false
+            };
+            if killed
+                || self
+                    .objects
+                    .get(&id)
+                    .map(|o| o.status.destroyed || o.health.current <= 0.0)
+                    .unwrap_or(false)
+            {
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, building_team);
+        }
+    }
+
     fn try_begin_structure_topple_instead_of_destroy(
         &mut self,
         id: ObjectId,
@@ -81700,6 +81781,59 @@ mod tests {
     }
 
     /// Residual: TroopCrawlerAssault DEPLOY fire unloads payload and orders attack.
+
+    #[test]
+    fn structure_topple_crush_sweep_kills_nearby_infantry() {
+        use crate::game_logic::host_structure_topple::HostStructureToppleState;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut bt = ThingTemplate::new("AmericaWarFactory");
+        bt.set_health(100.0);
+        bt.add_kind_of(KindOf::Structure);
+        logic.templates.insert("AmericaWarFactory".into(), bt);
+        let mut it = ThingTemplate::new("Ranger");
+        it.set_health(50.0);
+        it.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("Ranger".into(), it);
+
+        let bid = logic
+            .create_object(
+                "AmericaWarFactory",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let iid = logic
+            .create_object("Ranger", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let b = logic.objects.get_mut(&bid).unwrap();
+            b.selection_radius = 25.0;
+            assert!(b.begin_structure_topple(0, Some((-10.0, 0.0))));
+            if let Some(st) = b.structure_topple_data.as_mut() {
+                st.state = HostStructureToppleState::Toppling;
+                st.accumulated_angle = std::f32::consts::FRAC_PI_2 - 0.05;
+                st.building_height = 50.0;
+                st.facing_width = 20.0;
+                st.last_crushed_location = 0.0;
+                st.dir_x = 1.0;
+                st.dir_y = 0.0;
+            }
+        }
+        let samples = logic
+            .objects
+            .get_mut(&bid)
+            .unwrap()
+            .take_structure_topple_crush_samples();
+        assert!(!samples.is_empty());
+        logic.apply_structure_topple_crush_samples(bid, samples);
+        let ranger = logic.objects.get(&iid).unwrap();
+        assert!(
+            ranger.status.destroyed || ranger.health.current <= 0.0,
+            "ranger should be crushed under topple sweep, hp={}",
+            ranger.health.current
+        );
+    }
 
     #[test]
     fn structure_topple_defers_destruction() {
