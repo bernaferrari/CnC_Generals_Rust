@@ -2,4 +2,4 @@
 //!
 //! The full implementation lives in `crate::ai::squad`.
 
-pub use crate::ai::squad::{Squad, VecObjectID, VecObjectPtr};
+pub use crate::ai::squad::{Squad, VecObjectID};

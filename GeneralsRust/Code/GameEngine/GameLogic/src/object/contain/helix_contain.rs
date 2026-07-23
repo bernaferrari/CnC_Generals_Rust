@@ -160,9 +160,13 @@ impl HelixContain {
 
     /// Handle death event
     pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
-        if let Some(portable) = self.get_portable_structure() {
-            if let Ok(mut portable_guard) = portable.write() {
-                portable_guard.kill(None, None);
+        if let Some(portable_id) = self.portable_structure_id() {
+            if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
+            {
+                if let Ok(mut portable_guard) = portable.write() {
+                    portable_guard.kill(None, None);
+                }
             }
         }
         self.base.on_die(damage_info)?;
@@ -171,10 +175,8 @@ impl HelixContain {
 
     /// Handle deletion event
     pub fn on_delete(&mut self) -> GameResult<()> {
-        if let Some(portable) = self.get_portable_structure() {
-            if let Ok(portable_guard) = portable.read() {
-                let _ = TheGameLogic::destroy_object(&*portable_guard);
-            }
+        if let Some(portable_id) = self.portable_structure_id() {
+            let _ = TheGameLogic::destroy_object_by_id(portable_id);
         }
         self.base.on_delete()?;
         Ok(())
@@ -187,11 +189,16 @@ impl HelixContain {
         _old_owner: Option<&Arc<RwLock<Player>>>,
         new_owner: Option<&Arc<RwLock<Player>>>,
     ) -> GameResult<()> {
-        if let Some(portable) = self.get_portable_structure() {
-            if let (Ok(mut portable_guard), Some(new_owner_arc)) = (portable.write(), new_owner) {
-                if let Ok(new_owner_guard) = new_owner_arc.read() {
-                    let default_team = new_owner_guard.get_default_team();
-                    portable_guard.set_team(default_team)?;
+        if let Some(portable_id) = self.portable_structure_id() {
+            if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
+            {
+                if let (Ok(mut portable_guard), Some(new_owner_arc)) = (portable.write(), new_owner)
+                {
+                    if let Ok(new_owner_guard) = new_owner_arc.read() {
+                        let default_team = new_owner_guard.get_default_team();
+                        portable_guard.set_team(default_team)?;
+                    }
                 }
             }
         }
@@ -269,11 +276,15 @@ impl HelixContain {
         new_state: BodyDamageType,
     ) -> GameResult<()> {
         if new_state != BodyDamageType::Rubble {
-            if let Some(portable) = self.get_portable_structure() {
-                if let Ok(portable_guard) = portable.read() {
-                    if let Some(body) = portable_guard.get_body_module() {
-                        if let Ok(mut body_guard) = body.lock() {
-                            let _ = body_guard.set_damage_state(new_state);
+            if let Some(portable_id) = self.portable_structure_id() {
+                if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
+                {
+                    if let Ok(portable_guard) = portable.read() {
+                        if let Some(body) = portable_guard.get_body_module() {
+                            if let Ok(mut body_guard) = body.lock() {
+                                let _ = body_guard.set_damage_state(new_state);
+                            }
                         }
                     }
                 }
@@ -291,7 +302,9 @@ impl HelixContain {
 
         // Update portable structure position to follow Helix (matches C++ lines 101-105)
         if let Some(_portable_id) = self.portable_structure_id {
-            if let Some(portable_obj) = self.get_portable_structure() {
+            if let Some(portable_obj) = TheGameLogic::find_object_by_id(_portable_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(_portable_id))
+            {
                 if let Some(owner_obj) = self.get_object() {
                     if let Ok(owner) = owner_obj.read() {
                         let owner_pos = *owner.get_position();
@@ -347,10 +360,8 @@ impl HelixContain {
         };
 
         if is_portable {
-            if let Some(existing) = self.get_portable_structure() {
-                if let Ok(existing_guard) = existing.read() {
-                    let _ = TheGameLogic::destroy_object(&*existing_guard);
-                }
+            if let Some(existing_id) = self.portable_structure_id() {
+                let _ = TheGameLogic::destroy_object_by_id(existing_id);
             }
 
             self.portable_structure_id = Some(obj_id);
@@ -421,10 +432,8 @@ impl HelixContain {
         };
 
         if is_portable {
-            if let Some(existing) = self.get_portable_structure() {
-                if let Ok(existing_guard) = existing.read() {
-                    let _ = TheGameLogic::destroy_object(&*existing_guard);
-                }
+            if let Some(existing_id) = self.portable_structure_id() {
+                let _ = TheGameLogic::destroy_object_by_id(existing_id);
             }
 
             self.portable_structure_id = Some(obj_id);
@@ -525,12 +534,6 @@ impl HelixContain {
             .filter(|id| *id != crate::common::INVALID_ID)
     }
 
-    fn get_portable_structure(&self) -> Option<Arc<RwLock<Object>>> {
-        let id = self.portable_structure_id()?;
-        TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-    }
-
     pub fn friend_get_rider(&self) -> Option<ObjectID> {
         let id = self.portable_structure_id()?;
         let portable = TheGameLogic::find_object_by_id(id)
@@ -543,20 +546,18 @@ impl HelixContain {
         }
     }
 
-    pub fn friend_get_rider_object(&self) -> Option<Arc<RwLock<Object>>> {
-        let rider_id = self.friend_get_rider()?;
-        TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
-    }
-
     /// Flash contained units as selected when container is selected
     pub fn client_visible_contained_flash_as_selected(&mut self) -> GameResult<()> {
-        if let Some(portable) = self.get_portable_structure() {
-            if let Ok(portable_guard) = portable.read() {
-                if portable_guard.is_kind_of(crate::common::KindOf::PortableStructure) {
-                    if let Some(drawable) = portable_guard.get_drawable() {
-                        if let Ok(mut drawable_guard) = drawable.write() {
-                            drawable_guard.flash_as_selected();
+        if let Some(portable_id) = self.portable_structure_id() {
+            if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
+            {
+                if let Ok(portable_guard) = portable.read() {
+                    if portable_guard.is_kind_of(crate::common::KindOf::PortableStructure) {
+                        if let Some(drawable) = portable_guard.get_drawable() {
+                            if let Ok(mut drawable_guard) = drawable.write() {
+                                drawable_guard.flash_as_selected();
+                            }
                         }
                     }
                 }

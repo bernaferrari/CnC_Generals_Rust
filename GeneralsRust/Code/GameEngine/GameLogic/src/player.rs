@@ -2067,21 +2067,6 @@ impl Player {
         manager.get_objects_owned_by_player(self.player_index as UnsignedInt)
     }
 
-    pub fn get_objects(&self) -> Vec<Arc<RwLock<Object>>> {
-        let mut objects = Vec::new();
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            for obj_id in manager.get_objects_owned_by_player(self.player_index as UnsignedInt) {
-                if let Some(obj_arc) = manager.get_object(obj_id) {
-                    if let Ok(obj_instance) = obj_arc.read() {
-                        objects.push(obj_instance.base());
-                    }
-                }
-            }
-        }
-        objects
-    }
-
     /// Check if player has any objects at all.
     /// C++ Reference: Player::hasAnyObjects()
     pub fn has_any_objects(&self) -> Bool {

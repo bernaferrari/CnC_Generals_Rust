@@ -13,9 +13,6 @@ use std::sync::{Arc, RwLock};
 /// Vector of object IDs
 pub type VecObjectID = Vec<ObjectID>;
 
-/// Vector of object pointers (ephemeral resolve results; not stored on Squad)
-pub type VecObjectPtr = Vec<Arc<RwLock<Object>>>;
-
 /// Squad represents a collection of objects for AI targeting and management
 ///
 /// Squads are different from Teams and AIGroups:
@@ -45,28 +42,12 @@ impl Squad {
         }
     }
 
-    /// Add an object to the squad
-    /// Prefer [`Self::add_object_id`]. Arc form only for legacy call sites.
-    pub fn add_object(&mut self, object: &Arc<RwLock<Object>>) {
-        if let Ok(obj_ref) = object.try_read() {
-            self.add_object_id(obj_ref.get_id());
-        }
-        register_legacy_object(object);
-    }
-
     /// Add an object by ID to the squad
     pub fn add_object_id(&mut self, object_id: ObjectID) {
         if self.object_ids.contains(&object_id) {
             return;
         }
         self.object_ids.push(object_id);
-    }
-
-    /// Remove an object from the squad
-    pub fn remove_object(&mut self, object: &Arc<RwLock<Object>>) {
-        if let Ok(obj_ref) = object.try_read() {
-            self.remove_object_id(obj_ref.get_id());
-        }
     }
 
     /// Remove an object by ID from the squad
@@ -78,35 +59,6 @@ impl Squad {
     /// Clear all objects from the squad
     pub fn clear_squad(&mut self) {
         self.object_ids.clear();
-    }
-
-    /// Get all objects in the squad that haven't been deleted.
-    /// Always rebuilds from stored ObjectIDs (ID-first membership).
-    pub fn get_all_objects(&mut self) -> Vec<Arc<RwLock<Object>>> {
-        let mut objects = Vec::new();
-        let mut valid_ids = Vec::new();
-
-        for &obj_id in &self.object_ids {
-            if let Some(obj) = self.find_object_by_id(obj_id) {
-                objects.push(obj);
-                valid_ids.push(obj_id);
-            }
-        }
-
-        self.object_ids = valid_ids;
-        objects
-    }
-
-    /// Get all live objects (selectable and not effectively dead)
-    pub fn get_live_objects(&mut self) -> Vec<Arc<RwLock<Object>>> {
-        self.get_all_objects()
-            .into_iter()
-            .filter(|obj| {
-                obj.try_read()
-                    .map(|obj_ref| obj_ref.is_selectable() && !obj_ref.is_effectively_dead())
-                    .unwrap_or(false)
-            })
-            .collect()
     }
 
     /// Get all live object IDs (best effort when object handles are missing)
@@ -133,15 +85,6 @@ impl Squad {
     /// Get the current number of objects, including dead objects
     pub fn get_size_of_group(&self) -> usize {
         self.object_ids.len()
-    }
-
-    /// Check if an object is on this squad
-    /// Prefer [`Self::is_on_squad_by_id`].
-    pub fn is_on_squad(&self, object: &Arc<RwLock<Object>>) -> bool {
-        object
-            .try_read()
-            .map(|obj_ref| self.is_on_squad_by_id(obj_ref.get_id()))
-            .unwrap_or(false)
     }
 
     /// Check if an object ID is on this squad
@@ -184,11 +127,6 @@ impl Squad {
     /// Get all object IDs in the squad
     pub fn get_object_ids(&self) -> &Vec<ObjectID> {
         &self.object_ids
-    }
-
-    /// Resolve current live handles (same as get_all_objects; name kept for callers).
-    pub fn get_cached_objects(&mut self) -> Vec<Arc<RwLock<Object>>> {
-        self.get_all_objects()
     }
 
     /// Check if squad is empty
@@ -282,13 +220,6 @@ impl Squad {
         matching
     }
 
-    pub fn get_objects_of_type(&mut self, object_type: &str) -> Vec<Arc<RwLock<Object>>> {
-        self.get_object_ids_of_type(object_type)
-            .into_iter()
-            .filter_map(|id| self.find_object_by_id(id))
-            .collect()
-    }
-
     /// Check if squad contains any objects of a specific type
     pub fn contains_type(&mut self, object_type: &str) -> bool {
         !self.get_object_ids_of_type(object_type).is_empty()
@@ -315,11 +246,6 @@ impl Squad {
         best_id
     }
 
-    pub fn get_strongest_object(&mut self) -> Option<Arc<RwLock<Object>>> {
-        self.get_strongest_object_id()
-            .and_then(|id| self.find_object_by_id(id))
-    }
-
     /// ID-first weakest member selection.
     pub fn get_weakest_object_id(&mut self) -> Option<ObjectID> {
         let mut best_id = None;
@@ -337,11 +263,6 @@ impl Squad {
             }
         }
         best_id
-    }
-
-    pub fn get_weakest_object(&mut self) -> Option<Arc<RwLock<Object>>> {
-        self.get_weakest_object_id()
-            .and_then(|id| self.find_object_by_id(id))
     }
 
     fn find_object_by_id(&self, obj_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
