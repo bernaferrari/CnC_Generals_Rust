@@ -108,19 +108,46 @@ impl BridgeTowerBehavior {
         Ok(Self::new_from_object_handle(object, module_data))
     }
 
+    fn owner_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+
+    fn with_object<R>(
+        &self,
+        f: impl FnOnce(&GameObject) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return Err("BridgeTowerBehavior missing owning object id".into());
+        }
+        OBJECT_REGISTRY
+            .with_object(id, f)
+            .ok_or_else(|| "owning object not found".into())
+    }
+
+    fn with_object_mut<R>(
+        &self,
+        f: impl FnOnce(&mut GameObject) -> R,
+    ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
+            return Err("BridgeTowerBehavior missing owning object id".into());
+        }
+        OBJECT_REGISTRY
+            .with_object_mut(id, f)
+            .ok_or_else(|| "owning object not found".into())
+    }
+
     fn get_object(
         &self,
     ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
-        if self.object_id == OBJECT_INVALID_ID {
+        let id = self.owner_object_id();
+        if id == OBJECT_INVALID_ID {
             return Err("BridgeTowerBehavior missing owning object id".into());
         }
-        OBJECT_REGISTRY.get_object(self.object_id).ok_or_else(|| {
-            format!(
-                "BridgeTowerBehavior object {} not registered",
-                self.object_id
-            )
-            .into()
-        })
+        OBJECT_REGISTRY
+            .get_object(id)
+            .ok_or_else(|| "owning object not found".into())
     }
 
     fn get_bridge_object(&self) -> Option<Arc<RwLock<GameObject>>> {
@@ -419,24 +446,23 @@ impl DamageModuleInterface for BridgeTowerBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let me = self.get_object()?;
-        let me_read = me
-            .read()
-            .map_err(|e| format!("tower lock poisoned: {}", e))?;
-        let damage_percentage = if let Some(body) = me_read.get_body_module() {
-            let body_guard = body
-                .lock()
-                .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
-            let max_health = body_guard.get_max_health();
-            if max_health > 0.0 {
-                damage_info.input.amount / max_health
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        };
-        drop(me_read);
+        let damage_percentage = self.with_object(
+            |me_read| -> Result<f32, Box<dyn std::error::Error + Send + Sync>> {
+                if let Some(body) = me_read.get_body_module() {
+                    let body_guard = body
+                        .lock()
+                        .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
+                    let max_health = body_guard.get_max_health();
+                    Ok(if max_health > 0.0 {
+                        damage_info.input.amount / max_health
+                    } else {
+                        0.0
+                    })
+                } else {
+                    Ok(0.0)
+                }
+            },
+        )??;
 
         self.propagate_damage(damage_info, damage_percentage)
     }
@@ -445,26 +471,25 @@ impl DamageModuleInterface for BridgeTowerBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let me = self.get_object()?;
-        let me_read = me
-            .read()
-            .map_err(|e| format!("tower lock poisoned: {}", e))?;
-        let healing_percentage = if let Some(body) = me_read.get_body_module() {
-            let max_health = {
-                let body_guard = body
-                    .lock()
-                    .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
-                body_guard.get_max_health()
-            };
-            if max_health > 0.0 {
-                damage_info.input.amount / max_health
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        };
-        drop(me_read);
+        let healing_percentage = self.with_object(
+            |me_read| -> Result<f32, Box<dyn std::error::Error + Send + Sync>> {
+                if let Some(body) = me_read.get_body_module() {
+                    let max_health = {
+                        let body_guard = body
+                            .lock()
+                            .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
+                        body_guard.get_max_health()
+                    };
+                    Ok(if max_health > 0.0 {
+                        damage_info.input.amount / max_health
+                    } else {
+                        0.0
+                    })
+                } else {
+                    Ok(0.0)
+                }
+            },
+        )??;
 
         self.propagate_healing(damage_info, healing_percentage)
     }
