@@ -111,6 +111,7 @@ pub mod host_comanche_rocket_pods;
 pub mod host_combat_chinook;
 pub mod host_combat_cycle;
 pub mod host_combat_sim_residual;
+mod host_command_button_hunt;
 pub mod host_command_button_residual;
 pub mod host_countermeasures;
 mod host_create_object_die;
