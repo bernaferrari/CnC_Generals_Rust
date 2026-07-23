@@ -7168,6 +7168,57 @@ impl GameLogic {
             {
                 let _ = self.apply_fire_weapon_when_damaged_named(object_id, &wname);
             }
+            // C++ TransitionDamageFX + FXListDie residuals → audio queue.
+            {
+                let pos = self
+                    .objects
+                    .get(&object_id)
+                    .map(|o| o.get_position())
+                    .unwrap_or(glam::Vec3::ZERO);
+                let (transition_evs, death_fx, death_audio) =
+                    if let Some(o) = self.objects.get_mut(&object_id) {
+                        let te = o.take_pending_transition_damage_fx();
+                        let (df, da) = o.take_pending_death_fx_audio();
+                        (te, df, da)
+                    } else {
+                        (Vec::new(), None, None)
+                    };
+                for ev in transition_evs {
+                    if let Some(a) = ev.audio_name {
+                        self.queue_audio_event(
+                            AudioEventRequest::new(&a)
+                                .with_object(object_id)
+                                .with_position(pos)
+                                .with_priority(140),
+                        );
+                    }
+                    // FX name residual: store as high-priority audio-tagged event for client peel.
+                    if let Some(fx) = ev.fx_name {
+                        self.queue_audio_event(
+                            AudioEventRequest::new(&format!("FX:{fx}"))
+                                .with_object(object_id)
+                                .with_position(pos)
+                                .with_priority(130),
+                        );
+                    }
+                }
+                if let Some(a) = death_audio {
+                    self.queue_audio_event(
+                        AudioEventRequest::new(&a)
+                            .with_object(object_id)
+                            .with_position(pos)
+                            .with_priority(200),
+                    );
+                }
+                if let Some(fx) = death_fx {
+                    self.queue_audio_event(
+                        AudioEventRequest::new(&format!("FX:{fx}"))
+                            .with_object(object_id)
+                            .with_position(pos)
+                            .with_priority(190),
+                    );
+                }
+            }
             if topple_kill {
                 // Completed topple: queue destroy (structure Done bypasses re-topple).
                 self.mark_object_for_destruction(object_id, None);
@@ -21848,6 +21899,8 @@ impl GameLogic {
             // Auto-fire residual runs from update_combat when idle.
 
             object.ensure_fire_weapon_when_damaged();
+            object.ensure_transition_damage_fx();
+            object.ensure_fx_list_die();
             self.objects.insert(id, object);
 
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
