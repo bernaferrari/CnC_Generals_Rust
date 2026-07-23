@@ -313,6 +313,10 @@ pub struct Object {
     pub rebuild_reconstructing_id: Option<ObjectId>,
     /// C++ Object::m_producerID residual (hole is producer of reconstructing building).
     pub producer_id: Option<ObjectId>,
+    /// C++ HighlanderBody residual (cannot die from normal damage).
+    pub highlander_body: bool,
+    /// C++ UpgradeDie residual (free producer upgrade on death).
+    pub upgrade_die: Option<crate::game_logic::host_upgrade_die::HostUpgradeDieData>,
     /// C++ ProductionUpdate m_constructionCompleteFrame residual.
     /// Absolute frame when CONSTRUCTION_COMPLETE bit should clear (0 = inactive).
     pub construction_complete_clear_frame: u32,
@@ -1626,6 +1630,8 @@ impl Object {
             rebuild_worker_id: None,
             rebuild_reconstructing_id: None,
             producer_id: None,
+            highlander_body: false,
+            upgrade_die: None,
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,
@@ -1990,6 +1996,8 @@ impl Object {
             rebuild_worker_id: None,
             rebuild_reconstructing_id: None,
             producer_id: None,
+            highlander_body: false,
+            upgrade_die: None,
             construction_complete_clear_frame: 0,
             sole_healing_benefactor: None,
             sole_healing_benefactor_expiration_frame: 0,
@@ -7398,6 +7406,25 @@ impl Object {
             battle_bus_start_second = true;
         }
 
+        // C++ HighlanderBody::attemptDamage residual.
+        let mut _highlander_clamped = false;
+        if self.highlander_body && !battle_bus_start_second {
+            let unres = matches!(
+                damage_type,
+                crate::game_logic::combat::DamageType::Unresistable
+                    | crate::game_logic::combat::DamageType::Penalty
+            );
+            let (clamped, did) = crate::game_logic::host_highlander_body::highlander_clamp_damage(
+                self.health.current,
+                actual_damage,
+                unres,
+            );
+            if did {
+                actual_damage = clamped;
+                _highlander_clamped = true;
+            }
+        }
+
         // GameWorld damage authority: host logs intent only; HP/destroyed last-write
         // via shadow session mutations + writeback_health_to_host (no mid-frame host HP mutate).
         // Defer only when a live shadow session can consume the log. Otherwise host-only
@@ -10573,8 +10600,24 @@ impl Object {
         }
     }
 
+    /// C++ Object::removeUpgrade residual.
+    pub fn remove_upgrade_tag(&mut self, upgrade: &str) -> bool {
+        self.applied_upgrades.remove(upgrade)
+    }
+
     pub fn has_upgrade_tag(&self, upgrade: &str) -> bool {
         self.applied_upgrades.contains(upgrade)
+    }
+
+    /// Install C++ HighlanderBody residual.
+    pub fn install_highlander_body(&mut self) {
+        self.highlander_body = true;
+    }
+
+    /// Install C++ UpgradeDie residual.
+    pub fn install_upgrade_die(&mut self, upgrade_to_remove: impl Into<String>) {
+        self.upgrade_die =
+            Some(crate::game_logic::host_upgrade_die::HostUpgradeDieData::new(upgrade_to_remove));
     }
 
     pub fn set_target_location(&mut self, location: Option<Vec3>) {
