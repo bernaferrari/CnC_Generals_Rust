@@ -1500,7 +1500,7 @@ pub struct GameLogic {
     tomahawk_residual_units_hit: u32,
 
     /// Host residual: USA Raptor jet missiles + Laser Missiles honesty.
-    /// Fail-closed: not full RETURN_TO_BASE / ClipReload airfield rearm matrix.
+    /// RETURN_TO_BASE ClipReload airfield rearm residual (dock then ClipReload frames).
     raptor_residual_fires: u32,
     raptor_residual_units_hit: u32,
     raptor_residual_laser_missiles_upgrades: u32,
@@ -12965,48 +12965,90 @@ impl GameLogic {
                 None => return false, // hold off RTB dock until a runway frees
             }
         };
+        // C++ JetAIUpdate RETURN_TO_BASE + Weapon ClipReload airfield rearm residual:
+        // dock immediately, wait ClipReload frames, then restore ammo.
+        {
+            let Some(jet) = self.objects.get_mut(&jet_id) else {
+                self.release_airfield_runway_for_jet(jet_id);
+                return false;
+            };
+            // C++ setProducer + park residual: dock at airfield hangar.
+            jet.set_contained_by(Some(af_id));
+            jet.set_ai_state(AIState::Docked);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                crate::game_logic::host_ai_decision_log::record_set_state(jet_id, 12);
+                // Docked
+            }
+            jet.set_status_moving(false);
+            jet.status.airborne_target = false;
+            jet.movement.path.clear();
+            jet.movement.current_path_index = 0;
+            jet.record_host_movement();
+            jet.movement.target_position = None;
+            // Snap to airfield pad residual (hangar park).
+            // Landing taxi: approach along reserved runway offset then settle.
+            use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
+            let mut pad = af_pos;
+            if let Some(idx) = runway_idx {
+                pad.x += (idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
+            }
+            pad.y = af_pos.y;
+            // Host-immediate hangar dock snap; log for GameWorld pose last-write.
+            jet.set_position(pad);
+            if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                crate::game_logic::host_move_log::record(jet_id, Some([pad.x, pad.y, pad.z]));
+                jet.movement.target_position = Some(pad);
+                jet.record_host_movement();
+            }
+            // Arm ClipReload timer on first dock while empty (8000ms standard / 2000ms King-Black).
+            // clip_reload_time == 0 → immediate rearm residual (legacy test / unknown weapon).
+            if jet.needs_return_to_base_rearm() && jet.airfield_rearm_ready_frame.is_none() {
+                let frames = jet.airfield_rearm_clip_reload_frames();
+                if frames > 0 {
+                    jet.airfield_rearm_ready_frame = Some(self.frame.saturating_add(frames));
+                }
+            }
+        }
         let rearmed = {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
                 self.release_airfield_runway_for_jet(jet_id);
                 return false;
             };
-            if !jet.rearm_return_to_base_weapons() {
-                false
-            } else {
-                // C++ setProducer + park residual: dock at airfield hangar.
-                jet.set_contained_by(Some(af_id));
-                jet.set_ai_state(AIState::Docked);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(jet_id, 12);
-                    // Docked
-                }
-                jet.set_status_moving(false);
-                jet.status.airborne_target = false;
-                jet.movement.path.clear();
-                jet.movement.current_path_index = 0;
-                jet.record_host_movement();
-                jet.movement.target_position = None;
-                // Snap to airfield pad residual (hangar park).
-                // Landing taxi: approach along reserved runway offset then settle.
-                use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
-                let mut pad = af_pos;
-                if let Some(idx) = runway_idx {
-                    pad.x += (idx as f32 - 0.5) * PARKING_PLACE_RUNWAY_PREP_SPACING;
-                }
-                pad.y = af_pos.y;
-                // Host-immediate hangar dock snap; log for GameWorld pose last-write.
-                jet.set_position(pad);
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    crate::game_logic::host_move_log::record(jet_id, Some([pad.x, pad.y, pad.z]));
-                    jet.movement.target_position = Some(pad);
-                    jet.record_host_movement();
-                }
+            if !jet.needs_return_to_base_rearm() {
+                jet.airfield_rearm_ready_frame = None;
                 true
+            } else if let Some(ready) = jet.airfield_rearm_ready_frame {
+                if self.frame < ready {
+                    // Hangar ClipReload in progress — suppress OOA damage via caller.
+                    false
+                } else if jet.rearm_return_to_base_weapons() {
+                    jet.airfield_rearm_ready_frame = None;
+                    true
+                } else {
+                    false
+                }
+            } else if jet.rearm_return_to_base_weapons() {
+                true
+            } else {
+                false
             }
         };
+        // Dock always succeeded; only fail closed if we could not dock (handled above).
+        // While ClipReload pending, still return true so OOA damage is suppressed.
         if !rearmed {
+            // Docked + ClipReload in progress: free runway, park, suppress OOA damage.
             self.release_airfield_runway_for_jet(jet_id);
-            return false;
+            if let Some(af) = self.objects.get_mut(&af_id) {
+                if let Some(building) = af.building_data.as_mut() {
+                    if !building.garrisoned_units.contains(&jet_id) {
+                        building.garrisoned_units.push(jet_id);
+                    }
+                } else if !af.occupants.contains(&jet_id) {
+                    af.occupants.push(jet_id);
+                }
+                af.set_production_door_hold_open(true, self.frame);
+            }
+            return true;
         }
         // Docked: free the landing runway immediately (space now hangar-parked).
         self.release_airfield_runway_for_jet(jet_id);
@@ -22819,7 +22861,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             }
 
             // Host residual: USA Raptor PRIMARY jet missiles (+ Laser Missiles upgrade).
-            // Fail-closed: not full RETURN_TO_BASE ClipReload airfield rearm matrix.
+            // RETURN_TO_BASE ClipReload airfield rearm residual closed (dock + timer).
             if crate::game_logic::host_raptor::is_raptor_template(template_name) {
                 use crate::game_logic::host_raptor::{
                     has_laser_missiles_upgrade, is_king_raptor_template, raptor_weapon,
@@ -82520,6 +82562,85 @@ mod tests {
             assert!(!jet.needs_return_to_base_rearm());
         }
     }
+
+    #[test]
+    fn jet_airfield_rearm_waits_clip_reload_frames() {
+        use crate::game_logic::host_raptor::{
+            RAPTOR_CLIP_RELOAD_FRAMES, RAPTOR_CLIP_SIZE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
+        af_tmpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSAirfield)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaAirfield".into(), af_tmpl);
+        let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
+        jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+        jet_tmpl
+            .add_kind_of(KindOf::Aircraft)
+            .set_health(100.0);
+        logic.templates.insert("AmericaJetRaptor".into(), jet_tmpl);
+
+        let af_id = logic
+            .create_object("AmericaAirfield", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let jet_id = logic
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(40.0, 40.0, 0.0))
+            .unwrap();
+        {
+            let jet = logic.objects.get_mut(&jet_id).unwrap();
+            jet.weapon = Some(Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ammo: Some(0),
+                clip_size: RAPTOR_CLIP_SIZE,
+                // Retail ClipReload 8000ms → 240 frames @ 30 FPS.
+                clip_reload_time: (RAPTOR_CLIP_RELOAD_FRAMES as f32) / 30.0,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Weapon::default()
+            });
+            jet.status.airborne_target = true;
+        }
+
+        logic.frame = 10;
+        assert!(logic.try_return_to_base_rearm(jet_id));
+        {
+            let jet = logic.objects.get(&jet_id).unwrap();
+            assert_eq!(jet.contained_by, Some(af_id), "must dock immediately");
+            assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0), "ammo still empty during ClipReload");
+            assert_eq!(
+                jet.airfield_rearm_ready_frame,
+                Some(10 + RAPTOR_CLIP_RELOAD_FRAMES)
+            );
+            assert!(jet.needs_return_to_base_rearm());
+        }
+
+        // Mid-reload tick still suppresses OOA path (returns true) without ammo.
+        logic.frame = 10 + RAPTOR_CLIP_RELOAD_FRAMES - 1;
+        assert!(logic.try_return_to_base_rearm(jet_id));
+        assert_eq!(
+            logic.objects.get(&jet_id).unwrap().weapon.as_ref().unwrap().ammo,
+            Some(0)
+        );
+
+        // ClipReload elapsed → full rearm.
+        logic.frame = 10 + RAPTOR_CLIP_RELOAD_FRAMES;
+        assert!(logic.try_return_to_base_rearm(jet_id));
+        {
+            let jet = logic.objects.get(&jet_id).unwrap();
+            assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(RAPTOR_CLIP_SIZE));
+            assert!(jet.airfield_rearm_ready_frame.is_none());
+            assert!(!jet.needs_return_to_base_rearm());
+        }
+    }
+
 
     #[test]
     fn command_button_hunt_hijack_issues_nearest_enemy_vehicle() {

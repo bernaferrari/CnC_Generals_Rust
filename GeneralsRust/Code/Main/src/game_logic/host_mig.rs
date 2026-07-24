@@ -29,7 +29,7 @@
 //!   + ADD_CURRENT_HEALTH_TOO.
 //!
 //! Fail-closed honesty:
-//! - Not full JetAIUpdate RETURN_TO_BASE / ClipReload airfield rearm matrix
+//! - JetAIUpdate RETURN_TO_BASE ClipReload airfield rearm residual (8000ms/2000ms Black)
 //! - Not full HistoricBonus FirestormSmallCreationWeapon multi-missile matrix
 //! - Not full MediumRadiationField for Nuke_NukeMissileWeapon residual
 //! - Not network MiG / BlackNapalm / TacticalNuke replication (network deferred)
@@ -332,6 +332,10 @@ pub fn delay_frames_to_reload_secs(delay_frames: u32) -> f32 {
 
 /// Build residual MiG primary Weapon.
 pub fn mig_weapon(loadout: MigLoadout) -> Weapon {
+    let clip_reload_frames = match loadout {
+        MigLoadout::BlackNapalm => MIG_BLACK_CLIP_RELOAD_FRAMES,
+        _ => MIG_CLIP_RELOAD_FRAMES,
+    };
     Weapon {
         damage: mig_primary_damage(loadout),
         range: MIG_RANGE,
@@ -339,8 +343,8 @@ pub fn mig_weapon(loadout: MigLoadout) -> Weapon {
         reload_time: delay_frames_to_reload_secs(MIG_DELAY_FRAMES),
         last_fire_time: 0.0,
         ammo: Some(MIG_CLIP_SIZE),
-        clip_size: 0,
-        clip_reload_time: 0.0,
+        clip_size: MIG_CLIP_SIZE,
+        clip_reload_time: delay_frames_to_reload_secs(clip_reload_frames),
         can_target_air: true,
         can_target_ground: true,
         projectile_speed: MIG_PROJECTILE_SPEED,

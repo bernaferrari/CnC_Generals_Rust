@@ -28,7 +28,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full PrerequisiteSciences rank tree / control-bar science visibility
-//! - Not full JetAIUpdate RETURN_TO_BASE / ClipReload 8000ms airfield rearm matrix
+//! - JetAIUpdate RETURN_TO_BASE ClipReload airfield rearm residual (8000ms)
 //! - StealthJetMissile projectile SpecialObject residual closed (KillSelfDelay 60f)
 //! - Not full MissileAIUpdate seeker / crash-through bone FX matrix
 //! - Not full BunkerBusterBehavior seismic / shockwave matrix (see host_bunker_buster)
@@ -222,8 +222,8 @@ pub fn stealth_fighter_weapon() -> Weapon {
         reload_time: delay_frames_to_reload_secs(STEALTH_FIGHTER_DELAY_FRAMES),
         last_fire_time: 0.0,
         ammo: Some(STEALTH_FIGHTER_CLIP_SIZE),
-        clip_size: 0,
-        clip_reload_time: 0.0,
+        clip_size: STEALTH_FIGHTER_CLIP_SIZE,
+        clip_reload_time: delay_frames_to_reload_secs(STEALTH_FIGHTER_CLIP_RELOAD_FRAMES),
         // Retail AntiAirborneVehicle/Infantry = No — ground residual only.
         can_target_air: false,
         can_target_ground: true,
