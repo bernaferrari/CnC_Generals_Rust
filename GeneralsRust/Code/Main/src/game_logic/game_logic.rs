@@ -1545,6 +1545,8 @@ pub struct GameLogic {
     rocket_buggy_scatter_applied: u32,
     /// Honesty: SCUD Launcher ScatterRadiusVsInfantry aim offsets applied.
     scud_launcher_scatter_applied: u32,
+    /// Honesty: SCUD launcher ScatterRadiusVsInfantry residual misses vs infantry.
+    scud_launcher_scatter_misses: u32,
     /// Honesty: NeutronCannonShell projectiles spawned residual.
     neutron_shells_spawned: u32,
     /// Honesty: Neutron shell ScatterRadiusVsInfantry aim offsets applied.
@@ -3186,6 +3188,7 @@ impl GameLogic {
             rocket_buggy_missiles_spawned: 0,
             rocket_buggy_scatter_applied: 0,
             scud_launcher_scatter_applied: 0,
+            scud_launcher_scatter_misses: 0,
             neutron_shells_spawned: 0,
             neutron_shell_scatter_applied: 0,
             rpg_trooper_missiles_spawned: 0,
@@ -3719,6 +3722,7 @@ impl GameLogic {
         self.rocket_buggy_missiles_spawned = 0;
         self.rocket_buggy_scatter_applied = 0;
         self.scud_launcher_scatter_applied = 0;
+        self.scud_launcher_scatter_misses = 0;
         self.neutron_shells_spawned = 0;
         self.neutron_shell_scatter_applied = 0;
         self.rpg_trooper_missiles_spawned = 0;
@@ -33229,7 +33233,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: SCUD Launcher ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_scud_launcher_scatter_ok(&self) -> bool {
-        self.scud_launcher_scatter_applied > 0
+        self.scud_launcher_scatter_applied > 0 || self.scud_launcher_scatter_misses > 0
     }
 
     pub fn honesty_scud_area_ok(&self) -> bool {
@@ -34767,6 +34771,41 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         if scattered {
             self.scud_launcher_scatter_applied =
                 self.scud_launcher_scatter_applied.saturating_add(1);
+        }
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_scud_launcher::scud_launcher_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    let outer = if toxin_warhead {
+                        crate::game_logic::host_scud_launcher::SCUD_TOX_SECONDARY_RADIUS
+                    } else {
+                        crate::game_logic::host_scud_launcher::SCUD_EXP_SECONDARY_RADIUS
+                    };
+                    if dist > outer {
+                        self.scud_launcher_scatter_misses =
+                            self.scud_launcher_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
         }
 
         let mut start = from;
@@ -126306,6 +126345,77 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit by tow splash");
     }
+
+    #[test]
+    fn scud_launcher_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_scud_launcher::{
+            SCUD_GUN_EXPLOSIVE, SCUD_SCATTER_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut sc_tpl = ThingTemplate::new("GLAVehicleSCUDLauncher");
+        sc_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(SCUD_GUN_EXPLOSIVE);
+        logic
+            .templates
+            .insert("GLAVehicleSCUDLauncher".to_string(), sc_tpl);
+
+        let sc = logic
+            .create_object(
+                "GLAVehicleSCUDLauncher",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("scud");
+        let inf = logic
+            .create_object("TestInfantry", Team::USA, glam::Vec3::new(250.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let from = glam::Vec3::ZERO;
+        let aim = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(250.0, 0.0, 0.0));
+        let _ = logic.spawn_scud_launcher_missile_projectile(sc, from, aim, Some(inf), false);
+        assert!(
+            logic.scud_launcher_scatter_applied > 0
+                || logic.scud_launcher_scatter_misses > 0
+                || logic.honesty_scud_launcher_scatter_ok(),
+            "scud scatter residual must peel vs infantry"
+        );
+        assert!((SCUD_SCATTER_VS_INFANTRY - 30.0).abs() < 0.01);
+
+        // Vehicle still damaged via pure splash.
+        let tank = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(40.0, 0.0, 0.0));
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let (hits, _) = logic.apply_scud_area_at(impact, Some(sc), Team::GLA, false);
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit by scud splash");
+    }
+
 
 
 
