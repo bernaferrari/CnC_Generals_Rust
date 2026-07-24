@@ -1313,6 +1313,19 @@ pub struct Object {
     pub marauder_shell_intended: Option<u32>,
     #[serde(default)]
     pub marauder_shell_weapon_speed: f32,
+    /// C++ Fire Base GenericTankShell lob residual.
+    #[serde(default)]
+    pub fire_base_shell_projectile: bool,
+    #[serde(default)]
+    pub fire_base_shell_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub fire_base_shell_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub fire_base_shell_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub fire_base_shell_flight_frames: u32,
+    #[serde(default)]
+    pub fire_base_shell_intended: Option<u32>,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2294,6 +2307,12 @@ impl Object {
             marauder_shell_flight_frames: 0,
             marauder_shell_intended: None,
             marauder_shell_weapon_speed: 0.0,
+            fire_base_shell_projectile: false,
+            fire_base_shell_from: None,
+            fire_base_shell_aim: None,
+            fire_base_shell_launch_frame: None,
+            fire_base_shell_flight_frames: 0,
+            fire_base_shell_intended: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -2829,6 +2848,12 @@ impl Object {
             marauder_shell_flight_frames: 0,
             marauder_shell_intended: None,
             marauder_shell_weapon_speed: 0.0,
+            fire_base_shell_projectile: false,
+            fire_base_shell_from: None,
+            fire_base_shell_aim: None,
+            fire_base_shell_launch_frame: None,
+            fire_base_shell_flight_frames: 0,
+            fire_base_shell_intended: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,

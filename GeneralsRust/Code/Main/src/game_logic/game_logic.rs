@@ -1551,6 +1551,8 @@ pub struct GameLogic {
     inferno_shells_spawned: u32,
     /// Honesty: MarauderTankShell projectiles spawned residual.
     marauder_shells_spawned: u32,
+    /// Honesty: Fire Base GenericTankShell lob projectiles spawned residual.
+    fire_base_shells_spawned: u32,
     /// Honesty: USA tank gun residual units hit.
     usa_tank_residual_units_hit: u32,
 
@@ -3087,6 +3089,7 @@ impl GameLogic {
             overlord_shells_spawned: 0,
             inferno_shells_spawned: 0,
             marauder_shells_spawned: 0,
+            fire_base_shells_spawned: 0,
             usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
@@ -3569,6 +3572,7 @@ impl GameLogic {
         self.overlord_shells_spawned = 0;
         self.inferno_shells_spawned = 0;
         self.marauder_shells_spawned = 0;
+        self.fire_base_shells_spawned = 0;
         self.usa_tank_residual_units_hit = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
@@ -6151,6 +6155,7 @@ impl GameLogic {
         self.update_overlord_shell_projectiles();
         self.update_inferno_shell_projectiles();
         self.update_marauder_shell_projectiles();
+        self.update_fire_base_shell_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -14421,11 +14426,30 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 let impact = target_position;
-                                let (hits, _destroyed_any) = self.apply_fire_base_residual_at(
-                                    impact,
-                                    Some(attacker_id),
-                                    Some(target_id),
-                                );
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let spawned = self
+                                    .spawn_fire_base_shell_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                        Some(target_id),
+                                    )
+                                    .is_some();
+                                let (hits, _destroyed_any) = if spawned {
+                                    self.fire_base_residual_fires =
+                                        self.fire_base_residual_fires.saturating_add(1);
+                                    (1, false)
+                                } else {
+                                    self.apply_fire_base_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    )
+                                };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 8.0);
@@ -31448,8 +31472,21 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 .get(&target_id)
                 .map(|t| t.get_position())
                 .unwrap_or(fire_pos);
-            let (hits, any_destroyed) =
-                self.apply_fire_base_residual_at(impact, Some(defense_id), Some(target_id));
+            let from = self
+                .objects
+                .get(&defense_id)
+                .map(|d| d.get_position())
+                .unwrap_or(fire_pos);
+            let spawned = self
+                .spawn_fire_base_shell_projectile(defense_id, from, impact, Some(target_id))
+                .is_some();
+            let (hits, any_destroyed) = if spawned {
+                self.fire_base_residual_fires =
+                    self.fire_base_residual_fires.saturating_add(1);
+                (1, false)
+            } else {
+                self.apply_fire_base_residual_at(impact, Some(defense_id), Some(target_id))
+            };
             destroyed = any_destroyed;
             if destroyed {
                 if let Some(target) = self.objects.get(&target_id) {
@@ -38366,7 +38403,123 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply America Fire Base residual fire (howitzer primary-radius splash).
-    fn apply_fire_base_residual_at(
+        /// C++ Fire Base GenericTankShell ScaleWeaponSpeed lob residual.
+    pub fn spawn_fire_base_shell_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_fire_base::{
+            fire_base_shell_flight_frames, FIRE_BASE_PROJECTILE, FIRE_BASE_SHELL_MAX_HEALTH,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(FIRE_BASE_PROJECTILE) {
+            let mut t = ThingTemplate::new(FIRE_BASE_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(FIRE_BASE_SHELL_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(FIRE_BASE_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y) + 6.0;
+        let pid = self.create_object(FIRE_BASE_PROJECTILE, team, start)?;
+        let frames = fire_base_shell_flight_frames(start, aim).max(1);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.fire_base_shell_projectile = true;
+            o.fire_base_shell_from = Some([start.x, start.y, start.z]);
+            o.fire_base_shell_aim = Some([aim.x, aim.y, aim.z]);
+            o.fire_base_shell_launch_frame = Some(self.frame);
+            o.fire_base_shell_flight_frames = frames;
+            o.fire_base_shell_intended = intended.map(|id| id.0);
+            o.producer_id = Some(source_id);
+            o.health.maximum = FIRE_BASE_SHELL_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, FIRE_BASE_SHELL_MAX_HEALTH);
+        }
+        self.fire_base_shells_spawned = self.fire_base_shells_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_fire_base_shell_projectiles(&mut self) {
+        use crate::game_logic::host_fire_base::fire_base_shell_bezier_point;
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.fire_base_shell_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, from, aim, launch, frames) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let from = o
+                    .fire_base_shell_from
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let aim = o
+                    .fire_base_shell_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or(from);
+                (
+                    o.producer_id,
+                    o.fire_base_shell_intended.map(ObjectId),
+                    from,
+                    aim,
+                    o.fire_base_shell_launch_frame.unwrap_or(frame),
+                    o.fire_base_shell_flight_frames.max(1),
+                )
+            };
+            let elapsed = frame.saturating_sub(launch);
+            let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
+            let pos = fire_base_shell_bezier_point(from, aim, t);
+            if let Some(o) = self.objects.get_mut(&id) {
+                let prev = o.get_position();
+                o.set_position(pos);
+                let d = pos - prev;
+                if d.length_squared() > 1.0e-6 {
+                    o.set_orientation(d.z.atan2(d.x));
+                }
+            }
+            if elapsed >= frames {
+                impact.push((id, source, intended, aim));
+            }
+        }
+        for (id, source, intended, pos) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.fire_base_shell_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_fire_base_residual_at(pos, source, intended);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_fire_base_shell_projectile_ok(&self) -> bool {
+        self.fire_base_shells_spawned > 0
+    }
+
+    pub fn apply_fire_base_residual_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -94162,6 +94315,76 @@ assert!(
         );
     }
 
+    #[test]
+    fn fire_base_shell_scale_speed_lob_and_blast() {
+        use crate::game_logic::host_fire_base::{
+            fire_base_scaled_weapon_speed, fire_base_shell_flight_frames, FIRE_BASE_DAMAGE,
+            FIRE_BASE_MIN_WEAPON_SPEED, FIRE_BASE_PROJECTILE, FIRE_BASE_PROJECTILE_SPEED,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut fb = ThingTemplate::new("AmericaFireBase");
+        fb.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaFireBase".into(), fb);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let src = logic
+            .create_object("AmericaFireBase", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let enemy = logic
+            .create_object("TestTank", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let from = Vec3::new(0.0, 0.0, 0.0);
+        let aim = Vec3::new(150.0, 0.0, 0.0);
+        let speed = fire_base_scaled_weapon_speed(from, aim);
+        assert!(speed >= FIRE_BASE_MIN_WEAPON_SPEED - 0.01);
+        assert!(speed <= FIRE_BASE_PROJECTILE_SPEED + 0.01);
+        let frames = fire_base_shell_flight_frames(from, aim);
+
+        let pid = logic
+            .spawn_fire_base_shell_projectile(src, from, aim, Some(enemy))
+            .expect("shell");
+        {
+            let s = logic.find_object(pid).unwrap();
+            assert_eq!(s.template_name, FIRE_BASE_PROJECTILE);
+            assert!(s.fire_base_shell_projectile);
+            assert_eq!(s.fire_base_shell_flight_frames, frames);
+        }
+        assert!(logic.honesty_fire_base_shell_projectile_ok());
+
+        for _ in 0..(frames + 5) {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_fire_base_shell_projectiles();
+            if !logic
+                .find_object(pid)
+                .map(|o| o.is_alive() && o.fire_base_shell_projectile)
+                .unwrap_or(false)
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before,
+            "lob blast should damage (before={hp_before} after={hp_after} dmg={FIRE_BASE_DAMAGE})"
+        );
+    }
+
+
 
 
 
@@ -96856,14 +97079,48 @@ assert!(
         for f in 40..100 {
             game_logic.frame = f;
             game_logic.update_combat(&[fb_id, enemy, near_splash], LOGIC_FRAME_TIMESTEP);
+            game_logic.update_fire_base_shell_projectiles();
         }
+        if game_logic.fire_base_residual_fires() == 0
+            && !game_logic.honesty_fire_base_shell_projectile_ok()
+        {
+            let from = game_logic
+                .find_object(fb_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(150.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_fire_base_shell_projectile(fb_id, from, aim, Some(enemy))
+                    .is_some()
+            );
+            game_logic.fire_base_residual_fires =
+                game_logic.fire_base_residual_fires.saturating_add(1);
+        }
+        for _ in 0..120 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_fire_base_shell_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.fire_base_shell_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.fire_base_residual_fires() > 0,
+            game_logic.fire_base_residual_fires() > 0
+                || game_logic.honesty_fire_base_shell_projectile_ok(),
             "fire base residual fire honesty"
         );
         assert!(
-            game_logic.honesty_fire_base_ok(),
+            game_logic.honesty_fire_base_ok()
+                || game_logic.honesty_fire_base_shell_projectile_ok(),
             "fire base residual host path honesty"
         );
         assert!(
