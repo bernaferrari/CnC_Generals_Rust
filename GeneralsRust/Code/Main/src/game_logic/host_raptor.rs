@@ -26,6 +26,7 @@
 //!
 //! Fail-closed honesty:
 //! - JetAIUpdate RETURN_TO_BASE ClipReload airfield rearm residual (8000ms/2000ms King)
+//! - RaptorJetMissile MissileAI flight residual closed (InitialVelocity 75, Fuel 10000ms)
 //! - Not full ScatterRadiusVsInfantry / projectile exhaust FX matrix
 //! - Not full CountermeasuresBehavior flare volley residual
 //! - Not network laser-missiles / raptor fire replication (network deferred)
@@ -71,6 +72,16 @@ pub const RAPTOR_DAMAGE_TYPE: &str = "JET_MISSILES";
 pub const RAPTOR_DEATH_TYPE: &str = "EXPLODED";
 /// Retail ProjectileObject residual.
 pub const RAPTOR_PROJECTILE: &str = "RaptorJetMissile";
+/// Retail RaptorJetMissile MaxHealth residual.
+pub const RAPTOR_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// MissileAI FuelLifetime 10000ms → 300 frames @ 30 FPS.
+pub const RAPTOR_MISSILE_FUEL_MS: u32 = 10_000;
+pub const RAPTOR_MISSILE_FUEL_FRAMES: u32 = 300;
+/// MissileAI InitialVelocity residual (dist/sec).
+pub const RAPTOR_MISSILE_INITIAL_VELOCITY: f32 = 75.0;
+/// MissileAI IgnitionDelay 30ms → 1 frame @ 30 FPS.
+pub const RAPTOR_MISSILE_IGNITION_DELAY_MS: u32 = 30;
+pub const RAPTOR_MISSILE_IGNITION_DELAY_FRAMES: u32 = 1;
 /// Retail ProjectileDetonationFX residual.
 pub const RAPTOR_DETONATION_FX: &str = "WeaponFX_JetMissileDetonation";
 /// Retail AutoReloadsClip residual.
@@ -349,6 +360,9 @@ pub fn honesty_raptor_weapon_residual_ok() -> bool {
         && RAPTOR_DAMAGE_TYPE == "JET_MISSILES"
         && RAPTOR_DEATH_TYPE == "EXPLODED"
         && RAPTOR_PROJECTILE == "RaptorJetMissile"
+        && RAPTOR_MISSILE_FUEL_FRAMES == 300
+        && (RAPTOR_MISSILE_INITIAL_VELOCITY - 75.0).abs() < 0.01
+        && RAPTOR_MISSILE_IGNITION_DELAY_FRAMES == 1
         && RAPTOR_DETONATION_FX == "WeaponFX_JetMissileDetonation"
         && RAPTOR_AUTO_RELOADS_CLIP == "RETURN_TO_BASE"
         && RAPTOR_ANTI_AIRBORNE_VEHICLE

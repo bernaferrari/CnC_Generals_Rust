@@ -1326,6 +1326,19 @@ pub struct Object {
     pub fire_base_shell_flight_frames: u32,
     #[serde(default)]
     pub fire_base_shell_intended: Option<u32>,
+    /// C++ RaptorJetMissile projectile residual.
+    #[serde(default)]
+    pub raptor_missile_projectile: bool,
+    #[serde(default)]
+    pub raptor_missile_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub raptor_missile_intended: Option<u32>,
+    #[serde(default)]
+    pub raptor_missile_travelled: f32,
+    #[serde(default)]
+    pub raptor_missile_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub raptor_missile_ignition_frame: Option<u32>,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2313,6 +2326,12 @@ impl Object {
             fire_base_shell_launch_frame: None,
             fire_base_shell_flight_frames: 0,
             fire_base_shell_intended: None,
+            raptor_missile_projectile: false,
+            raptor_missile_aim: None,
+            raptor_missile_intended: None,
+            raptor_missile_travelled: 0.0,
+            raptor_missile_fuel_expires_frame: None,
+            raptor_missile_ignition_frame: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -2854,6 +2873,12 @@ impl Object {
             fire_base_shell_launch_frame: None,
             fire_base_shell_flight_frames: 0,
             fire_base_shell_intended: None,
+            raptor_missile_projectile: false,
+            raptor_missile_aim: None,
+            raptor_missile_intended: None,
+            raptor_missile_travelled: 0.0,
+            raptor_missile_fuel_expires_frame: None,
+            raptor_missile_ignition_frame: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
