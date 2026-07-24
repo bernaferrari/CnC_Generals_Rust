@@ -4257,6 +4257,10 @@ pub const SCUD_STORM_POISON_DURATION_FRAMES: u32 = 1350;
 pub const SCUD_POISON_OBJECT_NAME: &str = "PoisonFieldLarge";
 /// Retail PoisonFieldLarge MaxHealth residual.
 pub const SCUD_POISON_FIELD_MAX_HEALTH: f32 = 100.0;
+/// Retail OCL_PoisonFieldUpgradedLarge CreateObject residual.
+pub const SCUD_POISON_UPGRADED_OBJECT_NAME: &str = "PoisonFieldUpgradedLarge";
+/// Retail PoisonFieldUpgradedLarge MaxHealth residual.
+pub const SCUD_POISON_UPGRADED_FIELD_MAX_HEALTH: f32 = 120.0;
 /// Residual ambient cue for ScudStorm poison pools.
 pub const SCUD_STORM_POISON_AUDIO: &str = "ToxicPoolAmbientLoop";
 /// Retail player upgrade selecting ScudStormDamageWeaponUpgraded / UpgradedLarge poison.
@@ -4719,6 +4723,24 @@ impl ScudStormAnthraxTier {
     /// Whether residual spawns upgraded (Beta/Gamma) LargePoison field stats.
     pub fn is_upgraded(self) -> bool {
         !matches!(self, ScudStormAnthraxTier::Base)
+    }
+
+    /// OCL CreateObject template residual for this anthrax tier.
+    pub fn poison_object_name(self) -> &'static str {
+        if self.is_upgraded() {
+            SCUD_POISON_UPGRADED_OBJECT_NAME
+        } else {
+            SCUD_POISON_OBJECT_NAME
+        }
+    }
+
+    /// MaxHealth residual for the poison field object of this tier.
+    pub fn poison_field_max_health(self) -> f32 {
+        if self.is_upgraded() {
+            SCUD_POISON_UPGRADED_FIELD_MAX_HEALTH
+        } else {
+            SCUD_POISON_FIELD_MAX_HEALTH
+        }
     }
 
     /// Select highest anthrax tier from unlocked science/upgrade name list.
@@ -8443,7 +8465,7 @@ impl HostSpecialPowerStrikeRegistry {
             SCUD_STORM_POISON_RADIUS,
             SCUD_STORM_POISON_TICK_INTERVAL_FRAMES,
             SCUD_STORM_POISON_DURATION_FRAMES,
-            SCUD_POISON_OBJECT_NAME,
+            anthrax_tier.poison_object_name(),
         )
     }
 
