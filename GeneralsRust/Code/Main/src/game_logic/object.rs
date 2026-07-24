@@ -1452,6 +1452,22 @@ pub struct Object {
     pub cleanup_stream_shooter: Option<u32>,
     #[serde(default)]
     pub cleanup_stream_player_id: u32,
+    /// Host residual: Angry Mob rock/molotov projectile in flight.
+    #[serde(default)]
+    pub angry_mob_projectile: bool,
+    /// 0 = rock, 1 = molotov.
+    #[serde(default)]
+    pub angry_mob_projectile_kind: u8,
+    #[serde(default)]
+    pub angry_mob_projectile_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub angry_mob_projectile_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub angry_mob_projectile_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub angry_mob_projectile_flight_frames: u32,
+    #[serde(default)]
+    pub angry_mob_projectile_intended: Option<u32>,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2497,6 +2513,13 @@ impl Object {
             cleanup_stream_ignition_frame: None,
             cleanup_stream_shooter: None,
             cleanup_stream_player_id: 0,
+            angry_mob_projectile: false,
+            angry_mob_projectile_kind: 0,
+            angry_mob_projectile_from: None,
+            angry_mob_projectile_aim: None,
+            angry_mob_projectile_launch_frame: None,
+            angry_mob_projectile_flight_frames: 0,
+            angry_mob_projectile_intended: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -3096,6 +3119,13 @@ impl Object {
             cleanup_stream_ignition_frame: None,
             cleanup_stream_shooter: None,
             cleanup_stream_player_id: 0,
+            angry_mob_projectile: false,
+            angry_mob_projectile_kind: 0,
+            angry_mob_projectile_from: None,
+            angry_mob_projectile_aim: None,
+            angry_mob_projectile_launch_frame: None,
+            angry_mob_projectile_flight_frames: 0,
+            angry_mob_projectile_intended: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,

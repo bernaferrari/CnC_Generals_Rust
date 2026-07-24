@@ -1571,6 +1571,8 @@ pub struct GameLogic {
     technical_rpg_missiles_spawned: u32,
     /// Honesty: CleanupStreamProjectile spawned residual.
     cleanup_stream_missiles_spawned: u32,
+    /// Honesty: Angry Mob rock/molotov projectiles spawned residual.
+    angry_mob_projectiles_spawned: u32,
     /// Honesty: USA tank gun residual units hit.
     usa_tank_residual_units_hit: u32,
 
@@ -3117,6 +3119,7 @@ impl GameLogic {
             toxin_stream_missiles_spawned: 0,
             technical_rpg_missiles_spawned: 0,
             cleanup_stream_missiles_spawned: 0,
+            angry_mob_projectiles_spawned: 0,
             usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
@@ -6275,6 +6278,7 @@ impl GameLogic {
         // Host GLA Angry Mob residual: aggregate fire on nearby enemies + expand.
         // Fail-closed vs full SpawnBehavior member objects / MobMemberSlavedUpdate.
         self.update_angry_mobs();
+        self.update_angry_mob_projectiles();
 
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
@@ -48551,7 +48555,199 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         }
     }
 
-    pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
+    
+    /// Spawn Angry Mob rock/molotov DumbProjectile Bezier residual.
+    pub fn spawn_angry_mob_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        kind: crate::game_logic::host_angry_mob::AngryMobProjectileKind,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_angry_mob::{
+            angry_mob_projectile_flight_frames, ANGRY_MOB_PROJ_MAX_HEALTH,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let name = kind.projectile_name();
+        if !self.templates.contains_key(name) {
+            let mut t = ThingTemplate::new(name);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(ANGRY_MOB_PROJ_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(name.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(2.0);
+        let pid = self.create_object(name, team, start)?;
+        let flight = angry_mob_projectile_flight_frames(start, aim, kind).max(1);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.angry_mob_projectile = true;
+            o.angry_mob_projectile_kind = kind.as_u8();
+            o.angry_mob_projectile_from = Some([start.x, start.y, start.z]);
+            o.angry_mob_projectile_aim = Some([aim.x, aim.y, aim.z]);
+            o.angry_mob_projectile_launch_frame = Some(self.frame);
+            o.angry_mob_projectile_flight_frames = flight;
+            o.angry_mob_projectile_intended = intended.map(|id| id.0);
+            o.producer_id = Some(source_id);
+            o.health.current = ANGRY_MOB_PROJ_MAX_HEALTH;
+            o.health.maximum = ANGRY_MOB_PROJ_MAX_HEALTH;
+        }
+        self.angry_mob_projectiles_spawned =
+            self.angry_mob_projectiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_angry_mob_projectiles(&mut self) {
+        use crate::game_logic::host_angry_mob::{
+            angry_mob_projectile_bezier_point, angry_mob_projectile_damage_at,
+            AngryMobProjectileKind,
+        };
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.angry_mob_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3, AngryMobProjectileKind)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, from, aim, launch, flight, kind) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let from = o
+                    .angry_mob_projectile_from
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let aim = o
+                    .angry_mob_projectile_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or(from);
+                let launch = o.angry_mob_projectile_launch_frame.unwrap_or(frame);
+                let flight = o.angry_mob_projectile_flight_frames.max(1);
+                let kind = AngryMobProjectileKind::from_u8(o.angry_mob_projectile_kind);
+                (
+                    o.producer_id,
+                    o.angry_mob_projectile_intended.map(ObjectId),
+                    from,
+                    aim,
+                    launch,
+                    flight,
+                    kind,
+                )
+            };
+            let elapsed = frame.saturating_sub(launch);
+            let t = (elapsed as f32 / flight as f32).clamp(0.0, 1.0);
+            let pos = angry_mob_projectile_bezier_point(from, aim, t, kind);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.set_position(pos);
+            }
+            if elapsed >= flight {
+                impact.push((id, source, intended, aim, kind));
+            }
+        }
+        for (id, source, intended, pos, kind) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.angry_mob_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_angry_mob_projectile_at(pos, source, intended, kind);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_angry_mob_projectile_ok(&self) -> bool {
+        self.angry_mob_projectiles_spawned > 0
+    }
+
+    /// Apply rock/molotov splash residual at impact.
+    pub fn apply_angry_mob_projectile_at(
+        &mut self,
+        impact: glam::Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        kind: crate::game_logic::host_angry_mob::AngryMobProjectileKind,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_angry_mob::{
+            angry_mob_projectile_damage_at, is_legal_angry_mob_damage_target,
+        };
+
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+        let radius = kind.radius();
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let victims: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source.map(|s| s == *id).unwrap_or(false) {
+                    return None;
+                }
+                if obj.angry_mob_projectile {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle);
+                let same_team = obj.team == source_team;
+                if !is_legal_angry_mob_damage_target(
+                    obj.is_alive(),
+                    same_team,
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                // RadiusDamageAffects ALLIES ENEMIES NEUTRALS residual — all teams.
+                let _ = source_team;
+                let _ = intended_target;
+                let d = (obj.get_position() - impact).length();
+                if d > radius + 0.001 {
+                    return None;
+                }
+                Some((*id, d))
+            })
+            .collect();
+        for (vid, dist) in victims {
+            let dmg = angry_mob_projectile_damage_at(kind, dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(v) = self.objects.get_mut(&vid) {
+                let destroyed = v.take_damage_from(dmg, source);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    let team = v.team;
+                    self.mark_object_for_destruction(vid, Some(team));
+                }
+            }
+        }
+        (hits, any_destroyed)
+    }
+
+pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         self.cleanup_stream_missiles_spawned > 0
     }
 
@@ -53460,6 +53656,29 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             let mut destroyed = 0_u32;
             let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
             let mut audio_pos: Option<Vec3> = None;
+
+            // Rock/molotov lob residual toward primary hit target.
+            if let Some(first) = plan.hits.first() {
+                use crate::game_logic::host_angry_mob::angry_mob_projectile_kind_for_tick;
+                let kind = angry_mob_projectile_kind_for_tick(frame);
+                let from = self
+                    .objects
+                    .get(&plan.mob_id)
+                    .map(|o| o.get_position())
+                    .unwrap_or(Vec3::ZERO);
+                let aim = self
+                    .objects
+                    .get(&first.target_id)
+                    .map(|o| o.get_position())
+                    .unwrap_or(from);
+                let _ = self.spawn_angry_mob_projectile(
+                    plan.mob_id,
+                    from,
+                    aim,
+                    Some(first.target_id),
+                    kind,
+                );
+            }
 
             for hit in &plan.hits {
                 if let Some(target) = self.objects.get_mut(&hit.target_id) {
@@ -84635,7 +84854,93 @@ mod tests {
     /// Residual: GLA Angry Mob nexus damages nearby enemies over frames and
     /// expands member residual (InitialBurst → SpawnNumber).
     /// Fail-closed: not full SpawnBehavior member objects / MobMemberSlavedUpdate.
+    
     #[test]
+    fn angry_mob_projectile_flies_and_impacts() {
+        use crate::game_logic::host_angry_mob::{
+            angry_mob_projectile_flight_frames, AngryMobProjectileKind, ANGRY_MOB_MOLOTOV_DAMAGE,
+            ANGRY_MOB_MOLOTOV_PROJECTILE, ANGRY_MOB_ROCK_DAMAGE, ANGRY_MOB_ROCK_PROJECTILE,
+        };
+
+        let mut logic = GameLogic::new();
+        let mut nexus_tpl = ThingTemplate::new("GLAInfantryAngryMobNexus");
+        nexus_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        logic
+            .templates
+            .insert("GLAInfantryAngryMobNexus".to_string(), nexus_tpl);
+
+        let mut enemy_tpl = ThingTemplate::new("TestInfantry");
+        enemy_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        logic.templates.insert("TestInfantry".to_string(), enemy_tpl);
+
+        let nexus = logic
+            .create_object(
+                "GLAInfantryAngryMobNexus",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("nexus");
+        let enemy = logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+        let hp_before = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+
+        let from = Vec3::new(0.0, 2.0, 0.0);
+        let aim = Vec3::new(80.0, 0.0, 0.0);
+        let mid = logic
+            .spawn_angry_mob_projectile(
+                nexus,
+                from,
+                aim,
+                Some(enemy),
+                AngryMobProjectileKind::Molotov,
+            )
+            .expect("spawn molotov");
+        assert!(logic.honesty_angry_mob_projectile_ok());
+        assert_eq!(
+            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            Some(ANGRY_MOB_MOLOTOV_PROJECTILE)
+        );
+
+        let max_steps =
+            angry_mob_projectile_flight_frames(from, aim, AngryMobProjectileKind::Molotov).max(5);
+        for _ in 0..max_steps {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_angry_mob_projectiles();
+            if !logic
+                .objects
+                .values()
+                .any(|o| o.angry_mob_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+
+        let hp_after = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before - 0.5,
+            "molotov impact should damage enemy {hp_before} -> {hp_after} (base {ANGRY_MOB_MOLOTOV_DAMAGE})"
+        );
+        assert!(
+            !logic
+                .objects
+                .values()
+                .any(|o| o.angry_mob_projectile && o.is_alive()),
+            "projectile should detonate"
+        );
+        let _ = (ANGRY_MOB_ROCK_DAMAGE, ANGRY_MOB_ROCK_PROJECTILE);
+    }
+
+#[test]
     fn angry_mob_damages_nearby_enemies_over_frames() {
         use crate::game_logic::host_angry_mob::{
             angry_mob_damage_for_tick, is_angry_mob_nexus_template, ANGRY_MOB_ATTACK_RANGE,
