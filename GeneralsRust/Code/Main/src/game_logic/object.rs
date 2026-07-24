@@ -1077,6 +1077,10 @@ pub struct Object {
     #[serde(default)]
     pub spectre_gunship_deployment:
         Option<crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentData>,
+    /// C++ SmartBombTargetHomingUpdate residual (MOAB course fudge).
+    #[serde(default)]
+    pub smart_bomb_target_homing:
+        Option<crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingData>,
     /// C++ HelicopterSlowDeathBehavior residual.
     #[serde(default)]
     pub helicopter_slow_death:
@@ -1737,6 +1741,7 @@ impl Object {
             radius_decal_update: None,
             checkpoint_update: None,
             spectre_gunship_deployment: None,
+            smart_bomb_target_homing: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -2119,6 +2124,7 @@ impl Object {
             radius_decal_update: None,
             checkpoint_update: None,
             spectre_gunship_deployment: None,
+            smart_bomb_target_homing: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -3790,6 +3796,27 @@ impl Object {
         {
             self.spectre_gunship_deployment = Some(data);
         }
+    }
+
+    pub fn install_smart_bomb_target_homing_if_needed(&mut self) {
+        if self.smart_bomb_target_homing.is_some() {
+            return;
+        }
+        if let Some(data) =
+            crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingData::for_template(
+                &self.template_name,
+            )
+        {
+            self.smart_bomb_target_homing = Some(data);
+        }
+    }
+
+    pub fn set_smart_bomb_target(&mut self, target: glam::Vec3) -> bool {
+        self.install_smart_bomb_target_homing_if_needed();
+        self.smart_bomb_target_homing
+            .as_mut()
+            .map(|h| h.set_target_position(target))
+            .unwrap_or(false)
     }
 
     pub fn create_delivery_radius_decal(
