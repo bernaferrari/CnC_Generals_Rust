@@ -1125,6 +1125,8 @@ pub struct GameLogic {
     base_regenerate_reg: crate::game_logic::host_base_regenerate::HostBaseRegenerateRegistry,
     /// C++ EnemyNearUpdate residual counters.
     enemy_near_reg: crate::game_logic::host_enemy_near::HostEnemyNearRegistry,
+    /// C++ PassengersFireUpgrade residual counters.
+    passengers_fire_upgrade_reg: crate::game_logic::host_passengers_fire_upgrade::HostPassengersFireUpgradeRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2795,6 +2797,7 @@ impl GameLogic {
             fire_spread_reg: crate::game_logic::host_fire_spread::HostFireSpreadRegistry::new(),
             base_regenerate_reg: crate::game_logic::host_base_regenerate::HostBaseRegenerateRegistry::new(),
             enemy_near_reg: crate::game_logic::host_enemy_near::HostEnemyNearRegistry::new(),
+            passengers_fire_upgrade_reg: crate::game_logic::host_passengers_fire_upgrade::HostPassengersFireUpgradeRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3248,6 +3251,7 @@ impl GameLogic {
         self.fire_spread_reg.clear();
         self.base_regenerate_reg.clear();
         self.enemy_near_reg.clear();
+        self.passengers_fire_upgrade_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -18579,7 +18583,35 @@ impl GameLogic {
     /// Matches C++ ProductionUpdate upgrade-complete: player mask + object giveUpgrade.
     
     /// C++ StatusBitsUpgrade::upgradeImplementation residual for team units.
-    fn apply_status_bits_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    
+    /// C++ PassengersFireUpgrade residual for Helix BattleBunker unlock.
+    fn apply_passengers_fire_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_passengers_fire_upgrade::should_enable_passengers_fire;
+        if !crate::game_logic::host_passengers_fire_upgrade::is_passengers_fire_upgrade(upgrade_name)
+        {
+            return 0;
+        }
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.team == team)
+            .filter(|(_, o)| should_enable_passengers_fire(upgrade_name, &o.template_name))
+            .map(|(id, _)| *id)
+            .collect();
+        let mut n = 0u32;
+        for id in ids {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.passengers_allowed_to_fire = true;
+                n = n.saturating_add(1);
+            }
+        }
+        if n > 0 {
+            self.passengers_fire_upgrade_reg.record_apply(n);
+        }
+        n
+    }
+
+fn apply_status_bits_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_status_bits_upgrade::{
             peel_applies_to_template, peels_for_upgrade,
         };
@@ -18765,6 +18797,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
         // C++ StatusBitsUpgrade::upgradeImplementation residual.
         let _ = self.apply_status_bits_upgrade_to_team(team, upgrade_name);
+        // C++ PassengersFireUpgrade::upgradeImplementation residual.
+        let _ = self.apply_passengers_fire_upgrade_to_team(team, upgrade_name);
     }
 
     /// C++ CashBountyPower / SCIENCE_CashBounty residual via upgrade complete.
@@ -23946,10 +23980,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     // C++ ChinaTankOverlordBattleBunker TransportContain.Slots = 5.
                     // Helix bunker also uses Slots residual 5 (ChinaHelixBattleBunker).
                     obj.install_overlord_battle_bunker(5);
-                    // Helix bunker enables passengers fire residual.
-                    if obj.is_helix_transport {
+                    // C++ PassengersFireUpgrade TriggeredBy Upgrade_ChinaHelixBattleBunker.
+                    use crate::game_logic::host_passengers_fire_upgrade::should_enable_passengers_fire;
+                    if should_enable_passengers_fire(upgrade, &obj.template_name)
+                        || obj.is_helix_transport
+                    {
                         obj.passengers_allowed_to_fire = true;
                         obj.record_host_stealth_flags();
+                        self.passengers_fire_upgrade_reg.record_apply(1);
                     }
                     installed_bunker = true;
                 }
@@ -27037,6 +27075,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     pub fn honesty_enemy_near_ok(&self) -> bool {
         self.enemy_near_reg.honesty_host_path_ok()
             && crate::game_logic::host_enemy_near::honesty_enemy_near_residual_ok()
+    }
+
+    pub fn honesty_passengers_fire_upgrade_ok(&self) -> bool {
+        self.passengers_fire_upgrade_reg.honesty_host_path_ok()
+            && crate::game_logic::host_passengers_fire_upgrade::honesty_passengers_fire_upgrade_residual_ok()
     }
 
     pub fn tensile_formation_registry(
@@ -75237,7 +75280,35 @@ mod tests {
     #[test]
 
     #[test]
-    fn enemy_near_wall_sets_model_condition_on_scan() {
+
+    #[test]
+    fn passengers_fire_upgrade_helix_battle_bunker() {
+        use crate::game_logic::host_passengers_fire_upgrade::{
+            honesty_passengers_fire_upgrade_residual_ok, UPGRADE_HELIX_BATTLE_BUNKER,
+        };
+        assert!(honesty_passengers_fire_upgrade_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new("ChinaHelix");
+        tpl.set_health(300.0);
+        logic.templates.insert("ChinaHelix".to_string(), tpl);
+        let id = logic
+            .create_object("ChinaHelix", Team::China, Vec3::ZERO)
+            .expect("helix");
+        {
+            let o = logic.find_object_mut(id).unwrap();
+            o.is_helix_transport = true;
+            o.passengers_allowed_to_fire = false;
+        }
+        let n = logic.apply_passengers_fire_upgrade_to_team(Team::China, UPGRADE_HELIX_BATTLE_BUNKER);
+        assert!(n >= 1);
+        assert!(logic.find_object(id).unwrap().passengers_allowed_to_fire);
+        assert!(logic.passengers_fire_upgrade_reg.applies >= 1);
+        assert!(logic.honesty_passengers_fire_upgrade_ok());
+    }
+
+
+        fn enemy_near_wall_sets_model_condition_on_scan() {
         use crate::game_logic::host_enemy_near::honesty_enemy_near_residual_ok;
         assert!(honesty_enemy_near_residual_ok());
 
