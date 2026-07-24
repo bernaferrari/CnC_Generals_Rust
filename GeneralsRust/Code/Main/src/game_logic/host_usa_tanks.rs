@@ -30,6 +30,7 @@
 //! Fail-closed honesty:
 //! - Not full ArmorSet PLAYER_UPGRADE UpgradedTankArmor matrix
 //! - GenericTankShell DumbProjectile Bezier flight residual closed (non-laser gun)
+//! - ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full turret recoil drawable matrix
 //! - Not full LaserName / LaserBoneName drawable beam matrix (Lazr residual)
 //! - Not SCIENCE_PaladinTank prereq gate / ProductionUpdate door UI
@@ -456,15 +457,70 @@ pub fn honesty_usa_tanks_composite_armor_residual_ok() -> bool {
 }
 
 /// Combined Wave 67 USA tanks residual honesty pack.
+
+/// Apply Crusader/Paladin TankGun ScatterRadiusVsInfantry residual to aim.
+///
+/// Laser General guns (Lazr_*) are instant-hit and do not use shell scatter.
+pub fn usa_tank_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let mut scatter =
+        host_effective_scatter_radius(CRUSADER_TANK_GUN, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = USA_TANK_GUN_SCATTER_VS_INFANTRY;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Wave residual honesty: USA tank ScatterRadiusVsInfantry peels.
+pub fn honesty_usa_tank_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    let vs_c = host_effective_scatter_radius(CRUSADER_TANK_GUN, true);
+    let vs_p = host_effective_scatter_radius(PALADIN_TANK_GUN, true);
+    let ground = host_effective_scatter_radius(CRUSADER_TANK_GUN, false);
+    (USA_TANK_GUN_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && ((vs_c - 10.0).abs() < 0.01 || vs_c <= 0.0)
+        && ((vs_p - 10.0).abs() < 0.01 || vs_p <= 0.0)
+        && ground.abs() < 0.01
+        && {
+            let (sc, applied) =
+                usa_tank_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            applied && sc.length() <= USA_TANK_GUN_SCATTER_VS_INFANTRY + 0.01
+        }
+}
+
 pub fn honesty_usa_tanks_residual_pack_ok() -> bool {
     honesty_usa_tanks_weapon_residual_ok()
         && honesty_usa_tanks_body_residual_ok()
         && honesty_usa_tanks_composite_armor_residual_ok()
+        && honesty_usa_tank_scatter_vs_infantry_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usa_tank_scatter_vs_infantry_peels() {
+        assert!(honesty_usa_tank_scatter_vs_infantry_ok());
+        let aim = Vec3::new(140.0, 0.0, 18.0);
+        let (no_sc, applied) = usa_tank_scatter_aim(aim, false, 31);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = usa_tank_scatter_aim(aim, true, 31);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= USA_TANK_GUN_SCATTER_VS_INFANTRY + 0.01);
+    }
 
     #[test]
     fn crusader_paladin_name_matrix() {
@@ -552,6 +608,7 @@ mod tests {
         assert!(honesty_usa_tanks_weapon_residual_ok());
         assert!(honesty_usa_tanks_body_residual_ok());
         assert!(honesty_usa_tanks_composite_armor_residual_ok());
+        assert!(honesty_usa_tank_scatter_vs_infantry_ok());
         assert!(honesty_usa_tanks_residual_pack_ok());
         assert_eq!(usa_tanks_ms_to_frames(2_000), 60);
         assert_eq!(usa_tanks_ms_to_frames(0), 0);

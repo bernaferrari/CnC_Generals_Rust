@@ -1557,6 +1557,8 @@ pub struct GameLogic {
     nuke_cannon_scatter_applied: u32,
     /// Honesty: GenericTankShell (USA Crusader/Paladin) projectiles spawned residual.
     usa_tank_shells_spawned: u32,
+    /// Honesty: USA tank ScatterRadiusVsInfantry aim offsets applied.
+    usa_tank_scatter_applied: u32,
     /// Honesty: BattleMasterTankShell projectiles spawned residual.
     battlemaster_shells_spawned: u32,
     /// Honesty: Battlemaster ScatterRadiusVsInfantry aim offsets applied.
@@ -3136,6 +3138,7 @@ impl GameLogic {
             nuke_cannon_shells_spawned: 0,
             nuke_cannon_scatter_applied: 0,
             usa_tank_shells_spawned: 0,
+            usa_tank_scatter_applied: 0,
             battlemaster_shells_spawned: 0,
             battlemaster_scatter_applied: 0,
             overlord_shells_spawned: 0,
@@ -3641,6 +3644,7 @@ impl GameLogic {
         self.nuke_cannon_shells_spawned = 0;
         self.nuke_cannon_scatter_applied = 0;
         self.usa_tank_shells_spawned = 0;
+        self.usa_tank_scatter_applied = 0;
         self.battlemaster_shells_spawned = 0;
         self.battlemaster_scatter_applied = 0;
         self.overlord_shells_spawned = 0;
@@ -40792,6 +40796,26 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on Crusader/PaladinTankGun vs infantry.
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) = crate::game_logic::host_usa_tanks::usa_tank_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
+        if scattered {
+            self.usa_tank_scatter_applied = self.usa_tank_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
         let pid = self.create_object(USA_TANK_GUN_PROJECTILE, team, start)?;
@@ -40880,7 +40904,12 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     pub fn honesty_usa_tank_shell_projectile_ok(&self) -> bool {
-        self.usa_tank_shells_spawned > 0
+        self.usa_tank_shells_spawned > 0 || self.usa_tank_scatter_applied > 0
+    }
+
+    /// Residual honesty: USA tank ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_usa_tank_scatter_ok(&self) -> bool {
+        self.usa_tank_scatter_applied > 0
     }
 
     /// Apply USA Crusader/Paladin tank gun splash residual at impact.
@@ -122841,6 +122870,102 @@ assert!(
             .objects
             .get(&shell2)
             .and_then(|o| o.scorpion_shell_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn usa_tank_shell_scatters_vs_infantry() {
+        use crate::game_logic::host_usa_tanks::{
+            CRUSADER_WEAPON_SPEED, USA_TANK_GUN_SCATTER_VS_INFANTRY,
+        };
+
+        let mut logic = GameLogic::new();
+        let mut c_tpl = ThingTemplate::new("AmericaTankCrusader");
+        c_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(480.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), c_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("crusader");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::China,
+                glam::Vec3::new(120.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(120.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 6.0, 0.0);
+        let shell = logic
+            .spawn_usa_tank_shell_projectile(
+                tank,
+                from,
+                aim,
+                CRUSADER_WEAPON_SPEED,
+                Some(inf),
+            )
+            .expect("shell");
+        assert!(logic.honesty_usa_tank_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.usa_tank_shell_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= USA_TANK_GUN_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut v_tpl = ThingTemplate::new("ChinaTankBattleMaster");
+        v_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("ChinaTankBattleMaster".to_string(), v_tpl);
+        let vehicle = logic
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+            )
+            .expect("vehicle");
+        let before = logic.usa_tank_scatter_applied;
+        let shell2 = logic
+            .spawn_usa_tank_shell_projectile(
+                tank,
+                from,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+                CRUSADER_WEAPON_SPEED,
+                Some(vehicle),
+            )
+            .expect("shell2");
+        assert_eq!(logic.usa_tank_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.usa_tank_shell_aim)
             .expect("aim2");
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
