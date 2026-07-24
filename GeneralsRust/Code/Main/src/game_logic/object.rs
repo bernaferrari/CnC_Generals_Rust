@@ -1061,6 +1061,12 @@ pub struct Object {
     /// C++ AnimationSteeringUpdate residual (Battle Bus turn anims).
     #[serde(default)]
     pub animation_steering: Option<crate::game_logic::host_animation_steering::HostAnimationSteeringData>,
+    /// C++ FloatUpdate residual (boat sway / water snap).
+    #[serde(default)]
+    pub float_update: Option<crate::game_logic::host_float_update::HostFloatUpdateData>,
+    /// C++ ProneUpdate residual (infantry cower).
+    #[serde(default)]
+    pub prone_update: Option<crate::game_logic::host_prone_update::HostProneUpdateData>,
     /// C++ HelicopterSlowDeathBehavior residual.
     #[serde(default)]
     pub helicopter_slow_death:
@@ -1716,6 +1722,8 @@ impl Object {
             base_regenerate: None,
             enemy_near: None,
             animation_steering: None,
+            float_update: None,
+            prone_update: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -2093,6 +2101,8 @@ impl Object {
             base_regenerate: None,
             enemy_near: None,
             animation_steering: None,
+            float_update: None,
+            prone_update: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -3696,6 +3706,32 @@ impl Object {
             )
         {
             self.animation_steering = Some(data);
+        }
+    }
+
+    pub fn install_float_update_if_needed(&mut self) {
+        if self.float_update.is_some() {
+            return;
+        }
+        if let Some(data) =
+            crate::game_logic::host_float_update::HostFloatUpdateData::for_template(
+                &self.template_name,
+            )
+        {
+            self.float_update = Some(data);
+        }
+    }
+
+    pub fn install_prone_update_if_needed(&mut self) {
+        if self.prone_update.is_some() {
+            return;
+        }
+        if let Some(data) =
+            crate::game_logic::host_prone_update::HostProneUpdateData::for_template(
+                &self.template_name,
+            )
+        {
+            self.prone_update = Some(data);
         }
     }
 
@@ -7565,6 +7601,10 @@ impl Object {
             if let Some(br) = self.base_regenerate.as_mut() {
                 br.mark_damaged();
             }
+            // C++ ProneUpdate::goProne residual.
+            if let Some(pu) = self.prone_update.as_mut() {
+                let _ = pu.go_prone_damage(damage);
+            }
         }
 
         // C++ StealthForbiddenConditions TAKING_DAMAGE residual (CamoNetting structures).
@@ -8287,6 +8327,16 @@ impl Object {
         self.set_target(None);
         self.set_force_attack(false);
         self.prone_timer = duration_secs.max(0.1);
+        if let Some(pu) = self.prone_update.as_mut() {
+            // Approximate seconds → frames at 30 Hz for module residual.
+            let frames = (duration_secs.max(0.1) * 30.0).round() as i32;
+            let was = pu.prone_frames > 0;
+            pu.prone_frames = pu.prone_frames.max(frames);
+            if !was {
+                pu.model_prone = true;
+                pu.no_attack = true;
+            }
+        }
         if let Some(bit) =
             crate::game_logic::host_enum_table_residual::model_condition_bit_name_index("PRONE")
         {

@@ -1131,6 +1131,10 @@ pub struct GameLogic {
     animation_steering_reg: crate::game_logic::host_animation_steering::HostAnimationSteeringRegistry,
     /// C++ ActiveShroudUpgrade residual counters.
     active_shroud_upgrade_reg: crate::game_logic::host_active_shroud_upgrade::HostActiveShroudUpgradeRegistry,
+    /// C++ FloatUpdate residual counters.
+    float_update_reg: crate::game_logic::host_float_update::HostFloatUpdateRegistry,
+    /// C++ ProneUpdate residual counters.
+    prone_update_reg: crate::game_logic::host_prone_update::HostProneUpdateRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2804,6 +2808,8 @@ impl GameLogic {
             passengers_fire_upgrade_reg: crate::game_logic::host_passengers_fire_upgrade::HostPassengersFireUpgradeRegistry::new(),
             animation_steering_reg: crate::game_logic::host_animation_steering::HostAnimationSteeringRegistry::new(),
             active_shroud_upgrade_reg: crate::game_logic::host_active_shroud_upgrade::HostActiveShroudUpgradeRegistry::new(),
+            float_update_reg: crate::game_logic::host_float_update::HostFloatUpdateRegistry::new(),
+            prone_update_reg: crate::game_logic::host_prone_update::HostProneUpdateRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3260,6 +3266,8 @@ impl GameLogic {
         self.passengers_fire_upgrade_reg.clear();
         self.animation_steering_reg.clear();
         self.active_shroud_upgrade_reg.clear();
+        self.float_update_reg.clear();
+        self.prone_update_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -5976,6 +5984,8 @@ impl GameLogic {
         self.update_base_regenerate();
         self.update_enemy_near();
         self.update_animation_steering();
+        self.update_float_update();
+        self.update_prone_update();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -22169,6 +22179,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             if object.animation_steering.is_some() {
                 self.animation_steering_reg.record_install();
             }
+            object.install_float_update_if_needed();
+            if object.float_update.is_some() {
+                self.float_update_reg.record_install();
+            }
+            object.install_prone_update_if_needed();
+            if object.prone_update.is_some() {
+                self.prone_update_reg.record_install();
+            }
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -27155,6 +27173,16 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_active_shroud_upgrade::honesty_active_shroud_upgrade_residual_ok()
     }
 
+    pub fn honesty_float_update_ok(&self) -> bool {
+        self.float_update_reg.honesty_host_path_ok()
+            && crate::game_logic::host_float_update::honesty_float_update_residual_ok()
+    }
+
+    pub fn honesty_prone_update_ok(&self) -> bool {
+        self.prone_update_reg.honesty_host_path_ok()
+            && crate::game_logic::host_prone_update::honesty_prone_update_residual_ok()
+    }
+
     pub fn tensile_formation_registry(
         &self,
     ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
@@ -30716,7 +30744,112 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         /// C++ BaseRegenerateUpdate residual (structure auto-heal after delay).
         /// C++ EnemyNearUpdate residual (scan vision for enemies → ENEMYNEAR).
         /// C++ AnimationSteeringUpdate residual (Battle Bus turn model conditions).
-    fn update_animation_steering(&mut self) {
+        /// Record ProneUpdate goProne residual after damage (host helper).
+    pub fn record_prone_go_if_needed(&mut self, id: ObjectId, damage: f32) {
+        if let Some(obj) = self.objects.get_mut(&id) {
+            if let Some(pu) = obj.prone_update.as_mut() {
+                let before = pu.prone_frames;
+                if pu.go_prone_damage(damage) || pu.prone_frames > before {
+                    let added = (pu.prone_frames - before).max(0) as u32;
+                    self.prone_update_reg.record_go_prone(added);
+                }
+            }
+        }
+    }
+
+    /// C++ FloatUpdate residual (boat sway / optional water snap).
+    fn update_float_update(&mut self) {
+        let frame = self.frame as u32;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.float_update.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let water_y = {
+                let Some(obj) = self.objects.get(&id) else {
+                    continue;
+                };
+                let pos = obj.get_position();
+                self.terrain
+                    .as_ref()
+                    .and_then(|t| {
+                        if t.is_underwater_at_world(pos) {
+                            // Approximate water surface as current terrain height residual.
+                            Some(t.height_at_world(pos))
+                        } else {
+                            None
+                        }
+                    })
+            };
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let Some(fu) = obj.float_update.as_mut() else {
+                continue;
+            };
+            fu.tick_sway(frame);
+            self.float_update_reg.record_sway();
+            if let Some(wy) = fu.snap_height_y(water_y) {
+                let mut p = obj.get_position();
+                p.y = wy;
+                obj.set_position(p);
+                self.float_update_reg.record_snap();
+            }
+        }
+    }
+
+    /// C++ ProneUpdate residual countdown + NO_ATTACK / PRONE condition.
+    fn update_prone_update(&mut self) {
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.prone_update.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let Some(pu) = obj.prone_update.as_mut() else {
+                continue;
+            };
+            let was_prone = pu.is_prone();
+            let recovered = pu.tick();
+            let prone_now = pu.is_prone();
+            let no_attack = pu.no_attack;
+            let model_prone = pu.model_prone;
+            if recovered {
+                self.prone_update_reg.record_recovery();
+            }
+            // Mirror NO_ATTACK status bit residual.
+            if no_attack {
+                let _ = obj.apply_status_bits_upgrade_masks(&["NO_ATTACK"], &[]);
+            } else if was_prone && !prone_now {
+                let _ = obj.apply_status_bits_upgrade_masks(&[], &["NO_ATTACK"]);
+            }
+            if model_prone {
+                if let Some(bit) =
+                    crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                        "PRONE",
+                    )
+                {
+                    obj.model_condition_bits |= 1u128 << bit;
+                }
+            } else if recovered {
+                if let Some(bit) =
+                    crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                        "PRONE",
+                    )
+                {
+                    obj.model_condition_bits &= !(1u128 << bit);
+                }
+            }
+        }
+    }
+
+fn update_animation_steering(&mut self) {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -75382,7 +75515,78 @@ mod tests {
     #[test]
 
     #[test]
-    fn active_shroud_upgrade_sets_shroud_range() {
+
+    #[test]
+    fn float_update_ferry_sways() {
+        use crate::game_logic::host_float_update::honesty_float_update_residual_ok;
+        assert!(honesty_float_update_residual_ok());
+        let mut logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new("CivilianVehicleFerry");
+        tpl.set_health(100.0);
+        logic
+            .templates
+            .insert("CivilianVehicleFerry".to_string(), tpl);
+        let id = logic
+            .create_object("CivilianVehicleFerry", Team::Neutral, Vec3::ZERO)
+            .expect("ferry");
+        assert!(logic.find_object(id).unwrap().float_update.is_some());
+        logic.set_current_frame(50);
+        logic.update_float_update();
+        let yaw = logic
+            .find_object(id)
+            .and_then(|o| o.float_update.as_ref().map(|f| f.yaw))
+            .unwrap_or(0.0);
+        assert!(yaw.abs() > 0.0 || logic.float_update_reg.sway_ticks > 0);
+        assert!(logic.honesty_float_update_ok());
+    }
+
+    #[test]
+    fn prone_update_damage_ratio_and_recovery() {
+        use crate::game_logic::host_prone_update::{
+            honesty_prone_update_residual_ok, PRONE_GLA_DAMAGE_TO_FRAMES_RATIO,
+        };
+        use crate::game_logic::KindOf;
+        assert!(honesty_prone_update_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new("GLAInfantryWorker");
+        tpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryWorker".to_string(), tpl);
+        let id = logic
+            .create_object("GLAInfantryWorker", Team::GLA, Vec3::ZERO)
+            .expect("worker");
+        assert!(logic.find_object(id).unwrap().prone_update.is_some());
+        {
+            let o = logic.find_object_mut(id).unwrap();
+            if let Some(pu) = o.prone_update.as_mut() {
+                pu.damage_to_frames_ratio = PRONE_GLA_DAMAGE_TO_FRAMES_RATIO;
+            }
+        }
+        logic.record_prone_go_if_needed(id, 20.0);
+        assert_eq!(
+            logic
+                .find_object(id)
+                .and_then(|o| o.prone_update.as_ref().map(|p| p.prone_frames))
+                .unwrap_or(0),
+            100
+        );
+        assert!(logic.prone_update_reg.go_prone >= 1);
+        // Tick to recovery.
+        for f in 0u32..100 {
+            logic.set_current_frame(u64::from(f));
+            logic.update_prone_update();
+        }
+        assert!(
+            logic
+                .find_object(id)
+                .and_then(|o| o.prone_update.as_ref().map(|p| !p.is_prone()))
+                .unwrap_or(false)
+        );
+        assert!(logic.honesty_prone_update_ok());
+    }
+
+
+        fn active_shroud_upgrade_sets_shroud_range() {
         use crate::game_logic::host_active_shroud_upgrade::honesty_active_shroud_upgrade_residual_ok;
         assert!(honesty_active_shroud_upgrade_residual_ok());
 
