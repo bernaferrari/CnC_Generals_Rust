@@ -1091,6 +1091,13 @@ pub struct Object {
     /// C++ AmericaParachute container residual (fall then infantry land).
     #[serde(default)]
     pub paradrop_parachute: bool,
+    /// C++ DaisyCutter AmericaJetB52 transport residual.
+    #[serde(default)]
+    pub daisy_cutter_transport:
+        Option<crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightData>,
+    /// C++ DaisyCutterBomb HeightDie residual.
+    #[serde(default)]
+    pub daisy_cutter_bomb: bool,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1789,6 +1796,8 @@ impl Object {
             leaflet_container: false,
             paradrop_transport_target: None,
             paradrop_parachute: false,
+            daisy_cutter_transport: None,
+            daisy_cutter_bomb: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2185,6 +2194,8 @@ impl Object {
             leaflet_container: false,
             paradrop_transport_target: None,
             paradrop_parachute: false,
+            daisy_cutter_transport: None,
+            daisy_cutter_bomb: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
