@@ -1125,6 +1125,9 @@ pub struct Object {
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
+    /// C++ Ambush CreateObject FadeIn residual (STEALTHED until FadeTime).
+    #[serde(default)]
+    pub ambush_fade_in: bool,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1833,6 +1836,7 @@ impl Object {
             emp_pulse_transport: None,
             emp_pulse_bomb: false,
             frenzy_invisible_marker: false,
+            ambush_fade_in: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2239,6 +2243,7 @@ impl Object {
             emp_pulse_transport: None,
             emp_pulse_bomb: false,
             frenzy_invisible_marker: false,
+            ambush_fade_in: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
