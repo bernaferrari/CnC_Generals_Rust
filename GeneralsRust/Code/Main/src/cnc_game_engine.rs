@@ -2436,6 +2436,62 @@ impl CnCGameEngine {
                     "click_replay_menu_miss".into()
                 };
             }
+            "toggle_quit_menu" => {
+                // Retail QuitMenu show residual (ESC path without live layout).
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_quit_menu_toggle_show();
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "toggle_quit_menu_ok_wnd".into()
+                } else {
+                    "toggle_quit_menu_miss".into()
+                };
+            }
+            "click_quit_menu" => {
+                // Retail QuitMenu Exit/Return/Options/Restart/SaveLoad/Confirm residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "exit".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_quit_menu_confirm_exit, simulate_quit_menu_destroy,
+                        simulate_quit_menu_exit_button_gadget_selected,
+                        simulate_quit_menu_options_button_gadget_selected,
+                        simulate_quit_menu_prepare_exit,
+                        simulate_quit_menu_restart_button_gadget_selected,
+                        simulate_quit_menu_return_button_gadget_selected,
+                        simulate_quit_menu_save_load_button_gadget_selected,
+                        simulate_quit_menu_toggle_hide, simulate_quit_menu_toggle_show,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "return" => simulate_quit_menu_return_button_gadget_selected(),
+                        "options" => simulate_quit_menu_options_button_gadget_selected(),
+                        "restart" => simulate_quit_menu_restart_button_gadget_selected(),
+                        "save_load" | "saveload" => {
+                            simulate_quit_menu_save_load_button_gadget_selected()
+                        }
+                        "hide" => simulate_quit_menu_toggle_hide(),
+                        "show" => simulate_quit_menu_toggle_show(),
+                        "destroy" => simulate_quit_menu_destroy(),
+                        "confirm_exit" | "confirm" => simulate_quit_menu_confirm_exit(),
+                        "prepare_exit" => simulate_quit_menu_prepare_exit(),
+                        _ => {
+                            let _ = simulate_quit_menu_toggle_show();
+                            simulate_quit_menu_exit_button_gadget_selected()
+                        }
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_quit_menu_ok_wnd_{action}")
+                } else {
+                    "click_quit_menu_miss".into()
+                };
+            }
             "open_difficulty_menu" => {
                 let campaign = args
                     .get("campaign")
