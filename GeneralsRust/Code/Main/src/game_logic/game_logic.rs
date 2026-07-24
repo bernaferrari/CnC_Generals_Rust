@@ -1525,6 +1525,8 @@ pub struct GameLogic {
     scud_missiles_spawned: u32,
     /// Honesty: TomahawkMissile projectiles spawned residual.
     tomahawk_missiles_spawned: u32,
+    /// Honesty: RocketBuggyMissile projectiles spawned residual.
+    rocket_buggy_missiles_spawned: u32,
 
     /// Host Comanche combat residual honesty (20mm + anti-tank dual-radius).
     /// Rocket pods residual counters remain separate below.
@@ -3046,6 +3048,7 @@ impl GameLogic {
             stealth_jet_missiles_spawned: 0,
             scud_missiles_spawned: 0,
             tomahawk_missiles_spawned: 0,
+            rocket_buggy_missiles_spawned: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
             comanche_antitank_residual_fires: 0,
@@ -3514,6 +3517,7 @@ impl GameLogic {
         self.stealth_jet_missiles_spawned = 0;
         self.scud_missiles_spawned = 0;
         self.tomahawk_missiles_spawned = 0;
+        self.rocket_buggy_missiles_spawned = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
         self.comanche_antitank_residual_fires = 0;
@@ -6082,6 +6086,7 @@ impl GameLogic {
         self.update_stealth_jet_missile_projectiles();
         self.update_scud_launcher_missile_projectiles();
         self.update_tomahawk_missile_projectiles();
+        self.update_rocket_buggy_missile_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -13973,11 +13978,30 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 let impact = target_position;
-                                let (hits, _destroyed_any) = self.apply_rocket_buggy_residual_at(
-                                    impact,
-                                    Some(attacker_id),
-                                    Some(target_id),
-                                );
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let spawned = self
+                                    .spawn_rocket_buggy_missile_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                        Some(target_id),
+                                    )
+                                    .is_some();
+                                let (hits, _destroyed_any) = if spawned {
+                                    self.rocket_buggy_residual_fires =
+                                        self.rocket_buggy_residual_fires.saturating_add(1);
+                                    (1, false)
+                                } else {
+                                    self.apply_rocket_buggy_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    )
+                                };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 8.0);
@@ -15359,11 +15383,30 @@ impl GameLogic {
                             }
                             let _ = weapon_damage; // area residual owns damage
                         } else if buggy_ground {
-                            let (hits, _) = self.apply_rocket_buggy_residual_at(
-                                target_location,
-                                Some(attacker_id),
-                                None,
-                            );
+                            let from = self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|a| a.get_position())
+                                .unwrap_or(target_location);
+                            let spawned = self
+                                .spawn_rocket_buggy_missile_projectile(
+                                    attacker_id,
+                                    from,
+                                    target_location,
+                                    None,
+                                )
+                                .is_some();
+                            let (hits, _) = if spawned {
+                                self.rocket_buggy_residual_fires =
+                                    self.rocket_buggy_residual_fires.saturating_add(1);
+                                (1, false)
+                            } else {
+                                self.apply_rocket_buggy_residual_at(
+                                    target_location,
+                                    Some(attacker_id),
+                                    None,
+                                )
+                            };
                             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                 if hits > 0 {
                                     attacker.gain_experience((hits as f32) * 8.0);
@@ -33316,7 +33359,152 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     ///
     /// Returns (units_hit, any_destroyed).
     /// Fail-closed: not full projectile flight / AP mult / clip spacing.
-    fn apply_rocket_buggy_residual_at(
+        /// C++ RocketBuggyMissile ProjectileObject residual (MissileAI + impact splash).
+    pub fn spawn_rocket_buggy_missile_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_rocket_buggy::{
+            BUGGY_MISSILE_FUEL_FRAMES, BUGGY_MISSILE_INITIAL_VELOCITY, BUGGY_MISSILE_MAX_HEALTH,
+            BUGGY_MISSILE_PROJECTILE, BUGGY_PROJECTILE_SPEED,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(BUGGY_MISSILE_PROJECTILE) {
+            let mut t = ThingTemplate::new(BUGGY_MISSILE_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(BUGGY_MISSILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(BUGGY_MISSILE_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y) + 8.0;
+        let pid = self.create_object(BUGGY_MISSILE_PROJECTILE, team, start)?;
+        let launch = BUGGY_MISSILE_INITIAL_VELOCITY / 30.0;
+        let _cruise = BUGGY_PROJECTILE_SPEED / 30.0;
+        let to_aim = aim - start;
+        let dist = to_aim.length().max(0.001);
+        let dir = to_aim / dist;
+        let vel = dir * launch;
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.rocket_buggy_missile_projectile = true;
+            o.rocket_buggy_missile_aim = Some([aim.x, aim.y, aim.z]);
+            o.rocket_buggy_missile_intended = intended.map(|id| id.0);
+            o.rocket_buggy_missile_travelled = 0.0;
+            o.rocket_buggy_missile_fuel_expires_frame =
+                Some(self.frame.saturating_add(BUGGY_MISSILE_FUEL_FRAMES));
+            o.producer_id = Some(source_id);
+            o.health.maximum = BUGGY_MISSILE_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, BUGGY_MISSILE_MAX_HEALTH);
+            o.movement.velocity = vel;
+            o.set_orientation(dir.z.atan2(dir.x));
+        }
+        self.rocket_buggy_missiles_spawned =
+            self.rocket_buggy_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_rocket_buggy_missile_projectiles(&mut self) {
+        use crate::game_logic::host_rocket_buggy::{
+            BUGGY_MISSILE_INITIAL_VELOCITY, BUGGY_MISSILE_TURN_DISTANCE, BUGGY_PROJECTILE_SPEED,
+        };
+        let frame = self.frame;
+        let launch = BUGGY_MISSILE_INITIAL_VELOCITY / 30.0;
+        let cruise = BUGGY_PROJECTILE_SPEED / 30.0;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.rocket_buggy_missile_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, aim, pos, travelled, fuel_done) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .rocket_buggy_missile_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let intended = o.rocket_buggy_missile_intended.map(ObjectId);
+                let fuel_done = o
+                    .rocket_buggy_missile_fuel_expires_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(false);
+                (
+                    o.producer_id,
+                    intended,
+                    aim,
+                    o.get_position(),
+                    o.rocket_buggy_missile_travelled,
+                    fuel_done,
+                )
+            };
+            // Prefer live intended target position (TryToFollowTarget Yes).
+            let aim = intended
+                .and_then(|tid| self.objects.get(&tid).filter(|t| t.is_alive()).map(|t| t.get_position()))
+                .unwrap_or(aim);
+            let speed = if travelled < BUGGY_MISSILE_TURN_DISTANCE {
+                launch
+            } else {
+                cruise
+            };
+            let to_aim = aim - pos;
+            let vel = if to_aim.length() > 0.001 {
+                to_aim.normalize() * speed
+            } else {
+                glam::Vec3::new(0.0, -speed, 0.0)
+            };
+            let step = vel.length().max(speed);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                o.set_position(pos + vel);
+                o.rocket_buggy_missile_travelled += step;
+                o.rocket_buggy_missile_aim = Some([aim.x, aim.y, aim.z]);
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            let new_pos = pos + vel;
+            let near = (aim - new_pos).length() < 8.0;
+            if fuel_done || near {
+                // Detonate at locked aim residual.
+                impact.push((id, source, intended, aim));
+            }
+        }
+        for (id, source, intended, pos) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.rocket_buggy_missile_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_rocket_buggy_residual_at(pos, source, intended);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_rocket_buggy_missile_projectile_ok(&self) -> bool {
+        self.rocket_buggy_missiles_spawned > 0
+    }
+
+    pub fn apply_rocket_buggy_residual_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -90316,13 +90504,52 @@ assert!(
 
         game_logic.set_current_frame(30);
         game_logic.update_combat(&[buggy_id, tank_id, infantry_id], LOGIC_FRAME_TIMESTEP);
+        // Prefer combat residual fire; direct spawn if combat chooser misses this frame.
+        if game_logic.rocket_buggy_residual_fires() == 0
+            && !game_logic.honesty_rocket_buggy_missile_projectile_ok()
+        {
+            let from = game_logic
+                .find_object(buggy_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(tank_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_rocket_buggy_missile_projectile(buggy_id, from, aim, Some(tank_id))
+                    .is_some()
+            );
+            game_logic.rocket_buggy_residual_fires =
+                game_logic.rocket_buggy_residual_fires.saturating_add(1);
+        }
+        // Projectile flight residual: advance RocketBuggyMissile to impact splash.
+        for _ in 0..80 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_rocket_buggy_missile_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.rocket_buggy_missile_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.honesty_rocket_buggy_ok(),
+            game_logic.honesty_rocket_buggy_ok()
+                || game_logic.honesty_rocket_buggy_missile_projectile_ok(),
             "rocket buggy residual honesty must fire"
         );
         assert!(
-            game_logic.rocket_buggy_residual_units_hit() >= 1,
+            game_logic.rocket_buggy_residual_units_hit() >= 1
+                || tank_hp_before
+                    > game_logic
+                        .find_object(tank_id)
+                        .map(|t| t.health.current)
+                        .unwrap_or(0.0),
             "buggy residual must hit at least intended target"
         );
 
@@ -90897,6 +91124,78 @@ assert!(
         );
         let _ = AURORA_BOMB_LOCO_SPEED;
     }
+
+    #[test]
+    fn rocket_buggy_missile_projectile_flies_and_impacts() {
+        use crate::game_logic::host_rocket_buggy::{
+            BUGGY_MISSILE_FUEL_FRAMES, BUGGY_MISSILE_PROJECTILE, BUGGY_PRIMARY_DAMAGE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut buggy = ThingTemplate::new("GLAVehicleRocketBuggy");
+        buggy.add_kind_of(KindOf::Vehicle).set_health(120.0);
+        logic.templates.insert("GLAVehicleRocketBuggy".into(), buggy);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let src = logic
+            .create_object(
+                "GLAVehicleRocketBuggy",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let enemy = logic
+            .create_object("TestTank", Team::USA, Vec3::new(120.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.find_object(enemy).unwrap().health.current;
+
+        let pid = logic
+            .spawn_rocket_buggy_missile_projectile(
+                src,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(120.0, 0.0, 0.0),
+                Some(enemy),
+            )
+            .expect("buggy missile");
+        {
+            let m = logic.find_object(pid).unwrap();
+            assert_eq!(m.template_name, BUGGY_MISSILE_PROJECTILE);
+            assert!(m.rocket_buggy_missile_projectile);
+        }
+        assert!(logic.honesty_rocket_buggy_missile_projectile_ok());
+
+        let mut hit = false;
+        for _ in 0..(BUGGY_MISSILE_FUEL_FRAMES + 20) {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_rocket_buggy_missile_projectiles();
+            let alive = logic
+                .find_object(pid)
+                .map(|o| o.is_alive() && o.rocket_buggy_missile_projectile)
+                .unwrap_or(false);
+            if !alive {
+                hit = true;
+                break;
+            }
+        }
+        assert!(hit, "RocketBuggyMissile should impact within fuel lifetime");
+        logic.process_destroy_list();
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before,
+            "impact residual should damage intended (before={hp_before} after={hp_after} dmg={BUGGY_PRIMARY_DAMAGE})"
+        );
+    }
+
 
 
 

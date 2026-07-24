@@ -1221,6 +1221,21 @@ pub struct Object {
     /// C++ AuroraBomb SpecialObject residual (dive bomb).
     #[serde(default)]
     pub aurora_bomb_projectile: bool,
+    /// C++ RocketBuggyMissile projectile residual.
+    #[serde(default)]
+    pub rocket_buggy_missile_projectile: bool,
+    /// Aim point for RocketBuggyMissile residual.
+    #[serde(default)]
+    pub rocket_buggy_missile_aim: Option<[f32; 3]>,
+    /// Intended target id for RocketBuggyMissile residual (primary hit).
+    #[serde(default)]
+    pub rocket_buggy_missile_intended: Option<u32>,
+    /// Distance travelled this RocketBuggyMissile flight residual.
+    #[serde(default)]
+    pub rocket_buggy_missile_travelled: f32,
+    /// Absolute frame when RocketBuggyMissile FuelLifetime residual expires.
+    #[serde(default)]
+    pub rocket_buggy_missile_fuel_expires_frame: Option<u32>,
     /// Aim point for AuroraBomb guided drop residual.
     #[serde(default)]
     pub aurora_bomb_aim: Option<[f32; 3]>,
@@ -2034,6 +2049,11 @@ impl Object {
             aurora_bomb_projectile: false,
             aurora_bomb_aim: None,
             aurora_bomb_mission_id: None,
+            rocket_buggy_missile_projectile: false,
+            rocket_buggy_missile_aim: None,
+            rocket_buggy_missile_intended: None,
+            rocket_buggy_missile_travelled: 0.0,
+            rocket_buggy_missile_fuel_expires_frame: None,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
@@ -2493,6 +2513,11 @@ impl Object {
             aurora_bomb_projectile: false,
             aurora_bomb_aim: None,
             aurora_bomb_mission_id: None,
+            rocket_buggy_missile_projectile: false,
+            rocket_buggy_missile_aim: None,
+            rocket_buggy_missile_intended: None,
+            rocket_buggy_missile_travelled: 0.0,
+            rocket_buggy_missile_fuel_expires_frame: None,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,

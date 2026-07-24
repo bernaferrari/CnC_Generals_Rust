@@ -18,7 +18,8 @@
 //!   BuildTime **10**s → **300**f, TransportSlotCount **3**.
 //!
 //! Fail-closed honesty:
-//! - Not full projectile flight / MissileCallsOnDie / AP rocket damage mult matrix
+//! - RocketBuggyMissile projectile flight residual closed (MissileAI peels + impact)
+//! - Not full MissileCallsOnDie toxin shell / AP rocket damage mult matrix
 //! - Not full AutoReloadWhenIdle clip timer beyond host reload residual
 //! - Not full Salvage / junk repair visual matrix
 //! - Not network weapon replication (network deferred)
@@ -71,6 +72,15 @@ pub const BUGGY_PROJECTILE_SPEED: f32 = 600.0;
 pub const BUGGY_SCATTER_VS_INFANTRY: f32 = 20.0;
 /// Retail ProjectileObject residual.
 pub const BUGGY_MISSILE_PROJECTILE: &str = "RocketBuggyMissile";
+/// Retail RocketBuggyMissile MaxHealth residual.
+pub const BUGGY_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// Retail MissileAIUpdate FuelLifetime 1800ms → 54 frames @ 30 FPS.
+pub const BUGGY_MISSILE_FUEL_MS: u32 = 1_800;
+pub const BUGGY_MISSILE_FUEL_FRAMES: u32 = 54;
+/// Retail MissileAIUpdate InitialVelocity residual (dist/sec).
+pub const BUGGY_MISSILE_INITIAL_VELOCITY: f32 = 150.0;
+/// Retail DistanceToTravelBeforeTurning residual.
+pub const BUGGY_MISSILE_TURN_DISTANCE: f32 = 3.0;
 /// Retail FireFX residual.
 pub const BUGGY_FIRE_FX: &str = "FX_BuggyMissileIgnition";
 /// Retail ProjectileDetonationFX residual.
@@ -251,6 +261,8 @@ pub fn honesty_rocket_buggy_weapon_residual_ok() -> bool {
         && (BUGGY_PROJECTILE_SPEED - 600.0).abs() < 0.01
         && (BUGGY_SCATTER_VS_INFANTRY - 20.0).abs() < 0.01
         && BUGGY_MISSILE_PROJECTILE == "RocketBuggyMissile"
+        && BUGGY_MISSILE_FUEL_FRAMES == 54
+        && (BUGGY_MISSILE_INITIAL_VELOCITY - 150.0).abs() < 0.01
         && BUGGY_FIRE_FX == "FX_BuggyMissileIgnition"
         && BUGGY_DETONATION_FX == "WeaponFX_RocketBuggyMissileDetonation"
         && BUGGY_DAMAGE_TYPE == "EXPLOSION"
