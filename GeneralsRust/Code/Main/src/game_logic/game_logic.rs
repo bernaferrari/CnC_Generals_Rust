@@ -1143,6 +1143,8 @@ pub struct GameLogic {
     spectre_gunship_deployment_reg: crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry,
     /// C++ SmartBombTargetHomingUpdate residual counters.
     smart_bomb_target_homing_reg: crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry,
+    /// C++ OCLSpecialPower residual counters.
+    ocl_special_power_reg: crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2822,6 +2824,7 @@ impl GameLogic {
             checkpoint_update_reg: crate::game_logic::host_checkpoint_update::HostCheckpointUpdateRegistry::new(),
             spectre_gunship_deployment_reg: crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry::new(),
             smart_bomb_target_homing_reg: crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry::new(),
+            ocl_special_power_reg: crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3284,6 +3287,7 @@ impl GameLogic {
         self.checkpoint_update_reg.clear();
         self.spectre_gunship_deployment_reg.clear();
         self.smart_bomb_target_homing_reg.clear();
+        self.ocl_special_power_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -27238,6 +27242,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_smart_bomb_target_homing::honesty_smart_bomb_target_homing_residual_ok()
     }
 
+    pub fn honesty_ocl_special_power_ok(&self) -> bool {
+        self.ocl_special_power_reg.honesty_host_path_ok()
+            && crate::game_logic::host_ocl_special_power::honesty_ocl_special_power_residual_ok()
+    }
+
     pub fn tensile_formation_registry(
         &self,
     ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
@@ -30879,6 +30888,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// C++ RadiusDecalUpdate::update residual.
         /// C++ CheckpointUpdate residual (open gate for allies when clear of enemies).
         /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
+        /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
     pub fn initiate_spectre_gunship_deployment(
         &mut self,
         caster_id: ObjectId,
@@ -30959,7 +30969,53 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         Some(gunship_id)
     }
 
-    /// C++ SmartBombTargetHomingUpdate::SetTargetPosition residual.
+    /// C++ OCLSpecialPower::doSpecialPowerAtLocation residual plan.
+    pub fn plan_ocl_special_power(
+        &mut self,
+        power_template: &str,
+        caster_id: ObjectId,
+        target_pos: Vec3,
+    ) -> Option<crate::game_logic::host_ocl_special_power::OclSpecialPowerSpawnPlan> {
+        use crate::game_logic::host_ocl_special_power::{
+            default_map_extents, find_ocl_name, peel_for_special_power,
+            plan_ocl_special_power_at_location,
+        };
+        let source_pos = self.objects.get(&caster_id)?.get_position();
+        let team = self.objects.get(&caster_id)?.team;
+        let player_id = match team {
+            Team::USA => 0u32,
+            Team::China => 1,
+            Team::GLA => 2,
+            _ => 0,
+        };
+        let unlocked: Vec<String> = self
+            .get_player(player_id)
+            .map(|p| p.unlocked_sciences.iter().cloned().collect())
+            .unwrap_or_default();
+        let used_upgrade = peel_for_special_power(power_template)
+            .map(|p| {
+                let resolved = find_ocl_name(p, |s| {
+                    unlocked.iter().any(|u| u.eq_ignore_ascii_case(s))
+                });
+                resolved != p.default_ocl
+            })
+            .unwrap_or(false);
+        let (minx, minz, maxx, maxz) = default_map_extents();
+        let plan = plan_ocl_special_power_at_location(
+            power_template,
+            source_pos,
+            target_pos,
+            |s| unlocked.iter().any(|u| u.eq_ignore_ascii_case(s)),
+            minx,
+            minz,
+            maxx,
+            maxz,
+        )?;
+        self.ocl_special_power_reg.record_plan(&plan, used_upgrade);
+        Some(plan)
+    }
+
+
     pub fn set_smart_bomb_target(&mut self, bomb_id: ObjectId, target: Vec3) -> bool {
         let Some(obj) = self.objects.get_mut(&bomb_id) else {
             return false;
@@ -75857,7 +75913,58 @@ mod tests {
     #[test]
 
     #[test]
-    fn smart_bomb_homing_steers_toward_target() {
+
+    #[test]
+    fn ocl_special_power_daisy_and_moab_upgrade() {
+        use crate::game_logic::host_ocl_special_power::{
+            honesty_ocl_special_power_residual_ok, OclCreateLocType,
+        };
+        use crate::game_logic::KindOf;
+        assert!(honesty_ocl_special_power_residual_ok());
+
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic
+            .templates
+            .insert("AmericaCommandCenter".to_string(), cc);
+        let id = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                Vec3::new(100.0, 0.0, 100.0),
+            )
+            .expect("cc");
+
+        let plan = logic
+            .plan_ocl_special_power(
+                "SuperweaponDaisyCutter",
+                id,
+                Vec3::new(300.0, 0.0, 300.0),
+            )
+            .expect("daisy plan");
+        assert_eq!(plan.ocl_name, "SUPERWEAPON_DaisyCutter");
+        assert_eq!(plan.create_loc, OclCreateLocType::EdgeNearSource);
+
+        // Unlock MOAB science → UpgradeOCL residual.
+        if let Some(p) = logic.get_player_mut(0) {
+            let _ = p.unlock_science("SCIENCE_MOAB");
+        }
+        let plan2 = logic
+            .plan_ocl_special_power(
+                "SuperweaponDaisyCutter",
+                id,
+                Vec3::new(300.0, 0.0, 300.0),
+            )
+            .expect("moab plan");
+        assert_eq!(plan2.ocl_name, "SUPERWEAPON_MOAB");
+        assert!(logic.ocl_special_power_reg.science_upgrades >= 1);
+        assert!(logic.honesty_ocl_special_power_ok());
+    }
+
+
+        fn smart_bomb_homing_steers_toward_target() {
         use crate::game_logic::host_smart_bomb_target_homing::honesty_smart_bomb_target_homing_residual_ok;
         assert!(honesty_smart_bomb_target_homing_residual_ok());
 
