@@ -1541,6 +1541,10 @@ pub struct GameLogic {
     scorpion_missiles_spawned: u32,
     /// Honesty: NukeCannonShell projectiles spawned residual.
     nuke_cannon_shells_spawned: u32,
+    /// Honesty: GenericTankShell (USA Crusader/Paladin) projectiles spawned residual.
+    usa_tank_shells_spawned: u32,
+    /// Honesty: USA tank gun residual units hit.
+    usa_tank_residual_units_hit: u32,
 
     /// Host Comanche combat residual honesty (20mm + anti-tank dual-radius).
     /// Rocket pods residual counters remain separate below.
@@ -3070,6 +3074,8 @@ impl GameLogic {
             scorpion_shells_spawned: 0,
             scorpion_missiles_spawned: 0,
             nuke_cannon_shells_spawned: 0,
+            usa_tank_shells_spawned: 0,
+            usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
             comanche_antitank_residual_fires: 0,
@@ -3546,6 +3552,8 @@ impl GameLogic {
         self.scorpion_shells_spawned = 0;
         self.scorpion_missiles_spawned = 0;
         self.nuke_cannon_shells_spawned = 0;
+        self.usa_tank_shells_spawned = 0;
+        self.usa_tank_residual_units_hit = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
         self.comanche_antitank_residual_fires = 0;
@@ -6122,6 +6130,7 @@ impl GameLogic {
         self.update_scorpion_shell_projectiles();
         self.update_scorpion_missile_projectiles();
         self.update_nuke_cannon_shell_projectiles();
+        self.update_usa_tank_shell_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -14468,6 +14477,71 @@ impl GameLogic {
                                     }
                                 }
                             } else if {
+                                // USA Crusader/Paladin residual: GenericTankShell Bezier + splash.
+                                use crate::game_logic::host_usa_tanks::{
+                                    is_paladin_template, should_apply_usa_tank_gun_residual,
+                                    CRUSADER_WEAPON_SPEED, PALADIN_WEAPON_SPEED,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| should_apply_usa_tank_gun_residual(&a.template_name))
+                                    .unwrap_or(false)
+                            } {
+                                use crate::game_logic::host_usa_tanks::{
+                                    is_paladin_template, CRUSADER_WEAPON_SPEED, PALADIN_WEAPON_SPEED,
+                                };
+                                let impact = target_position;
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let (speed, is_pal) = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        let pal = is_paladin_template(&a.template_name);
+                                        let spd = a
+                                            .weapon
+                                            .as_ref()
+                                            .map(|w| w.projectile_speed)
+                                            .filter(|s| *s > 1.0)
+                                            .unwrap_or(if pal {
+                                                PALADIN_WEAPON_SPEED
+                                            } else {
+                                                CRUSADER_WEAPON_SPEED
+                                            });
+                                        (spd, pal)
+                                    })
+                                    .unwrap_or((CRUSADER_WEAPON_SPEED, false));
+                                let _ = is_pal;
+                                let spawned = self
+                                    .spawn_usa_tank_shell_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                        speed,
+                                        Some(target_id),
+                                    )
+                                    .is_some();
+                                let (hits, _destroyed_any) = if spawned {
+                                    (1, false)
+                                } else {
+                                    self.apply_usa_tank_gun_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    )
+                                };
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        if let Some(w) = attacker.weapon.as_mut() {
+                                            w.last_fire_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+                                        }
+                                    }
+                                }
+                                let _ = hits;
+                            } else if {
                                 // China Battlemaster residual: tank gun splash + Uranium damage residual.
                                 use crate::game_logic::host_battlemaster::{
                                     is_battlemaster_template, should_apply_battlemaster_residual,
@@ -14483,6 +14557,7 @@ impl GameLogic {
                             } {
                                 let impact = target_position;
                                 let (hits, _destroyed_any) = self.apply_battlemaster_residual_at(
+
                                     impact,
                                     Some(attacker_id),
                                     Some(target_id),
@@ -39254,7 +39329,229 @@ fn update_scud_poison_zones(&mut self) {
     /// Apply Battlemaster residual fire (primary on intended + small splash radius).
     ///
     /// Damage uses current weapon residual (base 60 or uranium 75).
-    fn apply_battlemaster_residual_at(
+        /// C++ GenericTankShell DumbProjectile residual (Crusader/Paladin gun).
+    pub fn spawn_usa_tank_shell_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        weapon_speed: f32,
+        intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_usa_tanks::{
+            usa_tank_shell_flight_frames, USA_SHELL_MAX_HEALTH, USA_TANK_GUN_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(USA_TANK_GUN_PROJECTILE) {
+            let mut t = ThingTemplate::new(USA_TANK_GUN_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(USA_SHELL_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(USA_TANK_GUN_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y) + 4.0;
+        let pid = self.create_object(USA_TANK_GUN_PROJECTILE, team, start)?;
+        let frames = usa_tank_shell_flight_frames(start, aim, weapon_speed).max(1);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.usa_tank_shell_projectile = true;
+            o.usa_tank_shell_from = Some([start.x, start.y, start.z]);
+            o.usa_tank_shell_aim = Some([aim.x, aim.y, aim.z]);
+            o.usa_tank_shell_launch_frame = Some(self.frame);
+            o.usa_tank_shell_flight_frames = frames;
+            o.usa_tank_shell_weapon_speed = weapon_speed;
+            o.usa_tank_shell_intended = intended.map(|id| id.0);
+            o.producer_id = Some(source_id);
+            o.health.maximum = USA_SHELL_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, USA_SHELL_MAX_HEALTH);
+        }
+        self.usa_tank_shells_spawned = self.usa_tank_shells_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_usa_tank_shell_projectiles(&mut self) {
+        use crate::game_logic::host_usa_tanks::usa_tank_shell_bezier_point;
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.usa_tank_shell_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, from, aim, launch, frames) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let from = o
+                    .usa_tank_shell_from
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let aim = o
+                    .usa_tank_shell_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or(from);
+                (
+                    o.producer_id,
+                    o.usa_tank_shell_intended.map(ObjectId),
+                    from,
+                    aim,
+                    o.usa_tank_shell_launch_frame.unwrap_or(frame),
+                    o.usa_tank_shell_flight_frames.max(1),
+                )
+            };
+            let elapsed = frame.saturating_sub(launch);
+            let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
+            let pos = usa_tank_shell_bezier_point(from, aim, t);
+            if let Some(o) = self.objects.get_mut(&id) {
+                let prev = o.get_position();
+                o.set_position(pos);
+                let d = pos - prev;
+                if d.length_squared() > 1.0e-6 {
+                    o.set_orientation(d.z.atan2(d.x));
+                }
+            }
+            if elapsed >= frames {
+                impact.push((id, source, intended, aim));
+            }
+        }
+        for (id, source, intended, pos) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.usa_tank_shell_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_usa_tank_gun_residual_at(pos, source, intended);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_usa_tank_shell_projectile_ok(&self) -> bool {
+        self.usa_tank_shells_spawned > 0
+    }
+
+    /// Apply USA Crusader/Paladin tank gun splash residual at impact.
+    pub fn apply_usa_tank_gun_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_usa_tanks::{
+            is_crusader_template, is_legal_usa_tank_splash_target, is_paladin_template,
+            usa_tank_gun_splash_damage_at, CRUSADER_FIRE_AUDIO, PALADIN_FIRE_AUDIO,
+            USA_TANK_GUN_DAMAGE, USA_TANK_GUN_PRIMARY_RADIUS,
+        };
+
+        let (source_team, damage, is_paladin) = {
+            let Some(sid) = source else {
+                return (0, false);
+            };
+            let Some(obj) = self.objects.get(&sid) else {
+                return (0, false);
+            };
+            let is_c = is_crusader_template(&obj.template_name);
+            let is_p = is_paladin_template(&obj.template_name);
+            if !is_c && !is_p {
+                return (0, false);
+            }
+            let dmg = obj
+                .weapon
+                .as_ref()
+                .map(|w| w.damage)
+                .unwrap_or(USA_TANK_GUN_DAMAGE);
+            (obj.team, dmg, is_p)
+        };
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Structure);
+                if !is_legal_usa_tank_splash_target(
+                    obj.is_alive(),
+                    combat_kind,
+                    obj.is_kind_of(KindOf::Projectile),
+                    false,
+                ) {
+                    return None;
+                }
+                let p = obj.get_position();
+                let dx = p.x - impact_xz.0;
+                let dz = p.z - impact_xz.1;
+                let dist = (dx * dx + dz * dz).sqrt();
+                if dist > USA_TANK_GUN_PRIMARY_RADIUS && Some(*id) != intended_target {
+                    return None;
+                }
+                Some((*id, dist))
+            })
+            .collect();
+
+        for (id, dist) in candidates {
+            let dmg = if Some(id) == intended_target {
+                damage
+            } else {
+                usa_tank_gun_splash_damage_at(dist, damage)
+            };
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let hp = obj.health.current;
+                let new_hp = (hp - dmg).max(0.0);
+                Self::write_object_health_authority_aware(obj, new_hp);
+                hits = hits.saturating_add(1);
+                if new_hp <= 0.0 {
+                    obj.status.destroyed = true;
+                    obj.status.effectively_dead = true;
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+        self.usa_tank_residual_units_hit =
+            self.usa_tank_residual_units_hit.saturating_add(hits);
+        let _audio = if is_paladin {
+            PALADIN_FIRE_AUDIO
+        } else {
+            CRUSADER_FIRE_AUDIO
+        };
+        let _ = _audio;
+        (hits, any_destroyed)
+    }
+
+    pub fn apply_battlemaster_residual_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -92803,6 +93100,73 @@ assert!(
         assert!(logic.honesty_nuke_cannon_primary_ok());
     }
 
+    #[test]
+    fn usa_tank_shell_bezier_flight_and_blast() {
+        use crate::game_logic::host_usa_tanks::{
+            usa_tank_shell_flight_frames, CRUSADER_WEAPON_SPEED, USA_TANK_GUN_DAMAGE,
+            USA_TANK_GUN_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut c = ThingTemplate::new("AmericaTankCrusader");
+        c.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(480.0);
+        logic.templates.insert("AmericaTankCrusader".into(), c);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let src = logic
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let enemy = logic
+            .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let from = Vec3::new(0.0, 0.0, 0.0);
+        let aim = Vec3::new(80.0, 0.0, 0.0);
+        let frames = usa_tank_shell_flight_frames(from, aim, CRUSADER_WEAPON_SPEED);
+
+        let pid = logic
+            .spawn_usa_tank_shell_projectile(src, from, aim, CRUSADER_WEAPON_SPEED, Some(enemy))
+            .expect("shell");
+        {
+            let m = logic.find_object(pid).unwrap();
+            assert_eq!(m.template_name, USA_TANK_GUN_PROJECTILE);
+            assert!(m.usa_tank_shell_projectile);
+            assert_eq!(m.usa_tank_shell_flight_frames, frames);
+        }
+        assert!(logic.honesty_usa_tank_shell_projectile_ok());
+
+        for _ in 0..(frames + 5) {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_usa_tank_shell_projectiles();
+            if !logic
+                .find_object(pid)
+                .map(|o| o.is_alive() && o.usa_tank_shell_projectile)
+                .unwrap_or(false)
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before,
+            "gun blast should damage (before={hp_before} after={hp_after} dmg={USA_TANK_GUN_DAMAGE})"
+        );
+    }
+
+
 
     #[test]
     fn scorpion_missile_projectile_flies_and_impacts() {
@@ -100017,6 +100381,39 @@ assert!(
         }
         game_logic.frame = 10;
         game_logic.update_combat(&[crusader_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        if !game_logic.honesty_usa_tank_shell_projectile_ok() {
+            let from = game_logic
+                .find_object(crusader_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_usa_tank_shell_projectile(
+                        crusader_id,
+                        from,
+                        aim,
+                        crate::game_logic::host_usa_tanks::CRUSADER_WEAPON_SPEED,
+                        Some(enemy_id),
+                    )
+                    .is_some()
+            );
+        }
+        for _ in 0..80 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_usa_tank_shell_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.usa_tank_shell_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
         let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
         assert!(
             hp_after < hp_before,
