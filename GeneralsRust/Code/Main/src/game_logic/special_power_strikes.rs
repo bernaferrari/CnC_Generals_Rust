@@ -881,6 +881,8 @@ pub const PARTICLE_OUTER_NODE_MEDIUM_FLARE: &str = "ParticleUplinkCannon_OuterNo
 pub const PARTICLE_OUTER_NODE_INTENSE_FLARE: &str = "ParticleUplinkCannon_OuterNodeIntenseFlare";
 /// Retail ConnectorMediumLaserName.
 pub const PARTICLE_CONNECTOR_MEDIUM_LASER: &str = "ParticleUplinkCannon_MediumConnectorLaser";
+/// Residual MaxHealth for connector laser ThingFactory Objects (no Body in retail).
+pub const PARTICLE_CONNECTOR_LASER_MAX_HEALTH: f32 = 1.0;
 /// Retail ConnectorIntenseLaserName (STATUS_FIRING residual).
 pub const PARTICLE_CONNECTOR_INTENSE_LASER: &str = "ParticleUplinkCannon_IntenseConnectorLaser";
 /// Retail LaserBaseLightFlareParticleSystemName (ready residual honesty).
@@ -6222,6 +6224,9 @@ pub struct HostParticleBeamField {
     pub source_team: super::Team,
     /// Host GameLogic ObjectId for ParticleUplinkCannon_OrbitalLaser residual.
     pub object_id: Option<ObjectId>,
+    /// Host GameLogic ObjectIds for Medium/Intense connector lasers residual.
+    #[serde(default)]
+    pub connector_object_ids: Vec<ObjectId>,
     /// Click / initial target epicenter residual (swath walks around this).
     pub position: Vec3,
     pub spawn_frame: u32,
@@ -6832,6 +6837,8 @@ pub struct HostSpecialPowerStrikeRegistry {
     beam_fields_spawned_total: u32,
     /// Honesty: ParticleUplinkCannon_OrbitalLaser GameLogic objects spawned.
     beam_objects_spawned: u32,
+    /// Honesty: Medium/Intense connector laser GameLogic objects spawned.
+    connector_objects_spawned: u32,
     /// Lifetime beam damage applications (honesty after field expiry).
     beam_damage_applications_total: u32,
     /// Active residual Particle Uplink DamagePulseRemnant trail fields.
@@ -6897,6 +6904,7 @@ impl HostSpecialPowerStrikeRegistry {
             beam_spawned_this_frame: Vec::new(),
             beam_fields_spawned_total: 0,
             beam_objects_spawned: 0,
+            connector_objects_spawned: 0,
             beam_damage_applications_total: 0,
             remnant_fields: Vec::new(),
             next_remnant_id: 1,
@@ -6941,6 +6949,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_beam_id = 1;
         self.beam_fields_spawned_total = 0;
         self.beam_objects_spawned = 0;
+        self.connector_objects_spawned = 0;
         self.beam_damage_applications_total = 0;
         self.remnant_fields.clear();
         self.remnant_spawned_this_frame.clear();
@@ -7314,6 +7323,29 @@ impl HostSpecialPowerStrikeRegistry {
         if let Some(f) = self.beam_fields.iter_mut().find(|f| f.id == beam_id) {
             f.object_id = Some(object_id);
             self.beam_objects_spawned = self.beam_objects_spawned.saturating_add(1);
+            return true;
+        }
+        false
+    }
+
+    pub fn connector_objects_spawned(&self) -> u32 {
+        self.connector_objects_spawned
+    }
+
+    pub fn honesty_connector_object_spawn_ok(&self) -> bool {
+        self.connector_objects_spawned > 0
+    }
+
+    pub fn bind_connector_objects(
+        &mut self,
+        beam_id: u32,
+        object_ids: &[ObjectId],
+    ) -> bool {
+        if let Some(f) = self.beam_fields.iter_mut().find(|f| f.id == beam_id) {
+            f.connector_object_ids.extend_from_slice(object_ids);
+            self.connector_objects_spawned = self
+                .connector_objects_spawned
+                .saturating_add(object_ids.len() as u32);
             return true;
         }
         false
@@ -9387,6 +9419,7 @@ impl HostSpecialPowerStrikeRegistry {
             source_object,
             source_team,
             object_id: None,
+            connector_object_ids: Vec::new(),
             position,
             spawn_frame,
             // Orbital death after TotalFiringTime + WidthGrow decay tail

@@ -1158,6 +1158,12 @@ pub struct Object {
     /// Absolute frame when OrbitalLaser residual expires.
     #[serde(default)]
     pub particle_orbital_laser_expires_frame: Option<u32>,
+    /// C++ Medium/Intense ConnectorLaser residual object.
+    #[serde(default)]
+    pub particle_connector_laser: bool,
+    /// Absolute frame when connector laser residual expires.
+    #[serde(default)]
+    pub particle_connector_laser_expires_frame: Option<u32>,
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
@@ -1907,6 +1913,8 @@ impl Object {
             spectre_howitzer_shell_expires_frame: None,
             particle_orbital_laser: false,
             particle_orbital_laser_expires_frame: None,
+            particle_connector_laser: false,
+            particle_connector_laser_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -2334,6 +2342,8 @@ impl Object {
             spectre_howitzer_shell_expires_frame: None,
             particle_orbital_laser: false,
             particle_orbital_laser_expires_frame: None,
+            particle_connector_laser: false,
+            particle_connector_laser_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
