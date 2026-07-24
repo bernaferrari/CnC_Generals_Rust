@@ -26,6 +26,13 @@ pub use base::{
 
 // Re-export main menu types
 pub use main_menu::{
+    simulate_main_menu_challenge_button_gadget_selected,
+    simulate_main_menu_credits_button_gadget_selected,
+    simulate_main_menu_load_game_button_gadget_selected,
+    simulate_main_menu_multiplayer_button_gadget_selected,
+    simulate_main_menu_options_button_gadget_selected,
+    simulate_main_menu_replay_button_gadget_selected,
+    simulate_main_menu_single_player_button_gadget_selected,
     simulate_main_menu_skirmish_button_gadget_selected, DisplaySettings, DropdownType,
     GameDifficulty, MainMenu, MainMenuError, MainMenuResult, MainMenuState, ShowSide,
 };
