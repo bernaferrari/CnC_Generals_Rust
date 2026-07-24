@@ -24,6 +24,7 @@ pub mod host_artillery_barrage_flight;
 pub mod host_a10_strike_flight;
 pub mod host_daisy_cutter_flight;
 pub mod host_anthrax_bomb_flight;
+pub mod host_cluster_mines_flight;
 pub mod host_float_update;
 pub mod host_ai_decision_log;
 pub mod host_ai_mood_log;

@@ -3167,11 +3167,18 @@ impl<'a> CommandExecutor<'a> {
                         .get_object(unit_id)
                         .map(|o| o.team)
                         .unwrap_or(crate::game_logic::Team::Neutral);
-                    let placed = self
+                    // C++ SUPERWEAPON_ClusterMines DeliverPayload residual
+                    // (ChinaJetCargoPlane + bomb); mines place on bomb impact.
+                    if self
                         .game_logic
-                        .place_cluster_mines(team, pos, Some(unit_id));
-                    if placed.is_empty() {
-                        continue;
+                        .spawn_cluster_mines_flight(unit_id, pos)
+                        .is_none()
+                    {
+                        // Fail-open residual: place mines immediately if flight spawn fails.
+                        let placed = self.game_logic.place_cluster_mines(team, pos, Some(unit_id));
+                        if placed.is_empty() {
+                            continue;
+                        }
                     }
                 } else if *power_type == SpecialPowerType::RadarScan {
                     let team = self
