@@ -29,11 +29,12 @@
 //! Fail-closed honesty:
 //! - LaserBeam SpecialObject residual closed (Muzzle01 attach matrix / WGPU W3DLaserDraw fail-closed)
 //! - MissileDefenderMissile projectile flight residual closed (MissileAI peels + splash)
-//! - Not full ScatterRadiusVsInfantry random miss matrix
+//! - ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full PLAYER_UPGRADE DAMAGE 125% live weapon-bonus apply matrix
 //! - Not network laser-lock replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 use crate::game_logic::host_red_guard::delay_frames_to_reload_secs;
 
 /// Logic frames per second (host fixed step).
@@ -86,7 +87,7 @@ pub const MISSILE_DEFENDER_DEATH_TYPE: &str = "NORMAL";
 pub const MISSILE_DEFENDER_CLIP_SIZE: u32 = 0;
 /// Retail AutoReloadsClip residual.
 pub const MISSILE_DEFENDER_AUTO_RELOADS_CLIP: bool = true;
-/// Retail ScatterRadiusVsInfantry residual (honesty; host fail-closed no random miss).
+/// Retail ScatterRadiusVsInfantry residual.
 pub const MISSILE_DEFENDER_SCATTER_VS_INFANTRY: f32 = 10.0;
 /// Retail primary FireFX residual.
 pub const MISSILE_DEFENDER_FIRE_FX: &str = "FX_BuggyMissileIgnition";
@@ -394,16 +395,58 @@ pub fn honesty_missile_defender_body_residual_ok() -> bool {
 }
 
 /// Combined Wave 60 Missile Defender residual honesty pack.
+
+/// Apply MissileDefenderMissileWeapon ScatterRadiusVsInfantry residual to aim.
+pub fn missile_defender_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let scatter =
+        host_effective_scatter_radius(MISSILE_DEFENDER_MISSILE_WEAPON, target_is_infantry);
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Wave residual honesty: Missile Defender ScatterRadiusVsInfantry peels.
+pub fn honesty_missile_defender_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    (MISSILE_DEFENDER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && (host_effective_scatter_radius(MISSILE_DEFENDER_MISSILE_WEAPON, true) - 10.0).abs()
+            < 0.01
+        && host_effective_scatter_radius(MISSILE_DEFENDER_MISSILE_WEAPON, false).abs() < 0.01
+}
+
 pub fn honesty_missile_defender_residual_pack_ok() -> bool {
     honesty_missile_defender_primary_residual_ok()
         && honesty_missile_defender_laser_weapon_residual_ok()
         && honesty_missile_defender_laser_lock_residual_ok()
         && honesty_missile_defender_body_residual_ok()
+        && honesty_missile_defender_scatter_vs_infantry_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missile_defender_scatter_vs_infantry_peels() {
+        assert!(honesty_missile_defender_scatter_vs_infantry_ok());
+        let aim = Vec3::new(150.0, 0.0, 20.0);
+        let (no_sc, applied) = missile_defender_scatter_aim(aim, false, 13);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = missile_defender_scatter_aim(aim, true, 13);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= MISSILE_DEFENDER_SCATTER_VS_INFANTRY + 0.01);
+    }
 
     #[test]
     fn missile_defender_name_matrix() {

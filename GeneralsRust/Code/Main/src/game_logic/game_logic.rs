@@ -1539,6 +1539,8 @@ pub struct GameLogic {
     tank_hunter_missiles_spawned: u32,
     /// Honesty: MissileDefenderMissile projectiles spawned residual.
     missile_defender_missiles_spawned: u32,
+    /// Honesty: Missile Defender ScatterRadiusVsInfantry aim offsets applied.
+    missile_defender_scatter_applied: u32,
     /// Honesty: ScorpionTankShell projectiles spawned residual.
     scorpion_shells_spawned: u32,
     /// Honesty: ScorpionMissile projectiles spawned residual.
@@ -3113,6 +3115,7 @@ impl GameLogic {
             rpg_trooper_missiles_spawned: 0,
             tank_hunter_missiles_spawned: 0,
             missile_defender_missiles_spawned: 0,
+            missile_defender_scatter_applied: 0,
             scorpion_shells_spawned: 0,
             scorpion_missiles_spawned: 0,
             nuke_cannon_shells_spawned: 0,
@@ -3611,6 +3614,7 @@ impl GameLogic {
         self.rpg_trooper_missiles_spawned = 0;
         self.tank_hunter_missiles_spawned = 0;
         self.missile_defender_missiles_spawned = 0;
+        self.missile_defender_scatter_applied = 0;
         self.scorpion_shells_spawned = 0;
         self.scorpion_missiles_spawned = 0;
         self.nuke_cannon_shells_spawned = 0;
@@ -33601,7 +33605,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     pub fn honesty_missile_defender_ok(&self) -> bool {
         self.missile_defender_residual_fires > 0
             || self.missile_defender_residual_laser_specials > 0
-            || self.missile_defender_residual_laser_fires > 0
+            || self.missile_defender_missiles_spawned > 0
+            || self.missile_defender_scatter_applied > 0
+    }
+
+    /// Residual honesty: Missile Defender ScatterRadiusVsInfantry applied.
+    pub fn honesty_missile_defender_scatter_ok(&self) -> bool {
+        self.missile_defender_scatter_applied > 0
     }
 
     pub fn honesty_missile_defender_laser_ok(&self) -> bool {
@@ -43671,6 +43681,29 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on MissileDefenderMissileWeapon vs infantry.
+        // Laser-guided secondary also uses MissileDefenderMissile projectile residual.
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) =
+            crate::game_logic::host_missile_defender::missile_defender_scatter_aim(
+                aim,
+                target_is_infantry,
+                seed,
+            );
+        if scattered {
+            self.missile_defender_scatter_applied =
+                self.missile_defender_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 6.0;
         let pid = self.create_object(MISSILE_DEFENDER_MISSILE, team, start)?;
@@ -121992,6 +122025,94 @@ assert!(
             .and_then(|o| o.raptor_missile_aim)
             .expect("aim2");
         assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn missile_defender_missile_scatters_vs_infantry() {
+        use crate::game_logic::host_missile_defender::MISSILE_DEFENDER_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut md_tpl = ThingTemplate::new("AmericaInfantryMissileDefender");
+        md_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryMissileDefender".to_string(), md_tpl);
+        let mut i_tpl = ThingTemplate::new("ChinaInfantryRedguard");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryRedguard".to_string(), i_tpl);
+
+        let md = logic
+            .create_object(
+                "AmericaInfantryMissileDefender",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("md");
+        let inf = logic
+            .create_object(
+                "ChinaInfantryRedguard",
+                Team::China,
+                glam::Vec3::new(120.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(120.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 5.0, 0.0);
+        let msl = logic
+            .spawn_missile_defender_missile_projectile(md, from, aim, Some(inf), false)
+            .expect("missile");
+        assert!(logic.honesty_missile_defender_scatter_ok());
+        let m_aim = logic
+            .objects
+            .get(&msl)
+            .and_then(|o| o.missile_defender_missile_aim)
+            .expect("aim");
+        let d = ((m_aim[0] - aim.x).powi(2) + (m_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= MISSILE_DEFENDER_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut t_tpl = ThingTemplate::new("ChinaTankBattlemaster");
+        t_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("ChinaTankBattlemaster".to_string(), t_tpl);
+        let tank = logic
+            .create_object(
+                "ChinaTankBattlemaster",
+                Team::China,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.missile_defender_scatter_applied;
+        let msl2 = logic
+            .spawn_missile_defender_missile_projectile(
+                md,
+                from,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+                Some(tank),
+                false,
+            )
+            .expect("missile2");
+        assert_eq!(logic.missile_defender_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&msl2)
+            .and_then(|o| o.missile_defender_missile_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
 }
