@@ -22,7 +22,8 @@
 //!
 //! Fail-closed honesty:
 //! - Not full BunkerBusterBehavior crash-through FX / seismic sim path
-//! - Not full projectile StealthJetMissile AI / KillSelfDelay crash path
+//! - StealthJetMissile projectile residual closed via host_stealth_fighter spawn path
+//! - Not full MissileAIUpdate seeker / crash-through bone FX matrix
 //! - Not full GarrisonContain isBustable / TunnelContain crash-guard matrix
 //! - Not network bunker-buster replication (network deferred)
 
