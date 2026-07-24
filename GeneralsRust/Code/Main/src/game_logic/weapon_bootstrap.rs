@@ -1385,6 +1385,12 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
     if n.contains("nukecannon") || n.contains("nuke_cannon") {
         return 30.0;
     }
+    // SCUD Launcher residual ScatterRadiusVsInfantry **30** (not ScudStorm).
+    if (n.contains("scudlauncher") || n.contains("scud_launcher") || n.contains("scudmissile"))
+        && !n.contains("scudstorm")
+    {
+        return 30.0;
+    }
     // Tomahawk residual ScatterRadiusVsInfantry **20** (not the common 10).
     if n.contains("tomahawk") {
         return 20.0;
