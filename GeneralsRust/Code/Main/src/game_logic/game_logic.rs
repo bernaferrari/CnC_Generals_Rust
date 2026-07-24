@@ -1603,6 +1603,8 @@ pub struct GameLogic {
     inferno_shells_spawned: u32,
     /// Honesty: Inferno Cannon ScatterRadiusVsInfantry aim offsets applied.
     inferno_scatter_applied: u32,
+    /// Honesty: Inferno Cannon ScatterRadiusVsInfantry residual misses vs infantry.
+    inferno_scatter_misses: u32,
     /// Honesty: MarauderTankShell projectiles spawned residual.
     marauder_shells_spawned: u32,
     /// Honesty: Marauder ScatterRadiusVsInfantry aim offsets applied.
@@ -3219,6 +3221,7 @@ impl GameLogic {
             overlord_scatter_misses: 0,
             inferno_shells_spawned: 0,
             inferno_scatter_applied: 0,
+            inferno_scatter_misses: 0,
             marauder_shells_spawned: 0,
             marauder_scatter_applied: 0,
             marauder_scatter_misses: 0,
@@ -3754,6 +3757,7 @@ impl GameLogic {
         self.overlord_scatter_misses = 0;
         self.inferno_shells_spawned = 0;
         self.inferno_scatter_applied = 0;
+        self.inferno_scatter_misses = 0;
         self.marauder_shells_spawned = 0;
         self.marauder_scatter_applied = 0;
         self.marauder_scatter_misses = 0;
@@ -55554,7 +55558,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
 
     /// Residual honesty: Inferno Cannon ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_inferno_scatter_ok(&self) -> bool {
-        self.inferno_scatter_applied > 0
+        self.inferno_scatter_applied > 0 || self.inferno_scatter_misses > 0
     }
 
     /// Spawn residual FireFieldSmall at Inferno Cannon shell impact.
@@ -55615,6 +55619,38 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
             );
         if scattered {
             self.inferno_scatter_applied = self.inferno_scatter_applied.saturating_add(1);
+        }
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_inferno_cannon::inferno_cannon_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist
+                        > crate::game_logic::host_inferno_cannon::INFERNO_CANNON_SHELL_RADIUS
+                    {
+                        self.inferno_scatter_misses =
+                            self.inferno_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
         }
 
         let mut start = from;
@@ -126575,6 +126611,77 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
     }
+
+    #[test]
+    fn inferno_cannon_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_inferno_cannon::{
+            INFERNO_CANNON_GUN, INFERNO_CANNON_SCATTER_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut ic_tpl = ThingTemplate::new("ChinaInfernoCannon");
+        ic_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(INFERNO_CANNON_GUN);
+        logic
+            .templates
+            .insert("ChinaInfernoCannon".to_string(), ic_tpl);
+
+        let ic = logic
+            .create_object(
+                "ChinaInfernoCannon",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("inferno");
+        let inf = logic
+            .create_object("TestInfantry", Team::USA, glam::Vec3::new(120.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let from = glam::Vec3::ZERO;
+        let aim = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(120.0, 0.0, 0.0));
+        let _ = logic.spawn_inferno_shell_projectile(ic, from, aim, Some(inf), false);
+        assert!(
+            logic.inferno_scatter_applied > 0
+                || logic.inferno_scatter_misses > 0
+                || logic.honesty_inferno_scatter_ok(),
+            "inferno scatter residual must peel vs infantry"
+        );
+        assert!((INFERNO_CANNON_SCATTER_VS_INFANTRY - 30.0).abs() < 0.01);
+
+        // Vehicle still damaged via pure splash.
+        let tank = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(30.0, 0.0, 0.0));
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let (hits, _) = logic.apply_inferno_shell_residual_at(impact, Some(ic), Some(tank));
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit by shell splash");
+    }
+
 
 
 

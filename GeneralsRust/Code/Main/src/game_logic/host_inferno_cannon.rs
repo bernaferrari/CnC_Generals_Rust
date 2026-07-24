@@ -577,6 +577,22 @@ pub fn inferno_cannon_scatter_aim(
     (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
 }
 
+/// Whether InfernoCannonGun residual misses intended infantry via ScatterRadiusVsInfantry.
+///
+/// Miss = aim offset exceeds hit radius **and** impact outside shell splash (**15**).
+pub fn inferno_cannon_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(INFERNO_CANNON_SCATTER_VS_INFANTRY, seed, target_hit_radius)
+}
+
+
 /// Wave residual honesty: Inferno Cannon ScatterRadiusVsInfantry peels (**30**).
 pub fn honesty_inferno_cannon_scatter_vs_infantry_ok() -> bool {
     use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
@@ -618,7 +634,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= INFERNO_CANNON_SCATTER_VS_INFANTRY + 0.01);
-    }
+    
+        assert!(inferno_cannon_scatter_misses_infantry(true, 59, 0.5));
+        assert!(!inferno_cannon_scatter_misses_infantry(true, 59, 100.0));
+        assert!(!inferno_cannon_scatter_misses_infantry(false, 59, 0.5));
+}
     use crate::game_logic::Team;
 
     #[test]
