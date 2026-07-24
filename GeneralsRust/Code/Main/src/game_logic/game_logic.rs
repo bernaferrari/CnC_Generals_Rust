@@ -27491,7 +27491,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     pub fn update_scud_storm_missile_flights(&mut self) {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::special_power_strikes::{
-            SCUD_STORM_PRIMARY_DAMAGE, SCUD_STORM_PRIMARY_RADIUS,
+            SCUD_STORM_PRIMARY_RADIUS, SCUD_STORM_SECONDARY_RADIUS,
         };
 
         let ids: Vec<ObjectId> = self
@@ -27546,15 +27546,53 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     .get(&id)
                     .map(|o| o.team)
                     .unwrap_or(Team::Neutral);
-                // ScudStormDamageWeapon primary residual at scatter impact.
+                // Resolve Anthrax Beta/Gamma from producer owner sciences/upgrades.
+                use crate::game_logic::special_power_strikes::ScudStormAnthraxTier;
+                let anthrax = {
+                    let mut names: Vec<String> = Vec::new();
+                    if let Some(pid) = producer {
+                        if let Some(o) = self.objects.get(&pid) {
+                            // Collect unlocked sciences for owner team players.
+                            for p in self.players.values() {
+                                if p.team == o.team {
+                                    names.extend(p.unlocked_sciences.iter().cloned());
+                                }
+                            }
+                        }
+                    }
+                    // Also accept Upgrade_ naming via sciences list residual.
+                    ScudStormAnthraxTier::highest_from_upgrades(
+                        names.iter().map(|s| s.as_str()),
+                    )
+                };
+                // ScudStormDamageWeapon primary + secondary residual at scatter impact.
                 self.apply_fuel_air_radius_damage(
                     id,
                     producer,
                     team,
                     target,
-                    SCUD_STORM_PRIMARY_DAMAGE,
+                    anthrax.primary_damage(),
                     SCUD_STORM_PRIMARY_RADIUS,
                     DamageType::Explosive,
+                );
+                self.apply_fuel_air_radius_damage(
+                    id,
+                    producer,
+                    team,
+                    target,
+                    anthrax.secondary_damage(),
+                    SCUD_STORM_SECONDARY_RADIUS,
+                    DamageType::Explosive,
+                );
+                // DeathFire OCL poison field residual (OCL_PoisonFieldLarge / upgraded).
+                let source = producer.unwrap_or(id);
+                let _ = self.special_power_strikes.spawn_scud_poison_field_with_tier(
+                    source,
+                    team,
+                    target,
+                    self.frame,
+                    0,
+                    anthrax,
                 );
                 self.scud_storm_missile_flight_reg.record_ground();
                 destroy.push(id);
@@ -77299,6 +77337,12 @@ mod tests {
         assert!(
             hp1 < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
             "scud impact should damage nearby units"
+        );
+        assert!(
+            !logic.special_power_strikes.toxin_fields().is_empty()
+                || logic.special_power_strikes.toxin_fields_spawned_total() >= 1
+                || logic.scud_poison_zones.zones_spawned >= 1,
+            "scud impact should spawn poison field residual"
         );
         assert!(logic.honesty_scud_storm_missile_flight_ok());
     }
