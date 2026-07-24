@@ -1434,7 +1434,7 @@ pub struct GameLogic {
     aurora_fuel_air_gas_spawned: u32,
 
     /// Host GLA Angry Mob residual (nexus damages nearby enemies / expands members).
-    /// Fail-closed: not full SpawnBehavior member objects / MobMemberSlavedUpdate matrix.
+    /// SpawnBehavior member SpecialObject residual closed.
     angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry,
 
     /// Host SCIENCE_StealthFighter production gate residual honesty.
@@ -48038,6 +48038,122 @@ fn update_scud_poison_zones(&mut self) {
     /// Expand residual grows member strength from InitialBurst 5 → SpawnNumber 10.
     ///
     /// Fail-closed: not individual member objects, projectile weapons, or slave AI.
+    /// C++ SpawnBehavior member SpecialObject residual for AngryMob nexus.
+    pub fn spawn_angry_mob_member_object(
+        &mut self,
+        nexus_id: ObjectId,
+        team: Team,
+        template_name: &str,
+        slot_index: u32,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_angry_mob::ANGRY_MOB_MEMBER_MAX_HEALTH;
+        use crate::game_logic::{KindOf, ThingTemplate};
+        use std::f32::consts::PI;
+
+        if !self.templates.contains_key(template_name) {
+            let mut t = ThingTemplate::new(template_name);
+            t.add_kind_of(KindOf::Infantry)
+                .set_health(ANGRY_MOB_MEMBER_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(template_name.to_string(), t);
+        }
+        let origin = self.objects.get(&nexus_id)?.get_position();
+        let angle = (slot_index as f32) * (2.0 * PI / 8.0);
+        let radius = 8.0 + (slot_index % 3) as f32 * 2.0;
+        let place = glam::Vec3::new(
+            origin.x + angle.cos() * radius,
+            origin.y,
+            origin.z + angle.sin() * radius,
+        );
+        let mid = self.create_object(template_name, team, place)?;
+        if let Some(o) = self.objects.get_mut(&mid) {
+            o.angry_mob_member = true;
+            o.angry_mob_nexus_id = Some(nexus_id);
+            o.producer_id = Some(nexus_id);
+            o.health.maximum = ANGRY_MOB_MEMBER_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, ANGRY_MOB_MEMBER_MAX_HEALTH);
+        }
+        if let Some(m) = self
+            .angry_mobs
+            .active_mobs_mut()
+            .iter_mut()
+            .find(|m| m.object_id == nexus_id)
+        {
+            m.member_ids.push(mid);
+        }
+        self.angry_mobs.record_member_spawned(1);
+        Some(mid)
+    }
+
+    pub fn flush_angry_mob_member_spawns(&mut self) {
+        let pending = self.angry_mobs.take_pending_member_spawns();
+        for spawn in pending {
+            let _ = self.spawn_angry_mob_member_object(
+                spawn.nexus_id,
+                spawn.team,
+                &spawn.template_name,
+                spawn.slot_index,
+            );
+        }
+    }
+
+    /// MobMemberSlavedUpdate residual: members follow nexus position.
+    pub fn update_angry_mob_member_follow(&mut self) {
+        use std::f32::consts::PI;
+        let pairs: Vec<(ObjectId, ObjectId, u32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.angry_mob_member {
+                    o.angry_mob_nexus_id.map(|n| (*id, n, id.0 % 8))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut destroy = Vec::new();
+        let mut moves = Vec::new();
+        for (mid, nid, slot) in pairs {
+            let Some(nexus) = self.objects.get(&nid) else {
+                destroy.push(mid);
+                continue;
+            };
+            if !nexus.is_alive() || nexus.status.destroyed {
+                destroy.push(mid);
+                continue;
+            }
+            let origin = nexus.get_position();
+            let angle = (slot as f32) * (2.0 * PI / 8.0);
+            let radius = 8.0 + (slot % 3) as f32 * 2.0;
+            moves.push((
+                mid,
+                glam::Vec3::new(
+                    origin.x + angle.cos() * radius,
+                    origin.y,
+                    origin.z + angle.sin() * radius,
+                ),
+            ));
+        }
+        for (mid, pos) in moves {
+            if let Some(o) = self.objects.get_mut(&mid) {
+                o.set_position(pos);
+            }
+        }
+        for mid in destroy {
+            if let Some(o) = self.objects.get_mut(&mid) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.angry_mob_member = false;
+            }
+            self.mark_object_for_destruction(mid, None);
+        }
+    }
+
+    pub fn honesty_angry_mob_member_spawn_ok(&self) -> bool {
+        self.angry_mobs.honesty_member_spawn_ok()
+    }
+
     pub fn update_angry_mobs(&mut self) {
         use crate::game_logic::host_angry_mob::{
             is_angry_mob_nexus_template, ANGRY_MOB_FIRE_AUDIO, UPGRADE_GLA_ARM_THE_MOB,
@@ -48069,6 +48185,8 @@ fn update_scud_poison_zones(&mut self) {
 
         self.angry_mobs.sync_mobs(&living, frame);
         self.angry_mobs.apply_due_expands(frame);
+        self.flush_angry_mob_member_spawns();
+        self.update_angry_mob_member_follow();
 
         if self.angry_mobs.active_count() == 0 {
             return;
@@ -48126,7 +48244,7 @@ fn update_scud_poison_zones(&mut self) {
                     if audio_pos.is_none() {
                         audio_pos = Some(target.get_position());
                     }
-                    let killed = target.take_damage_from_immediate(hit.damage, Some(plan.mob_id));
+                    let killed = target.take_damage_from(hit.damage, Some(plan.mob_id));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -63291,7 +63409,94 @@ mod tests {
 
     
     
+    
     #[test]
+    fn angry_mob_spawns_member_objects_on_nexus() {
+        use crate::game_logic::host_angry_mob::{
+            ANGRY_MOB_INITIAL_MEMBERS, ANGRY_MOB_MEMBER_TEMPLATES, ANGRY_MOB_MAX_MEMBERS,
+            ANGRY_MOB_EXPAND_INTERVAL_FRAMES,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        let mut nexus = ThingTemplate::new("GLAInfantryAngryMobNexus");
+        nexus.add_kind_of(KindOf::Infantry).set_health(99999.0);
+        logic
+            .templates
+            .insert("GLAInfantryAngryMobNexus".into(), nexus);
+        let nid = logic
+            .create_object(
+                "GLAInfantryAngryMobNexus",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        // complete construction residual
+        if let Some(o) = logic.objects.get_mut(&nid) {
+            o.construction_percent = 1.0;
+            o.status.under_construction = false;
+        }
+        logic.update_angry_mobs();
+        assert!(logic.honesty_angry_mob_member_spawn_ok());
+        let members: Vec<_> = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
+            .collect();
+        assert_eq!(
+            members.len() as u32,
+            ANGRY_MOB_INITIAL_MEMBERS,
+            "InitialBurst must spawn member objects"
+        );
+        assert!(members.iter().all(|m| {
+            ANGRY_MOB_MEMBER_TEMPLATES
+                .iter()
+                .any(|t| *t == m.template_name.as_str())
+        }));
+
+        // Expand residual adds another member object.
+        logic.frame = logic.frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
+        logic.update_angry_mobs();
+        let members2 = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
+            .count();
+        assert!(
+            members2 as u32 >= ANGRY_MOB_INITIAL_MEMBERS + 1
+                && (members2 as u32) <= ANGRY_MOB_MAX_MEMBERS
+        );
+
+        // Follow nexus move.
+        if let Some(n) = logic.objects.get_mut(&nid) {
+            n.set_position(Vec3::new(50.0, 0.0, 20.0));
+        }
+        logic.update_angry_mob_member_follow();
+        let mid = logic
+            .get_objects()
+            .values()
+            .find(|o| o.angry_mob_member)
+            .unwrap()
+            .id;
+        let mpos = logic.find_object(mid).unwrap().get_position();
+        assert!((mpos.x - 50.0).abs() < 20.0 && (mpos.z - 20.0).abs() < 20.0);
+
+        // Nexus death destroys members.
+        if let Some(n) = logic.objects.get_mut(&nid) {
+            n.status.destroyed = true;
+            n.status.effectively_dead = true;
+            n.health.current = 0.0;
+        }
+        logic.update_angry_mob_member_follow();
+        assert!(
+            logic
+                .find_object(mid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
+#[test]
     fn countermeasures_divert_spawns_flare_objects() {
         use crate::game_logic::host_countermeasures::{
             try_divert_missile, FLARE_LIFETIME_FRAMES, FLARE_TEMPLATE_NAME, VOLLEY_SIZE,
