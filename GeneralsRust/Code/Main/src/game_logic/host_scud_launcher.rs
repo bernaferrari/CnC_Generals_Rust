@@ -21,7 +21,8 @@
 //! - Honesty: `honesty_scud_launcher_residual_pack_ok` + layer honesty tests.
 //!
 //! Fail-closed honesty:
-//! - Not full SCUDMissile projectile lob / PreAttackDelay PER_SHOT animation
+//! - SCUDMissile projectile lob residual closed (MissileAI peel + HeightDie impact)
+//! - Not full PreAttackDelay PER_SHOT animation lock matrix
 //! - Not full salvage PlusOne/PlusTwo range/damage weapon-set matrix
 //! - Not full Anthrax Gamma particle bone / salvage PlusOne-Two matrix
 //! - Not network SCUD / toxin replication (network deferred)
@@ -77,6 +78,21 @@ pub const SCUD_DAMAGE_TYPE: &str = "EXPLOSION";
 pub const SCUD_DEATH_TYPE: &str = "EXPLODED";
 /// Retail ProjectileObject residual.
 pub const SCUD_PROJECTILE: &str = "SCUDMissile";
+/// Retail SCUDMissile MaxHealth residual.
+pub const SCUD_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// Retail MissileAIUpdate InitialVelocity residual (dist/sec).
+pub const SCUD_MISSILE_INITIAL_VELOCITY: f32 = 50.0;
+/// Retail DistanceToTravelBeforeTurning residual.
+pub const SCUD_MISSILE_TURN_DISTANCE: f32 = 200.0;
+/// Retail DistanceToTargetBeforeDiving residual.
+pub const SCUD_MISSILE_DIVE_DISTANCE: f32 = 200.0;
+/// Retail FuelLifetime 5000ms → 150 frames @ 30 FPS.
+pub const SCUD_MISSILE_FUEL_MS: u32 = 5_000;
+pub const SCUD_MISSILE_FUEL_FRAMES: u32 = 150;
+/// Residual loft preferred height peel (host Y-up).
+pub const SCUD_MISSILE_LOFT_HEIGHT: f32 = 80.0;
+/// Retail HeightDieUpdate peel for SCUDMissile (host_height_die config).
+pub const SCUD_MISSILE_HEIGHT_DIE_TARGET: f32 = 10.0;
 /// Retail FireFX residual.
 pub const SCUD_FIRE_FX: &str = "FX_ScudLauncherIgnition";
 /// Retail explosive ProjectileDetonationFX residual.
@@ -492,6 +508,9 @@ pub fn honesty_scud_launcher_weapon_residual_ok() -> bool {
         && SCUD_DAMAGE_TYPE == "EXPLOSION"
         && SCUD_DEATH_TYPE == "EXPLODED"
         && SCUD_PROJECTILE == "SCUDMissile"
+        && (SCUD_MISSILE_INITIAL_VELOCITY - 50.0).abs() < 0.01
+        && SCUD_MISSILE_FUEL_FRAMES == 150
+        && (SCUD_MISSILE_HEIGHT_DIE_TARGET - 10.0).abs() < 0.01
         && SCUD_FIRE_FX == "FX_ScudLauncherIgnition"
         && SCUD_EXP_DETONATION_FX == "WeaponFX_SCUDMissileDetonationExplosive"
         && SCUD_TOX_DETONATION_FX == "WeaponFX_SCUDMissileDetonationToxin"

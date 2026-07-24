@@ -1212,6 +1212,21 @@ pub struct Object {
     /// C++ NapalmBomb SpecialObject residual (Helix drop).
     #[serde(default)]
     pub helix_napalm_bomb_projectile: bool,
+    /// C++ SCUDMissile projectile residual (SCUD Launcher gun).
+    #[serde(default)]
+    pub scud_launcher_missile_projectile: bool,
+    /// SCUDMissile toxin warhead residual (secondary / anthrax slot).
+    #[serde(default)]
+    pub scud_launcher_missile_toxin: bool,
+    /// Aim point for SCUDMissile lob residual.
+    #[serde(default)]
+    pub scud_launcher_missile_aim: Option<[f32; 3]>,
+    /// Distance travelled this flight (DistanceToTravelBeforeTurning residual).
+    #[serde(default)]
+    pub scud_launcher_missile_travelled: f32,
+    /// Absolute frame when FuelLifetime residual expires.
+    #[serde(default)]
+    pub scud_launcher_missile_fuel_expires_frame: Option<u32>,
     /// Absolute frame when StealthJetMissile KillSelfDelay residual expires.
     #[serde(default)]
     pub stealth_jet_missile_expires_frame: Option<u32>,
@@ -1986,6 +2001,11 @@ impl Object {
             stealth_jet_missile_projectile: false,
             stealth_jet_missile_expires_frame: None,
             helix_napalm_bomb_projectile: false,
+            scud_launcher_missile_projectile: false,
+            scud_launcher_missile_toxin: false,
+            scud_launcher_missile_aim: None,
+            scud_launcher_missile_travelled: 0.0,
+            scud_launcher_missile_fuel_expires_frame: None,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
@@ -2433,6 +2453,11 @@ impl Object {
             stealth_jet_missile_projectile: false,
             stealth_jet_missile_expires_frame: None,
             helix_napalm_bomb_projectile: false,
+            scud_launcher_missile_projectile: false,
+            scud_launcher_missile_toxin: false,
+            scud_launcher_missile_aim: None,
+            scud_launcher_missile_travelled: 0.0,
+            scud_launcher_missile_fuel_expires_frame: None,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
