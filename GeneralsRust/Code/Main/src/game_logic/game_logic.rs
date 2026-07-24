@@ -1176,6 +1176,9 @@ pub struct GameLogic {
     /// C++ AnthraxBomb DeliverPayload residual counters.
     anthrax_bomb_flight_reg:
         crate::game_logic::host_anthrax_bomb_flight::HostAnthraxBombFlightRegistry,
+    /// C++ ClusterMines DeliverPayload residual counters.
+    cluster_mines_flight_reg:
+        crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2876,6 +2879,8 @@ impl GameLogic {
                 crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightRegistry::new(),
             anthrax_bomb_flight_reg:
                 crate::game_logic::host_anthrax_bomb_flight::HostAnthraxBombFlightRegistry::new(),
+            cluster_mines_flight_reg:
+                crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3350,6 +3355,7 @@ impl GameLogic {
         self.a10_strike_flight_reg.clear();
         self.daisy_cutter_flight_reg.clear();
         self.anthrax_bomb_flight_reg.clear();
+        self.cluster_mines_flight_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -6081,6 +6087,7 @@ impl GameLogic {
         self.update_a10_strike_flights();
         self.update_daisy_cutter_flights();
         self.update_anthrax_bomb_flights();
+        self.update_cluster_mines_flights();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -28752,6 +28759,140 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         Some(sid)
     }
 
+    /// C++ SUPERWEAPON_ClusterMines ChinaJetCargoPlane + ClusterMinesBomb residual.
+    pub fn spawn_cluster_mines_flight(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_cluster_mines_flight::{
+            HostClusterMinesFlightData, CLUSTER_MINES_BOMB_OBJECT,
+        };
+        use crate::game_logic::host_mines::CLUSTER_MINES_OCL_TRANSPORT;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let source_pos = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        let dx = target.x - source_pos.x;
+        let dz = target.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+        let edge = Vec3::new(
+            source_pos.x - dx / dist * 340.0,
+            150.0,
+            source_pos.z - dz / dist * 340.0,
+        );
+        if !self.templates.contains_key(CLUSTER_MINES_OCL_TRANSPORT) {
+            let mut t = ThingTemplate::new(CLUSTER_MINES_OCL_TRANSPORT);
+            t.set_health(600.0)
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle);
+            self.templates
+                .insert(CLUSTER_MINES_OCL_TRANSPORT.to_string(), t);
+        }
+        if !self.templates.contains_key(CLUSTER_MINES_BOMB_OBJECT) {
+            let mut t = ThingTemplate::new(CLUSTER_MINES_BOMB_OBJECT);
+            t.set_health(50.0).add_kind_of(KindOf::Projectile);
+            self.templates
+                .insert(CLUSTER_MINES_BOMB_OBJECT.to_string(), t);
+        }
+        let tid = self.create_object(CLUSTER_MINES_OCL_TRANSPORT, team, edge)?;
+        if let Some(o) = self.objects.get_mut(&tid) {
+            o.producer_id = Some(source_id);
+            o.cluster_mines_transport =
+                Some(HostClusterMinesFlightData::start(edge, target));
+            o.set_orientation(dz.atan2(dx));
+        }
+        self.cluster_mines_flight_reg.record_transport();
+        Some(tid)
+    }
+
+    pub fn update_cluster_mines_flights(&mut self) {
+        use crate::game_logic::host_cluster_mines_flight::CLUSTER_MINES_BOMB_OBJECT;
+
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.cluster_mines_transport.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut drops: Vec<(Team, Vec3, ObjectId)> = Vec::new();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let pos = o.get_position();
+            let Some(data) = o.cluster_mines_transport.as_mut() else {
+                continue;
+            };
+            let (new_pos, vel, over) = data.tick_transport(pos);
+            let target = data.target;
+            let _ = data;
+            o.set_position(new_pos);
+            o.movement.velocity = vel;
+            if vel.length_squared() > 1e-6 {
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            if over {
+                let team = o.team;
+                let producer = o.producer_id.unwrap_or(id);
+                o.cluster_mines_transport = None;
+                drops.push((team, target, producer));
+            }
+        }
+        for (team, target, producer) in drops {
+            let drop_pos = Vec3::new(target.x, 80.0, target.z);
+            if let Some(bid) = self.create_object(CLUSTER_MINES_BOMB_OBJECT, team, drop_pos) {
+                if let Some(o) = self.objects.get_mut(&bid) {
+                    o.producer_id = Some(producer);
+                    o.cluster_mines_bomb = true;
+                    o.movement.velocity = Vec3::new(0.0, -14.0, 0.0);
+                    let _ = o.set_smart_bomb_target(target);
+                }
+                self.cluster_mines_flight_reg.record_drop();
+            }
+        }
+
+        let bombs: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.cluster_mines_bomb && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in bombs {
+            let (pos, producer, team) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let mut p = o.get_position();
+                p.y += o.movement.velocity.y;
+                o.set_position(p);
+                (p, o.producer_id, o.team)
+            };
+            if pos.y <= 5.0 {
+                let impact = Vec3::new(pos.x, 0.0, pos.z);
+                let mines = self.place_cluster_mines(team, impact, producer);
+                self.cluster_mines_flight_reg
+                    .record_minefield(mines.len() as u32);
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    pos,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -28790,6 +28931,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_anthrax_bomb_flight_ok(&self) -> bool {
         crate::game_logic::host_anthrax_bomb_flight::honesty_anthrax_bomb_flight_residual_ok()
+    }
+
+    pub fn honesty_cluster_mines_flight_ok(&self) -> bool {
+        crate::game_logic::host_cluster_mines_flight::honesty_cluster_mines_flight_residual_ok()
     }
 
     pub fn honesty_scud_storm_missile_flight_ok(&self) -> bool {
@@ -68784,6 +68929,47 @@ mod tests {
     /// residual. Fail-closed: not full Start animation / multi-shockwave / TunnelContain.
 
 
+
+    #[test]
+    fn cluster_mines_flight_places_field() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::China);
+        let mut cc = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let cc_id = logic
+            .create_object("ChinaCommandCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let jet = logic
+            .spawn_cluster_mines_flight(cc_id, Vec3::new(180.0, 0.0, 0.0))
+            .expect("cargo");
+        assert!(logic.find_object(jet).unwrap().cluster_mines_transport.is_some());
+        assert!(logic.cluster_mines_flight_reg.transports_spawned >= 1);
+        let mines_before = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.template_name.contains("Mine") || o.template_name.contains("mine"))
+            .count();
+        for f in 0..400 {
+            logic.frame = f;
+            logic.update_cluster_mines_flights();
+            if logic.cluster_mines_flight_reg.minefields_placed >= 1 {
+                break;
+            }
+        }
+        assert!(logic.cluster_mines_flight_reg.bombs_dropped >= 1);
+        assert!(logic.cluster_mines_flight_reg.minefields_placed >= 1);
+        assert!(logic.cluster_mines_flight_reg.mines_spawned >= 1);
+        let mines_after = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.template_name.contains("Mine") || o.template_name.contains("mine"))
+            .count();
+        assert!(mines_after > mines_before, "mines should be placed after bomb impact");
+        assert!(logic.honesty_cluster_mines_flight_ok());
+    }
+
     #[test]
     fn anthrax_bomb_flight_drops_payload() {
         use crate::game_logic::KindOf;
@@ -81066,6 +81252,22 @@ mod tests {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
         game_logic.process_commands();
+
+        // DeliverPayload residual: cargo plane drops bomb then mines place on impact.
+        assert!(
+            game_logic.cluster_mines_flight_reg.transports_spawned >= 1
+                || game_logic.mine_residual_places() as usize >= 1,
+            "ClusterMines must spawn cargo residual or place mines"
+        );
+        for f in 0..400 {
+            game_logic.frame = f;
+            game_logic.update_cluster_mines_flights();
+            if game_logic.cluster_mines_flight_reg.minefields_placed >= 1
+                || game_logic.mine_residual_places() as usize >= CLUSTER_MINE_COUNT
+            {
+                break;
+            }
+        }
 
         assert!(
             game_logic.mine_residual_places() as usize >= CLUSTER_MINE_COUNT,
