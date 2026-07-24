@@ -1468,6 +1468,15 @@ pub struct Object {
     pub angry_mob_projectile_flight_frames: u32,
     #[serde(default)]
     pub angry_mob_projectile_intended: Option<u32>,
+    /// Host residual: FireFieldSmall OCL object from Inferno shell impact.
+    #[serde(default)]
+    pub inferno_fire_field: bool,
+    #[serde(default)]
+    pub inferno_fire_field_upgraded: bool,
+    #[serde(default)]
+    pub inferno_fire_field_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub inferno_fire_field_zone_id: Option<u32>,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2520,6 +2529,10 @@ impl Object {
             angry_mob_projectile_launch_frame: None,
             angry_mob_projectile_flight_frames: 0,
             angry_mob_projectile_intended: None,
+            inferno_fire_field: false,
+            inferno_fire_field_upgraded: false,
+            inferno_fire_field_expires_frame: None,
+            inferno_fire_field_zone_id: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -3126,6 +3139,10 @@ impl Object {
             angry_mob_projectile_launch_frame: None,
             angry_mob_projectile_flight_frames: 0,
             angry_mob_projectile_intended: None,
+            inferno_fire_field: false,
+            inferno_fire_field_upgraded: false,
+            inferno_fire_field_expires_frame: None,
+            inferno_fire_field_zone_id: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
