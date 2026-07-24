@@ -1058,6 +1058,13 @@ pub struct Object {
     #[serde(default)]
     pub scud_storm_missile_flight:
         Option<crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightData>,
+    /// C++ CarpetBomb payload HeightDie residual.
+    #[serde(default)]
+    pub carpet_bomb_payload: bool,
+    /// C++ AmericaJetB52 carpet transport residual.
+    #[serde(default)]
+    pub carpet_bomb_transport:
+        Option<crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightData>,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1746,6 +1753,8 @@ impl Object {
             fuel_air_gas_slow_death: None,
             neutron_missile_update: None,
             scud_storm_missile_flight: None,
+            carpet_bomb_payload: false,
+            carpet_bomb_transport: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2132,6 +2141,8 @@ impl Object {
             fuel_air_gas_slow_death: None,
             neutron_missile_update: None,
             scud_storm_missile_flight: None,
+            carpet_bomb_payload: false,
+            carpet_bomb_transport: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,

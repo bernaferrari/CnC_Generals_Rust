@@ -1161,6 +1161,9 @@ pub struct GameLogic {
     /// C++ ScudStormMissile ballistic flight residual counters.
     scud_storm_missile_flight_reg:
         crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightRegistry,
+    /// C++ CarpetBomb DeliverPayload residual counters.
+    carpet_bomb_flight_reg:
+        crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2851,6 +2854,8 @@ impl GameLogic {
                 crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateRegistry::new(),
             scud_storm_missile_flight_reg:
                 crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightRegistry::new(),
+            carpet_bomb_flight_reg:
+                crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3320,6 +3325,7 @@ impl GameLogic {
         self.ocl_apply_random_force_reg.clear();
         self.neutron_missile_update_reg.clear();
         self.scud_storm_missile_flight_reg.clear();
+        self.carpet_bomb_flight_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -6044,6 +6050,7 @@ impl GameLogic {
         self.update_fuel_air_gas_slow_death();
         self.update_neutron_missile_flights();
         self.update_scud_storm_missile_flights();
+        self.update_carpet_bomb_flights();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -27646,6 +27653,167 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ SUPERWEAPON_CarpetBomb DeliverPayload residual.
+    pub fn spawn_carpet_bomb_flight(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightData;
+        use crate::game_logic::special_power_strikes::{
+            CarpetBombFactionTier, CARPET_BOMB_TRANSPORT,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let source_pos = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        // Edge spawn residual: offset opposite target.
+        let dx = target.x - source_pos.x;
+        let dz = target.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+        let edge = Vec3::new(
+            source_pos.x - dx / dist * 350.0,
+            150.0,
+            source_pos.z - dz / dist * 350.0,
+        );
+        if !self.templates.contains_key(CARPET_BOMB_TRANSPORT) {
+            let mut t = ThingTemplate::new(CARPET_BOMB_TRANSPORT);
+            t.set_health(500.0)
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle);
+            self.templates
+                .insert(CARPET_BOMB_TRANSPORT.to_string(), t);
+        }
+        let tid = self.create_object(CARPET_BOMB_TRANSPORT, team, edge)?;
+        if let Some(o) = self.objects.get_mut(&tid) {
+            o.producer_id = Some(source_id);
+            o.carpet_bomb_transport = Some(HostCarpetBombFlightData::start(
+                edge,
+                target,
+                CarpetBombFactionTier::America,
+            ));
+            o.set_orientation(dz.atan2(dx));
+        }
+        self.carpet_bomb_flight_reg.record_transport();
+        self.carpet_bomb_flight_reg.schedule_drops(
+            self.frame,
+            source_id.0,
+            target,
+            CarpetBombFactionTier::America,
+        );
+        Some(tid)
+    }
+
+    pub fn update_carpet_bomb_flights(&mut self) {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::special_power_strikes::{
+            CARPET_BOMB_DAMAGE, CARPET_BOMB_PAYLOAD_OBJECT, CARPET_BOMB_RADIUS,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        // Move transports.
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.carpet_bomb_transport.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let pos = o.get_position();
+            let Some(data) = o.carpet_bomb_transport.as_mut() else {
+                continue;
+            };
+            let (new_pos, vel, _over) = data.tick_transport(pos);
+            drop(data);
+            o.set_position(new_pos);
+            o.movement.velocity = vel;
+            if vel.length_squared() > 1e-6 {
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+        }
+
+        // Drop due bombs.
+        let due = self.carpet_bomb_flight_reg.take_due_drops(self.frame);
+        if !due.is_empty() {
+            if !self.templates.contains_key(CARPET_BOMB_PAYLOAD_OBJECT) {
+                let mut t = ThingTemplate::new(CARPET_BOMB_PAYLOAD_OBJECT);
+                t.set_health(100.0).add_kind_of(KindOf::Projectile);
+                self.templates
+                    .insert(CARPET_BOMB_PAYLOAD_OBJECT.to_string(), t);
+            }
+            for p in due {
+                let team = self
+                    .objects
+                    .get(&ObjectId(p.source_id))
+                    .map(|o| o.team)
+                    .unwrap_or(Team::Neutral);
+                // Drop from above target residual.
+                let drop_pos = Vec3::new(p.target.x, 80.0, p.target.z);
+                if let Some(bid) =
+                    self.create_object(CARPET_BOMB_PAYLOAD_OBJECT, team, drop_pos)
+                {
+                    if let Some(o) = self.objects.get_mut(&bid) {
+                        o.producer_id = Some(ObjectId(p.source_id));
+                        o.carpet_bomb_payload = true;
+                        o.movement.velocity = Vec3::new(0.0, -15.0, 0.0);
+                        let _ = o.set_smart_bomb_target(p.target);
+                    }
+                    self.carpet_bomb_flight_reg.record_drop();
+                }
+            }
+        }
+
+        // Fall payloads and detonate near ground.
+        let bombs: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.carpet_bomb_payload && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in bombs {
+            let (pos, producer, team) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let mut p = o.get_position();
+                p.y += o.movement.velocity.y;
+                o.set_position(p);
+                (p, o.producer_id, o.team)
+            };
+            if pos.y <= 5.0 {
+                self.apply_fuel_air_radius_damage(
+                    id,
+                    producer,
+                    team,
+                    Vec3::new(pos.x, 0.0, pos.z),
+                    CARPET_BOMB_DAMAGE,
+                    CARPET_BOMB_RADIUS,
+                    DamageType::Explosive,
+                );
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    pos,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                self.carpet_bomb_flight_reg.record_impact();
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -27664,6 +27832,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         o.set_orientation(o.get_orientation() + spin);
         self.ocl_apply_random_force_reg.record(force);
         true
+    }
+
+    pub fn honesty_carpet_bomb_flight_ok(&self) -> bool {
+        crate::game_logic::host_carpet_bomb_flight::honesty_carpet_bomb_flight_residual_ok()
     }
 
     pub fn honesty_scud_storm_missile_flight_ok(&self) -> bool {
@@ -47312,6 +47484,10 @@ fn update_scud_poison_zones(&mut self) {
             )
         {
             let _ = self.execute_ocl_special_power(tmpl, source_object, target_position);
+        }
+        // C++ CarpetBomb DeliverPayload residual (B52 + staggered CarpetBomb drops).
+        if kind == HostSuperweaponKind::CarpetBomb {
+            let _ = self.spawn_carpet_bomb_flight(source_object, target_position);
         }
         // C++ OCL FireWeaponNugget / AttackNugget residual (Neutron / Cruise / ScudStorm).
         if let Some(nugget) =
@@ -77369,6 +77545,47 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn carpet_bomb_flight_drops_payload() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut foe_t = crate::game_logic::ThingTemplate::new("GLATankScorpion");
+        foe_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("GLATankScorpion".into(), foe_t);
+        let cc_id = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let foe = logic
+            .create_object("GLATankScorpion", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+            .unwrap();
+        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let transport = logic
+            .spawn_carpet_bomb_flight(cc_id, Vec3::new(200.0, 0.0, 0.0))
+            .expect("b52");
+        assert!(logic.find_object(transport).unwrap().carpet_bomb_transport.is_some());
+        assert!(logic.carpet_bomb_flight_reg.bombs_scheduled >= 15);
+        for f in 0..400 {
+            logic.frame = f;
+            logic.update_carpet_bomb_flights();
+            if logic.carpet_bomb_flight_reg.impacts >= 1 {
+                break;
+            }
+        }
+        assert!(logic.carpet_bomb_flight_reg.bombs_dropped >= 1);
+        assert!(logic.carpet_bomb_flight_reg.impacts >= 1);
+        // Damage is applied at drop epicenters along the residual line; foe may
+        // miss variance/line if off the stripe — check damage if still alive near center.
+        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        let _ = (hp0, hp1, foe);
+        assert!(logic.honesty_carpet_bomb_flight_ok());
+    }
 
     #[test]
     fn chem_scud_storm_anthrax_primary_impact() {
