@@ -1067,6 +1067,9 @@ pub struct Object {
     /// C++ ProneUpdate residual (infantry cower).
     #[serde(default)]
     pub prone_update: Option<crate::game_logic::host_prone_update::HostProneUpdateData>,
+    /// C++ RadiusDecalUpdate residual (SW delivery decal).
+    #[serde(default)]
+    pub radius_decal_update: Option<crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateData>,
     /// C++ HelicopterSlowDeathBehavior residual.
     #[serde(default)]
     pub helicopter_slow_death:
@@ -1724,6 +1727,7 @@ impl Object {
             animation_steering: None,
             float_update: None,
             prone_update: None,
+            radius_decal_update: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -2103,6 +2107,7 @@ impl Object {
             animation_steering: None,
             float_update: None,
             prone_update: None,
+            radius_decal_update: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -3733,6 +3738,39 @@ impl Object {
         {
             self.prone_update = Some(data);
         }
+    }
+
+    pub fn install_radius_decal_update_if_needed(&mut self) {
+        if self.radius_decal_update.is_some() {
+            return;
+        }
+        if let Some(data) =
+            crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateData::for_template(
+                &self.template_name,
+            )
+        {
+            self.radius_decal_update = Some(data);
+        }
+    }
+
+    pub fn create_delivery_radius_decal(
+        &mut self,
+        pos: glam::Vec3,
+        frame: u32,
+    ) -> bool {
+        self.install_radius_decal_update_if_needed();
+        let Some(rd) = self.radius_decal_update.as_mut() else {
+            return false;
+        };
+        let tmpl = crate::game_logic::host_radius_decal_update::default_delivery_decal_template_for_host(
+            &self.template_name,
+        );
+        let radius = crate::game_logic::host_radius_decal_update::default_delivery_decal_radius_for_template(
+            &self.template_name,
+        );
+        rd.create_radius_decal(tmpl, radius, pos, frame);
+        rd.set_kill_when_no_longer_attacking(true);
+        !rd.delivery_decal.is_empty()
     }
 
     pub fn install_enemy_near_if_needed(&mut self) {
