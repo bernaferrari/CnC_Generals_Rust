@@ -29,7 +29,9 @@
 //!
 //! Fail-closed honesty:
 //! - Not full AuroraBombLocomotor flight path / MissileAIUpdate DistanceToTargetBeforeDiving
-//! - Not full HeightDieUpdate / CreateObjectDie OCL_AuroraBombExplode gas object
+//! - FuelAir CreateObjectDie OCL gas object residual closed (AirF_AuroraBombGas /
+//!   SupW_AuroraFuelAirGas SlowDeath via host_fuel_air_gas_slow_death)
+//! - Not full HeightDieUpdate / debris CreateDebris matrix
 //! - Not full SlowDeath multi-stage timing / tree burn state / FX GPU
 //! - Not full JetAIUpdate SET_SUPERSONIC sneak offset / airfield RETURN_TO_BASE rearm path
 //!   (ClipSize/ClipReload/AutoReloadsClip residual honesty closed Wave 61)
@@ -65,7 +67,10 @@ pub const AURORA_FUEL_AIR_SUPW_DAMAGE: f32 = 900.0;
 pub const AURORA_FUEL_AIR_SUPW_RADIUS: f32 = 70.0;
 /// Retail AuroraBombGas / SupW_AuroraFuelAirGas DestructionDelay = 1000 ms → 30 frames.
 pub const AURORA_FUEL_AIR_GAS_DELAY_FRAMES: u32 = 30;
-/// Combined dive + gas detonation delay for FuelAir residual.
+/// Dive-only delay before FuelAir gas SpecialObject spawn residual.
+/// Gas SlowDeath DestructionDelay then covers AURORA_FUEL_AIR_GAS_DELAY_FRAMES.
+pub const AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES: u32 = AURORA_BOMB_DIVE_DELAY_FRAMES;
+/// Combined dive + gas detonation delay honesty (45 + 30).
 pub const AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES: u32 =
     AURORA_BOMB_DIVE_DELAY_FRAMES + AURORA_FUEL_AIR_GAS_DELAY_FRAMES;
 
@@ -218,7 +223,7 @@ impl HostAuroraBombKind {
         match self {
             HostAuroraBombKind::Standard => AURORA_BOMB_DIVE_DELAY_FRAMES,
             HostAuroraBombKind::FuelAir | HostAuroraBombKind::FuelAirSupW => {
-                AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES
+                AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES
             }
         }
     }
@@ -270,6 +275,18 @@ impl HostAuroraBombKind {
             self,
             HostAuroraBombKind::FuelAir | HostAuroraBombKind::FuelAirSupW
         )
+    }
+
+    /// Retail CreateObjectDie OCL gas SpecialObject name residual.
+    pub fn fuel_air_gas_object_name(self) -> Option<&'static str> {
+        use crate::game_logic::host_fuel_air_gas_slow_death::{
+            AIRF_AURORA_BOMB_GAS_OBJECT, SUPW_AURORA_FUEL_AIR_GAS_OBJECT,
+        };
+        match self {
+            HostAuroraBombKind::FuelAir => Some(AIRF_AURORA_BOMB_GAS_OBJECT),
+            HostAuroraBombKind::FuelAirSupW => Some(SUPW_AURORA_FUEL_AIR_GAS_OBJECT),
+            HostAuroraBombKind::Standard => None,
+        }
     }
 
     /// Whether this is any Fuel-Air residual path (AirF or SupW).
@@ -895,7 +912,7 @@ mod tests {
         );
         assert_eq!(
             reg.get(id).unwrap().impact_frame,
-            AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES
+            AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES
         );
         // Enemy at epicenter: primary 900 + flame 5.
         // Enemy at r80: outside SupW primary 70 but inside flame 100 → flame only.
@@ -907,7 +924,7 @@ mod tests {
             (ObjectId(4), Vec3::new(120.0, 0.0, 0.0), Team::GLA, true),
             (ObjectId(5), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // ally ALLIES
         ];
-        let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, &objects);
+        let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES, &objects);
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].kind, HostAuroraBombKind::FuelAirSupW);
         let hits = &plans[0].hits;
@@ -970,7 +987,7 @@ mod tests {
         assert_eq!(reg.pending_count(), 1);
         assert_eq!(
             reg.get(id).unwrap().impact_frame,
-            AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES
+            AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES
         );
 
         let objects = vec![
@@ -981,10 +998,10 @@ mod tests {
         ];
 
         // Before delay: no plans.
-        let early = reg.plan_due_impacts(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES - 1, &objects);
+        let early = reg.plan_due_impacts(AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES - 1, &objects);
         assert!(early.is_empty(), "no damage plan before dive delay");
 
-        let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, &objects);
+        let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES, &objects);
         assert_eq!(plans.len(), 1);
         // Enemy + friend at epicenter; source excluded; far outside primary+flame.
         assert_eq!(
@@ -1039,7 +1056,7 @@ mod tests {
             (ObjectId(12), Vec3::new(120.0, 0.0, 0.0), Team::USA, true), // ally outer
             (ObjectId(13), Vec3::new(0.0, 0.0, 0.0), Team::GLA, true),   // enemy epicenter
         ];
-        let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, &objects);
+        let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES, &objects);
         assert_eq!(plans.len(), 1);
         let hits = &plans[0].hits;
         let mid = hits

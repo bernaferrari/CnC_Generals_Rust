@@ -1428,8 +1428,10 @@ pub struct GameLogic {
     inferno_fire_zones: crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry,
 
     /// Host America Aurora dive bomb residual (delayed FuelAir / AuroraBomb area damage).
-    /// Fail-closed: not full AuroraBombLocomotor / HeightDieUpdate / gas OCL path.
+    /// FuelAir CreateObjectDie gas SpecialObject residual closed.
     aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry,
+    /// Honesty: AirF/SupW Aurora FuelAir gas objects spawned on dive impact.
+    aurora_fuel_air_gas_spawned: u32,
 
     /// Host GLA Angry Mob residual (nexus damages nearby enemies / expands members).
     /// Fail-closed: not full SpawnBehavior member objects / MobMemberSlavedUpdate matrix.
@@ -2982,6 +2984,7 @@ impl GameLogic {
             inferno_fire_zones:
                 crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry::new(),
             aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry::new(),
+            aurora_fuel_air_gas_spawned: 0,
             angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry::new(),
             stealth_fighter_science:
                 crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry::new(),
@@ -3447,6 +3450,7 @@ impl GameLogic {
         self.fire_walls.clear();
         self.inferno_fire_zones.clear();
         self.aurora_bombs.clear();
+        self.aurora_fuel_air_gas_spawned = 0;
         self.angry_mobs.clear();
         self.stealth_fighter_science.clear();
         self.unit_training.clear();
@@ -48161,6 +48165,53 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Advance pending Aurora dive bombs to impact and apply area damage.
+    /// C++ CreateObjectDie OCL_AuroraBombExplode / SupW FuelAir gas SpecialObject residual.
+    pub fn spawn_aurora_fuel_air_gas_object(
+        &mut self,
+        kind: crate::game_logic::host_aurora_bomb::HostAuroraBombKind,
+        source_object: ObjectId,
+        source_team: Team,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_fuel_air_gas_slow_death::FUEL_AIR_GAS_MAX_HEALTH;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let gas_name = kind.fuel_air_gas_object_name()?;
+        if !self.templates.contains_key(gas_name) {
+            let mut t = ThingTemplate::new(gas_name);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(FUEL_AIR_GAS_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(gas_name.to_string(), t);
+        }
+        let place = Vec3::new(position.x, position.y.max(0.0) + 20.0, position.z);
+        let gid = self.create_object(gas_name, source_team, place)?;
+        if let Some(o) = self.objects.get_mut(&gid) {
+            o.producer_id = Some(source_object);
+            o.health.maximum = FUEL_AIR_GAS_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, FUEL_AIR_GAS_MAX_HEALTH);
+            o.movement.max_speed = 0.0;
+            o.weapon = None;
+            o.secondary_weapon = None;
+            o.ensure_fuel_air_gas_slow_death(self.frame);
+        }
+        if self
+            .objects
+            .get(&gid)
+            .and_then(|o| o.fuel_air_gas_slow_death.as_ref())
+            .is_some()
+        {
+            self.fuel_air_gas_reg.record_install();
+        }
+        self.aurora_fuel_air_gas_spawned =
+            self.aurora_fuel_air_gas_spawned.saturating_add(1);
+        Some(gid)
+    }
+
+    pub fn honesty_aurora_fuel_air_gas_object_ok(&self) -> bool {
+        self.aurora_fuel_air_gas_spawned > 0
+    }
+
     pub fn update_aurora_bombs(&mut self) {
         self.aurora_bombs.clear_frame_events();
 
@@ -48175,6 +48226,38 @@ fn update_scud_poison_zones(&mut self) {
             .plan_due_impacts(self.frame, &object_positions);
 
         for plan in plans {
+            // FuelAir: CreateObjectDie gas SpecialObject carries SlowDeath detonation.
+            if plan.kind.is_fuel_air() {
+                let gas_id = self.spawn_aurora_fuel_air_gas_object(
+                    plan.kind,
+                    plan.source_object,
+                    plan.source_team,
+                    plan.target_position,
+                );
+                // Impact cue residual (bomb shell break / ignite path).
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    plan.target_position,
+                    self.frame,
+                    Some(plan.source_object),
+                    None,
+                );
+                self.queue_audio_event(
+                    AudioEventRequest::new(plan.kind.impact_audio())
+                        .with_object(plan.source_object)
+                        .with_position(plan.target_position)
+                        .with_priority(200),
+                );
+                self.aurora_bombs.record_impact_complete(
+                    plan.mission_id,
+                    0.0,
+                    if gas_id.is_some() { 1 } else { 0 },
+                    0,
+                );
+                let _ = gas_id;
+                continue;
+            }
+
             let mut total_damage = 0.0_f32;
             let mut objects_hit = 0_u32;
             let mut objects_destroyed = 0_u32;
@@ -63105,6 +63188,88 @@ mod tests {
         );
         assert!(!logic.booby_trap.is_booby_trapped(structure));
         let _ = BOOBY_MAX_SPECIAL_OBJECTS;
+    }
+
+    
+    #[test]
+    fn aurora_fuel_air_impact_spawns_gas_object() {
+        use crate::game_logic::host_aurora_bomb::{
+            HostAuroraBombKind, AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES,
+        };
+        use crate::game_logic::host_fuel_air_gas_slow_death::{
+            AIRF_AURORA_BOMB_GAS_OBJECT, FUEL_AIR_GAS_DESTRUCTION_DELAY_FRAMES,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        let mut jet = ThingTemplate::new("AirF_AmericaJetAurora");
+        jet.add_kind_of(KindOf::Aircraft).set_health(80.0);
+        logic.templates.insert("AirF_AmericaJetAurora".into(), jet);
+        let mut tgt = ThingTemplate::new("GLATunnelNetwork");
+        tgt.add_kind_of(KindOf::Structure).set_health(2000.0);
+        logic.templates.insert("GLATunnelNetwork".into(), tgt);
+
+        let src = logic
+            .create_object(
+                "AirF_AmericaJetAurora",
+                Team::USA,
+                Vec3::new(0.0, 50.0, 0.0),
+            )
+            .unwrap();
+        let building = logic
+            .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.find_object(building).unwrap().health.current;
+
+        let mid = logic.aurora_bombs.queue(
+            HostAuroraBombKind::FuelAir,
+            src,
+            Team::USA,
+            Vec3::new(30.0, 0.0, 0.0),
+            logic.frame,
+        );
+        assert!(mid > 0);
+        logic.frame = logic.frame.saturating_add(AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES);
+        logic.update_aurora_bombs();
+
+        assert!(logic.honesty_aurora_fuel_air_gas_object_ok());
+        assert!(logic.aurora_fuel_air_gas_spawned >= 1);
+        let gas = logic
+            .get_objects()
+            .values()
+            .find(|o| o.template_name == AIRF_AURORA_BOMB_GAS_OBJECT)
+            .expect("AirF_AuroraBombGas");
+        assert!(gas.fuel_air_gas_slow_death.is_some());
+        let gid = gas.id;
+        // Immediate blast should not have nuked the building before gas SlowDeath FINAL.
+        let hp_mid = logic.find_object(building).unwrap().health.current;
+        assert_eq!(hp_mid, hp_before, "gas path defers primary blast to SlowDeath");
+
+        // Advance gas SlowDeath phase-by-phase (one event per update residual).
+        for _ in 0..(FUEL_AIR_GAS_DESTRUCTION_DELAY_FRAMES + 4) {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_fuel_air_gas_slow_death();
+        }
+        assert!(
+            logic.fuel_air_gas_reg.final_detonations > 0
+                || logic.fuel_air_gas_reg.midpoint_flames > 0,
+            "gas SlowDeath must tick midpoint/final residual"
+        );
+        assert!(
+            logic
+                .find_object(gid)
+                .map(|o| {
+                    !o.is_alive()
+                        || o.status.destroyed
+                        || o.fuel_air_gas_slow_death
+                            .as_ref()
+                            .map(|d| d.is_complete())
+                            .unwrap_or(false)
+                })
+                .unwrap_or(true),
+            "gas object completes SlowDeath residual"
+        );
+        let _ = (building, hp_before);
     }
 
     #[test]
