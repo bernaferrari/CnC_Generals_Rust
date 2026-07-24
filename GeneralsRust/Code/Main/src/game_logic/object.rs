@@ -1108,6 +1108,13 @@ pub struct Object {
     /// C++ GLASneakAttackTunnelNetworkStart residual marker.
     #[serde(default)]
     pub sneak_tunnel_start: bool,
+    /// C++ ClusterMines ChinaJetCargoPlane transport residual.
+    #[serde(default)]
+    pub cluster_mines_transport:
+        Option<crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightData>,
+    /// C++ ClusterMinesBomb HeightDie residual.
+    #[serde(default)]
+    pub cluster_mines_bomb: bool,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1811,6 +1818,8 @@ impl Object {
             anthrax_bomb_transport: None,
             anthrax_bomb_payload: false,
             sneak_tunnel_start: false,
+            cluster_mines_transport: None,
+            cluster_mines_bomb: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2212,6 +2221,8 @@ impl Object {
             anthrax_bomb_transport: None,
             anthrax_bomb_payload: false,
             sneak_tunnel_start: false,
+            cluster_mines_transport: None,
+            cluster_mines_bomb: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
