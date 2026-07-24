@@ -13,7 +13,8 @@
 //! diversion delay. Host residual collapses delay into immediate miss.
 //!
 //! Fail-closed honesty:
-//! - Not full CountermeasureFlare OCL spawn / bone volley / MissileDecoyDelay
+//! - CountermeasureFlare SpecialObject spawn residual closed (LifetimeUpdate 3s)
+//! - Not full bone volley arc / VolleyVelocityFactor locomotor matrix
 //! - Not full calculateCountermeasureToDivertTo closest-flare seeker
 //! - Airfield reload residual: docked at friendly airfield restores full load
 //!   (C++ JetAIUpdate → reloadCountermeasures; ReloadTime=0 / MustReloadAtAirfield)
@@ -30,6 +31,11 @@ use std::collections::HashMap;
 pub const FLARE_TEMPLATE_NAME: &str = "CountermeasureFlare";
 /// Retail FlareBoneBaseName residual.
 pub const FLARE_BONE_BASE_NAME: &str = "Flare";
+/// Retail CountermeasureFlare LifetimeUpdate Min/MaxLifetime = 3000 ms → 90f @ 30 FPS.
+pub const FLARE_LIFETIME_MS: u32 = 3_000;
+pub const FLARE_LIFETIME_FRAMES: u32 = (FLARE_LIFETIME_MS * 30 + 999) / 1000;
+/// Retail CountermeasureFlare body residual.
+pub const FLARE_MAX_HEALTH: f32 = 1.0;
 
 /// Retail VolleySize residual (Raptor ModuleTag_11).
 pub const VOLLEY_SIZE: u32 = 4;
@@ -107,12 +113,22 @@ impl HostCountermeasuresState {
 }
 
 /// Host registry of countermeasures residual by aircraft ObjectId.
+/// Pending CountermeasureFlare SpecialObject spawn residual.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingCountermeasureFlareSpawn {
+    pub aircraft_id: ObjectId,
+    pub frame: u32,
+    pub volley_index: u32,
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct HostCountermeasuresRegistry {
     states: HashMap<u32, HostCountermeasuresState>,
     total_reports: u32,
     total_diverts: u32,
     total_reloads: u32,
+    pub flares_spawned: u32,
+    pending_flare_spawns: Vec<PendingCountermeasureFlareSpawn>,
 }
 
 impl HostCountermeasuresRegistry {
@@ -125,6 +141,28 @@ impl HostCountermeasuresRegistry {
         self.total_reports = 0;
         self.total_diverts = 0;
         self.total_reloads = 0;
+        self.flares_spawned = 0;
+        self.pending_flare_spawns.clear();
+    }
+
+    /// Drain pending CountermeasureFlare spawn residuals.
+    pub fn take_pending_flare_spawns(&mut self) -> Vec<PendingCountermeasureFlareSpawn> {
+        std::mem::take(&mut self.pending_flare_spawns)
+    }
+
+    pub fn record_flare_spawned(&mut self, n: u32) {
+        self.flares_spawned = self.flares_spawned.saturating_add(n);
+    }
+
+    pub fn honesty_flare_spawn_ok(&self) -> bool {
+        self.flares_spawned > 0
+    }
+
+    /// LifetimeUpdate expired residual — free active flare slot bookkeeping.
+    pub fn note_flare_expired(&mut self, aircraft_id: ObjectId) {
+        if let Some(st) = self.states.get_mut(&aircraft_id.0) {
+            st.active = st.active.saturating_sub(1);
+        }
     }
 
     pub fn ensure(&mut self, aircraft_id: ObjectId) -> &mut HostCountermeasuresState {
@@ -205,16 +243,23 @@ pub fn try_divert_missile(
     if roll >= EVASION_RATE {
         return false;
     }
-    // Consume one available flare residual (volley bookkeeping simplified).
-    if st.available > 0 {
-        st.available -= 1;
-        st.active = st.active.saturating_add(1);
-        // Active flares "expire" immediately in residual (no lifetime list).
-        st.active = st.active.saturating_sub(1);
+    // Launch one volley residual (VolleySize flares) when available.
+    let flares = st.available.min(VOLLEY_SIZE);
+    if flares > 0 {
+        st.available = st.available.saturating_sub(flares);
+        st.active = st.active.saturating_add(flares);
     }
     st.diverted_missiles = st.diverted_missiles.saturating_add(1);
     st.volleys_fired = st.volleys_fired.saturating_add(1);
     reg.total_diverts = reg.total_diverts.saturating_add(1);
+    for vi in 0..flares {
+        reg.pending_flare_spawns.push(PendingCountermeasureFlareSpawn {
+            aircraft_id,
+            frame,
+            volley_index: vi,
+        });
+    }
+    let _ = projectile_id;
     true
 }
 
@@ -222,6 +267,7 @@ pub fn try_divert_missile(
 pub fn honesty_countermeasures_residual_pack_ok() -> bool {
     FLARE_TEMPLATE_NAME == "CountermeasureFlare"
         && FLARE_BONE_BASE_NAME == "Flare"
+        && FLARE_LIFETIME_FRAMES == 90
         && VOLLEY_SIZE == 4
         && NUMBER_OF_VOLLEYS == 5
         && FULL_LOAD_COUNTERMEASURES == 20

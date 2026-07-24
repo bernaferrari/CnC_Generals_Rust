@@ -1182,6 +1182,12 @@ pub struct Object {
     /// Structure this BoobyTrap SpecialObject is stuck to.
     #[serde(default)]
     pub booby_trap_attached_to: Option<ObjectId>,
+    /// C++ CountermeasureFlare SpecialObject residual.
+    #[serde(default)]
+    pub countermeasure_flare: bool,
+    /// Absolute frame when CountermeasureFlare Lifetime residual expires.
+    #[serde(default)]
+    pub countermeasure_flare_expires_frame: Option<u32>,
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
@@ -1939,6 +1945,8 @@ impl Object {
             missile_defender_laser_beam_expires_frame: None,
             booby_trap_special: false,
             booby_trap_attached_to: None,
+            countermeasure_flare: false,
+            countermeasure_flare_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -2374,6 +2382,8 @@ impl Object {
             missile_defender_laser_beam_expires_frame: None,
             booby_trap_special: false,
             booby_trap_attached_to: None,
+            countermeasure_flare: false,
+            countermeasure_flare_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
