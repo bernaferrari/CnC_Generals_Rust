@@ -165,6 +165,7 @@ pub mod host_frenzy;
 pub mod host_fx_audio_cursor_residual;
 mod host_fx_list_die;
 pub mod host_fx_ocl_particle_audio_residual_wave107;
+pub mod host_gadget_video_audio_residual_wave113;
 pub mod host_game_logic_residual_wave103;
 pub mod host_gamedata_lobby_residual;
 pub mod host_gattling_tank;
@@ -1414,3 +1415,8 @@ impl Default for Weapon {
         }
     }
 }
+pub use host_gadget_video_audio_residual_wave113::{
+    honesty_audio_event_residual_wave113, honesty_gadget_residual_wave113,
+    honesty_gadget_video_audio_residual_pack_wave113, honesty_game_window_manager_residual_wave113,
+    honesty_video_buffer_residual_wave113, honesty_window_style_residual_wave113,
+};
