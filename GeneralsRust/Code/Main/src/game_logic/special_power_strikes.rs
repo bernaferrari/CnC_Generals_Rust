@@ -5790,6 +5790,8 @@ pub struct HostRadiationField {
     pub id: u32,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    /// Host GameLogic ObjectId for NukeRadiationFieldWeapon residual.
+    pub object_id: Option<ObjectId>,
     pub position: Vec3,
     pub spawn_frame: u32,
     pub expires_frame: u32,
@@ -6748,6 +6750,8 @@ pub struct HostSpecialPowerStrikeRegistry {
     radiation_spawned_this_frame: Vec<u32>,
     /// Lifetime count of radiation fields spawned (survives prune; honesty).
     radiation_fields_spawned_total: u32,
+    /// Honesty: NukeRadiationFieldWeapon GameLogic objects spawned.
+    radiation_objects_spawned: u32,
     next_neutron_slow_death_id: u32,
     neutron_slow_death_spawned_total: u32,
     /// Lifetime radiation damage applications (honesty after field expiry).
@@ -6820,6 +6824,7 @@ impl HostSpecialPowerStrikeRegistry {
             next_radiation_id: 1,
             radiation_spawned_this_frame: Vec::new(),
             radiation_fields_spawned_total: 0,
+            radiation_objects_spawned: 0,
             next_neutron_slow_death_id: 1,
             neutron_slow_death_spawned_total: 0,
             radiation_damage_applications_total: 0,
@@ -6858,6 +6863,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_id = 1;
         self.next_radiation_id = 1;
         self.radiation_fields_spawned_total = 0;
+        self.radiation_objects_spawned = 0;
         self.next_neutron_slow_death_id = 1;
         self.neutron_slow_death_spawned_total = 0;
         self.radiation_damage_applications_total = 0;
@@ -6987,6 +6993,7 @@ impl HostSpecialPowerStrikeRegistry {
             Vec::new(),
             0,
             0,
+            0,
             1,
             Vec::new(),
             0,
@@ -7015,6 +7022,7 @@ impl HostSpecialPowerStrikeRegistry {
         next_radiation_id: u32,
         radiation_fields: impl IntoIterator<Item = HostRadiationField>,
         radiation_fields_spawned_total: u32,
+        radiation_objects_spawned: u32,
         radiation_damage_applications_total: u32,
     ) {
         self.restore_from_snapshot_with_residuals(
@@ -7023,6 +7031,7 @@ impl HostSpecialPowerStrikeRegistry {
             next_radiation_id,
             radiation_fields,
             radiation_fields_spawned_total,
+            0, // radiation_objects_spawned residual (legacy wrapper)
             radiation_damage_applications_total,
             1,
             Vec::new(),
@@ -7054,6 +7063,7 @@ impl HostSpecialPowerStrikeRegistry {
         next_radiation_id: u32,
         radiation_fields: impl IntoIterator<Item = HostRadiationField>,
         radiation_fields_spawned_total: u32,
+        radiation_objects_spawned: u32,
         radiation_damage_applications_total: u32,
         next_toxin_id: u32,
         toxin_fields: impl IntoIterator<Item = HostToxinField>,
@@ -7089,6 +7099,7 @@ impl HostSpecialPowerStrikeRegistry {
         }
         self.next_radiation_id = next_radiation_id.max(max_rad.saturating_add(1)).max(1);
         self.radiation_fields_spawned_total = radiation_fields_spawned_total.max(max_rad);
+        self.radiation_objects_spawned = radiation_objects_spawned;
         self.radiation_damage_applications_total = radiation_damage_applications_total;
 
         let mut max_tox = 0_u32;
@@ -7131,6 +7142,24 @@ impl HostSpecialPowerStrikeRegistry {
 
     pub fn radiation_fields_spawned_total(&self) -> u32 {
         self.radiation_fields_spawned_total
+    }
+
+    pub fn radiation_objects_spawned(&self) -> u32 {
+        self.radiation_objects_spawned
+    }
+
+    pub fn honesty_radiation_object_spawn_ok(&self) -> bool {
+        self.radiation_objects_spawned > 0
+    }
+
+    /// Bind a spawned NukeRadiationFieldWeapon ObjectId onto a radiation field.
+    pub fn bind_radiation_object(&mut self, radiation_id: u32, object_id: ObjectId) -> bool {
+        if let Some(f) = self.radiation_fields.iter_mut().find(|f| f.id == radiation_id) {
+            f.object_id = Some(object_id);
+            self.radiation_objects_spawned = self.radiation_objects_spawned.saturating_add(1);
+            return true;
+        }
+        false
     }
 
     pub fn radiation_damage_applications_total(&self) -> u32 {
@@ -8173,6 +8202,7 @@ impl HostSpecialPowerStrikeRegistry {
             id,
             source_object,
             source_team,
+            object_id: None,
             position,
             spawn_frame,
             expires_frame: spawn_frame.saturating_add(NUKE_RADIATION_DURATION_FRAMES),

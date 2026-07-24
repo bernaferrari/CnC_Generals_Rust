@@ -5974,6 +5974,8 @@ impl GameLogic {
         // spectre orbit). Fail-closed vs full OCL aircraft / NeutronMissileUpdate
         // / PoisonField stack / B52 DeliverPayload / door loft path.
         self.update_special_power_strikes();
+        self.spawn_nuke_radiation_field_objects_for_new_fields();
+        self.update_nuke_radiation_field_objects();
 
         // Host America Paradrop residual: spawn infantry after approach delay.
         // Fail-closed vs full OCL cargo plane / parachute payload path.
@@ -49963,6 +49965,9 @@ fn update_scud_poison_zones(&mut self) {
             );
         }
 
+        // NukeRadiationFieldWeapon Object residual (spawn + DeletionUpdate lifetime).
+        self.spawn_nuke_radiation_field_objects_for_new_fields();
+        self.update_nuke_radiation_field_objects();
         self.special_power_strikes.prune_expired_radiation(frame);
     }
 
@@ -50177,6 +50182,79 @@ fn update_scud_poison_zones(&mut self) {
         }
 
         self.special_power_strikes.prune_expired_beam(frame);
+    }
+
+    /// C++ NukeRadiationFieldWeapon ThingFactory Object residual.
+    pub fn spawn_nuke_radiation_field_objects_for_new_fields(&mut self) {
+        use crate::game_logic::special_power_strikes::{
+            NUKE_RADIATION_DURATION_FRAMES, NUKE_RADIATION_FIELD_MAX_HEALTH,
+            NUKE_RADIATION_OBJECT_NAME,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let pending: Vec<(u32, ObjectId, Team, Vec3)> = self
+            .special_power_strikes
+            .radiation_spawned_this_frame()
+            .iter()
+            .filter_map(|rid| {
+                self.special_power_strikes
+                    .radiation_fields()
+                    .iter()
+                    .find(|f| f.id == *rid && f.object_id.is_none())
+                    .map(|f| (f.id, f.source_object, f.source_team, f.position))
+            })
+            .collect();
+        if pending.is_empty() {
+            return;
+        }
+        if !self.templates.contains_key(NUKE_RADIATION_OBJECT_NAME) {
+            let mut t = ThingTemplate::new(NUKE_RADIATION_OBJECT_NAME);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(NUKE_RADIATION_FIELD_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(NUKE_RADIATION_OBJECT_NAME.to_string(), t);
+        }
+        let expires = self.frame.saturating_add(NUKE_RADIATION_DURATION_FRAMES);
+        for (rid, source, team, pos) in pending {
+            if let Some(oid) = self.create_object(NUKE_RADIATION_OBJECT_NAME, team, pos) {
+                if let Some(o) = self.objects.get_mut(&oid) {
+                    o.nuke_radiation_field = true;
+                    o.producer_id = Some(source);
+                    o.nuke_radiation_field_expires_frame = Some(expires);
+                    o.health.maximum = NUKE_RADIATION_FIELD_MAX_HEALTH;
+                    Self::write_object_health_authority_aware(o, NUKE_RADIATION_FIELD_MAX_HEALTH);
+                }
+                let _ = self.special_power_strikes.bind_radiation_object(rid, oid);
+            }
+        }
+    }
+
+    pub fn update_nuke_radiation_field_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.nuke_radiation_field {
+                    if let Some(exp) = o.nuke_radiation_field_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.nuke_radiation_field = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
     }
 
     /// C++ ParticleUplinkCannonTrailRemnant ThingFactory Object residual.
@@ -64804,6 +64882,59 @@ mod tests {
     }
 
     #[test]
+    
+    #[test]
+    fn nuclear_missile_spawns_radiation_field_object() {
+        use crate::game_logic::special_power_strikes::{
+            NUKE_RADIATION_DURATION_FRAMES, NUKE_RADIATION_OBJECT_NAME,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut silo = crate::game_logic::ThingTemplate::new("ChinaNuclearMissileLauncher");
+        silo.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("ChinaNuclearMissileLauncher".into(), silo);
+        let caster = logic
+            .create_object(
+                "ChinaNuclearMissileLauncher",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let rid = logic.special_power_strikes.spawn_radiation_field(
+            caster,
+            Team::China,
+            Vec3::new(100.0, 0.0, 100.0),
+            logic.frame,
+            1,
+        );
+        logic.spawn_nuke_radiation_field_objects_for_new_fields();
+        assert!(logic.special_power_strikes.honesty_radiation_object_spawn_ok());
+        assert!(logic.special_power_strikes.radiation_objects_spawned() >= 1);
+        let obj = logic
+            .get_objects()
+            .values()
+            .find(|o| o.nuke_radiation_field)
+            .expect("radiation field object");
+        assert_eq!(obj.template_name, NUKE_RADIATION_OBJECT_NAME);
+        let oid = obj.id;
+        let bound = logic
+            .special_power_strikes
+            .radiation_fields()
+            .iter()
+            .find(|f| f.id == rid)
+            .and_then(|f| f.object_id);
+        assert_eq!(bound, Some(oid));
+        logic.frame = NUKE_RADIATION_DURATION_FRAMES + 5;
+        logic.update_nuke_radiation_field_objects();
+        assert!(
+            logic
+                .find_object(oid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
     fn particle_uplink_spawns_trail_remnant_objects() {
         use crate::game_logic::special_power_strikes::{
             PARTICLE_REMNANT_DURATION_FRAMES, PARTICLE_REMNANT_OBJECT_NAME,
