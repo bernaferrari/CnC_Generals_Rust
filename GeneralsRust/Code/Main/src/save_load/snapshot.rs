@@ -3017,6 +3017,8 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         self.source_team.xfer(xfer)?;
         xfer.xfer_marker_label("ObjectId")?;
         xfer_option(xfer, &mut self.object_id, ObjectId(0))?;
+        xfer.xfer_marker_label("ConnectorObjectIds")?;
+        xfer_vec_default(xfer, &mut self.connector_object_ids, ObjectId(0))?;
         xfer.xfer_marker_label("Position")?;
         self.position.xfer(xfer)?;
         xfer.xfer_marker_label("SpawnFrame")?;
@@ -3534,6 +3536,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 source_object: ObjectId(0),
                 source_team: Team::Neutral,
                 object_id: None,
+                connector_object_ids: Vec::new(),
                 position: Vec3::ZERO,
                 spawn_frame: 0,
                 expires_frame: 0,
