@@ -60,10 +60,42 @@ pub fn create_object_die_config_for_template(name: &str) -> Option<HostCreateObj
 
     // Aurora bomb → gas cloud residual.
     if n.contains("aurorabomb") || n.contains("aurora_bomb") {
-        return Some(HostCreateObjectDieData::single(
-            "OCL_AuroraBombExplode",
-            "AirF_AuroraBombGas",
-        ));
+        return Some(HostCreateObjectDieData {
+            ocl_name: "AirF_OCL_AuroraBombExplode".into(),
+            spawn_templates: vec![
+                "AirF_AuroraBombGas".into(),
+                "GenericDebris".into(),
+            ],
+            transfer_previous_health: false,
+            fired: false,
+        });
+    }
+
+    // Superweapon / Daisy FuelAir bomb → gas + shell debris residual
+    // (SupW_OCL_FuelAirBomb CreateObject + CreateDebris).
+    if n.contains("daisycutterbomb")
+        || n.contains("daisy_cutter_bomb")
+        || n.contains("fuelairbomb")
+        || n.contains("fuel_air_bomb")
+        || (n.contains("aurora") && n.contains("fuelair"))
+        || n == "moab"
+        || n.ends_with("moab")
+        || n.contains("moabbomb")
+    {
+        let gas = if n.contains("supw") || n.contains("superweapon") {
+            "SupW_AuroraFuelAirGas"
+        } else if n.contains("airf") || n.contains("aurora") {
+            "AirF_AuroraBombGas"
+        } else {
+            // Default Daisy / MOAB residual gas.
+            "SupW_AuroraFuelAirGas"
+        };
+        return Some(HostCreateObjectDieData {
+            ocl_name: "SupW_OCL_FuelAirBomb".into(),
+            spawn_templates: vec![gas.into(), "GenericDebris".into()],
+            transfer_previous_health: false,
+            fired: false,
+        });
     }
 
     // Demo truck / high explosive → crater debris residual peel.
@@ -102,7 +134,10 @@ pub fn peel_ocl_spawn_templates(ocl_name: &str) -> Vec<String> {
         return vec!["FirestormSmall".into()];
     }
     if n.contains("aurorabomb") {
-        return vec!["AirF_AuroraBombGas".into()];
+        return vec!["AirF_AuroraBombGas".into(), "GenericDebris".into()];
+    }
+    if n.contains("fuelairbomb") || n.contains("fuel_air") {
+        return vec!["SupW_AuroraFuelAirGas".into(), "GenericDebris".into()];
     }
     Vec::new()
 }
@@ -116,6 +151,17 @@ mod tests {
         let mut d = HostCreateObjectDieData::single("OCL_X", "ThingA");
         assert_eq!(d.on_die().unwrap(), vec!["ThingA".to_string()]);
         assert!(d.on_die().is_none());
+    }
+
+    #[test]
+    fn fuel_air_bomb_peel() {
+        let d = create_object_die_config_for_template("DaisyCutterBomb").unwrap();
+        assert_eq!(d.ocl_name, "SupW_OCL_FuelAirBomb");
+        assert!(d.spawn_templates.iter().any(|s| s.contains("FuelAirGas") || s.contains("Gas")));
+        assert!(d.spawn_templates.iter().any(|s| s.contains("Debris")));
+        let m = create_object_die_config_for_template("MOAB").unwrap();
+        assert_eq!(m.spawn_templates.len(), 2);
+        assert!(m.spawn_templates[0].contains("Gas"));
     }
 
     #[test]
