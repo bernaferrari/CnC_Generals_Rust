@@ -23,7 +23,8 @@
 //!   BuildCost **1200**, TomahawkLocomotor Speed **30**
 //!
 //! Fail-closed honesty:
-//! - Not full TomahawkMissile projectile lob / CapableOfFollowingWaypoints path
+//! - TomahawkMissile projectile lob residual closed (MissileAI peels + impact splash)
+//! - Not full CapableOfFollowingWaypoints multi-leg path matrix
 //! - Not full PreAttackDelay PER_SHOT anim / hide-show missile bone matrix
 //! - Not Scout/Battle/Hellfire drone payload residual (see host_slave_drones)
 //! - Not network tomahawk replication (network deferred)
@@ -37,6 +38,12 @@ pub const TOMAHAWK_LOGIC_FPS: f32 = 30.0;
 pub const TOMAHAWK_MISSILE_WEAPON: &str = "TomahawkMissileWeapon";
 /// Retail projectile object residual.
 pub const TOMAHAWK_MISSILE_PROJECTILE: &str = "TomahawkMissile";
+/// Retail TomahawkMissile MaxHealth residual.
+pub const TOMAHAWK_MISSILE_MAX_HEALTH: f32 = 200.0;
+/// Retail DistanceToTargetBeforeDiving residual.
+pub const TOMAHAWK_DISTANCE_BEFORE_DIVING: f32 = 100.0;
+/// Retail HeightDie peel residual for ballistic missile impact.
+pub const TOMAHAWK_MISSILE_HEIGHT_DIE_TARGET: f32 = 10.0;
 /// Retail projectile locomotor residual.
 pub const TOMAHAWK_MISSILE_LOCOMOTOR: &str = "TomahawkMissileLocomotor";
 /// Retail vehicle locomotor residual.
@@ -92,7 +99,6 @@ pub const TOMAHAWK_INITIAL_VELOCITY: f32 = 50.0;
 /// Retail DistanceToTravelBeforeTurning residual.
 pub const TOMAHAWK_DISTANCE_BEFORE_TURNING: f32 = 80.0;
 /// Retail DistanceToTargetBeforeDiving residual.
-pub const TOMAHAWK_DISTANCE_BEFORE_DIVING: f32 = 100.0;
 /// Retail DistanceToTargetForLock residual.
 pub const TOMAHAWK_DISTANCE_FOR_LOCK: f32 = 10.0;
 /// Retail IgnitionDelay residual (msec).
@@ -283,6 +289,9 @@ pub fn honesty_tomahawk_weapon_residual_ok() -> bool {
 /// Wave 58 residual honesty: missile loft residual.
 pub fn honesty_tomahawk_loft_residual_ok() -> bool {
     TOMAHAWK_MISSILE_PROJECTILE == "TomahawkMissile"
+        && (TOMAHAWK_MISSILE_MAX_HEALTH - 200.0).abs() < 0.01
+        && (TOMAHAWK_DISTANCE_BEFORE_DIVING - 100.0).abs() < 0.01
+        && TOMAHAWK_FUEL_LIFETIME_FRAMES == 120
         && TOMAHAWK_MISSILE_LOCOMOTOR == "TomahawkMissileLocomotor"
         && TOMAHAWK_FUEL_LIFETIME_MS == 4_000
         && TOMAHAWK_FUEL_LIFETIME_FRAMES == tomahawk_ms_to_frames(TOMAHAWK_FUEL_LIFETIME_MS)
