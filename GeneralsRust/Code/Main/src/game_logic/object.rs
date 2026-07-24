@@ -1098,6 +1098,13 @@ pub struct Object {
     /// C++ DaisyCutterBomb HeightDie residual.
     #[serde(default)]
     pub daisy_cutter_bomb: bool,
+    /// C++ AnthraxBomb GLAJetCargoPlane transport residual.
+    #[serde(default)]
+    pub anthrax_bomb_transport:
+        Option<crate::game_logic::host_anthrax_bomb_flight::HostAnthraxBombFlightData>,
+    /// C++ AnthraxBomb payload HeightDie residual.
+    #[serde(default)]
+    pub anthrax_bomb_payload: bool,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1798,6 +1805,8 @@ impl Object {
             paradrop_parachute: false,
             daisy_cutter_transport: None,
             daisy_cutter_bomb: false,
+            anthrax_bomb_transport: None,
+            anthrax_bomb_payload: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2196,6 +2205,8 @@ impl Object {
             paradrop_parachute: false,
             daisy_cutter_transport: None,
             daisy_cutter_bomb: false,
+            anthrax_bomb_transport: None,
+            anthrax_bomb_payload: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
