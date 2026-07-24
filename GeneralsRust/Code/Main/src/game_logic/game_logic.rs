@@ -1416,7 +1416,7 @@ pub struct GameLogic {
     helix_napalm: crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry,
 
     /// Host China FireWall / Firestorm residual (Dragon Tank line of fire zones).
-    /// Fail-closed: not full OCL FireWallSegment / InchForwardLocomotor / projectile stream.
+    /// FireWallSegment OCL spawn residual closed; fail-closed vs InchForwardLocomotor crawl.
     fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry,
 
     /// Host China Inferno Cannon residual fire zones (FireFieldSmall DoT).
@@ -6057,7 +6057,8 @@ impl GameLogic {
         self.update_cia_intelligence();
 
         // Host China FireWall residual: tick fire damage along wall segments.
-        // Fail-closed vs full OCL FireWallSegment / InchForwardLocomotor.
+        // FireWallSegment object DeletionUpdate residual + zone damage ticks.
+        self.update_firewall_segment_objects();
         self.update_firewalls();
 
         // Host China Inferno Cannon residual: tick FireFieldSmall DoT at impact zones.
@@ -29313,6 +29314,81 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let _ = SPY_DRONE_VISION_RANGE;
     }
 
+    /// C++ OCL_FireWallSegment CreateObject FireWallSegment residual.
+    pub fn spawn_firewall_segment_objects(
+        &mut self,
+        wall_id: u32,
+        source_object: ObjectId,
+        source_team: Team,
+    ) -> u32 {
+        use crate::game_logic::host_firewall::{
+            FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_MAX_HEALTH, FIREWALL_SEGMENT_TEMPLATE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let positions: Vec<Vec3> = self
+            .fire_walls
+            .active_walls()
+            .iter()
+            .find(|w| w.id == wall_id)
+            .map(|w| w.segments.iter().map(|s| s.position).collect())
+            .unwrap_or_default();
+        if positions.is_empty() {
+            return 0;
+        }
+        if !self.templates.contains_key(FIREWALL_SEGMENT_TEMPLATE) {
+            let mut t = ThingTemplate::new(FIREWALL_SEGMENT_TEMPLATE);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(FIREWALL_SEGMENT_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(FIREWALL_SEGMENT_TEMPLATE.to_string(), t);
+        }
+        let expires = self.frame.saturating_add(FIREWALL_DURATION_FRAMES);
+        let mut spawned = 0u32;
+        for pos in positions {
+            if let Some(sid) = self.create_object(FIREWALL_SEGMENT_TEMPLATE, source_team, pos) {
+                if let Some(o) = self.objects.get_mut(&sid) {
+                    o.firewall_segment = true;
+                    o.producer_id = Some(source_object);
+                    o.firewall_segment_expires_frame = Some(expires);
+                    o.health.maximum = FIREWALL_SEGMENT_MAX_HEALTH;
+                    Self::write_object_health_authority_aware(o, FIREWALL_SEGMENT_MAX_HEALTH);
+                }
+                spawned = spawned.saturating_add(1);
+            }
+        }
+        self.fire_walls.record_segment_spawns(spawned);
+        spawned
+    }
+
+    pub fn update_firewall_segment_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.firewall_segment {
+                    if let Some(exp) = o.firewall_segment_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.firewall_segment = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     /// C++ OCL SUPERWEAPON_RadarVanScan CreateObject RadarVanPing residual.
     pub fn spawn_radar_van_ping(
         &mut self,
@@ -47206,6 +47282,9 @@ fn update_scud_poison_zones(&mut self) {
                 );
             }
         }
+
+        // C++ OCL_FireWallSegment CreateObject residual along wall line.
+        let _ = self.spawn_firewall_segment_objects(id, source_object, source_team);
 
         Some(id)
     }
@@ -75841,6 +75920,46 @@ mod tests {
     }
 
     /// Residual: China FireWall (Dragon Tank Firestorm) does not queue superweapon strikes.
+
+    #[test]
+    fn firewall_spawns_segment_objects_residual() {
+        use crate::game_logic::host_firewall::{
+            FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_TEMPLATE,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut dragon = crate::game_logic::ThingTemplate::new("ChinaTankDragon");
+        dragon.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("ChinaTankDragon".into(), dragon);
+        let caster = logic
+            .create_object("ChinaTankDragon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let id = logic
+            .activate_firewall(caster, Vec3::new(80.0, 0.0, 0.0))
+            .expect("firewall");
+        assert!(logic.fire_walls().honesty_segment_spawn_ok());
+        assert!(logic.fire_walls().segments_spawned >= 1);
+        let segs: Vec<_> = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.firewall_segment)
+            .collect();
+        assert!(!segs.is_empty());
+        assert!(segs.iter().all(|o| o.template_name == FIREWALL_SEGMENT_TEMPLATE));
+        let ids: Vec<_> = segs.iter().map(|o| o.id).collect();
+        logic.frame = FIREWALL_DURATION_FRAMES + 5;
+        logic.update_firewall_segment_objects();
+        for sid in ids {
+            assert!(
+                logic
+                    .find_object(sid)
+                    .map(|o| !o.is_alive() || o.status.destroyed)
+                    .unwrap_or(true)
+            );
+        }
+        let _ = id;
+    }
     #[test]
     fn firewall_does_not_queue_superweapon_strike() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};

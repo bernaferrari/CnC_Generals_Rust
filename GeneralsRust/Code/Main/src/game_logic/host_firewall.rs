@@ -123,6 +123,8 @@ pub struct HostFireWallRegistry {
     pub damage_applications: u32,
     /// Objects destroyed by residual fire.
     pub objects_destroyed: u32,
+    /// Honesty: FireWallSegment objects spawned via OCL residual.
+    pub segments_spawned: u32,
 }
 
 impl HostFireWallRegistry {
@@ -306,6 +308,14 @@ impl HostFireWallRegistry {
         self.activations > 0
     }
 
+    pub fn record_segment_spawns(&mut self, count: u32) {
+        self.segments_spawned = self.segments_spawned.saturating_add(count);
+    }
+
+    pub fn honesty_segment_spawn_ok(&self) -> bool {
+        self.segments_spawned > 0
+    }
+
     /// Residual honesty: fire damage was applied to at least one victim tick.
     pub fn honesty_damage_ok(&self) -> bool {
         self.damage_applications > 0 && self.total_damage_applied > 0.0
@@ -348,6 +358,8 @@ pub const FIREWALL_DRAGON_ATTACK_RANGE: f32 = 25.0;
 pub const FIREWALL_DRAGON_PRIMARY_DAMAGE: f32 = 10.0;
 /// Retail ProjectileDetonationOCL residual.
 pub const FIREWALL_OCL_SEGMENT: &str = "OCL_FireWallSegment";
+/// Retail OCL_FireWallSegment CreateObject residual.
+pub const FIREWALL_SEGMENT_TEMPLATE: &str = "FireWallSegment";
 /// Retail segment MaxHealth residual (ImmortalBody).
 pub const FIREWALL_SEGMENT_MAX_HEALTH: f32 = 50.0;
 /// Retail FireWallSegmentWeapon AttackRange residual.
