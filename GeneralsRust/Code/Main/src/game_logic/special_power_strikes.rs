@@ -4253,6 +4253,10 @@ pub const SCUD_STORM_POISON_RADIUS: f32 = 140.0;
 pub const SCUD_STORM_POISON_TICK_INTERVAL_FRAMES: u32 = 15;
 /// Retail PoisonFieldLarge LifetimeUpdate Min/MaxLifetime = 45000 ms → 1350 frames.
 pub const SCUD_STORM_POISON_DURATION_FRAMES: u32 = 1350;
+/// Retail OCL_PoisonFieldLarge CreateObject residual.
+pub const SCUD_POISON_OBJECT_NAME: &str = "PoisonFieldLarge";
+/// Retail PoisonFieldLarge MaxHealth residual.
+pub const SCUD_POISON_FIELD_MAX_HEALTH: f32 = 100.0;
 /// Residual ambient cue for ScudStorm poison pools.
 pub const SCUD_STORM_POISON_AUDIO: &str = "ToxicPoolAmbientLoop";
 /// Retail player upgrade selecting ScudStormDamageWeaponUpgraded / UpgradedLarge poison.
@@ -5850,13 +5854,20 @@ pub struct HostRadiationTickPlan {
 
 /// Residual toxin / anthrax / scud poison field spawned by AnthraxBomb or
 /// ScudStorm impact (`OCL_PoisonFieldAnthraxBomb` / `OCL_PoisonFieldLarge` residual).
+fn default_toxin_object_template() -> String {
+    ANTHRAX_TOXIN_OBJECT_NAME.to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostToxinField {
     pub id: u32,
     pub source_object: ObjectId,
     pub source_team: super::Team,
-    /// Host GameLogic ObjectId for PoisonFieldAnthraxBomb residual.
+    /// Host GameLogic ObjectId for poison field residual object.
     pub object_id: Option<ObjectId>,
+    /// ThingFactory template residual (PoisonFieldAnthraxBomb / PoisonFieldLarge).
+    #[serde(default = "default_toxin_object_template")]
+    pub object_template: String,
     pub position: Vec3,
     pub spawn_frame: u32,
     pub expires_frame: u32,
@@ -8389,6 +8400,7 @@ impl HostSpecialPowerStrikeRegistry {
             ANTHRAX_TOXIN_RADIUS,
             ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES,
             ANTHRAX_TOXIN_DURATION_FRAMES,
+            ANTHRAX_TOXIN_OBJECT_NAME,
         )
     }
 
@@ -8431,6 +8443,7 @@ impl HostSpecialPowerStrikeRegistry {
             SCUD_STORM_POISON_RADIUS,
             SCUD_STORM_POISON_TICK_INTERVAL_FRAMES,
             SCUD_STORM_POISON_DURATION_FRAMES,
+            SCUD_POISON_OBJECT_NAME,
         )
     }
 
@@ -8446,6 +8459,7 @@ impl HostSpecialPowerStrikeRegistry {
         radius: f32,
         tick_interval_frames: u32,
         duration_frames: u32,
+        object_template: &str,
     ) -> u32 {
         let id = self.next_toxin_id;
         self.next_toxin_id = self.next_toxin_id.saturating_add(1).max(1);
@@ -8454,6 +8468,7 @@ impl HostSpecialPowerStrikeRegistry {
             source_object,
             source_team,
             object_id: None,
+            object_template: object_template.to_string(),
             position,
             spawn_frame,
             expires_frame: spawn_frame.saturating_add(duration_frames),

@@ -50263,15 +50263,15 @@ fn update_scud_poison_zones(&mut self) {
         }
     }
 
-    /// C++ PoisonFieldAnthraxBomb ThingFactory Object residual.
+    /// C++ PoisonFieldAnthraxBomb / PoisonFieldLarge ThingFactory Object residual.
     pub fn spawn_anthrax_toxin_field_objects_for_new_fields(&mut self) {
         use crate::game_logic::special_power_strikes::{
-            ANTHRAX_TOXIN_DURATION_FRAMES, ANTHRAX_TOXIN_FIELD_MAX_HEALTH,
-            ANTHRAX_TOXIN_OBJECT_NAME,
+            ANTHRAX_TOXIN_FIELD_MAX_HEALTH, ANTHRAX_TOXIN_OBJECT_NAME,
+            SCUD_POISON_FIELD_MAX_HEALTH, SCUD_POISON_OBJECT_NAME,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let pending: Vec<(u32, ObjectId, Team, Vec3, u32)> = self
+        let pending: Vec<(u32, ObjectId, Team, Vec3, u32, String)> = self
             .special_power_strikes
             .toxin_spawned_this_frame()
             .iter()
@@ -50287,6 +50287,7 @@ fn update_scud_poison_zones(&mut self) {
                             f.source_team,
                             f.position,
                             f.expires_frame.saturating_sub(f.spawn_frame),
+                            f.object_template.clone(),
                         )
                     })
             })
@@ -50294,28 +50295,38 @@ fn update_scud_poison_zones(&mut self) {
         if pending.is_empty() {
             return;
         }
-        if !self.templates.contains_key(ANTHRAX_TOXIN_OBJECT_NAME) {
-            let mut t = ThingTemplate::new(ANTHRAX_TOXIN_OBJECT_NAME);
-            t.add_kind_of(KindOf::Immobile)
-                .set_health(ANTHRAX_TOXIN_FIELD_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates
-                .insert(ANTHRAX_TOXIN_OBJECT_NAME.to_string(), t);
-        }
-        for (tid, source, team, pos, lifetime) in pending {
+        for (tid, source, team, pos, lifetime, template) in pending {
+            let max_hp = if template == SCUD_POISON_OBJECT_NAME
+                || template == "PoisonFieldUpgradedLarge"
+            {
+                SCUD_POISON_FIELD_MAX_HEALTH
+            } else {
+                ANTHRAX_TOXIN_FIELD_MAX_HEALTH
+            };
+            let tmpl = if template.is_empty() {
+                ANTHRAX_TOXIN_OBJECT_NAME.to_string()
+            } else {
+                template
+            };
+            if !self.templates.contains_key(&tmpl) {
+                let mut t = ThingTemplate::new(&tmpl);
+                t.add_kind_of(KindOf::Immobile)
+                    .set_health(max_hp)
+                    .set_cost(0, 0);
+                self.templates.insert(tmpl.clone(), t);
+            }
             let expires = self.frame.saturating_add(lifetime.max(1));
-            if let Some(oid) = self.create_object(ANTHRAX_TOXIN_OBJECT_NAME, team, pos) {
+            if let Some(oid) = self.create_object(&tmpl, team, pos) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.anthrax_toxin_field = true;
                     o.producer_id = Some(source);
                     o.anthrax_toxin_field_expires_frame = Some(expires);
-                    o.health.maximum = ANTHRAX_TOXIN_FIELD_MAX_HEALTH;
-                    Self::write_object_health_authority_aware(o, ANTHRAX_TOXIN_FIELD_MAX_HEALTH);
+                    o.health.maximum = max_hp;
+                    Self::write_object_health_authority_aware(o, max_hp);
                 }
                 let _ = self.special_power_strikes.bind_toxin_object(tid, oid);
             }
         }
-        let _ = ANTHRAX_TOXIN_DURATION_FRAMES;
     }
 
     pub fn update_anthrax_toxin_field_objects(&mut self) {
@@ -65109,6 +65120,55 @@ mod tests {
         );
     }
 
+    
+    #[test]
+    fn scud_storm_spawns_poison_field_large_object() {
+        use crate::game_logic::special_power_strikes::{
+            SCUD_POISON_OBJECT_NAME, SCUD_STORM_POISON_DURATION_FRAMES,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut scud = crate::game_logic::ThingTemplate::new("GLAScudStorm");
+        scud.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("GLAScudStorm".into(), scud);
+        let caster = logic
+            .create_object("GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let tid = logic.special_power_strikes.spawn_scud_poison_field(
+            caster,
+            Team::GLA,
+            Vec3::new(150.0, 0.0, 150.0),
+            logic.frame,
+            1,
+        );
+        logic.spawn_anthrax_toxin_field_objects_for_new_fields();
+        assert!(logic.special_power_strikes.honesty_toxin_object_spawn_ok());
+        let field = logic
+            .special_power_strikes
+            .toxin_fields()
+            .iter()
+            .find(|f| f.id == tid)
+            .expect("toxin field");
+        assert_eq!(field.object_template, SCUD_POISON_OBJECT_NAME);
+        let obj = logic
+            .get_objects()
+            .values()
+            .find(|o| o.anthrax_toxin_field && o.template_name == SCUD_POISON_OBJECT_NAME)
+            .expect("PoisonFieldLarge object");
+        assert_eq!(field.object_id, Some(obj.id));
+        let oid = obj.id;
+        logic.frame = SCUD_STORM_POISON_DURATION_FRAMES + 5;
+        logic.update_anthrax_toxin_field_objects();
+        assert!(
+            logic
+                .find_object(oid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
+    #[test]
     fn anthrax_bomb_spawns_toxin_field_object() {
         use crate::game_logic::special_power_strikes::{
             ANTHRAX_TOXIN_DURATION_FRAMES, ANTHRAX_TOXIN_OBJECT_NAME,
