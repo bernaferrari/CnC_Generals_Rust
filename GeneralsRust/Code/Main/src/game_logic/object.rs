@@ -1251,6 +1251,24 @@ pub struct Object {
     /// Intended target id residual for USA tank shell.
     #[serde(default)]
     pub usa_tank_shell_intended: Option<u32>,
+    /// C++ BattleMasterTankShell DumbProjectile residual.
+    #[serde(default)]
+    pub battlemaster_shell_projectile: bool,
+    /// Battlemaster shell launch origin residual.
+    #[serde(default)]
+    pub battlemaster_shell_from: Option<[f32; 3]>,
+    /// Battlemaster shell aim residual.
+    #[serde(default)]
+    pub battlemaster_shell_aim: Option<[f32; 3]>,
+    /// Battlemaster shell launch frame residual.
+    #[serde(default)]
+    pub battlemaster_shell_launch_frame: Option<u32>,
+    /// Battlemaster shell flight frames residual.
+    #[serde(default)]
+    pub battlemaster_shell_flight_frames: u32,
+    /// Intended target id residual for Battlemaster shell.
+    #[serde(default)]
+    pub battlemaster_shell_intended: Option<u32>,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2206,6 +2224,12 @@ impl Object {
             usa_tank_shell_flight_frames: 0,
             usa_tank_shell_weapon_speed: 0.0,
             usa_tank_shell_intended: None,
+            battlemaster_shell_projectile: false,
+            battlemaster_shell_from: None,
+            battlemaster_shell_aim: None,
+            battlemaster_shell_launch_frame: None,
+            battlemaster_shell_flight_frames: 0,
+            battlemaster_shell_intended: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -2715,6 +2739,12 @@ impl Object {
             usa_tank_shell_flight_frames: 0,
             usa_tank_shell_weapon_speed: 0.0,
             usa_tank_shell_intended: None,
+            battlemaster_shell_projectile: false,
+            battlemaster_shell_from: None,
+            battlemaster_shell_aim: None,
+            battlemaster_shell_launch_frame: None,
+            battlemaster_shell_flight_frames: 0,
+            battlemaster_shell_intended: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
