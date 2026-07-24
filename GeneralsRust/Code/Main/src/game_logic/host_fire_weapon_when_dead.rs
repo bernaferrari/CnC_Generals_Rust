@@ -27,7 +27,10 @@ pub fn death_weapon_for_template(template_name: &str) -> Option<DeathWeaponSplas
     let n = template_name.to_ascii_lowercase();
     // Retail NapalmBomb FireWeaponWhenDead → NapalmBombWeapon / BlackNapalmBombWeapon.
     // Black vs standard is selected by caller via template name peel residual.
-    if n == "napalmbomb" || n == "blacknapalmbomb" || (n.contains("napalm") && n.contains("bomb") && !n.contains("weapon")) {
+    if n == "napalmbomb"
+        || n == "blacknapalmbomb"
+        || (n.contains("napalm") && n.contains("bomb") && !n.contains("weapon"))
+    {
         // Primary 75/r5 + Secondary 40/r30 (Weapon.ini NapalmBombWeapon).
         return Some(DeathWeaponSplash {
             primary_damage: 75.0,

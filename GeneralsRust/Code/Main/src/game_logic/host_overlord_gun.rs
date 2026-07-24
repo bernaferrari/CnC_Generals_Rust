@@ -34,8 +34,8 @@
 //! - Not network uranium / dual-radius replication (network deferred)
 
 use super::Weapon;
-use glam::Vec3;
 use crate::game_logic::host_overlord_addons::{is_emperor_template, is_overlord_tank_template};
+use glam::Vec3;
 use std::collections::HashSet;
 
 /// Logic frames per second (host fixed step).
@@ -175,16 +175,14 @@ pub fn is_overlord_gun_chassis(template_name: &str) -> bool {
 ///
 /// Callers should skip when portable gattling exclusive residual is active.
 
-
 /// Cubic Bezier residual sample for OverlordTankShell DumbProjectileBehavior.
 pub fn overlord_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
     let t = t.clamp(0.0, 1.0);
     let delta = to - from;
     let p0 = from;
     let p3 = to;
-    let p1 = from
-        + delta * OVERLORD_SHELL_FIRST_PERCENT_INDENT
-        + Vec3::Y * OVERLORD_SHELL_FIRST_HEIGHT;
+    let p1 =
+        from + delta * OVERLORD_SHELL_FIRST_PERCENT_INDENT + Vec3::Y * OVERLORD_SHELL_FIRST_HEIGHT;
     let p2 = from
         + delta * OVERLORD_SHELL_SECOND_PERCENT_INDENT
         + Vec3::Y * OVERLORD_SHELL_SECOND_HEIGHT;
@@ -363,16 +361,9 @@ pub fn honesty_overlord_body_residual_ok() -> bool {
 /// Combined Wave 63 Overlord gun residual honesty pack.
 
 /// Apply OverlordTankGun ScatterRadiusVsInfantry residual to aim.
-pub fn overlord_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(OVERLORD_TANK_GUN, target_is_infantry);
+pub fn overlord_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(OVERLORD_TANK_GUN, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = OVERLORD_SCATTER_VS_INFANTRY;
     }
@@ -426,11 +417,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= OVERLORD_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(overlord_scatter_misses_infantry(true, 53, 0.5));
         assert!(!overlord_scatter_misses_infantry(true, 53, 100.0));
         assert!(!overlord_scatter_misses_infantry(false, 53, 0.5));
-}
+    }
 
     #[test]
     fn overlord_gun_name_matrix() {

@@ -102,7 +102,6 @@ pub const ANGRY_MOB_PROJ_SECOND_PERCENT_INDENT: f32 = 0.90;
 /// Projectile MaxHealth residual.
 pub const ANGRY_MOB_PROJ_MAX_HEALTH: f32 = 100.0;
 
-
 /// Residual fire audio (pistol/AK ambient residual cue).
 pub const ANGRY_MOB_FIRE_AUDIO: &str = "AngryMobWeaponPistol";
 
@@ -189,21 +188,18 @@ pub fn angry_mob_projectile_bezier_point(
     let delta = to - from;
     let p0 = from;
     let p3 = to;
-    let p1 = from
-        + delta * ANGRY_MOB_PROJ_FIRST_PERCENT_INDENT
-        + Vec3::Y * kind.first_height();
-    let p2 = from
-        + delta * ANGRY_MOB_PROJ_SECOND_PERCENT_INDENT
-        + Vec3::Y * kind.second_height();
+    let p1 = from + delta * ANGRY_MOB_PROJ_FIRST_PERCENT_INDENT + Vec3::Y * kind.first_height();
+    let p2 = from + delta * ANGRY_MOB_PROJ_SECOND_PERCENT_INDENT + Vec3::Y * kind.second_height();
     let u = 1.0 - t;
-    p0 * (u * u * u)
-        + p1 * (3.0 * u * u * t)
-        + p2 * (3.0 * u * t * t)
-        + p3 * (t * t * t)
+    p0 * (u * u * u) + p1 * (3.0 * u * u * t) + p2 * (3.0 * u * t * t) + p3 * (t * t * t)
 }
 
 /// Flight frames from horizontal distance / WeaponSpeed @ 30 FPS.
-pub fn angry_mob_projectile_flight_frames(from: Vec3, to: Vec3, kind: AngryMobProjectileKind) -> u32 {
+pub fn angry_mob_projectile_flight_frames(
+    from: Vec3,
+    to: Vec3,
+    kind: AngryMobProjectileKind,
+) -> u32 {
     let dx = to.x - from.x;
     let dz = to.z - from.z;
     let dist = (dx * dx + dz * dz).sqrt().max(1.0);
@@ -443,7 +439,13 @@ impl HostAngryMobRegistry {
         self.members_spawned > 0
     }
 
-    fn queue_member_spawn(&mut self, nexus_id: ObjectId, team: super::Team, slot_index: u32, template_name: &str) {
+    fn queue_member_spawn(
+        &mut self,
+        nexus_id: ObjectId,
+        team: super::Team,
+        slot_index: u32,
+        template_name: &str,
+    ) {
         self.pending_member_spawns.push(PendingAngryMobMemberSpawn {
             nexus_id,
             team,

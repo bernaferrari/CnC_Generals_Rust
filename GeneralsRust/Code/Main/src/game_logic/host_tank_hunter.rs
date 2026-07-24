@@ -33,12 +33,12 @@
 //! - Not network TNT / RPG replication (network deferred)
 
 use super::Weapon;
-use glam::Vec3;
 use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
 use crate::game_logic::host_red_guard::{
     delay_frames_to_reload_secs, is_in_infantry_horde, INFANTRY_HORDE_ROF_MULT,
     INFANTRY_NATIONALISM_ROF_MULT,
 };
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const TANK_HUNTER_LOGIC_FPS: f32 = 30.0;
@@ -396,16 +396,9 @@ pub fn honesty_tank_hunter_body_residual_ok() -> bool {
 /// Combined Wave 67 Tank Hunter residual honesty pack.
 
 /// Apply Tank Hunter missile ScatterRadiusVsInfantry residual to aim.
-pub fn tank_hunter_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(TANK_HUNTER_MISSILE_WEAPON, target_is_infantry);
+pub fn tank_hunter_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(TANK_HUNTER_MISSILE_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = TANK_HUNTER_SCATTER_VS_INFANTRY;
     }
@@ -459,11 +452,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= TANK_HUNTER_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(tank_hunter_scatter_misses_infantry(true, 19, 0.5));
         assert!(!tank_hunter_scatter_misses_infantry(true, 19, 100.0));
         assert!(!tank_hunter_scatter_misses_infantry(false, 19, 0.5));
-}
+    }
     use std::collections::HashSet;
 
     #[test]

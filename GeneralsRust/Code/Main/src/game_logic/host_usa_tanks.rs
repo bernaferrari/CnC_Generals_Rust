@@ -296,7 +296,6 @@ pub fn usa_tank_gun_weapon_for_template(template_name: &str) -> Weapon {
 ///
 /// Returns true when health was increased (first apply residual; idempotent via tag).
 
-
 /// Whether residual fire should apply USA tank gun residual (non-laser).
 pub fn should_apply_usa_tank_gun_residual(template_name: &str) -> bool {
     (is_crusader_template(template_name) || is_paladin_template(template_name))
@@ -328,12 +327,8 @@ pub fn usa_tank_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
     let delta = to - from;
     let p0 = from;
     let p3 = to;
-    let p1 = from
-        + delta * USA_SHELL_FIRST_PERCENT_INDENT
-        + Vec3::Y * USA_SHELL_FIRST_HEIGHT;
-    let p2 = from
-        + delta * USA_SHELL_SECOND_PERCENT_INDENT
-        + Vec3::Y * USA_SHELL_SECOND_HEIGHT;
+    let p1 = from + delta * USA_SHELL_FIRST_PERCENT_INDENT + Vec3::Y * USA_SHELL_FIRST_HEIGHT;
+    let p2 = from + delta * USA_SHELL_SECOND_PERCENT_INDENT + Vec3::Y * USA_SHELL_SECOND_HEIGHT;
     let u = 1.0 - t;
     let tt = t * t;
     let uu = u * u;
@@ -461,16 +456,9 @@ pub fn honesty_usa_tanks_composite_armor_residual_ok() -> bool {
 /// Apply Crusader/Paladin TankGun ScatterRadiusVsInfantry residual to aim.
 ///
 /// Laser General guns (Lazr_*) are instant-hit and do not use shell scatter.
-pub fn usa_tank_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(CRUSADER_TANK_GUN, target_is_infantry);
+pub fn usa_tank_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(CRUSADER_TANK_GUN, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = USA_TANK_GUN_SCATTER_VS_INFANTRY;
     }
@@ -494,7 +482,6 @@ pub fn usa_tank_scatter_misses_infantry(
     scatter_misses_intended_target(USA_TANK_GUN_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
 
-
 /// Wave residual honesty: USA tank ScatterRadiusVsInfantry peels.
 pub fn honesty_usa_tank_scatter_vs_infantry_ok() -> bool {
     use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
@@ -506,8 +493,7 @@ pub fn honesty_usa_tank_scatter_vs_infantry_ok() -> bool {
         && ((vs_p - 10.0).abs() < 0.01 || vs_p <= 0.0)
         && ground.abs() < 0.01
         && {
-            let (sc, applied) =
-                usa_tank_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            let (sc, applied) = usa_tank_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
             applied && sc.length() <= USA_TANK_GUN_SCATTER_VS_INFANTRY + 0.01
         }
 }
@@ -534,11 +520,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= USA_TANK_GUN_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(usa_tank_scatter_misses_infantry(true, 67, 0.5));
         assert!(!usa_tank_scatter_misses_infantry(true, 67, 100.0));
         assert!(!usa_tank_scatter_misses_infantry(false, 67, 0.5));
-}
+    }
 
     #[test]
     fn crusader_paladin_name_matrix() {

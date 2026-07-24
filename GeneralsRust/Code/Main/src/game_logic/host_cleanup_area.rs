@@ -303,15 +303,15 @@ pub fn honesty_cleanup_stream_projectile_ok() -> bool {
         && HOST_CLEANUP_PROJECTILE_STREAM == "CleanupHazardProjectileStream"
         && (CLEANUP_STREAM_MISSILE_INITIAL_VELOCITY - 120.0).abs() < 0.01
         && CLEANUP_STREAM_MISSILE_FUEL_MS == 600
-        && CLEANUP_STREAM_MISSILE_FUEL_FRAMES == cleanup_ms_to_frames(CLEANUP_STREAM_MISSILE_FUEL_MS)
+        && CLEANUP_STREAM_MISSILE_FUEL_FRAMES
+            == cleanup_ms_to_frames(CLEANUP_STREAM_MISSILE_FUEL_MS)
         && (CLEANUP_STREAM_MISSILE_TURN_DISTANCE - 2.0).abs() < 0.01
         && !CLEANUP_STREAM_MISSILE_SEEK
         && (HOST_CLEANUP_WEAPON_SPEED - 600.0).abs() < 0.01
 }
 
 pub fn honesty_cleanup_area_residual_pack_ok() -> bool {
-    honesty_cleanup_hazard_scan_residual_ok()
-        && honesty_cleanup_stream_projectile_ok()
+    honesty_cleanup_hazard_scan_residual_ok() && honesty_cleanup_stream_projectile_ok()
 }
 
 #[cfg(test)]

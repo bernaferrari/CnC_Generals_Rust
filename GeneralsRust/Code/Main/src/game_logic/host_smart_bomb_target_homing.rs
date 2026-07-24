@@ -65,11 +65,7 @@ impl HostSmartBombTargetHomingData {
     }
 
     /// One frame course correction. Returns new position if steered.
-    pub fn tick(
-        &self,
-        current_pos: Vec3,
-        height_above_terrain: f32,
-    ) -> Option<Vec3> {
+    pub fn tick(&self, current_pos: Vec3, height_above_terrain: f32) -> Option<Vec3> {
         if !self.target_received {
             return None;
         }
@@ -134,9 +130,7 @@ pub fn honesty_smart_bomb_target_homing_residual_ok() -> bool {
             let ok = d.set_target_position(Vec3::new(100.0, 50.0, 0.0));
             let p0 = Vec3::new(0.0, 80.0, 0.0);
             match d.tick(p0, 80.0) {
-                Some(p1) => {
-                    ok && (p1.x - 1.0).abs() < 0.01 && (p1.y - 80.0).abs() < 1.0e-5
-                }
+                Some(p1) => ok && (p1.x - 1.0).abs() < 0.01 && (p1.y - 80.0).abs() < 1.0e-5,
                 None => false,
             }
         }

@@ -152,12 +152,8 @@ pub fn nuke_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
     let delta = to - from;
     let p0 = from;
     let p3 = to;
-    let p1 = from
-        + delta * NUKE_SHELL_FIRST_PERCENT_INDENT
-        + Vec3::Y * NUKE_SHELL_FIRST_HEIGHT;
-    let p2 = from
-        + delta * NUKE_SHELL_SECOND_PERCENT_INDENT
-        + Vec3::Y * NUKE_SHELL_SECOND_HEIGHT;
+    let p1 = from + delta * NUKE_SHELL_FIRST_PERCENT_INDENT + Vec3::Y * NUKE_SHELL_FIRST_HEIGHT;
+    let p2 = from + delta * NUKE_SHELL_SECOND_PERCENT_INDENT + Vec3::Y * NUKE_SHELL_SECOND_HEIGHT;
     let u = 1.0 - t;
     let tt = t * t;
     let uu = u * u;
@@ -475,16 +471,9 @@ pub fn honesty_nuke_cannon_body_residual_ok() -> bool {
 /// Combined Wave 67 Nuke Cannon residual honesty pack.
 
 /// Apply NukeCannonGun ScatterRadiusVsInfantry residual to aim point.
-pub fn nuke_cannon_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(NUKE_CANNON_PRIMARY_WEAPON, target_is_infantry);
+pub fn nuke_cannon_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(NUKE_CANNON_PRIMARY_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = NUKE_CANNON_SCATTER_VS_INFANTRY;
     }
@@ -540,11 +529,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= NUKE_CANNON_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(nuke_cannon_scatter_misses_infantry(true, 41, 0.5));
         assert!(!nuke_cannon_scatter_misses_infantry(true, 41, 100.0));
         assert!(!nuke_cannon_scatter_misses_infantry(false, 41, 0.5));
-}
+    }
     use crate::game_logic::Team;
 
     #[test]

@@ -34,8 +34,8 @@
 //! - Not network laser-lock replication (network deferred)
 
 use super::Weapon;
-use glam::Vec3;
 use crate::game_logic::host_red_guard::delay_frames_to_reload_secs;
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const MD_LOGIC_FPS: f32 = 30.0;
@@ -402,9 +402,7 @@ pub fn missile_defender_scatter_aim(
     target_is_infantry: bool,
     seed: u32,
 ) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
     let mut scatter =
         host_effective_scatter_radius(MISSILE_DEFENDER_MISSILE_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
@@ -427,7 +425,11 @@ pub fn missile_defender_scatter_misses_infantry(
     if !target_is_infantry {
         return false;
     }
-    scatter_misses_intended_target(MISSILE_DEFENDER_SCATTER_VS_INFANTRY, seed, target_hit_radius)
+    scatter_misses_intended_target(
+        MISSILE_DEFENDER_SCATTER_VS_INFANTRY,
+        seed,
+        target_hit_radius,
+    )
 }
 
 /// Wave residual honesty: Missile Defender ScatterRadiusVsInfantry peels.
@@ -462,11 +464,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= MISSILE_DEFENDER_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(missile_defender_scatter_misses_infantry(true, 13, 0.5));
         assert!(!missile_defender_scatter_misses_infantry(true, 13, 100.0));
         assert!(!missile_defender_scatter_misses_infantry(false, 13, 0.5));
-}
+    }
 
     #[test]
     fn missile_defender_name_matrix() {

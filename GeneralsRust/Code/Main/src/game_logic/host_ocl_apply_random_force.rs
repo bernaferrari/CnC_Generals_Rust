@@ -59,7 +59,9 @@ impl HostOclApplyRandomForcePlan {
 /// Peel plan from dying template / OCL name.
 pub fn apply_random_force_plan_for(name: &str) -> Option<HostOclApplyRandomForcePlan> {
     let n = name.to_ascii_lowercase();
-    if n.contains("technical") && (n.contains("airdeath") || n.contains("air_death") || n.contains("death")) {
+    if n.contains("technical")
+        && (n.contains("airdeath") || n.contains("air_death") || n.contains("death"))
+    {
         return Some(HostOclApplyRandomForcePlan::technical_air_death());
     }
     if n.contains("airdeath") || n.contains("air_death") {
@@ -67,7 +69,9 @@ pub fn apply_random_force_plan_for(name: &str) -> Option<HostOclApplyRandomForce
     }
     // Humvee / vehicle air death OCLs residual.
     if n.contains("humvee") && n.contains("death") {
-        return Some(HostOclApplyRandomForcePlan::generic_air_death("OCL_HumveeAirDeathStart"));
+        return Some(HostOclApplyRandomForcePlan::generic_air_death(
+            "OCL_HumveeAirDeathStart",
+        ));
     }
     if n.contains("quadcannon") && n.contains("death") {
         return Some(HostOclApplyRandomForcePlan::generic_air_death(

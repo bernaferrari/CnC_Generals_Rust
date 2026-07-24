@@ -17,10 +17,10 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::game_logic::special_power_strikes::{
-    scud_missile_loft_phase, scud_missile_speed_per_frame, scud_missile_spawn_height,
-    scud_missile_thrust_wobble, ScudMissileLoftPhase, SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET,
-    SCUD_STORM_MISSILE_IGNITION_FX, SCUD_STORM_MISSILE_OBJECT, SCUD_STORM_MISSILE_COUNT,
-    scud_storm_points,
+    scud_missile_loft_phase, scud_missile_spawn_height, scud_missile_speed_per_frame,
+    scud_missile_thrust_wobble, scud_storm_points, ScudMissileLoftPhase, SCUD_STORM_MISSILE_COUNT,
+    SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET, SCUD_STORM_MISSILE_IGNITION_FX,
+    SCUD_STORM_MISSILE_OBJECT,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,12 +35,7 @@ pub struct HostScudStormMissileFlightData {
 }
 
 impl HostScudStormMissileFlightData {
-    pub fn start(
-        launch: Vec3,
-        target: Vec3,
-        missile_index: u32,
-        launcher_id: Option<u32>,
-    ) -> Self {
+    pub fn start(launch: Vec3, target: Vec3, missile_index: u32, launcher_id: Option<u32>) -> Self {
         let mut launch = launch;
         launch.y = scud_missile_spawn_height().max(launch.y);
         Self {

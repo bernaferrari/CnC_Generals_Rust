@@ -86,7 +86,6 @@ pub const HUMVEE_AIR_TOW_MISSILE_SEEK: bool = true;
 /// Cruise speed residual (WeaponSpeed listed 600; ignored for projectile — use InitialVelocity cruise).
 pub const HUMVEE_TOW_MISSILE_CRUISE_SPEED: f32 = 600.0;
 
-
 /// Retail TransportContain Slots residual.
 pub const HUMVEE_TRANSPORT_SLOTS: usize = 5;
 /// Retail TransportSlotCount residual (slots this vehicle takes when carried).
@@ -449,7 +448,6 @@ pub fn honesty_humvee_tow_missile_projectile_ok() -> bool {
         && (HUMVEE_TOW_MISSILE_CRUISE_SPEED - 600.0).abs() < 0.01
 }
 
-
 /// Apply HumveeMissileWeapon (ground TOW) ScatterRadiusVsInfantry residual to aim.
 ///
 /// Air TOW (`HumveeMissileWeaponAir` / PatriotMissile) does not apply this residual
@@ -460,14 +458,11 @@ pub fn humvee_tow_scatter_aim(
     air: bool,
     seed: u32,
 ) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
     if air {
         return (aim, false);
     }
-    let mut scatter =
-        host_effective_scatter_radius(HUMVEE_MISSILE_WEAPON, target_is_infantry);
+    let mut scatter = host_effective_scatter_radius(HUMVEE_MISSILE_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY;
     }
@@ -492,9 +487,12 @@ pub fn humvee_tow_scatter_misses_infantry(
     if air || !target_is_infantry {
         return false;
     }
-    scatter_misses_intended_target(HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY, seed, target_hit_radius)
+    scatter_misses_intended_target(
+        HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY,
+        seed,
+        target_hit_radius,
+    )
 }
-
 
 /// Wave residual honesty: Humvee ground TOW ScatterRadiusVsInfantry peels (**10**).
 pub fn honesty_humvee_tow_scatter_vs_infantry_ok() -> bool {
@@ -505,13 +503,11 @@ pub fn honesty_humvee_tow_scatter_vs_infantry_ok() -> bool {
         && ((vs - 10.0).abs() < 0.01 || vs <= 0.0)
         && ground.abs() < 0.01
         && {
-            let (sc, applied) =
-                humvee_tow_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, false, 3);
+            let (sc, applied) = humvee_tow_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, false, 3);
             applied && sc.length() <= HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY + 0.01
         }
         && {
-            let (_, applied) =
-                humvee_tow_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, true, 3);
+            let (_, applied) = humvee_tow_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, true, 3);
             !applied
         }
 }
@@ -544,12 +540,12 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(humvee_tow_scatter_misses_infantry(true, false, 43, 0.5));
         assert!(!humvee_tow_scatter_misses_infantry(true, false, 43, 100.0));
         assert!(!humvee_tow_scatter_misses_infantry(true, true, 43, 0.5));
         assert!(!humvee_tow_scatter_misses_infantry(false, false, 43, 0.5));
-}
+    }
 
     #[test]
     fn humvee_name_matrix() {

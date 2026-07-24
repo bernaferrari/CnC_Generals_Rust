@@ -5657,14 +5657,8 @@ mod tests {
             host_effective_scatter_radius("FireBaseHowitzerGun", true),
             15.0
         );
-        assert_eq!(
-            seed_scatter_radius_vs_infantry_for("NukeCannonGun"),
-            30.0
-        );
-        assert_eq!(
-            host_effective_scatter_radius("NukeCannonGun", true),
-            30.0
-        );
+        assert_eq!(seed_scatter_radius_vs_infantry_for("NukeCannonGun"), 30.0);
+        assert_eq!(host_effective_scatter_radius("NukeCannonGun", true), 30.0);
         let o = scatter_aim_offset(42, 10.0);
         assert!(o.length() <= 10.0 + 1e-3);
         // Stable re-query.

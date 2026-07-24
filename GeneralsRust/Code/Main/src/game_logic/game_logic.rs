@@ -1118,7 +1118,8 @@ pub struct GameLogic {
     /// C++ TensileFormationUpdate residual counters.
     tensile_formation_reg: crate::game_logic::host_tensile_formation::HostTensileFormationRegistry,
     /// C++ StatusBitsUpgrade residual counters.
-    status_bits_upgrade_reg: crate::game_logic::host_status_bits_upgrade::HostStatusBitsUpgradeRegistry,
+    status_bits_upgrade_reg:
+        crate::game_logic::host_status_bits_upgrade::HostStatusBitsUpgradeRegistry,
     /// C++ FireSpreadUpdate residual counters.
     fire_spread_reg: crate::game_logic::host_fire_spread::HostFireSpreadRegistry,
     /// C++ BaseRegenerateUpdate residual counters.
@@ -1126,23 +1127,29 @@ pub struct GameLogic {
     /// C++ EnemyNearUpdate residual counters.
     enemy_near_reg: crate::game_logic::host_enemy_near::HostEnemyNearRegistry,
     /// C++ PassengersFireUpgrade residual counters.
-    passengers_fire_upgrade_reg: crate::game_logic::host_passengers_fire_upgrade::HostPassengersFireUpgradeRegistry,
+    passengers_fire_upgrade_reg:
+        crate::game_logic::host_passengers_fire_upgrade::HostPassengersFireUpgradeRegistry,
     /// C++ AnimationSteeringUpdate residual counters.
-    animation_steering_reg: crate::game_logic::host_animation_steering::HostAnimationSteeringRegistry,
+    animation_steering_reg:
+        crate::game_logic::host_animation_steering::HostAnimationSteeringRegistry,
     /// C++ ActiveShroudUpgrade residual counters.
-    active_shroud_upgrade_reg: crate::game_logic::host_active_shroud_upgrade::HostActiveShroudUpgradeRegistry,
+    active_shroud_upgrade_reg:
+        crate::game_logic::host_active_shroud_upgrade::HostActiveShroudUpgradeRegistry,
     /// C++ FloatUpdate residual counters.
     float_update_reg: crate::game_logic::host_float_update::HostFloatUpdateRegistry,
     /// C++ ProneUpdate residual counters.
     prone_update_reg: crate::game_logic::host_prone_update::HostProneUpdateRegistry,
     /// C++ RadiusDecalUpdate residual counters.
-    radius_decal_update_reg: crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateRegistry,
+    radius_decal_update_reg:
+        crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateRegistry,
     /// C++ CheckpointUpdate residual counters.
     checkpoint_update_reg: crate::game_logic::host_checkpoint_update::HostCheckpointUpdateRegistry,
     /// C++ SpectreGunshipDeploymentUpdate residual counters.
-    spectre_gunship_deployment_reg: crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry,
+    spectre_gunship_deployment_reg:
+        crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry,
     /// C++ SmartBombTargetHomingUpdate residual counters.
-    smart_bomb_target_homing_reg: crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry,
+    smart_bomb_target_homing_reg:
+        crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry,
     /// C++ OCLSpecialPower residual counters.
     ocl_special_power_reg: crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry,
     /// C++ ObjectCreationList CreateDebris disposition residual.
@@ -1168,8 +1175,7 @@ pub struct GameLogic {
     artillery_barrage_flight_reg:
         crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightRegistry,
     /// C++ A10Thunderbolt DeliverPayload residual counters.
-    a10_strike_flight_reg:
-        crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightRegistry,
+    a10_strike_flight_reg: crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightRegistry,
     /// C++ DaisyCutter DeliverPayload residual counters.
     daisy_cutter_flight_reg:
         crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightRegistry,
@@ -1180,8 +1186,7 @@ pub struct GameLogic {
     cluster_mines_flight_reg:
         crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightRegistry,
     /// C++ EMPPulse DeliverPayload residual counters.
-    emp_pulse_flight_reg:
-        crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightRegistry,
+    emp_pulse_flight_reg: crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -6559,8 +6564,8 @@ impl GameLogic {
                 Some(&mut self.countermeasures),
                 self.frame,
             );
-        self.flush_countermeasure_flare_spawns();
-        self.update_countermeasure_flare_objects();
+            self.flush_countermeasure_flare_spawns();
+            self.update_countermeasure_flare_objects();
             crate::game_logic::host_projectile_log::record_snapshot(
                 self.combat_system.projectiles_snapshot(),
             );
@@ -14468,55 +14473,54 @@ impl GameLogic {
                                     .get(&attacker_id)
                                     .map(|a| a.get_position())
                                     .unwrap_or(impact);
-                                let (hits, _destroyed_any) = if should_apply_technical_rpg_missile(
-                                    true, tier,
-                                ) {
-                                    let spawned = self
-                                        .spawn_technical_rpg_missile_projectile(
-                                            attacker_id,
-                                            from,
-                                            impact,
-                                            Some(target_id),
-                                        )
-                                        .is_some();
-                                    if spawned {
-                                        self.technical_residual_fires =
-                                            self.technical_residual_fires.saturating_add(1);
-                                        (1, false)
+                                let (hits, _destroyed_any) =
+                                    if should_apply_technical_rpg_missile(true, tier) {
+                                        let spawned = self
+                                            .spawn_technical_rpg_missile_projectile(
+                                                attacker_id,
+                                                from,
+                                                impact,
+                                                Some(target_id),
+                                            )
+                                            .is_some();
+                                        if spawned {
+                                            self.technical_residual_fires =
+                                                self.technical_residual_fires.saturating_add(1);
+                                            (1, false)
+                                        } else {
+                                            self.apply_technical_residual_at(
+                                                impact,
+                                                Some(attacker_id),
+                                                Some(target_id),
+                                            )
+                                        }
+                                    } else if should_apply_technical_cannon_shell(true, tier) {
+                                        let spawned = self
+                                            .spawn_technical_cannon_shell_projectile(
+                                                attacker_id,
+                                                from,
+                                                impact,
+                                                Some(target_id),
+                                            )
+                                            .is_some();
+                                        if spawned {
+                                            self.technical_residual_fires =
+                                                self.technical_residual_fires.saturating_add(1);
+                                            (1, false)
+                                        } else {
+                                            self.apply_technical_residual_at(
+                                                impact,
+                                                Some(attacker_id),
+                                                Some(target_id),
+                                            )
+                                        }
                                     } else {
                                         self.apply_technical_residual_at(
                                             impact,
                                             Some(attacker_id),
                                             Some(target_id),
                                         )
-                                    }
-                                } else if should_apply_technical_cannon_shell(true, tier) {
-                                    let spawned = self
-                                        .spawn_technical_cannon_shell_projectile(
-                                            attacker_id,
-                                            from,
-                                            impact,
-                                            Some(target_id),
-                                        )
-                                        .is_some();
-                                    if spawned {
-                                        self.technical_residual_fires =
-                                            self.technical_residual_fires.saturating_add(1);
-                                        (1, false)
-                                    } else {
-                                        self.apply_technical_residual_at(
-                                            impact,
-                                            Some(attacker_id),
-                                            Some(target_id),
-                                        )
-                                    }
-                                } else {
-                                    self.apply_technical_residual_at(
-                                        impact,
-                                        Some(attacker_id),
-                                        Some(target_id),
-                                    )
-                                };
+                                    };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 6.0);
@@ -14549,17 +14553,15 @@ impl GameLogic {
                                 let speed = self
                                     .objects
                                     .get(&attacker_id)
-                                    .map(|a| {
-                                        match Self::marauder_tier_from_object(a) {
-                                            MarauderWeaponTier::Two => MARAUDER_SPEED_TIER2,
-                                            MarauderWeaponTier::One => MARAUDER_SPEED_TIER1,
-                                            MarauderWeaponTier::Base => a
-                                                .weapon
-                                                .as_ref()
-                                                .map(|w| w.projectile_speed)
-                                                .filter(|s| *s > 1.0)
-                                                .unwrap_or(MARAUDER_SPEED_TIER0),
-                                        }
+                                    .map(|a| match Self::marauder_tier_from_object(a) {
+                                        MarauderWeaponTier::Two => MARAUDER_SPEED_TIER2,
+                                        MarauderWeaponTier::One => MARAUDER_SPEED_TIER1,
+                                        MarauderWeaponTier::Base => a
+                                            .weapon
+                                            .as_ref()
+                                            .map(|w| w.projectile_speed)
+                                            .filter(|s| *s > 1.0)
+                                            .unwrap_or(MARAUDER_SPEED_TIER0),
                                     })
                                     .unwrap_or(MARAUDER_SPEED_TIER0);
                                 let spawned = self
@@ -14852,9 +14854,8 @@ impl GameLogic {
                                     )
                                     .is_some();
                                 let (hits, _destroyed_any) = if spawned {
-                                    self.stealth_fighter_residual_fires = self
-                                        .stealth_fighter_residual_fires
-                                        .saturating_add(1);
+                                    self.stealth_fighter_residual_fires =
+                                        self.stealth_fighter_residual_fires.saturating_add(1);
                                     (1, false)
                                 } else {
                                     self.apply_stealth_fighter_residual_at(
@@ -14967,7 +14968,8 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 use crate::game_logic::host_usa_tanks::{
-                                    is_paladin_template, CRUSADER_WEAPON_SPEED, PALADIN_WEAPON_SPEED,
+                                    is_paladin_template, CRUSADER_WEAPON_SPEED,
+                                    PALADIN_WEAPON_SPEED,
                                 };
                                 let impact = target_position;
                                 let from = self
@@ -15015,7 +15017,8 @@ impl GameLogic {
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         if let Some(w) = attacker.weapon.as_mut() {
-                                            w.last_fire_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+                                            w.last_fire_time =
+                                                self.frame as f32 * LOGIC_FRAME_TIMESTEP;
                                         }
                                     }
                                 }
@@ -15238,9 +15241,8 @@ impl GameLogic {
                                             .missile_defender_residual_laser_fires
                                             .saturating_add(1);
                                     } else {
-                                        self.missile_defender_residual_fires = self
-                                            .missile_defender_residual_fires
-                                            .saturating_add(1);
+                                        self.missile_defender_residual_fires =
+                                            self.missile_defender_residual_fires.saturating_add(1);
                                     }
                                     (1, false)
                                 } else {
@@ -15311,9 +15313,8 @@ impl GameLogic {
                                         )
                                         .is_some();
                                     if spawned {
-                                        self.ranger_residual_flashbang_fires = self
-                                            .ranger_residual_flashbang_fires
-                                            .saturating_add(1);
+                                        self.ranger_residual_flashbang_fires =
+                                            self.ranger_residual_flashbang_fires.saturating_add(1);
                                         (1, false)
                                     } else {
                                         self.apply_ranger_residual_at(
@@ -15356,7 +15357,8 @@ impl GameLogic {
                                 should_apply_humvee_tow_residual(is_hv, has_tow, slot == 1)
                             } {
                                 use crate::game_logic::host_humvee::{
-                                    humvee_prefer_air_tow as hv_air_tow, HUMVEE_TOW_FIRE_AUDIO as HV_TOW_AUDIO,
+                                    humvee_prefer_air_tow as hv_air_tow,
+                                    HUMVEE_TOW_FIRE_AUDIO as HV_TOW_AUDIO,
                                 };
                                 let impact = target_position;
                                 let target_is_air = self
@@ -19221,7 +19223,10 @@ impl GameLogic {
                                     (planter_ok, ready)
                                 })
                                 .unwrap_or((false, false));
-                            if can_plant && ready && self.booby_trap.can_place_special_object(object_id) {
+                            if can_plant
+                                && ready
+                                && self.booby_trap.can_place_special_object(object_id)
+                            {
                                 let geom = self
                                     .objects
                                     .get(&special_target_id)
@@ -19245,8 +19250,7 @@ impl GameLogic {
                                     team,
                                     special_target_id,
                                 ) {
-                                    self.booby_trap
-                                        .set_charge_object(special_target_id, cid);
+                                    self.booby_trap.set_charge_object(special_target_id, cid);
                                 }
                                 if let Some(target) = self.objects.get_mut(&special_target_id) {
                                     target.set_status_booby_trapped(true);
@@ -19908,17 +19912,13 @@ impl GameLogic {
 
     /// Apply unlock effects for a completed upgrade and record honesty.
     /// Matches C++ ProductionUpdate upgrade-complete: player mask + object giveUpgrade.
-    
+
     /// C++ StatusBitsUpgrade::upgradeImplementation residual for team units.
-    
+
     /// C++ PassengersFireUpgrade residual for Helix BattleBunker unlock.
-    
+
     /// C++ ActiveShroudUpgrade::upgradeImplementation residual.
-    pub fn apply_active_shroud_upgrade(
-        &mut self,
-        id: ObjectId,
-        new_shroud_range: f32,
-    ) -> bool {
+    pub fn apply_active_shroud_upgrade(&mut self, id: ObjectId, new_shroud_range: f32) -> bool {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -19960,10 +19960,11 @@ impl GameLogic {
         n
     }
 
-fn apply_passengers_fire_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    fn apply_passengers_fire_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_passengers_fire_upgrade::should_enable_passengers_fire;
-        if !crate::game_logic::host_passengers_fire_upgrade::is_passengers_fire_upgrade(upgrade_name)
-        {
+        if !crate::game_logic::host_passengers_fire_upgrade::is_passengers_fire_upgrade(
+            upgrade_name,
+        ) {
             return 0;
         }
         let ids: Vec<ObjectId> = self
@@ -19986,7 +19987,7 @@ fn apply_passengers_fire_upgrade_to_team(&mut self, team: Team, upgrade_name: &s
         n
     }
 
-fn apply_status_bits_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    fn apply_status_bits_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_status_bits_upgrade::{
             peel_applies_to_template, peels_for_upgrade,
         };
@@ -20022,7 +20023,7 @@ fn apply_status_bits_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) 
         touched
     }
 
-fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_name: &str) {
+    fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_name: &str) {
         use crate::game_logic::host_upgrades::HostUpgradeKind;
 
         let kind = HostUpgradeKind::from_name(upgrade_name);
@@ -28556,7 +28557,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_status_bits_upgrade_ok(&self) -> bool {
         self.status_bits_upgrade_reg.honesty_host_path_ok()
-            && crate::game_logic::host_status_bits_upgrade::honesty_status_bits_upgrade_residual_ok()
+            && crate::game_logic::host_status_bits_upgrade::honesty_status_bits_upgrade_residual_ok(
+            )
     }
 
     pub fn honesty_fire_spread_ok(&self) -> bool {
@@ -28601,7 +28603,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_radius_decal_update_ok(&self) -> bool {
         self.radius_decal_update_reg.honesty_host_path_ok()
-            && crate::game_logic::host_radius_decal_update::honesty_radius_decal_update_residual_ok()
+            && crate::game_logic::host_radius_decal_update::honesty_radius_decal_update_residual_ok(
+            )
     }
 
     pub fn honesty_checkpoint_update_ok(&self) -> bool {
@@ -28701,10 +28704,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     }
                 }
                 if is_cruise {
+                    use crate::game_logic::combat::DamageType;
                     use crate::game_logic::special_power_strikes::{
                         CRUISE_MISSILE_DAMAGE, CRUISE_MISSILE_RADIUS, MOAB_FLAME_DAMAGE,
                     };
-                    use crate::game_logic::combat::DamageType;
                     self.apply_fuel_air_radius_damage(
                         id,
                         producer,
@@ -28724,13 +28727,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                         DamageType::Flame,
                     );
                 } else {
-                    self.special_power_strikes.spawn_neutron_slow_death_field(
-                        source,
-                        team,
-                        pos,
-                        self.frame,
-                        0,
-                    );
+                    self.special_power_strikes
+                        .spawn_neutron_slow_death_field(source, team, pos, self.frame, 0);
                 }
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.fire_create_object_die();
@@ -28843,9 +28841,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                         }
                     }
                     // Also accept Upgrade_ naming via sciences list residual.
-                    ScudStormAnthraxTier::highest_from_upgrades(
-                        names.iter().map(|s| s.as_str()),
-                    )
+                    ScudStormAnthraxTier::highest_from_upgrades(names.iter().map(|s| s.as_str()))
                 };
                 // ScudStormDamageWeapon primary + secondary residual at scatter impact.
                 // Chem_GLAScudStorm residual: primary is anthrax warhead (no HE primary).
@@ -28866,7 +28862,9 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                         producer,
                         team,
                         target,
-                        anthrax.secondary_damage().max(anthrax.primary_damage() * 0.4),
+                        anthrax
+                            .secondary_damage()
+                            .max(anthrax.primary_damage() * 0.4),
                         SCUD_STORM_SECONDARY_RADIUS,
                         DamageType::Toxin,
                     );
@@ -28891,14 +28889,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     );
                 }
                 // DeathFire OCL poison field residual (OCL_PoisonFieldLarge / upgraded).
-                let _ = self.special_power_strikes.spawn_scud_poison_field_with_tier(
-                    source,
-                    team,
-                    target,
-                    self.frame,
-                    0,
-                    anthrax,
-                );
+                let _ = self
+                    .special_power_strikes
+                    .spawn_scud_poison_field_with_tier(
+                        source, team, target, self.frame, 0, anthrax,
+                    );
                 self.scud_storm_missile_flight_reg.record_ground();
                 destroy.push(id);
             }
@@ -28918,7 +28913,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         use crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightData;
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         let source_pos = self
             .objects
             .get(&source_id)
@@ -28944,17 +28943,12 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let tid = self.create_object(transport, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.producer_id = Some(source_id);
-            o.carpet_bomb_transport =
-                Some(HostCarpetBombFlightData::start(edge, target, tier));
+            o.carpet_bomb_transport = Some(HostCarpetBombFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }
         self.carpet_bomb_flight_reg.record_transport();
-        self.carpet_bomb_flight_reg.schedule_drops(
-            self.frame,
-            source_id.0,
-            target,
-            tier,
-        );
+        self.carpet_bomb_flight_reg
+            .schedule_drops(self.frame, source_id.0, target, tier);
         Some(tid)
     }
 
@@ -29006,9 +29000,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     .unwrap_or(Team::Neutral);
                 // Drop from above target residual.
                 let drop_pos = Vec3::new(p.target.x, 80.0, p.target.z);
-                if let Some(bid) =
-                    self.create_object(CARPET_BOMB_PAYLOAD_OBJECT, team, drop_pos)
-                {
+                if let Some(bid) = self.create_object(CARPET_BOMB_PAYLOAD_OBJECT, team, drop_pos) {
                     if let Some(o) = self.objects.get_mut(&bid) {
                         o.producer_id = Some(ObjectId(p.source_id));
                         o.carpet_bomb_payload = true;
@@ -29075,7 +29067,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         use crate::game_logic::special_power_strikes::ARTILLERY_BARRAGE_TRANSPORT;
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         let source_pos = self
             .objects
             .get(&source_id)
@@ -29100,20 +29096,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let tid = self.create_object(ARTILLERY_BARRAGE_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.producer_id = Some(source_id);
-            o.artillery_barrage_transport = Some(HostArtilleryBarrageFlightData::start(
-                edge,
-                target,
-                tier,
-            ));
+            o.artillery_barrage_transport =
+                Some(HostArtilleryBarrageFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }
         self.artillery_barrage_flight_reg.record_transport();
-        self.artillery_barrage_flight_reg.schedule_drops(
-            self.frame,
-            source_id.0,
-            target,
-            tier,
-        );
+        self.artillery_barrage_flight_reg
+            .schedule_drops(self.frame, source_id.0, target, tier);
         Some(tid)
     }
 
@@ -29230,7 +29219,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         use crate::game_logic::special_power_strikes::A10_TRANSPORT;
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         let source_pos = self
             .objects
             .get(&source_id)
@@ -29254,8 +29247,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let tid = self.create_object(A10_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.producer_id = Some(source_id);
-            o.a10_strike_transport =
-                Some(HostA10StrikeFlightData::start(edge, target, tier));
+            o.a10_strike_transport = Some(HostA10StrikeFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }
         self.a10_strike_flight_reg.record_transport();
@@ -29372,7 +29364,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         use crate::game_logic::host_leaflet_drop::{LEAFLET_CONTAINER_OBJECT, LEAFLET_TRANSPORT};
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         let source_pos = self
             .objects
             .get(&source_id)
@@ -29461,10 +29457,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     o.movement.velocity = Vec3::new(0.0, -12.0, 0.0);
                     let _ = o.set_smart_bomb_target(target);
                 }
-                self.host_leaflet_drops.containers_dropped = self
-                    .host_leaflet_drops
-                    .containers_dropped
-                    .saturating_add(1);
+                self.host_leaflet_drops.containers_dropped =
+                    self.host_leaflet_drops.containers_dropped.saturating_add(1);
             }
         }
 
@@ -29506,12 +29500,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         source_id: ObjectId,
         target: Vec3,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_paradrop::{
-            PARADROP_PARACHUTE_CONTAINER, PARADROP_TRANSPORT,
-        };
+        use crate::game_logic::host_paradrop::{PARADROP_PARACHUTE_CONTAINER, PARADROP_TRANSPORT};
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         let source_pos = self
             .objects
             .get(&source_id)
@@ -29601,10 +29597,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     let _ = o.set_smart_bomb_target(target);
                     let _ = o.apply_eject_parachuting();
                 }
-                self.host_paradrops.parachutes_dropped = self
-                    .host_paradrops
-                    .parachutes_dropped
-                    .saturating_add(1);
+                self.host_paradrops.parachutes_dropped =
+                    self.host_paradrops.parachutes_dropped.saturating_add(1);
             }
         }
 
@@ -29645,7 +29639,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         use crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightData;
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         let source_pos = self
             .objects
             .get(&source_id)
@@ -29676,8 +29674,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let tid = self.create_object(transport, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.producer_id = Some(source_id);
-            o.daisy_cutter_transport =
-                Some(HostDaisyCutterFlightData::start(edge, target, tier));
+            o.daisy_cutter_transport = Some(HostDaisyCutterFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }
         self.daisy_cutter_flight_reg.record_transport(tier);
@@ -29752,8 +29749,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
                 o.set_position(p);
-                let is_moab = o.template_name == "MOAB"
-                    || o.template_name.contains("MOAB");
+                let is_moab = o.template_name == "MOAB" || o.template_name.contains("MOAB");
                 (p, o.producer_id, o.team, is_moab)
             };
             if pos.y <= 5.0 {
@@ -29793,7 +29789,6 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
-
     /// C++ SUPERWEAPON_AnthraxBomb GLAJetCargoPlane + AnthraxBomb residual.
     pub fn spawn_anthrax_bomb_flight(
         &mut self,
@@ -29805,7 +29800,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         let source_pos = self
             .objects
             .get(&source_id)
@@ -29836,8 +29835,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let tid = self.create_object(ANTHRAX_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.producer_id = Some(source_id);
-            o.anthrax_bomb_transport =
-                Some(HostAnthraxBombFlightData::start(edge, target, tier));
+            o.anthrax_bomb_transport = Some(HostAnthraxBombFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }
         self.anthrax_bomb_flight_reg.record_transport();
@@ -29926,13 +29924,9 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 );
                 // OCL_PoisonFieldAnthraxBomb residual.
                 let src = producer.unwrap_or(id);
-                let _ = self.special_power_strikes.spawn_toxin_field(
-                    src,
-                    team,
-                    impact,
-                    self.frame,
-                    0,
-                );
+                let _ = self
+                    .special_power_strikes
+                    .spawn_toxin_field(src, team, impact, self.frame, 0);
                 self.anthrax_bomb_flight_reg.record_toxin_field();
                 let _ = self.combat_particles.spawn(
                     CombatParticleKind::DeathExplosion,
@@ -29960,7 +29954,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         use crate::game_logic::host_sneak_attack::SNEAK_ATTACK_TUNNEL_START_TEMPLATE;
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        if !self.templates.contains_key(SNEAK_ATTACK_TUNNEL_START_TEMPLATE) {
+        if !self
+            .templates
+            .contains_key(SNEAK_ATTACK_TUNNEL_START_TEMPLATE)
+        {
             let mut t = ThingTemplate::new(SNEAK_ATTACK_TUNNEL_START_TEMPLATE);
             t.add_kind_of(KindOf::Structure)
                 .add_kind_of(KindOf::Immobile)
@@ -29989,7 +29986,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         use crate::game_logic::host_mines::CLUSTER_MINES_OCL_TRANSPORT;
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         let source_pos = self
             .objects
             .get(&source_id)
@@ -30020,8 +30021,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let tid = self.create_object(CLUSTER_MINES_OCL_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.producer_id = Some(source_id);
-            o.cluster_mines_transport =
-                Some(HostClusterMinesFlightData::start(edge, target));
+            o.cluster_mines_transport = Some(HostClusterMinesFlightData::start(edge, target));
             o.set_orientation(dz.atan2(dx));
         }
         self.cluster_mines_flight_reg.record_transport();
@@ -30181,13 +30181,15 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         target: Vec3,
         player_id: u32,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_emp_pulse::{
-            EMP_PULSE_BOMB_TEMPLATE, EMP_PULSE_OCL_TRANSPORT,
-        };
+        use crate::game_logic::host_emp_pulse::{EMP_PULSE_BOMB_TEMPLATE, EMP_PULSE_OCL_TRANSPORT};
         use crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightData;
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         let source_pos = self
             .objects
             .get(&source_id)
@@ -30206,12 +30208,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             t.set_health(600.0)
                 .add_kind_of(KindOf::Aircraft)
                 .add_kind_of(KindOf::Vehicle);
-            self.templates.insert(EMP_PULSE_OCL_TRANSPORT.to_string(), t);
+            self.templates
+                .insert(EMP_PULSE_OCL_TRANSPORT.to_string(), t);
         }
         if !self.templates.contains_key(EMP_PULSE_BOMB_TEMPLATE) {
             let mut t = ThingTemplate::new(EMP_PULSE_BOMB_TEMPLATE);
             t.set_health(50.0).add_kind_of(KindOf::Projectile);
-            self.templates.insert(EMP_PULSE_BOMB_TEMPLATE.to_string(), t);
+            self.templates
+                .insert(EMP_PULSE_BOMB_TEMPLATE.to_string(), t);
         }
         let tid = self.create_object(EMP_PULSE_OCL_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
@@ -30373,11 +30377,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ OCL GPSScrambler_InvisibleMarker residual.
-    pub fn spawn_gps_scrambler_marker(
-        &mut self,
-        team: Team,
-        position: Vec3,
-    ) -> Option<ObjectId> {
+    pub fn spawn_gps_scrambler_marker(&mut self, team: Team, position: Vec3) -> Option<ObjectId> {
         use crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_INVISIBLE_MARKER;
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -30411,7 +30411,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             for a in self.gps_scramblers.growing_missions_mut() {
                 if a.grow_index >= GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL {
                     a.growing = false;
-                    a.radius = gps_scrambler_scan_radius_after_updates(a.grow_index.saturating_sub(1));
+                    a.radius =
+                        gps_scrambler_scan_radius_after_updates(a.grow_index.saturating_sub(1));
                     continue;
                 }
                 let radius = gps_scrambler_scan_radius_after_updates(a.grow_index);
@@ -30590,7 +30591,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         source_team: Team,
     ) -> u32 {
         use crate::game_logic::host_firewall::{
-            FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_MAX_HEALTH, HostFireWallRegistry,
+            HostFireWallRegistry, FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_MAX_HEALTH,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -30599,12 +30600,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             .active_walls()
             .iter()
             .find(|w| w.id == wall_id)
-            .map(|w| {
-                (
-                    w.segments.iter().map(|s| s.position).collect(),
-                    w.upgraded,
-                )
-            })
+            .map(|w| (w.segments.iter().map(|s| s.position).collect(), w.upgraded))
             .unwrap_or_default();
         if positions.is_empty() {
             return 0;
@@ -30660,7 +30656,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     return None;
                 }
                 let dir = o.firewall_segment_dir.unwrap_or([1.0, 0.0]);
-                Some((*id, dir[0] * FIREWALL_INCH_PER_FRAME, dir[1] * FIREWALL_INCH_PER_FRAME))
+                Some((
+                    *id,
+                    dir[0] * FIREWALL_INCH_PER_FRAME,
+                    dir[1] * FIREWALL_INCH_PER_FRAME,
+                ))
             })
             .collect();
         for (id, dx, dz) in crawlers {
@@ -30882,7 +30882,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     pub fn honesty_fuel_air_gas_slow_death_ok(&self) -> bool {
-        crate::game_logic::host_fuel_air_gas_slow_death::honesty_fuel_air_gas_slow_death_residual_ok()
+        crate::game_logic::host_fuel_air_gas_slow_death::honesty_fuel_air_gas_slow_death_residual_ok(
+        )
     }
 
     pub fn honesty_ocl_fire_weapon_attack_ok(&self) -> bool {
@@ -30891,7 +30892,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_ocl_create_debris_ok(&self) -> bool {
         crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok()
-            && (self.ocl_create_debris_reg.plans > 0 || self.ocl_create_debris_reg.debris_spawned == 0)
+            && (self.ocl_create_debris_reg.plans > 0
+                || self.ocl_create_debris_reg.debris_spawned == 0)
     }
 
     pub fn honesty_ocl_special_power_ok(&self) -> bool {
@@ -31730,10 +31732,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
         let mut intended_scatter_miss = false;
         if strategy_center_gun_scatter_misses(seed, hit_r, intended_is_infantry) {
-            let intended_pos = self
-                .objects
-                .get(&target_id)
-                .map(|o| o.get_position());
+            let intended_pos = self.objects.get(&target_id).map(|o| o.get_position());
             if let Some(pos) = intended_pos {
                 let dx = impact.x - pos.x;
                 let dz = impact.z - pos.z;
@@ -32097,8 +32096,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 .spawn_fire_base_shell_projectile(defense_id, from, impact, Some(target_id))
                 .is_some();
             let (hits, any_destroyed) = if spawned {
-                self.fire_base_residual_fires =
-                    self.fire_base_residual_fires.saturating_add(1);
+                self.fire_base_residual_fires = self.fire_base_residual_fires.saturating_add(1);
                 (1, false)
             } else {
                 self.apply_fire_base_residual_at(impact, Some(defense_id), Some(target_id))
@@ -32143,16 +32141,12 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                                 crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
                             }
                         })
-                        .unwrap_or(
-                            crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS,
-                        );
+                        .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
                     if is_patriot {
                         self.patriot_scatter_applied =
                             self.patriot_scatter_applied.saturating_add(1);
                         if crate::game_logic::host_base_defense::patriot_scatter_misses_infantry(
-                            true,
-                            seed,
-                            hit_r,
+                            true, seed, hit_r,
                         ) {
                             self.patriot_scatter_misses =
                                 self.patriot_scatter_misses.saturating_add(1);
@@ -32162,9 +32156,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                         self.stinger_scatter_applied =
                             self.stinger_scatter_applied.saturating_add(1);
                         if crate::game_logic::host_base_defense::stinger_scatter_misses_infantry(
-                            true,
-                            seed,
-                            hit_r,
+                            true, seed, hit_r,
                         ) {
                             self.stinger_scatter_misses =
                                 self.stinger_scatter_misses.saturating_add(1);
@@ -32723,8 +32715,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     ) {
         use crate::game_logic::host_base_defense::{
             is_legal_supw_patriot_emp_target, supw_emp_scatter_aim,
-            supw_emp_scatter_misses_infantry, supw_patriot_emp_until_frame,
-            SUPW_PATRIOT_EMP_AUDIO, SUPW_PATRIOT_EMP_RADIUS,
+            supw_emp_scatter_misses_infantry, supw_patriot_emp_until_frame, SUPW_PATRIOT_EMP_AUDIO,
+            SUPW_PATRIOT_EMP_RADIUS,
         };
         use crate::game_logic::host_emp_pulse::is_emp_hardened_name;
 
@@ -32752,12 +32744,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
             let (new_impact, scattered) = supw_emp_scatter_aim(impact, true, seed);
             if scattered {
-                self.supw_emp_scatter_applied =
-                    self.supw_emp_scatter_applied.saturating_add(1);
+                self.supw_emp_scatter_applied = self.supw_emp_scatter_applied.saturating_add(1);
                 impact = new_impact;
             }
             if supw_emp_scatter_misses_infantry(true, seed, hit_r) {
-                if let Some(pos) = intended_target.and_then(|id| self.objects.get(&id)).map(|o| o.get_position()) {
+                if let Some(pos) = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position())
+                {
                     let dx = impact.x - pos.x;
                     let dz = impact.z - pos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
@@ -32885,8 +32879,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             Self::write_object_health_authority_aware(o, WEAPON_LASER_BEAM_MAX_HEALTH);
         }
         let _ = to_id;
-        self.weapon_laser_beams_spawned =
-            self.weapon_laser_beams_spawned.saturating_add(1);
+        self.weapon_laser_beams_spawned = self.weapon_laser_beams_spawned.saturating_add(1);
         Some(bid)
     }
 
@@ -32954,7 +32947,9 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             (from.z + to.z) * 0.5,
         );
         let bid = self.create_object(beam_name, team, mid)?;
-        let expires = self.frame.saturating_add(PDL_LASER_BEAM_LIFETIME_FRAMES.max(1));
+        let expires = self
+            .frame
+            .saturating_add(PDL_LASER_BEAM_LIFETIME_FRAMES.max(1));
         if let Some(o) = self.objects.get_mut(&bid) {
             o.point_defense_laser_beam = true;
             o.producer_id = Some(carrier_id);
@@ -33388,8 +33383,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: SCUD area blast residual.
     pub fn honesty_scud_launcher_ok(&self) -> bool {
-        self.scud_poison_zones.honesty_host_path_ok()
-            || self.scud_launcher_scatter_applied > 0
+        self.scud_poison_zones.honesty_host_path_ok() || self.scud_launcher_scatter_applied > 0
     }
 
     /// Residual honesty: SCUD Launcher ScatterRadiusVsInfantry applied at least once.
@@ -33422,8 +33416,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: Technical cannon ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_technical_cannon_scatter_ok(&self) -> bool {
-        self.technical_cannon_scatter_applied > 0
-            || self.technical_cannon_scatter_misses > 0
+        self.technical_cannon_scatter_applied > 0 || self.technical_cannon_scatter_misses > 0
     }
 
     pub fn honesty_technical_weapon_upgrade_ok(&self) -> bool {
@@ -34088,8 +34081,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: Missile Defender ScatterRadiusVsInfantry applied.
     pub fn honesty_missile_defender_scatter_ok(&self) -> bool {
-        self.missile_defender_scatter_applied > 0
-            || self.missile_defender_scatter_misses > 0
+        self.missile_defender_scatter_applied > 0 || self.missile_defender_scatter_misses > 0
     }
 
     pub fn honesty_missile_defender_laser_ok(&self) -> bool {
@@ -34332,8 +34324,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: StrategyCenterGun ScatterRadius peels applied.
     pub fn honesty_strategy_center_gun_scatter_ok(&self) -> bool {
-        self.strategy_center_gun_scatter_applied > 0
-            || self.strategy_center_gun_scatter_misses > 0
+        self.strategy_center_gun_scatter_applied > 0 || self.strategy_center_gun_scatter_misses > 0
     }
 
     pub fn camo_netting_structure_residual_reveals(&self) -> u32 {
@@ -34622,7 +34613,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     ///
     /// Returns (units_hit, any_destroyed).
     /// Fail-closed: not full projectile flight / AP mult / clip spacing.
-        /// C++ RocketBuggyMissile ProjectileObject residual (MissileAI + impact splash).
+    /// C++ RocketBuggyMissile ProjectileObject residual (MissileAI + impact splash).
     pub fn spawn_rocket_buggy_missile_projectile(
         &mut self,
         source_id: ObjectId,
@@ -34660,15 +34651,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) =
-            crate::game_logic::host_rocket_buggy::rocket_buggy_scatter_aim(
-                aim,
-                target_is_infantry,
-                seed,
-            );
+        let (aim, scattered) = crate::game_logic::host_rocket_buggy::rocket_buggy_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
         if scattered {
-            self.rocket_buggy_scatter_applied =
-                self.rocket_buggy_scatter_applied.saturating_add(1);
+            self.rocket_buggy_scatter_applied = self.rocket_buggy_scatter_applied.saturating_add(1);
         }
         if target_is_infantry {
             let hit_r = intended
@@ -34685,20 +34674,15 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_rocket_buggy::rocket_buggy_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
                     let dz = aim.z - pos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
-                    if dist
-                        > crate::game_logic::host_rocket_buggy::BUGGY_SECONDARY_RADIUS
-                    {
-                        self.rocket_buggy_residual_scatter_misses = self
-                            .rocket_buggy_residual_scatter_misses
-                            .saturating_add(1);
+                    if dist > crate::game_logic::host_rocket_buggy::BUGGY_SECONDARY_RADIUS {
+                        self.rocket_buggy_residual_scatter_misses =
+                            self.rocket_buggy_residual_scatter_misses.saturating_add(1);
                     }
                 }
             }
@@ -34726,8 +34710,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
         }
-        self.rocket_buggy_missiles_spawned =
-            self.rocket_buggy_missiles_spawned.saturating_add(1);
+        self.rocket_buggy_missiles_spawned = self.rocket_buggy_missiles_spawned.saturating_add(1);
         Some(pid)
     }
 
@@ -34776,7 +34759,12 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             };
             // Prefer live intended target position (TryToFollowTarget Yes).
             let aim = intended
-                .and_then(|tid| self.objects.get(&tid).filter(|t| t.is_alive()).map(|t| t.get_position()))
+                .and_then(|tid| {
+                    self.objects
+                        .get(&tid)
+                        .filter(|t| t.is_alive())
+                        .map(|t| t.get_position())
+                })
                 .unwrap_or(aim);
             let speed = if travelled < BUGGY_MISSILE_TURN_DISTANCE {
                 launch
@@ -34829,9 +34817,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_rocket_buggy::{
-            is_legal_rocket_buggy_splash_target, rocket_buggy_damage_at,
-            rocket_buggy_scatter_aim, rocket_buggy_scatter_misses_infantry, BUGGY_FIRE_AUDIO,
-            BUGGY_SECONDARY_RADIUS,
+            is_legal_rocket_buggy_splash_target, rocket_buggy_damage_at, rocket_buggy_scatter_aim,
+            rocket_buggy_scatter_misses_infantry, BUGGY_FIRE_AUDIO, BUGGY_SECONDARY_RADIUS,
         };
 
         // C++ BuggyRocketWeapon ScatterRadiusVsInfantry residual on instant apply (**20**).
@@ -34873,9 +34860,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     let dz = impact.z - pos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
                     if dist > BUGGY_SECONDARY_RADIUS {
-                        self.rocket_buggy_residual_scatter_misses = self
-                            .rocket_buggy_residual_scatter_misses
-                            .saturating_add(1);
+                        self.rocket_buggy_residual_scatter_misses =
+                            self.rocket_buggy_residual_scatter_misses.saturating_add(1);
                         scatter_misses = 1;
                         intended_scatter_miss = true;
                     }
@@ -34979,7 +34965,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     ///
     /// Returns (units_hit, any_destroyed).
     /// Fail-closed: not full SCUDMissile projectile / PreAttack animation matrix.
-        /// C++ SCUDMissile ProjectileObject residual (lob + HeightDie/impact).
+    /// C++ SCUDMissile ProjectileObject residual (lob + HeightDie/impact).
     pub fn spawn_scud_launcher_missile_projectile(
         &mut self,
         source_id: ObjectId,
@@ -35019,12 +35005,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) =
-            crate::game_logic::host_scud_launcher::scud_launcher_scatter_aim(
-                aim,
-                target_is_infantry,
-                seed,
-            );
+        let (aim, scattered) = crate::game_logic::host_scud_launcher::scud_launcher_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
         if scattered {
             self.scud_launcher_scatter_applied =
                 self.scud_launcher_scatter_applied.saturating_add(1);
@@ -35044,9 +35029,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_scud_launcher::scud_launcher_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -35432,9 +35415,9 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// Advance SCUD MediumPoisonField residual zones.
-        /// C++ TensileFormationUpdate residual (AvalancheChunk springy slide).
-        /// C++ TensileFormationUpdate residual (AvalancheChunk springy slide).
-        /// Test/host helper: ignite a flammable object residual.
+    /// C++ TensileFormationUpdate residual (AvalancheChunk springy slide).
+    /// C++ TensileFormationUpdate residual (AvalancheChunk springy slide).
+    /// Test/host helper: ignite a flammable object residual.
     pub fn ignite_object_fire_spread(&mut self, id: ObjectId) -> bool {
         let frame = self.frame as u32;
         let Some(obj) = self.objects.get_mut(&id) else {
@@ -35450,11 +35433,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
-        /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
-        /// C++ BaseRegenerateUpdate residual (structure auto-heal after delay).
-        /// C++ EnemyNearUpdate residual (scan vision for enemies → ENEMYNEAR).
-        /// C++ AnimationSteeringUpdate residual (Battle Bus turn model conditions).
-        /// Record ProneUpdate goProne residual after damage (host helper).
+    /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
+    /// C++ BaseRegenerateUpdate residual (structure auto-heal after delay).
+    /// C++ EnemyNearUpdate residual (scan vision for enemies → ENEMYNEAR).
+    /// C++ AnimationSteeringUpdate residual (Battle Bus turn model conditions).
+    /// Record ProneUpdate goProne residual after damage (host helper).
     pub fn record_prone_go_if_needed(&mut self, id: ObjectId, damage: f32) {
         if let Some(obj) = self.objects.get_mut(&id) {
             if let Some(pu) = obj.prone_update.as_mut() {
@@ -35482,16 +35465,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     continue;
                 };
                 let pos = obj.get_position();
-                self.terrain
-                    .as_ref()
-                    .and_then(|t| {
-                        if t.is_underwater_at_world(pos) {
-                            // Approximate water surface as current terrain height residual.
-                            Some(t.height_at_world(pos))
-                        } else {
-                            None
-                        }
-                    })
+                self.terrain.as_ref().and_then(|t| {
+                    if t.is_underwater_at_world(pos) {
+                        // Approximate water surface as current terrain height residual.
+                        Some(t.height_at_world(pos))
+                    } else {
+                        None
+                    }
+                })
             };
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
@@ -35511,12 +35492,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ ProneUpdate residual countdown + NO_ATTACK / PRONE condition.
-        /// C++ OCL DeliveryDecal residual: create radius decal on SW host.
-    pub fn create_delivery_radius_decal(
-        &mut self,
-        host_id: ObjectId,
-        target_pos: Vec3,
-    ) -> bool {
+    /// C++ OCL DeliveryDecal residual: create radius decal on SW host.
+    pub fn create_delivery_radius_decal(&mut self, host_id: ObjectId, target_pos: Vec3) -> bool {
         let frame = self.frame as u32;
         let Some(obj) = self.objects.get_mut(&host_id) else {
             return false;
@@ -35532,9 +35509,9 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ RadiusDecalUpdate::update residual.
-        /// C++ CheckpointUpdate residual (open gate for allies when clear of enemies).
-        /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
-        /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
+    /// C++ CheckpointUpdate residual (open gate for allies when clear of enemies).
+    /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
+    /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
     pub fn initiate_spectre_gunship_deployment(
         &mut self,
         caster_id: ObjectId,
@@ -35587,15 +35564,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 .add_kind_of(KindOf::Vehicle)
                 .add_kind_of(KindOf::Selectable)
                 .set_health(500.0);
-            self.templates
-                .insert(plan.gunship_template.clone(), tpl);
+            self.templates.insert(plan.gunship_template.clone(), tpl);
         }
 
-        let gunship_id = self.create_object(
-            &plan.gunship_template,
-            team,
-            plan.spawn_pos,
-        )?;
+        let gunship_id = self.create_object(&plan.gunship_template, team, plan.spawn_pos)?;
         if let Some(g) = self.objects.get_mut(&gunship_id) {
             g.producer_id = Some(caster_id);
             g.set_orientation(plan.orientation);
@@ -35616,7 +35588,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ OCLSpecialPower::doSpecialPowerAtLocation residual plan.
-        /// C++ ObjectCreationList CreateDebris residual with disposition force.
+    /// C++ ObjectCreationList CreateDebris residual with disposition force.
     pub fn spawn_ocl_create_debris(
         &mut self,
         plan: &crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisPlan,
@@ -35685,7 +35657,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let plan = fire_weapon_plan_for_ocl(ocl_or_weapon)?;
         self.ocl_fire_weapon_attack_reg
             .record_fire_weapon(&plan.weapon_name);
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         if !self.templates.contains_key(&plan.projectile_template) {
             let mut t = ThingTemplate::new(&plan.projectile_template);
             t.set_health(100.0)
@@ -35770,14 +35746,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// Schedule ClipSize-staggered ScudStormMissile ballistic spawns (scatter table).
-    pub fn spawn_scud_storm_missile_flight(
-        &mut self,
-        source_id: ObjectId,
-        target: Vec3,
-    ) -> u32 {
+    pub fn spawn_scud_storm_missile_flight(&mut self, source_id: ObjectId, target: Vec3) -> u32 {
         use crate::game_logic::special_power_strikes::scud_storm_points;
 
-        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
         let launch = self
             .objects
             .get(&source_id)
@@ -35793,7 +35769,9 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             launch,
             &points,
         );
-        self.scud_storm_missile_flight_reg.scheduled.saturating_sub(before)
+        self.scud_storm_missile_flight_reg
+            .scheduled
+            .saturating_sub(before)
     }
 
     fn ensure_scud_storm_missile_template(&mut self) {
@@ -35827,9 +35805,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 .get(&ObjectId(p.source_id))
                 .map(|o| o.team)
                 .unwrap_or(Team::Neutral);
-            let Some(mid) =
-                self.create_object(SCUD_STORM_MISSILE_OBJECT, team, p.launch)
-            else {
+            let Some(mid) = self.create_object(SCUD_STORM_MISSILE_OBJECT, team, p.launch) else {
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&mid) {
@@ -35928,7 +35904,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             if pl.contains("bomb") || pl.contains("moab") || pl.contains("missile") {
                 tpl.add_kind_of(KindOf::Projectile);
             } else if pl.contains("infantry") || pl.contains("ranger") {
-                tpl.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable);
+                tpl.add_kind_of(KindOf::Infantry)
+                    .add_kind_of(KindOf::Selectable);
             } else {
                 tpl.add_kind_of(KindOf::Vehicle);
             }
@@ -35998,9 +35975,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             .unwrap_or_default();
         let used_upgrade = peel_for_special_power(power_template)
             .map(|p| {
-                let resolved = find_ocl_name(p, |s| {
-                    unlocked.iter().any(|u| u.eq_ignore_ascii_case(s))
-                });
+                let resolved =
+                    find_ocl_name(p, |s| unlocked.iter().any(|u| u.eq_ignore_ascii_case(s)));
                 resolved != p.default_ocl
             })
             .unwrap_or(false);
@@ -36019,7 +35995,6 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         Some(plan)
     }
 
-
     pub fn set_smart_bomb_target(&mut self, bomb_id: ObjectId, target: Vec3) -> bool {
         let Some(obj) = self.objects.get_mut(&bomb_id) else {
             return false;
@@ -36033,10 +36008,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ SmartBombTargetHomingUpdate::update residual.
-        /// C++ SlowDeathBehavior on FuelAir gas: midpoint flame + final detonation.
+    /// C++ SlowDeathBehavior on FuelAir gas: midpoint flame + final detonation.
     pub fn update_fuel_air_gas_slow_death(&mut self) {
-        use crate::game_logic::host_fuel_air_gas_slow_death::FuelAirGasTickEvent;
         use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_fuel_air_gas_slow_death::FuelAirGasTickEvent;
 
         let ids: Vec<ObjectId> = self
             .objects
@@ -36047,12 +36022,24 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
         let mut destroy: Vec<ObjectId> = Vec::new();
         for id in ids {
-            let pos = self.objects.get(&id).map(|o| o.get_position()).unwrap_or(Vec3::ZERO);
+            let pos = self
+                .objects
+                .get(&id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
             let producer = self.objects.get(&id).and_then(|o| o.producer_id);
-            let team = self.objects.get(&id).map(|o| o.team).unwrap_or(Team::Neutral);
+            let team = self
+                .objects
+                .get(&id)
+                .map(|o| o.team)
+                .unwrap_or(Team::Neutral);
             let ev = {
-                let Some(o) = self.objects.get_mut(&id) else { continue };
-                let Some(data) = o.fuel_air_gas_slow_death.as_mut() else { continue };
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let Some(data) = o.fuel_air_gas_slow_death.as_mut() else {
+                    continue;
+                };
                 data.tick(self.frame)
             };
             match ev {
@@ -36066,11 +36053,28 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                         None,
                     );
                 }
-                FuelAirGasTickEvent::MidpointFlame { damage, radius, weapon: _ } => {
+                FuelAirGasTickEvent::MidpointFlame {
+                    damage,
+                    radius,
+                    weapon: _,
+                } => {
                     self.fuel_air_gas_reg.record_midpoint();
-                    self.apply_fuel_air_radius_damage(id, producer, team, pos, damage, radius, DamageType::Flame);
+                    self.apply_fuel_air_radius_damage(
+                        id,
+                        producer,
+                        team,
+                        pos,
+                        damage,
+                        radius,
+                        DamageType::Flame,
+                    );
                 }
-                FuelAirGasTickEvent::FinalDetonation { damage, radius, weapon: _, fx: _ } => {
+                FuelAirGasTickEvent::FinalDetonation {
+                    damage,
+                    radius,
+                    weapon: _,
+                    fx: _,
+                } => {
                     self.fuel_air_gas_reg.record_final();
                     self.apply_fuel_air_radius_damage(
                         id,
@@ -36114,14 +36118,12 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             .objects
             .iter()
             .filter(|(oid, o)| {
-                **oid != source_id
-                    && o.is_alive()
-                    && {
-                        let p = o.get_position();
-                        let dx = p.x - epicenter.x;
-                        let dz = p.z - epicenter.z;
-                        dx * dx + dz * dz <= r2
-                    }
+                **oid != source_id && o.is_alive() && {
+                    let p = o.get_position();
+                    let dx = p.x - epicenter.x;
+                    let dz = p.z - epicenter.z;
+                    dx * dx + dz * dz <= r2
+                }
             })
             .map(|(id, _)| *id)
             .collect();
@@ -36138,7 +36140,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
-fn update_smart_bomb_target_homing(&mut self) {
+    fn update_smart_bomb_target_homing(&mut self) {
         use crate::game_logic::host_smart_bomb_target_homing::SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN;
         let ids: Vec<ObjectId> = self
             .objects
@@ -36171,7 +36173,7 @@ fn update_smart_bomb_target_homing(&mut self) {
         }
     }
 
-fn update_checkpoint_update(&mut self) {
+    fn update_checkpoint_update(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -36263,7 +36265,7 @@ fn update_checkpoint_update(&mut self) {
         }
     }
 
-fn update_radius_decal_update(&mut self) {
+    fn update_radius_decal_update(&mut self) {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -36290,7 +36292,7 @@ fn update_radius_decal_update(&mut self) {
         }
     }
 
-fn update_prone_update(&mut self) {
+    fn update_prone_update(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -36338,7 +36340,7 @@ fn update_prone_update(&mut self) {
         }
     }
 
-fn update_animation_steering(&mut self) {
+    fn update_animation_steering(&mut self) {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -36360,7 +36362,7 @@ fn update_animation_steering(&mut self) {
         }
     }
 
-fn update_enemy_near(&mut self) {
+    fn update_enemy_near(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -36420,7 +36422,7 @@ fn update_enemy_near(&mut self) {
         }
     }
 
-fn update_base_regenerate(&mut self) {
+    fn update_base_regenerate(&mut self) {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -36468,7 +36470,7 @@ fn update_base_regenerate(&mut self) {
         }
     }
 
-fn update_fire_spread(&mut self) {
+    fn update_fire_spread(&mut self) {
         use crate::game_logic::host_fire_spread::TREE_OCL_EMBERS;
 
         let frame = self.frame as u32;
@@ -36564,7 +36566,7 @@ fn update_fire_spread(&mut self) {
         }
     }
 
-fn update_tensile_formations(&mut self) {
+    fn update_tensile_formations(&mut self) {
         use crate::game_logic::host_tensile_formation::{
             TENSILE_BODY_DAMAGED_HEALTH_FRAC, TENSILE_CRACK_SOUND, TENSILE_PROPAGATE_RADIUS,
         };
@@ -36592,7 +36594,11 @@ fn update_tensile_formations(&mut self) {
                 let Some(obj) = self.objects.get(&id) else {
                     continue;
                 };
-                (obj.get_position(), obj.health_fraction(), obj.get_position().y)
+                (
+                    obj.get_position(),
+                    obj.health_fraction(),
+                    obj.get_position().y,
+                )
             };
 
             let eps = 4.0;
@@ -36741,7 +36747,7 @@ fn update_tensile_formations(&mut self) {
         }
     }
 
-fn update_scud_poison_zones(&mut self) {
+    fn update_scud_poison_zones(&mut self) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .iter()
@@ -36845,7 +36851,7 @@ fn update_scud_poison_zones(&mut self) {
     /// Apply Nuke Cannon primary residual: area shell + MediumRadiationField spawn.
     ///
     /// Returns (units_hit, any_destroyed).
-        /// C++ NukeCannonShell DumbProjectile residual (Bezier flight + primary blast).
+    /// C++ NukeCannonShell DumbProjectile residual (Bezier flight + primary blast).
     pub fn spawn_nuke_cannon_shell_projectile(
         &mut self,
         source_id: ObjectId,
@@ -36863,8 +36869,7 @@ fn update_scud_poison_zones(&mut self) {
             t.add_kind_of(KindOf::Projectile)
                 .set_health(NUKE_SHELL_MAX_HEALTH)
                 .set_cost(0, 0);
-            self.templates
-                .insert(NUKE_CANNON_PROJECTILE.to_string(), t);
+            self.templates.insert(NUKE_CANNON_PROJECTILE.to_string(), t);
         }
         let team = self
             .objects
@@ -36888,8 +36893,7 @@ fn update_scud_poison_zones(&mut self) {
             seed,
         );
         if scattered {
-            self.nuke_cannon_scatter_applied =
-                self.nuke_cannon_scatter_applied.saturating_add(1);
+            self.nuke_cannon_scatter_applied = self.nuke_cannon_scatter_applied.saturating_add(1);
         }
         if target_is_infantry {
             let hit_r = intended
@@ -36906,9 +36910,7 @@ fn update_scud_poison_zones(&mut self) {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_nuke_cannon::nuke_cannon_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -36937,8 +36939,7 @@ fn update_scud_poison_zones(&mut self) {
             o.health.maximum = NUKE_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, NUKE_SHELL_MAX_HEALTH);
         }
-        self.nuke_cannon_shells_spawned =
-            self.nuke_cannon_shells_spawned.saturating_add(1);
+        self.nuke_cannon_shells_spawned = self.nuke_cannon_shells_spawned.saturating_add(1);
         Some(pid)
     }
 
@@ -37417,10 +37418,9 @@ fn update_scud_poison_zones(&mut self) {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_technical::{
-            is_legal_technical_splash_target, is_technical_template,
-            technical_cannon_scatter_aim, technical_cannon_scatter_misses_infantry,
-            technical_splash_damage_at, technical_weapon_stats, TechnicalWeaponTier,
-            TECH_FIRE_AUDIO,
+            is_legal_technical_splash_target, is_technical_template, technical_cannon_scatter_aim,
+            technical_cannon_scatter_misses_infantry, technical_splash_damage_at,
+            technical_weapon_stats, TechnicalWeaponTier, TECH_FIRE_AUDIO,
         };
 
         let tier = source
@@ -37439,10 +37439,8 @@ fn update_scud_poison_zones(&mut self) {
             .and_then(|id| self.objects.get(&id))
             .map(|o| o.is_kind_of(KindOf::Infantry))
             .unwrap_or(false);
-        let cannon_tier = matches!(
-            tier,
-            TechnicalWeaponTier::One | TechnicalWeaponTier::Two
-        ) && splash > 0.0;
+        let cannon_tier =
+            matches!(tier, TechnicalWeaponTier::One | TechnicalWeaponTier::Two) && splash > 0.0;
         if intended_is_infantry && cannon_tier {
             let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
                 source.map(|s| s.0).unwrap_or(0),
@@ -38164,7 +38162,7 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply Marauder residual fire (primary on intended + small splash radius).
-        /// C++ MarauderTankShell DumbProjectile residual.
+    /// C++ MarauderTankShell DumbProjectile residual.
     pub fn spawn_marauder_shell_projectile(
         &mut self,
         source_id: ObjectId,
@@ -38183,8 +38181,7 @@ fn update_scud_poison_zones(&mut self) {
             t.add_kind_of(KindOf::Projectile)
                 .set_health(MARAUDER_SHELL_MAX_HEALTH)
                 .set_cost(0, 0);
-            self.templates
-                .insert(MARAUDER_TANK_SHELL.to_string(), t);
+            self.templates.insert(MARAUDER_TANK_SHELL.to_string(), t);
         }
         let team = self
             .objects
@@ -38202,11 +38199,8 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) = crate::game_logic::host_marauder::marauder_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
+        let (aim, scattered) =
+            crate::game_logic::host_marauder::marauder_scatter_aim(aim, target_is_infantry, seed);
         if scattered {
             self.marauder_scatter_applied = self.marauder_scatter_applied.saturating_add(1);
         }
@@ -38224,11 +38218,8 @@ fn update_scud_poison_zones(&mut self) {
             let intended_pos = intended
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
-            if crate::game_logic::host_marauder::marauder_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
-            ) {
+            if crate::game_logic::host_marauder::marauder_scatter_misses_infantry(true, seed, hit_r)
+            {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
                     let dz = aim.z - pos.z;
@@ -38376,8 +38367,7 @@ fn update_scud_poison_zones(&mut self) {
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
             let (new_impact, scattered) = marauder_scatter_aim(impact, true, seed);
             if scattered {
-                self.marauder_scatter_applied =
-                    self.marauder_scatter_applied.saturating_add(1);
+                self.marauder_scatter_applied = self.marauder_scatter_applied.saturating_add(1);
                 impact = new_impact;
             }
             if marauder_scatter_misses_infantry(true, seed, hit_r) {
@@ -38429,10 +38419,7 @@ fn update_scud_poison_zones(&mut self) {
                 };
                 let is_intended = intended_target == Some(*id);
                 // Scatter miss residual: intended infantry outside splash is not force-hit.
-                if is_intended
-                    && intended_is_infantry
-                    && dist > MARAUDER_SPLASH_RADIUS
-                {
+                if is_intended && intended_is_infantry && dist > MARAUDER_SPLASH_RADIUS {
                     return None;
                 }
                 if is_intended || dist <= MARAUDER_SPLASH_RADIUS {
@@ -38636,11 +38623,8 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) = crate::game_logic::host_scorpion::scorpion_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
+        let (aim, scattered) =
+            crate::game_logic::host_scorpion::scorpion_scatter_aim(aim, target_is_infantry, seed);
         if scattered {
             self.scorpion_scatter_applied = self.scorpion_scatter_applied.saturating_add(1);
         }
@@ -38658,11 +38642,8 @@ fn update_scud_poison_zones(&mut self) {
             let intended_pos = intended
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
-            if crate::game_logic::host_scorpion::scorpion_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
-            ) {
+            if crate::game_logic::host_scorpion::scorpion_scatter_misses_infantry(true, seed, hit_r)
+            {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
                     let dz = aim.z - pos.z;
@@ -38798,11 +38779,8 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) = crate::game_logic::host_scorpion::scorpion_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
+        let (aim, scattered) =
+            crate::game_logic::host_scorpion::scorpion_scatter_aim(aim, target_is_infantry, seed);
         if scattered {
             self.scorpion_scatter_applied = self.scorpion_scatter_applied.saturating_add(1);
         }
@@ -38820,18 +38798,13 @@ fn update_scud_poison_zones(&mut self) {
             let intended_pos = intended
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
-            if crate::game_logic::host_scorpion::scorpion_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
-            ) {
+            if crate::game_logic::host_scorpion::scorpion_scatter_misses_infantry(true, seed, hit_r)
+            {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
                     let dz = aim.z - pos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
-                    if dist
-                        > crate::game_logic::host_scorpion::SCORPION_MISSILE_SECONDARY_RADIUS
-                    {
+                    if dist > crate::game_logic::host_scorpion::SCORPION_MISSILE_SECONDARY_RADIUS {
                         self.scorpion_scatter_misses =
                             self.scorpion_scatter_misses.saturating_add(1);
                     }
@@ -39029,8 +39002,7 @@ fn update_scud_poison_zones(&mut self) {
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
             let (new_impact, scattered) = scorpion_scatter_aim(impact, true, seed);
             if scattered {
-                self.scorpion_scatter_applied =
-                    self.scorpion_scatter_applied.saturating_add(1);
+                self.scorpion_scatter_applied = self.scorpion_scatter_applied.saturating_add(1);
                 impact = new_impact;
             }
             if scorpion_scatter_misses_infantry(true, seed, hit_r) {
@@ -39082,10 +39054,7 @@ fn update_scud_poison_zones(&mut self) {
                 };
                 let is_intended = intended_target == Some(*id);
                 // Scatter miss residual: intended infantry outside splash is not force-hit.
-                if is_intended
-                    && intended_is_infantry
-                    && dist > search_radius
-                {
+                if is_intended && intended_is_infantry && dist > search_radius {
                     return None;
                 }
                 if is_intended || dist <= search_radius {
@@ -39153,7 +39122,7 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply Tomahawk residual fire (dual-radius long-range missile).
-        /// C++ TomahawkMissile ProjectileObject residual (MissileAI lob + impact splash).
+    /// C++ TomahawkMissile ProjectileObject residual (MissileAI lob + impact splash).
     pub fn spawn_tomahawk_missile_projectile(
         &mut self,
         source_id: ObjectId,
@@ -39193,11 +39162,8 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) = crate::game_logic::host_tomahawk::tomahawk_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
+        let (aim, scattered) =
+            crate::game_logic::host_tomahawk::tomahawk_scatter_aim(aim, target_is_infantry, seed);
         if scattered {
             self.tomahawk_scatter_applied = self.tomahawk_scatter_applied.saturating_add(1);
         }
@@ -39215,11 +39181,8 @@ fn update_scud_poison_zones(&mut self) {
             let intended_pos = intended
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
-            if crate::game_logic::host_tomahawk::tomahawk_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
-            ) {
+            if crate::game_logic::host_tomahawk::tomahawk_scatter_misses_infantry(true, seed, hit_r)
+            {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
                     let dz = aim.z - pos.z;
@@ -39451,8 +39414,7 @@ fn update_scud_poison_zones(&mut self) {
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
             let (new_impact, scattered) = tomahawk_scatter_aim(impact, true, seed);
             if scattered {
-                self.tomahawk_scatter_applied =
-                    self.tomahawk_scatter_applied.saturating_add(1);
+                self.tomahawk_scatter_applied = self.tomahawk_scatter_applied.saturating_add(1);
                 impact = new_impact;
             }
             if tomahawk_scatter_misses_infantry(true, seed, hit_r) {
@@ -39504,10 +39466,7 @@ fn update_scud_poison_zones(&mut self) {
                 };
                 let is_intended = intended_target == Some(*id);
                 // Scatter miss residual: intended infantry outside splash is not force-hit.
-                if is_intended
-                    && intended_is_infantry
-                    && dist > TOMAHAWK_SECONDARY_RADIUS
-                {
+                if is_intended && intended_is_infantry && dist > TOMAHAWK_SECONDARY_RADIUS {
                     return None;
                 }
                 if is_intended || dist <= TOMAHAWK_SECONDARY_RADIUS {
@@ -39597,7 +39556,7 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply Raptor residual fire (jet missile + primary radius splash).
-        /// C++ RaptorJetMissile ProjectileObject residual.
+    /// C++ RaptorJetMissile ProjectileObject residual.
     pub fn spawn_raptor_missile_projectile(
         &mut self,
         source_id: ObjectId,
@@ -39635,11 +39594,8 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) = crate::game_logic::host_raptor::raptor_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
+        let (aim, scattered) =
+            crate::game_logic::host_raptor::raptor_scatter_aim(aim, target_is_infantry, seed);
         if scattered {
             self.raptor_scatter_applied = self.raptor_scatter_applied.saturating_add(1);
         }
@@ -39657,18 +39613,13 @@ fn update_scud_poison_zones(&mut self) {
             let intended_pos = intended
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
-            if crate::game_logic::host_raptor::raptor_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
-            ) {
+            if crate::game_logic::host_raptor::raptor_scatter_misses_infantry(true, seed, hit_r) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
                     let dz = aim.z - pos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
                     if dist > crate::game_logic::host_raptor::RAPTOR_PRIMARY_RADIUS {
-                        self.raptor_scatter_misses =
-                            self.raptor_scatter_misses.saturating_add(1);
+                        self.raptor_scatter_misses = self.raptor_scatter_misses.saturating_add(1);
                     }
                 }
             }
@@ -39689,8 +39640,10 @@ fn update_scud_poison_zones(&mut self) {
             o.raptor_missile_travelled = 0.0;
             o.raptor_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(RAPTOR_MISSILE_FUEL_FRAMES));
-            o.raptor_missile_ignition_frame =
-                Some(self.frame.saturating_add(RAPTOR_MISSILE_IGNITION_DELAY_FRAMES));
+            o.raptor_missile_ignition_frame = Some(
+                self.frame
+                    .saturating_add(RAPTOR_MISSILE_IGNITION_DELAY_FRAMES),
+            );
             o.producer_id = Some(source_id);
             o.health.maximum = RAPTOR_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, RAPTOR_MISSILE_MAX_HEALTH);
@@ -39762,11 +39715,7 @@ fn update_scud_poison_zones(&mut self) {
             let to_aim = aim - pos;
             let dist = to_aim.length();
             // Clamp step so high WeaponSpeed cruise cannot skip past the aim.
-            let step_speed = if dist > 0.001 {
-                speed.min(dist)
-            } else {
-                speed
-            };
+            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
             let vel = if dist > 0.001 {
                 to_aim.normalize() * step_speed
             } else {
@@ -39856,8 +39805,7 @@ fn update_scud_poison_zones(&mut self) {
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
             let (new_impact, scattered) = raptor_scatter_aim(impact, true, seed);
             if scattered {
-                self.raptor_scatter_applied =
-                    self.raptor_scatter_applied.saturating_add(1);
+                self.raptor_scatter_applied = self.raptor_scatter_applied.saturating_add(1);
                 impact = new_impact;
             }
             if raptor_scatter_misses_infantry(true, seed, hit_r) {
@@ -39869,8 +39817,7 @@ fn update_scud_poison_zones(&mut self) {
                     let dz = impact.z - pos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
                     if dist > RAPTOR_PRIMARY_RADIUS {
-                        self.raptor_scatter_misses =
-                            self.raptor_scatter_misses.saturating_add(1);
+                        self.raptor_scatter_misses = self.raptor_scatter_misses.saturating_add(1);
                     }
                 }
             }
@@ -39909,10 +39856,7 @@ fn update_scud_poison_zones(&mut self) {
                 };
                 let is_intended = intended_target == Some(*id);
                 // Scatter miss residual: intended infantry outside splash is not force-hit.
-                if is_intended
-                    && intended_is_infantry
-                    && dist > RAPTOR_PRIMARY_RADIUS
-                {
+                if is_intended && intended_is_infantry && dist > RAPTOR_PRIMARY_RADIUS {
                     return None;
                 }
                 if is_intended || dist <= RAPTOR_PRIMARY_RADIUS {
@@ -40023,7 +39967,7 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply China MiG residual fire (dual-radius missile + fire/radiation field).
-        /// C++ NapalmMissile ProjectileObject residual (MiG).
+    /// C++ NapalmMissile ProjectileObject residual (MiG).
     pub fn spawn_mig_missile_projectile(
         &mut self,
         source_id: ObjectId,
@@ -40061,11 +40005,8 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) = crate::game_logic::host_mig::mig_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
+        let (aim, scattered) =
+            crate::game_logic::host_mig::mig_scatter_aim(aim, target_is_infantry, seed);
         if scattered {
             self.mig_scatter_applied = self.mig_scatter_applied.saturating_add(1);
         }
@@ -40123,9 +40064,7 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     pub fn update_mig_missile_projectiles(&mut self) {
-        use crate::game_logic::host_mig::{
-            MIG_MISSILE_INITIAL_VELOCITY, MIG_PROJECTILE_SPEED,
-        };
+        use crate::game_logic::host_mig::{MIG_MISSILE_INITIAL_VELOCITY, MIG_PROJECTILE_SPEED};
         let frame = self.frame;
         let launch = MIG_MISSILE_INITIAL_VELOCITY / 30.0;
         let cruise = MIG_PROJECTILE_SPEED / 30.0;
@@ -40410,7 +40349,7 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply America Fire Base residual fire (howitzer primary-radius splash).
-        /// C++ Fire Base GenericTankShell ScaleWeaponSpeed lob residual.
+    /// C++ Fire Base GenericTankShell ScaleWeaponSpeed lob residual.
     pub fn spawn_fire_base_shell_projectile(
         &mut self,
         source_id: ObjectId,
@@ -40428,8 +40367,7 @@ fn update_scud_poison_zones(&mut self) {
             t.add_kind_of(KindOf::Projectile)
                 .set_health(FIRE_BASE_SHELL_MAX_HEALTH)
                 .set_cost(0, 0);
-            self.templates
-                .insert(FIRE_BASE_PROJECTILE.to_string(), t);
+            self.templates.insert(FIRE_BASE_PROJECTILE.to_string(), t);
         }
         let team = self
             .objects
@@ -40447,14 +40385,10 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) = crate::game_logic::host_fire_base::fire_base_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
+        let (aim, scattered) =
+            crate::game_logic::host_fire_base::fire_base_scatter_aim(aim, target_is_infantry, seed);
         if scattered {
-            self.fire_base_scatter_applied =
-                self.fire_base_scatter_applied.saturating_add(1);
+            self.fire_base_scatter_applied = self.fire_base_scatter_applied.saturating_add(1);
         }
         if target_is_infantry {
             let hit_r = intended
@@ -40471,9 +40405,7 @@ fn update_scud_poison_zones(&mut self) {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_fire_base::fire_base_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -40622,8 +40554,7 @@ fn update_scud_poison_zones(&mut self) {
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
             let (new_impact, scattered) = fire_base_scatter_aim(impact, true, seed);
             if scattered {
-                self.fire_base_scatter_applied =
-                    self.fire_base_scatter_applied.saturating_add(1);
+                self.fire_base_scatter_applied = self.fire_base_scatter_applied.saturating_add(1);
                 impact = new_impact;
             }
             if fire_base_scatter_misses_infantry(true, seed, hit_r) {
@@ -40675,10 +40606,7 @@ fn update_scud_poison_zones(&mut self) {
                 };
                 let is_intended = intended_target == Some(*id);
                 // Scatter miss residual: intended infantry outside splash is not force-hit.
-                if is_intended
-                    && intended_is_infantry
-                    && dist > FIRE_BASE_PRIMARY_RADIUS
-                {
+                if is_intended && intended_is_infantry && dist > FIRE_BASE_PRIMARY_RADIUS {
                     return None;
                 }
                 if is_intended || dist <= FIRE_BASE_PRIMARY_RADIUS {
@@ -40780,15 +40708,13 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) =
-            crate::game_logic::host_stealth_fighter::stealth_jet_scatter_aim(
-                aim,
-                target_is_infantry,
-                seed,
-            );
+        let (aim, scattered) = crate::game_logic::host_stealth_fighter::stealth_jet_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
         if scattered {
-            self.stealth_jet_scatter_applied =
-                self.stealth_jet_scatter_applied.saturating_add(1);
+            self.stealth_jet_scatter_applied = self.stealth_jet_scatter_applied.saturating_add(1);
         }
         if target_is_infantry {
             let hit_r = intended
@@ -40805,9 +40731,7 @@ fn update_scud_poison_zones(&mut self) {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_stealth_fighter::stealth_jet_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -40837,12 +40761,15 @@ fn update_scud_poison_zones(&mut self) {
             o.stealth_jet_missile_travelled = 0.0;
             o.stealth_jet_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(STEALTH_MISSILE_FUEL_FRAMES));
-            o.stealth_jet_missile_ignition_frame =
-                Some(self.frame.saturating_add(STEALTH_MISSILE_IGNITION_DELAY_FRAMES));
-            o.stealth_jet_missile_expires_frame = Some(
+            o.stealth_jet_missile_ignition_frame = Some(
                 self.frame
-                    .saturating_add(STEALTH_MISSILE_FUEL_FRAMES)
-                    .max(self.frame.saturating_add(STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES)),
+                    .saturating_add(STEALTH_MISSILE_IGNITION_DELAY_FRAMES),
+            );
+            o.stealth_jet_missile_expires_frame = Some(
+                self.frame.saturating_add(STEALTH_MISSILE_FUEL_FRAMES).max(
+                    self.frame
+                        .saturating_add(STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES),
+                ),
             );
             o.producer_id = Some(source_id);
             o.health.maximum = STEALTH_JET_MISSILE_MAX_HEALTH;
@@ -40851,8 +40778,7 @@ fn update_scud_poison_zones(&mut self) {
             o.set_orientation(dir.z.atan2(dir.x));
         }
         let _ = STEALTH_FIGHTER_PROJECTILE_SPEED;
-        self.stealth_jet_missiles_spawned =
-            self.stealth_jet_missiles_spawned.saturating_add(1);
+        self.stealth_jet_missiles_spawned = self.stealth_jet_missiles_spawned.saturating_add(1);
         Some(pid)
     }
 
@@ -41692,7 +41618,7 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply Overlord / Emperor residual fire (dual-radius shell).
-        /// C++ OverlordTankShell DumbProjectile residual.
+    /// C++ OverlordTankShell DumbProjectile residual.
     pub fn spawn_overlord_shell_projectile(
         &mut self,
         source_id: ObjectId,
@@ -41710,8 +41636,7 @@ fn update_scud_poison_zones(&mut self) {
             t.add_kind_of(KindOf::Projectile)
                 .set_health(OVERLORD_SHELL_MAX_HEALTH)
                 .set_cost(0, 0);
-            self.templates
-                .insert(OVERLORD_PROJECTILE.to_string(), t);
+            self.templates.insert(OVERLORD_PROJECTILE.to_string(), t);
         }
         let team = self
             .objects
@@ -41735,8 +41660,7 @@ fn update_scud_poison_zones(&mut self) {
             seed,
         );
         if scattered {
-            self.overlord_scatter_applied =
-                self.overlord_scatter_applied.saturating_add(1);
+            self.overlord_scatter_applied = self.overlord_scatter_applied.saturating_add(1);
         }
         if target_is_infantry {
             let hit_r = intended
@@ -41753,9 +41677,7 @@ fn update_scud_poison_zones(&mut self) {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_overlord_gun::overlord_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -41908,8 +41830,7 @@ fn update_scud_poison_zones(&mut self) {
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
             let (new_impact, scattered) = overlord_scatter_aim(impact, true, seed);
             if scattered {
-                self.overlord_scatter_applied =
-                    self.overlord_scatter_applied.saturating_add(1);
+                self.overlord_scatter_applied = self.overlord_scatter_applied.saturating_add(1);
                 impact = new_impact;
             }
             if overlord_scatter_misses_infantry(true, seed, hit_r) {
@@ -41961,10 +41882,7 @@ fn update_scud_poison_zones(&mut self) {
                 };
                 let is_intended = intended_target == Some(*id);
                 // Scatter miss residual: intended infantry outside splash is not force-hit.
-                if is_intended
-                    && intended_is_infantry
-                    && dist > OVERLORD_SECONDARY_RADIUS
-                {
+                if is_intended && intended_is_infantry && dist > OVERLORD_SECONDARY_RADIUS {
                     return None;
                 }
                 if is_intended || dist <= OVERLORD_SECONDARY_RADIUS {
@@ -42269,7 +42187,7 @@ fn update_scud_poison_zones(&mut self) {
     /// Apply Battlemaster residual fire (primary on intended + small splash radius).
     ///
     /// Damage uses current weapon residual (base 60 or uranium 75).
-        /// C++ GenericTankShell DumbProjectile residual (Crusader/Paladin gun).
+    /// C++ GenericTankShell DumbProjectile residual (Crusader/Paladin gun).
     pub fn spawn_usa_tank_shell_projectile(
         &mut self,
         source_id: ObjectId,
@@ -42307,11 +42225,8 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) = crate::game_logic::host_usa_tanks::usa_tank_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
+        let (aim, scattered) =
+            crate::game_logic::host_usa_tanks::usa_tank_scatter_aim(aim, target_is_infantry, seed);
         if scattered {
             self.usa_tank_scatter_applied = self.usa_tank_scatter_applied.saturating_add(1);
         }
@@ -42330,9 +42245,7 @@ fn update_scud_poison_zones(&mut self) {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_usa_tanks::usa_tank_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -42501,8 +42414,7 @@ fn update_scud_poison_zones(&mut self) {
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
             let (new_impact, scattered) = usa_tank_scatter_aim(impact, true, seed);
             if scattered {
-                self.usa_tank_scatter_applied =
-                    self.usa_tank_scatter_applied.saturating_add(1);
+                self.usa_tank_scatter_applied = self.usa_tank_scatter_applied.saturating_add(1);
                 impact = new_impact;
             }
             if usa_tank_scatter_misses_infantry(true, seed, hit_r) {
@@ -42586,8 +42498,7 @@ fn update_scud_poison_zones(&mut self) {
         for (id, killer) in destroy_ids {
             self.mark_object_for_destruction(id, killer);
         }
-        self.usa_tank_residual_units_hit =
-            self.usa_tank_residual_units_hit.saturating_add(hits);
+        self.usa_tank_residual_units_hit = self.usa_tank_residual_units_hit.saturating_add(hits);
         let _audio = if is_paladin {
             PALADIN_FIRE_AUDIO
         } else {
@@ -42634,15 +42545,13 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) =
-            crate::game_logic::host_battlemaster::battlemaster_scatter_aim(
-                aim,
-                target_is_infantry,
-                seed,
-            );
+        let (aim, scattered) = crate::game_logic::host_battlemaster::battlemaster_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
         if scattered {
-            self.battlemaster_scatter_applied =
-                self.battlemaster_scatter_applied.saturating_add(1);
+            self.battlemaster_scatter_applied = self.battlemaster_scatter_applied.saturating_add(1);
         }
         if target_is_infantry {
             let hit_r = intended
@@ -42659,9 +42568,7 @@ fn update_scud_poison_zones(&mut self) {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_battlemaster::battlemaster_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -42690,8 +42597,7 @@ fn update_scud_poison_zones(&mut self) {
             o.health.maximum = BM_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, BM_SHELL_MAX_HEALTH);
         }
-        self.battlemaster_shells_spawned =
-            self.battlemaster_shells_spawned.saturating_add(1);
+        self.battlemaster_shells_spawned = self.battlemaster_shells_spawned.saturating_add(1);
         Some(pid)
     }
 
@@ -42864,10 +42770,7 @@ fn update_scud_poison_zones(&mut self) {
                 };
                 let is_intended = intended_target == Some(*id);
                 // Scatter miss residual: intended infantry outside splash is not force-hit.
-                if is_intended
-                    && intended_is_infantry
-                    && dist > BATTLE_MASTER_SPLASH_RADIUS
-                {
+                if is_intended && intended_is_infantry && dist > BATTLE_MASTER_SPLASH_RADIUS {
                     return None;
                 }
                 if is_intended || dist <= BATTLE_MASTER_SPLASH_RADIUS {
@@ -43274,7 +43177,7 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply Tank Hunter residual RPG fire (primary on intended + small splash radius).
-        /// C++ TankHunterMissile ProjectileObject residual.
+    /// C++ TankHunterMissile ProjectileObject residual.
     pub fn spawn_tank_hunter_missile_projectile(
         &mut self,
         source_id: ObjectId,
@@ -43293,8 +43196,7 @@ fn update_scud_poison_zones(&mut self) {
             t.add_kind_of(KindOf::Projectile)
                 .set_health(TANK_HUNTER_MISSILE_MAX_HEALTH)
                 .set_cost(0, 0);
-            self.templates
-                .insert(TANK_HUNTER_PROJECTILE.to_string(), t);
+            self.templates.insert(TANK_HUNTER_PROJECTILE.to_string(), t);
         }
         let team = self
             .objects
@@ -43318,8 +43220,7 @@ fn update_scud_poison_zones(&mut self) {
             seed,
         );
         if scattered {
-            self.tank_hunter_scatter_applied =
-                self.tank_hunter_scatter_applied.saturating_add(1);
+            self.tank_hunter_scatter_applied = self.tank_hunter_scatter_applied.saturating_add(1);
         }
         if target_is_infantry {
             let hit_r = intended
@@ -43336,9 +43237,7 @@ fn update_scud_poison_zones(&mut self) {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_tank_hunter::tank_hunter_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -43372,8 +43271,7 @@ fn update_scud_poison_zones(&mut self) {
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }
-        self.tank_hunter_missiles_spawned =
-            self.tank_hunter_missiles_spawned.saturating_add(1);
+        self.tank_hunter_missiles_spawned = self.tank_hunter_missiles_spawned.saturating_add(1);
         Some(pid)
     }
 
@@ -43569,10 +43467,7 @@ fn update_scud_poison_zones(&mut self) {
                 };
                 let is_intended = intended_target == Some(*id);
                 // Scatter miss residual: intended infantry outside splash is not force-hit.
-                if is_intended
-                    && intended_is_infantry
-                    && dist > TANK_HUNTER_SPLASH_RADIUS
-                {
+                if is_intended && intended_is_infantry && dist > TANK_HUNTER_SPLASH_RADIUS {
                     return None;
                 }
                 if is_intended || dist <= TANK_HUNTER_SPLASH_RADIUS {
@@ -43663,7 +43558,7 @@ fn update_scud_poison_zones(&mut self) {
 
     /// Apply GLA Rebel residual fire: intended-only gun damage residual.
     /// Apply USA Ranger residual fire: rifle intended-only or FlashBang dual-radius splash.
-        /// C++ RangerFlashBangGrenade DumbProjectile residual.
+    /// C++ RangerFlashBangGrenade DumbProjectile residual.
     pub fn spawn_flashbang_grenade_projectile(
         &mut self,
         source_id: ObjectId,
@@ -43700,8 +43595,7 @@ fn update_scud_poison_zones(&mut self) {
         let (aim, scattered) =
             crate::game_logic::host_ranger::ranger_flashbang_scatter_aim(aim, seed);
         if scattered {
-            self.flashbang_scatter_applied =
-                self.flashbang_scatter_applied.saturating_add(1);
+            self.flashbang_scatter_applied = self.flashbang_scatter_applied.saturating_add(1);
         }
         // ScatterRadius (**4**) residual: miss peels when aim lands outside secondary splash.
         if intended.is_some() {
@@ -43723,9 +43617,7 @@ fn update_scud_poison_zones(&mut self) {
                     let dx = aim.x - pos.x;
                     let dz = aim.z - pos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
-                    if dist
-                        > crate::game_logic::host_ranger::FLASHBANG_SECONDARY_RADIUS
-                    {
+                    if dist > crate::game_logic::host_ranger::FLASHBANG_SECONDARY_RADIUS {
                         self.flashbang_scatter_misses =
                             self.flashbang_scatter_misses.saturating_add(1);
                     }
@@ -43748,8 +43640,7 @@ fn update_scud_poison_zones(&mut self) {
             o.health.maximum = FLASHBANG_GRENADE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, FLASHBANG_GRENADE_MAX_HEALTH);
         }
-        self.flashbang_grenades_spawned =
-            self.flashbang_grenades_spawned.saturating_add(1);
+        self.flashbang_grenades_spawned = self.flashbang_grenades_spawned.saturating_add(1);
         Some(pid)
     }
 
@@ -43820,7 +43711,6 @@ fn update_scud_poison_zones(&mut self) {
         }
     }
 
-    
     /// Spawn Humvee TOW projectile residual (HumveeMissile ground or PatriotMissile air).
     pub fn spawn_humvee_tow_missile_projectile(
         &mut self,
@@ -43884,8 +43774,7 @@ fn update_scud_poison_zones(&mut self) {
             seed,
         );
         if scattered {
-            self.humvee_tow_scatter_applied =
-                self.humvee_tow_scatter_applied.saturating_add(1);
+            self.humvee_tow_scatter_applied = self.humvee_tow_scatter_applied.saturating_add(1);
         }
         if target_is_infantry && !air {
             let hit_r = intended
@@ -43902,10 +43791,7 @@ fn update_scud_poison_zones(&mut self) {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_humvee::humvee_tow_scatter_misses_infantry(
-                true,
-                false,
-                seed,
-                hit_r,
+                true, false, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -43962,8 +43848,13 @@ fn update_scud_poison_zones(&mut self) {
                 }
             })
             .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3, bool)> =
-            Vec::new();
+        let mut impact: Vec<(
+            ObjectId,
+            Option<ObjectId>,
+            Option<ObjectId>,
+            glam::Vec3,
+            bool,
+        )> = Vec::new();
         for id in flying {
             let (source, intended, aim, pos, fuel_done, ignited, air, travelled) = {
                 let Some(o) = self.objects.get(&id) else {
@@ -44022,11 +43913,7 @@ fn update_scud_poison_zones(&mut self) {
             // Pre-turn residual: keep launch direction toward original aim snapshot.
             let to_aim = aim - pos;
             let dist = to_aim.length();
-            let step_speed = if dist > 0.001 {
-                speed.min(dist)
-            } else {
-                speed
-            };
+            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
             let vel = if dist > 0.001 {
                 to_aim.normalize() * step_speed
             } else {
@@ -44065,7 +43952,6 @@ fn update_scud_poison_zones(&mut self) {
         }
     }
 
-    
     /// Spawn DragonTankFlameProjectile residual (MissileAI non-seek, DetonateOnNoFuel).
     pub fn spawn_dragon_flame_projectile(
         &mut self,
@@ -44123,8 +44009,7 @@ fn update_scud_poison_zones(&mut self) {
             Some(aim),
             self.frame,
         );
-        self.dragon_flame_missiles_spawned =
-            self.dragon_flame_missiles_spawned.saturating_add(1);
+        self.dragon_flame_missiles_spawned = self.dragon_flame_missiles_spawned.saturating_add(1);
         Some(pid)
     }
 
@@ -44166,10 +44051,7 @@ fn update_scud_poison_zones(&mut self) {
                     .dragon_flame_ignition_frame
                     .map(|f| f <= frame)
                     .unwrap_or(true);
-                let shooter = o
-                    .dragon_flame_shooter
-                    .map(ObjectId)
-                    .or(o.producer_id);
+                let shooter = o.dragon_flame_shooter.map(ObjectId).or(o.producer_id);
                 (
                     o.producer_id,
                     intended,
@@ -44186,11 +44068,7 @@ fn update_scud_poison_zones(&mut self) {
             let speed = dragon_flame_missile_step_speed(ignited && can_steer);
             let to_aim = aim - pos;
             let dist = to_aim.length();
-            let step_speed = if dist > 0.001 {
-                speed.min(dist)
-            } else {
-                speed
-            };
+            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
             let vel = if dist > 0.001 {
                 to_aim.normalize() * step_speed
             } else {
@@ -44238,7 +44116,6 @@ fn update_scud_poison_zones(&mut self) {
         }
     }
 
-    
     /// Spawn ToxinTruckStreamProjectile residual (MissileAI non-seek poison stream).
     pub fn spawn_toxin_stream_projectile(
         &mut self,
@@ -44268,7 +44145,10 @@ fn update_scud_poison_zones(&mut self) {
                 has_beta,
                 is_chem_general_template(&src.template_name),
             );
-            (toxin_stream_projectile_name(tier), TOXIN_STREAM_MISSILE_MAX_HEALTH)
+            (
+                toxin_stream_projectile_name(tier),
+                TOXIN_STREAM_MISSILE_MAX_HEALTH,
+            )
         };
 
         if !self.templates.contains_key(name) {
@@ -44312,8 +44192,7 @@ fn update_scud_poison_zones(&mut self) {
             Some(aim),
             self.frame,
         );
-        self.toxin_stream_missiles_spawned =
-            self.toxin_stream_missiles_spawned.saturating_add(1);
+        self.toxin_stream_missiles_spawned = self.toxin_stream_missiles_spawned.saturating_add(1);
         Some(pid)
     }
 
@@ -44333,8 +44212,13 @@ fn update_scud_poison_zones(&mut self) {
                 }
             })
             .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3, Team)> =
-            Vec::new();
+        let mut impact: Vec<(
+            ObjectId,
+            Option<ObjectId>,
+            Option<ObjectId>,
+            glam::Vec3,
+            Team,
+        )> = Vec::new();
         let mut stream_pts: Vec<(ObjectId, glam::Vec3, Option<ObjectId>, glam::Vec3)> = Vec::new();
         for id in flying {
             let (source, intended, aim, pos, fuel_done, ignited, travelled, shooter, team) = {
@@ -44354,10 +44238,7 @@ fn update_scud_poison_zones(&mut self) {
                     .toxin_stream_ignition_frame
                     .map(|f| f <= frame)
                     .unwrap_or(true);
-                let shooter = o
-                    .toxin_stream_shooter
-                    .map(ObjectId)
-                    .or(o.producer_id);
+                let shooter = o.toxin_stream_shooter.map(ObjectId).or(o.producer_id);
                 (
                     o.producer_id,
                     intended,
@@ -44374,11 +44255,7 @@ fn update_scud_poison_zones(&mut self) {
             let speed = toxin_stream_missile_step_speed(ignited && can_steer);
             let to_aim = aim - pos;
             let dist = to_aim.length();
-            let step_speed = if dist > 0.001 {
-                speed.min(dist)
-            } else {
-                speed
-            };
+            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
             let vel = if dist > 0.001 {
                 to_aim.normalize() * step_speed
             } else {
@@ -44399,13 +44276,7 @@ fn update_scud_poison_zones(&mut self) {
             let near = dist <= speed + 0.001 || (aim - new_pos).length() < 6.0;
             // Fuel expiry detonates residual splash at current position (stream continuity).
             if fuel_done || near {
-                impact.push((
-                    id,
-                    source,
-                    intended,
-                    if near { aim } else { new_pos },
-                    team,
-                ));
+                impact.push((id, source, intended, if near { aim } else { new_pos }, team));
             }
         }
         for (sid, pos, intended, aim) in stream_pts {
@@ -44434,7 +44305,6 @@ fn update_scud_poison_zones(&mut self) {
         }
     }
 
-    
     /// Spawn TechnicalRPGMissile residual (MissileAI seek, Fuel 1000ms).
     pub fn spawn_technical_rpg_missile_projectile(
         &mut self,
@@ -44444,8 +44314,8 @@ fn update_scud_poison_zones(&mut self) {
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_technical::{
-            TECH_RPG_MISSILE_FUEL_FRAMES, TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES,
-            TECH_RPG_MISSILE_MAX_HEALTH, TECHNICAL_RPG_MISSILE,
+            TECHNICAL_RPG_MISSILE, TECH_RPG_MISSILE_FUEL_FRAMES,
+            TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES, TECH_RPG_MISSILE_MAX_HEALTH,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -44454,8 +44324,7 @@ fn update_scud_poison_zones(&mut self) {
             t.add_kind_of(KindOf::Projectile)
                 .set_health(TECH_RPG_MISSILE_MAX_HEALTH)
                 .set_cost(0, 0);
-            self.templates
-                .insert(TECHNICAL_RPG_MISSILE.to_string(), t);
+            self.templates.insert(TECHNICAL_RPG_MISSILE.to_string(), t);
         }
         let team = self
             .objects
@@ -44482,15 +44351,13 @@ fn update_scud_poison_zones(&mut self) {
             o.health.current = TECH_RPG_MISSILE_MAX_HEALTH;
             o.health.maximum = TECH_RPG_MISSILE_MAX_HEALTH;
         }
-        self.technical_rpg_missiles_spawned =
-            self.technical_rpg_missiles_spawned.saturating_add(1);
+        self.technical_rpg_missiles_spawned = self.technical_rpg_missiles_spawned.saturating_add(1);
         Some(pid)
     }
 
     pub fn update_technical_rpg_missile_projectiles(&mut self) {
         use crate::game_logic::host_technical::{
-            technical_rpg_missile_step_speed, TECH_RPG_MISSILE_SEEK,
-            TECH_RPG_MISSILE_TURN_DISTANCE,
+            technical_rpg_missile_step_speed, TECH_RPG_MISSILE_SEEK, TECH_RPG_MISSILE_TURN_DISTANCE,
         };
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -44551,11 +44418,7 @@ fn update_scud_poison_zones(&mut self) {
             let speed = technical_rpg_missile_step_speed(ignited && can_steer);
             let to_aim = aim - pos;
             let dist = to_aim.length();
-            let step_speed = if dist > 0.001 {
-                speed.min(dist)
-            } else {
-                speed
-            };
+            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
             let vel = if dist > 0.001 {
                 to_aim.normalize() * step_speed
             } else {
@@ -44592,7 +44455,6 @@ fn update_scud_poison_zones(&mut self) {
     pub fn honesty_technical_rpg_missile_projectile_ok(&self) -> bool {
         self.technical_rpg_missiles_spawned > 0
     }
-
 
     /// Spawn Technical cannon GenericTankShell Bezier residual.
     pub fn spawn_technical_cannon_shell_projectile(
@@ -44632,12 +44494,11 @@ fn update_scud_poison_zones(&mut self) {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) =
-            crate::game_logic::host_technical::technical_cannon_scatter_aim(
-                aim,
-                target_is_infantry,
-                seed,
-            );
+        let (aim, scattered) = crate::game_logic::host_technical::technical_cannon_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
         if scattered {
             self.technical_cannon_scatter_applied =
                 self.technical_cannon_scatter_applied.saturating_add(1);
@@ -44657,9 +44518,7 @@ fn update_scud_poison_zones(&mut self) {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_technical::technical_cannon_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -44759,12 +44618,11 @@ fn update_scud_poison_zones(&mut self) {
         self.technical_cannon_shells_spawned > 0
     }
 
-
-pub fn honesty_toxin_stream_projectile_ok(&self) -> bool {
+    pub fn honesty_toxin_stream_projectile_ok(&self) -> bool {
         self.toxin_stream_missiles_spawned > 0
     }
 
-pub fn honesty_dragon_flame_projectile_ok(&self) -> bool {
+    pub fn honesty_dragon_flame_projectile_ok(&self) -> bool {
         self.dragon_flame_missiles_spawned > 0
     }
 
@@ -44855,7 +44713,7 @@ pub fn honesty_dragon_flame_projectile_ok(&self) -> bool {
         (hits, any_destroyed)
     }
 
-pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
+    pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         self.flashbang_grenades_spawned > 0
     }
 
@@ -44900,13 +44758,10 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
             let (new_impact, scattered) = ranger_flashbang_scatter_aim(impact, seed);
             if scattered {
-                self.flashbang_scatter_applied =
-                    self.flashbang_scatter_applied.saturating_add(1);
+                self.flashbang_scatter_applied = self.flashbang_scatter_applied.saturating_add(1);
                 impact = new_impact;
             }
-            if intended_target.is_some()
-                && ranger_flashbang_scatter_misses(seed, hit_r)
-            {
+            if intended_target.is_some() && ranger_flashbang_scatter_misses(seed, hit_r) {
                 let intended_pos = intended_target
                     .and_then(|id| self.objects.get(&id))
                     .map(|o| o.get_position());
@@ -45438,7 +45293,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
     }
 
     /// Apply RPG Trooper residual rocket fire (primary on intended + small splash radius).
-        /// C++ TunnelDefenderMissile ProjectileObject residual (RPG Trooper).
+    /// C++ TunnelDefenderMissile ProjectileObject residual (RPG Trooper).
     pub fn spawn_rpg_trooper_missile_projectile(
         &mut self,
         source_id: ObjectId,
@@ -45482,8 +45337,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             seed,
         );
         if scattered {
-            self.rpg_trooper_scatter_applied =
-                self.rpg_trooper_scatter_applied.saturating_add(1);
+            self.rpg_trooper_scatter_applied = self.rpg_trooper_scatter_applied.saturating_add(1);
         }
         if target_is_infantry {
             let hit_r = intended
@@ -45500,9 +45354,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_rpg_trooper::rpg_trooper_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -45537,8 +45389,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }
-        self.rpg_trooper_missiles_spawned =
-            self.rpg_trooper_missiles_spawned.saturating_add(1);
+        self.rpg_trooper_missiles_spawned = self.rpg_trooper_missiles_spawned.saturating_add(1);
         Some(pid)
     }
 
@@ -45733,10 +45584,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                 };
                 let is_intended = intended_target == Some(*id);
                 // Scatter miss residual: intended infantry outside splash is not force-hit.
-                if is_intended
-                    && intended_is_infantry
-                    && dist > RPG_TROOPER_SPLASH_RADIUS
-                {
+                if is_intended && intended_is_infantry && dist > RPG_TROOPER_SPLASH_RADIUS {
                     return None;
                 }
                 if is_intended || dist <= RPG_TROOPER_SPLASH_RADIUS {
@@ -45928,7 +45776,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
     /// Apply USA Missile Defender residual rocket fire (primary or laser guided secondary).
     ///
     /// Fail-closed: not full SpecialAbilityUpdate prep / LaserBeam attach matrix.
-        /// C++ MissileDefenderMissile ProjectileObject residual.
+    /// C++ MissileDefenderMissile ProjectileObject residual.
     pub fn spawn_missile_defender_missile_projectile(
         &mut self,
         source_id: ObjectId,
@@ -45994,9 +45842,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_missile_defender::missile_defender_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
@@ -46040,7 +45886,8 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
 
     pub fn update_missile_defender_missile_projectiles(&mut self) {
         use crate::game_logic::host_missile_defender::{
-            MD_MISSILE_INITIAL_VELOCITY, MD_MISSILE_TURN_DISTANCE, MISSILE_DEFENDER_PROJECTILE_SPEED,
+            MD_MISSILE_INITIAL_VELOCITY, MD_MISSILE_TURN_DISTANCE,
+            MISSILE_DEFENDER_PROJECTILE_SPEED,
         };
         let frame = self.frame;
         let launch = MD_MISSILE_INITIAL_VELOCITY / 30.0;
@@ -46056,8 +45903,13 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                 }
             })
             .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3, bool)> =
-            Vec::new();
+        let mut impact: Vec<(
+            ObjectId,
+            Option<ObjectId>,
+            Option<ObjectId>,
+            glam::Vec3,
+            bool,
+        )> = Vec::new();
         for id in flying {
             let (source, intended, aim, pos, travelled, fuel_done, laser_slot) = {
                 let Some(o) = self.objects.get(&id) else {
@@ -46485,12 +46337,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             .missile_defender_residual_laser_specials
             .saturating_add(1);
         // C++ SpecialAbilityUpdate SpecialObject = LaserBeam (Muzzle01 attach residual).
-        let _ = self.spawn_missile_defender_laser_beam(
-            object_id,
-            target_id,
-            src_pos,
-            tgt_pos,
-        );
+        let _ = self.spawn_missile_defender_laser_beam(object_id, target_id, src_pos, tgt_pos);
         self.queue_audio_event(
             AudioEventRequest::new(LASER_GUIDED_INITIATE_AUDIO)
                 .with_object(object_id)
@@ -47688,7 +47535,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             .objects
             .get(&hellfire_id)
             .and_then(|a| a.weapon.clone());
-                // C++ Hellfire ScatterRadiusVsInfantry residual: vs infantry may miss.
+        // C++ Hellfire ScatterRadiusVsInfantry residual: vs infantry may miss.
         let mut destroyed = false;
         let mut kill_xp = 0.0;
         let target_is_infantry = self
@@ -47714,15 +47561,11 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                     }
                 })
                 .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            self.hellfire_scatter_applied =
-                self.hellfire_scatter_applied.saturating_add(1);
+            self.hellfire_scatter_applied = self.hellfire_scatter_applied.saturating_add(1);
             if crate::game_logic::host_slave_drones::hellfire_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
-                self.hellfire_scatter_misses =
-                    self.hellfire_scatter_misses.saturating_add(1);
+                self.hellfire_scatter_misses = self.hellfire_scatter_misses.saturating_add(1);
                 skip_damage = true;
             }
         }
@@ -47738,7 +47581,6 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             destroyed = d;
             kill_xp = xp;
         }
-
 
         if let Some(attacker) = self.objects.get_mut(&hellfire_id) {
             if let Some(w) = attacker.weapon.as_mut() {
@@ -48114,7 +47956,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
     /// in blast radius. Returns (infantry_kills, vehicles_unmanned, vehicle_kills).
     ///
     /// Fail-closed: not full AffectAirborne / ally Relationship matrix.
-        /// C++ NeutronCannonShell DumbProjectileBehavior residual (Bezier flight + blast).
+    /// C++ NeutronCannonShell DumbProjectileBehavior residual (Bezier flight + blast).
     pub fn spawn_neutron_cannon_shell_projectile(
         &mut self,
         source_id: ObjectId,
@@ -48151,12 +47993,11 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) =
-            crate::game_logic::host_neutron_shell::neutron_shell_scatter_aim(
-                aim,
-                target_is_infantry,
-                seed,
-            );
+        let (aim, scattered) = crate::game_logic::host_neutron_shell::neutron_shell_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
         if scattered {
             self.neutron_shell_scatter_applied =
                 self.neutron_shell_scatter_applied.saturating_add(1);
@@ -48178,17 +48019,13 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_neutron_shell::neutron_shell_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
                     let dz = aim.z - pos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
-                    if dist
-                        > crate::game_logic::host_neutron_shell::NEUTRON_BLAST_DEFAULT_RADIUS
-                    {
+                    if dist > crate::game_logic::host_neutron_shell::NEUTRON_BLAST_DEFAULT_RADIUS {
                         self.neutron_shell_scatter_misses =
                             self.neutron_shell_scatter_misses.saturating_add(1);
                     }
@@ -49303,7 +49140,10 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
     ) -> bool {
         // C++ SUPERWEAPON_EMPPulse DeliverPayload residual: cargo plane + bomb first.
         if let Some(cid) = caster_id {
-            if self.spawn_emp_pulse_flight(cid, location, player_id).is_some() {
+            if self
+                .spawn_emp_pulse_flight(cid, location, player_id)
+                .is_some()
+            {
                 return true;
             }
         }
@@ -50994,8 +50834,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
 
     /// Residual honesty: CleanupArea activated at least once.
     pub fn honesty_cleanup_area_activate_ok(&self) -> bool {
-        self.cleanup_areas.honesty_activate_ok()
-            || self.cleanup_stream_missiles_spawned > 0
+        self.cleanup_areas.honesty_activate_ok() || self.cleanup_stream_missiles_spawned > 0
     }
 
     /// Residual honesty: CleanupArea cleared at least one hazard/mine.
@@ -51005,8 +50844,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
 
     /// Combined host path honesty for Cleanup Area residual.
     pub fn honesty_cleanup_area_ok(&self) -> bool {
-        self.cleanup_areas.honesty_host_path_ok()
-            || self.cleanup_stream_missiles_spawned > 0
+        self.cleanup_areas.honesty_host_path_ok() || self.cleanup_stream_missiles_spawned > 0
     }
 
     /// Activate Cleanup Area residual: clear toxin/radiation fields and mines
@@ -51256,10 +51094,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                     .cleanup_stream_ignition_frame
                     .map(|f| f <= frame)
                     .unwrap_or(true);
-                let shooter = o
-                    .cleanup_stream_shooter
-                    .map(ObjectId)
-                    .or(o.producer_id);
+                let shooter = o.cleanup_stream_shooter.map(ObjectId).or(o.producer_id);
                 (
                     o.producer_id,
                     aim,
@@ -51275,11 +51110,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             let speed = cleanup_stream_missile_step_speed(ignited && can_steer);
             let to_aim = aim - pos;
             let dist = to_aim.length();
-            let step_speed = if dist > 0.001 {
-                speed.min(dist)
-            } else {
-                speed
-            };
+            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
             let vel = if dist > 0.001 {
                 to_aim.normalize() * step_speed
             } else {
@@ -51326,7 +51157,6 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         }
     }
 
-    
     /// Spawn Angry Mob rock/molotov DumbProjectile Bezier residual.
     pub fn spawn_angry_mob_projectile(
         &mut self,
@@ -51370,8 +51200,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             o.health.current = ANGRY_MOB_PROJ_MAX_HEALTH;
             o.health.maximum = ANGRY_MOB_PROJ_MAX_HEALTH;
         }
-        self.angry_mob_projectiles_spawned =
-            self.angry_mob_projectiles_spawned.saturating_add(1);
+        self.angry_mob_projectiles_spawned = self.angry_mob_projectiles_spawned.saturating_add(1);
         Some(pid)
     }
 
@@ -51392,8 +51221,13 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                 }
             })
             .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3, AngryMobProjectileKind)> =
-            Vec::new();
+        let mut impact: Vec<(
+            ObjectId,
+            Option<ObjectId>,
+            Option<ObjectId>,
+            glam::Vec3,
+            AngryMobProjectileKind,
+        )> = Vec::new();
         for id in flying {
             let (source, intended, from, aim, launch, flight, kind) = {
                 let Some(o) = self.objects.get(&id) else {
@@ -51518,10 +51352,9 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         (hits, any_destroyed)
     }
 
-pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
+    pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         self.cleanup_stream_missiles_spawned > 0
     }
-
 
     /// Activate Emergency Repair residual: SingleBurst heal of ally vehicles in radius.
     ///
@@ -51683,8 +51516,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         use crate::game_logic::host_gps_scrambler::{
             in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name,
             is_legal_gps_scrambler_target, HostGpsScrambler, GPS_SCRAMBLER_ACTIVATE_AUDIO,
-            GPS_SCRAMBLER_INVISIBLE_MARKER, GPS_SCRAMBLER_START_RADIUS,
-            HOST_GPS_SCRAMBLER_RADIUS,
+            GPS_SCRAMBLER_INVISIBLE_MARKER, GPS_SCRAMBLER_START_RADIUS, HOST_GPS_SCRAMBLER_RADIUS,
         };
 
         let frame = self.frame;
@@ -51967,8 +51799,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                         (to_aim.x, to_aim.y, to_aim.z),
                         self.frame,
                     ));
-                    self.ecm_laser_beams_spawned =
-                        self.ecm_laser_beams_spawned.saturating_add(1);
+                    self.ecm_laser_beams_spawned = self.ecm_laser_beams_spawned.saturating_add(1);
                     if audio_pos.is_none() {
                         audio_pos = Some(from);
                     }
@@ -51995,9 +51826,9 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
     /// C++ ECMTankMissileJammer residual: jam in-flight missiles (scatter + subdual dmg).
     pub fn update_ecm_missile_jam(&mut self) {
         use crate::game_logic::host_ecm_jam::{
-            ecm_missile_scatter_offset, in_ecm_jam_radius_2d, is_ecm_jammer,
-            is_ecm_jam_projectile_flags, ECM_MISSILE_JAMMER_PRIMARY_DAMAGE,
-            ECM_MISSILE_JAM_MAX_PER_PULSE, HOST_ECM_JAM_RADIUS,
+            ecm_missile_scatter_offset, in_ecm_jam_radius_2d, is_ecm_jam_projectile_flags,
+            is_ecm_jammer, ECM_MISSILE_JAMMER_PRIMARY_DAMAGE, ECM_MISSILE_JAM_MAX_PER_PULSE,
+            HOST_ECM_JAM_RADIUS,
         };
 
         let frame = self.frame;
@@ -52101,8 +51932,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                 }
                 o.ecm_missile_jammed = true;
                 team = Some(o.team);
-                let killed =
-                    o.take_damage_from(ECM_MISSILE_JAMMER_PRIMARY_DAMAGE, Some(jammer_id));
+                let killed = o.take_damage_from(ECM_MISSILE_JAMMER_PRIMARY_DAMAGE, Some(jammer_id));
                 // Deflect aim residual (C++ projectile loses lock and scatters).
                 if o.raptor_missile_aim.is_some() {
                     o.raptor_missile_aim = Some(new_aim);
@@ -52184,7 +52014,6 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
     pub fn honesty_ecm_missile_jam_ok(&self) -> bool {
         self.ecm_missiles_jammed > 0
     }
-
 
     pub fn update_microwave_disable(&mut self) {
         use crate::game_logic::host_microwave::{
@@ -52410,10 +52239,10 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                 if tid == eid || !tobj.is_alive() {
                     continue;
                 }
-                let is_structure = tobj.is_kind_of(KindOf::Structure)
-                    || tobj.object_type == ObjectType::Building;
-                let airborne = tobj.is_kind_of(KindOf::Aircraft)
-                    || tobj.object_type == ObjectType::Aircraft;
+                let is_structure =
+                    tobj.is_kind_of(KindOf::Structure) || tobj.object_type == ObjectType::Building;
+                let airborne =
+                    tobj.is_kind_of(KindOf::Aircraft) || tobj.object_type == ObjectType::Aircraft;
                 let same_team = *eteam == tobj.team;
                 let neutral = tobj.team == Team::Neutral;
                 if !is_legal_microwave_emitter_target(
@@ -52426,8 +52255,11 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                     continue;
                 }
                 let tpos = tobj.get_position();
-                if !in_microwave_range_2d((*ex, *ez), (tpos.x, tpos.z), HOST_MICROWAVE_EMITTER_RADIUS)
-                {
+                if !in_microwave_range_2d(
+                    (*ex, *ez),
+                    (tpos.x, tpos.z),
+                    HOST_MICROWAVE_EMITTER_RADIUS,
+                ) {
                     continue;
                 }
                 let dist = {
@@ -54544,9 +54376,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         team: Team,
         structure_id: ObjectId,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_booby_trap::{
-            BOOBY_TRAP_MAX_HEALTH, BOOBY_TRAP_OBJECT,
-        };
+        use crate::game_logic::host_booby_trap::{BOOBY_TRAP_MAX_HEALTH, BOOBY_TRAP_OBJECT};
         use crate::game_logic::{KindOf, ThingTemplate};
 
         if !self.templates.contains_key(BOOBY_TRAP_OBJECT) {
@@ -54575,8 +54405,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
             o.weapon = None;
             o.secondary_weapon = None;
         }
-        self.booby_trap_objects_spawned =
-            self.booby_trap_objects_spawned.saturating_add(1);
+        self.booby_trap_objects_spawned = self.booby_trap_objects_spawned.saturating_add(1);
         Some(bid)
     }
 
@@ -54803,7 +54632,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
     /// HeightDie → NapalmBombWeapon blast + OCL_FirestormSmall.
     /// Requires Upgrade_HelixNapalmBomb residual unlock (TestHelix always unlocked).
     /// BlackNapalm player upgrade residual raises Firestorm tick damage.
-        /// C++ SpecialObject NapalmBomb residual (Helix drop → HeightDie → FireWeaponWhenDead).
+    /// C++ SpecialObject NapalmBomb residual (Helix drop → HeightDie → FireWeaponWhenDead).
     pub fn spawn_helix_napalm_bomb_projectile(
         &mut self,
         source_id: ObjectId,
@@ -54811,11 +54640,11 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         aim: glam::Vec3,
         black_napalm: bool,
     ) -> Option<ObjectId> {
+        use crate::game_logic::host_height_die::HostHeightDieData;
         use crate::game_logic::host_helix_napalm::{
             NAPALM_BOMB_FALL_SPEED_PER_FRAME, NAPALM_BOMB_HEIGHT_DIE_TARGET,
             NAPALM_BOMB_MAX_HEALTH, NAPALM_BOMB_PROJECTILE,
         };
-        use crate::game_logic::host_height_die::HostHeightDieData;
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let tpl_name = if black_napalm {
@@ -54836,8 +54665,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
             t.add_kind_of(KindOf::Projectile)
                 .set_health(NAPALM_BOMB_MAX_HEALTH)
                 .set_cost(0, 0);
-            self.templates
-                .insert(NAPALM_BOMB_PROJECTILE.to_string(), t);
+            self.templates.insert(NAPALM_BOMB_PROJECTILE.to_string(), t);
         }
         let team = self
             .objects
@@ -55698,7 +55526,10 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                         player_id,
                         player_mask,
                         location,
-                        radius: crate::game_logic::host_spy_drone::spy_drone_scan_radius_after_updates(0),
+                        radius:
+                            crate::game_logic::host_spy_drone::spy_drone_scan_radius_after_updates(
+                                0,
+                            ),
                         activate_frame: frame,
                         expires_frame: frame.saturating_add(duration),
                         caster_id,
@@ -56158,8 +55989,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
 
     /// Residual honesty: BlackNapalm FireWall segment upgrade used at least once.
     pub fn honesty_firewall_black_napalm_ok(&self) -> bool {
-        self.fire_walls.honesty_upgraded_ok()
-            || self.dragon_tank_residual_black_napalm_upgrades > 0
+        self.fire_walls.honesty_upgraded_ok() || self.dragon_tank_residual_black_napalm_upgrades > 0
     }
 
     /// Residual honesty: InchForward crawl applied at least once.
@@ -56331,7 +56161,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
     ///
     /// Fail-closed: not full projectile lob path / BlackNapalm upgraded particle
     /// bones / HistoricBonus Firestorm multi-shell matrix.
-        /// C++ InfernoTankShell DumbProjectile residual (Bezier + FireField on detonate).
+    /// C++ InfernoTankShell DumbProjectile residual (Bezier + FireField on detonate).
     pub fn spawn_inferno_shell_projectile(
         &mut self,
         source_id: ObjectId,
@@ -56374,12 +56204,11 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
             intended.map(|id| id.0).unwrap_or(0),
             self.frame,
         );
-        let (aim, scattered) =
-            crate::game_logic::host_inferno_cannon::inferno_cannon_scatter_aim(
-                aim,
-                target_is_infantry,
-                seed,
-            );
+        let (aim, scattered) = crate::game_logic::host_inferno_cannon::inferno_cannon_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
         if scattered {
             self.inferno_scatter_applied = self.inferno_scatter_applied.saturating_add(1);
         }
@@ -56398,19 +56227,14 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                 .and_then(|id| self.objects.get(&id))
                 .map(|o| o.get_position());
             if crate::game_logic::host_inferno_cannon::inferno_cannon_scatter_misses_infantry(
-                true,
-                seed,
-                hit_r,
+                true, seed, hit_r,
             ) {
                 if let Some(pos) = intended_pos {
                     let dx = aim.x - pos.x;
                     let dz = aim.z - pos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
-                    if dist
-                        > crate::game_logic::host_inferno_cannon::INFERNO_CANNON_SHELL_RADIUS
-                    {
-                        self.inferno_scatter_misses =
-                            self.inferno_scatter_misses.saturating_add(1);
+                    if dist > crate::game_logic::host_inferno_cannon::INFERNO_CANNON_SHELL_RADIUS {
+                        self.inferno_scatter_misses = self.inferno_scatter_misses.saturating_add(1);
                     }
                 }
             }
@@ -56450,8 +56274,14 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                 }
             })
             .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3, bool, Team)> =
-            Vec::new();
+        let mut impact: Vec<(
+            ObjectId,
+            Option<ObjectId>,
+            Option<ObjectId>,
+            glam::Vec3,
+            bool,
+            Team,
+        )> = Vec::new();
         for id in flying {
             let (source, intended, from, aim, launch, frames, upgraded, team) = {
                 let Some(o) = self.objects.get(&id) else {
@@ -56659,7 +56489,6 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         id
     }
 
-
     /// C++ OCL_FireFieldSmall CreateObject FireFieldSmall residual.
     pub fn spawn_inferno_fire_field_object(
         &mut self,
@@ -56689,7 +56518,9 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         let mut pos = impact;
         pos.y = 0.0; // ON_GROUND_ALIGNED residual
         let pid = self.create_object(name, team, pos)?;
-        let expires = self.frame.saturating_add(INFERNO_FIRE_DURATION_FRAMES.max(1));
+        let expires = self
+            .frame
+            .saturating_add(INFERNO_FIRE_DURATION_FRAMES.max(1));
         if let Some(o) = self.objects.get_mut(&pid) {
             o.inferno_fire_field = true;
             o.inferno_fire_field_upgraded = upgraded;
@@ -57402,8 +57233,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         {
             self.fuel_air_gas_reg.record_install();
         }
-        self.aurora_fuel_air_gas_spawned =
-            self.aurora_fuel_air_gas_spawned.saturating_add(1);
+        self.aurora_fuel_air_gas_spawned = self.aurora_fuel_air_gas_spawned.saturating_add(1);
         Some(gid)
     }
 
@@ -58179,13 +58009,11 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         use crate::game_logic::host_mines::{
             retail_timed_charge_lifetime_frames, retail_timed_charge_template,
         };
-        let producer_template = producer.and_then(|pid| {
-            self.objects
-                .get(&pid)
-                .map(|o| o.template_name.clone())
-        });
+        let producer_template =
+            producer.and_then(|pid| self.objects.get(&pid).map(|o| o.template_name.clone()));
         let template_name = retail_timed_charge_template(producer_template.as_deref());
-        let delay = delay_frames.or_else(|| Some(retail_timed_charge_lifetime_frames(template_name)));
+        let delay =
+            delay_frames.or_else(|| Some(retail_timed_charge_lifetime_frames(template_name)));
         self.place_mine_kind(
             crate::game_logic::host_mines::HostMineKind::TimedDemoCharge,
             template_name,
@@ -58373,8 +58201,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                 if let Some(tid) = attach_to {
                     let dup = self.objects.values().any(|o| {
                         o.is_alive()
-                            && o
-                                .mine_data
+                            && o.mine_data
                                 .as_ref()
                                 .map(|m| {
                                     !m.detonated
@@ -59098,19 +58925,21 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         let carpet_flight_tier = if kind == HostSuperweaponKind::CarpetBomb {
             use crate::command_system::SpecialPowerType;
             use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
-            Some(if matches!(
-                *power,
-                SpecialPowerType::EarlyChinaCarpetBomb | SpecialPowerType::NukeChinaCarpetBomb
-            ) {
-                CarpetBombFactionTier::China
-            } else if matches!(*power, SpecialPowerType::AirForceCarpetBomb) {
-                CarpetBombFactionTier::AirForce
-            } else {
-                CarpetBombFactionTier::highest_from_team_and_sciences(
-                    source_team,
-                    sciences.iter().map(|s| s.as_str()),
-                )
-            })
+            Some(
+                if matches!(
+                    *power,
+                    SpecialPowerType::EarlyChinaCarpetBomb | SpecialPowerType::NukeChinaCarpetBomb
+                ) {
+                    CarpetBombFactionTier::China
+                } else if matches!(*power, SpecialPowerType::AirForceCarpetBomb) {
+                    CarpetBombFactionTier::AirForce
+                } else {
+                    CarpetBombFactionTier::highest_from_team_and_sciences(
+                        source_team,
+                        sciences.iter().map(|s| s.as_str()),
+                    )
+                },
+            )
         } else {
             None
         };
@@ -59119,19 +58948,12 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         }
         // C++ ArtilleryBarrage DeliverPayload residual (cannon + staggered shells).
         if kind == HostSuperweaponKind::ArtilleryBarrage {
-            let _ = self.spawn_artillery_barrage_flight(
-                source_object,
-                target_position,
-                artillery_tier,
-            );
+            let _ =
+                self.spawn_artillery_barrage_flight(source_object, target_position, artillery_tier);
         }
         // C++ A10Thunderbolt DeliverPayload residual (jet + staggered missiles).
         if kind == HostSuperweaponKind::A10Strike {
-            let _ = self.spawn_a10_strike_flight(
-                source_object,
-                target_position,
-                a10_tier,
-            );
+            let _ = self.spawn_a10_strike_flight(source_object, target_position, a10_tier);
         }
         // C++ DaisyCutter / MOAB DeliverPayload residual (B52 or JetB3 + bomb).
         if kind == HostSuperweaponKind::DaisyCutter {
@@ -59159,12 +58981,8 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                         .get(&source_object)
                         .map(|o| o.get_position())
                         .unwrap_or(target_position);
-                    let _ = self.execute_ocl_fire_weapon(
-                        ocl,
-                        source_object,
-                        primary,
-                        target_position,
-                    );
+                    let _ =
+                        self.execute_ocl_fire_weapon(ocl, source_object, primary, target_position);
                 }
                 OclNuggetKind::Attack(ocl) => {
                     let _ = self.execute_ocl_attack(ocl, source_object, target_position);
@@ -60230,7 +60048,10 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         if pending.is_empty() {
             return;
         }
-        for name in [PARTICLE_CONNECTOR_MEDIUM_LASER, PARTICLE_CONNECTOR_INTENSE_LASER] {
+        for name in [
+            PARTICLE_CONNECTOR_MEDIUM_LASER,
+            PARTICLE_CONNECTOR_INTENSE_LASER,
+        ] {
             if !self.templates.contains_key(name) {
                 let mut t = ThingTemplate::new(name);
                 t.add_kind_of(KindOf::Immobile)
@@ -60243,8 +60064,14 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
             let expires = self.frame.saturating_add(lifetime.max(1));
             // Medium connector slightly above building; intense higher toward orbit.
             let placements = [
-                (PARTICLE_CONNECTOR_MEDIUM_LASER, Vec3::new(pos.x, pos.y + 40.0, pos.z)),
-                (PARTICLE_CONNECTOR_INTENSE_LASER, Vec3::new(pos.x, pos.y + 120.0, pos.z)),
+                (
+                    PARTICLE_CONNECTOR_MEDIUM_LASER,
+                    Vec3::new(pos.x, pos.y + 40.0, pos.z),
+                ),
+                (
+                    PARTICLE_CONNECTOR_INTENSE_LASER,
+                    Vec3::new(pos.x, pos.y + 120.0, pos.z),
+                ),
             ];
             let mut ids = Vec::new();
             for (name, cpos) in placements {
@@ -61235,7 +61062,6 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
             );
         }
     }
-
 
     pub fn get_frame(&self) -> u32 {
         self.frame
@@ -72339,14 +72165,9 @@ mod tests {
         // Direct plant residual (special ability completion path).
         let geom = 10.0;
         assert!(logic.booby_trap.can_place_special_object(planter));
-        logic.booby_trap.install(
-            structure,
-            planter,
-            Team::GLA,
-            logic.frame,
-            geom,
-            None,
-        );
+        logic
+            .booby_trap
+            .install(structure, planter, Team::GLA, logic.frame, geom, None);
         let cid = logic
             .spawn_booby_trap_special_object(planter, Team::GLA, structure)
             .expect("BoobyTrap object");
@@ -72371,29 +72192,17 @@ mod tests {
         assert!((cpos.x - 40.0).abs() < 0.1 && (cpos.z - 20.0).abs() < 0.1);
 
         // Detonate destroys special object.
-        let hits = logic.detonate_booby_trap_at(
-            structure,
-            Vec3::new(40.0, 0.0, 20.0),
-            None,
-            false,
-            true,
-        );
+        let hits =
+            logic.detonate_booby_trap_at(structure, Vec3::new(40.0, 0.0, 20.0), None, false, true);
         let _ = hits;
-        assert!(
-            logic
-                .find_object(cid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(cid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
         assert!(!logic.booby_trap.is_booby_trapped(structure));
         let _ = BOOBY_MAX_SPECIAL_OBJECTS;
     }
 
-    
-    
-    
-    
-    
     #[test]
     fn comanche_rocket_pod_spawns_scatter_projectiles() {
         use crate::game_logic::host_comanche_rocket_pods::{
@@ -72451,17 +72260,18 @@ mod tests {
         let hp_before = logic.find_object(tgt).unwrap().health.current;
         let (hits, _) = logic.apply_comanche_rocket_pod_area_at(aim, Some(heli));
         assert!(hits >= 1);
-        let hp_after = logic.find_object(tgt).map(|o| o.health.current).unwrap_or(0.0);
+        let hp_after = logic
+            .find_object(tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
         assert!(hp_after < hp_before || hits > 0);
         let _ = (ROCKET_POD_CLIP_SIZE, tgt);
         logic.frame = logic.frame.saturating_add(20);
         logic.update_comanche_rocket_pod_projectiles();
-        assert!(
-            logic
-                .find_object(pid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(pid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     #[test]
@@ -72483,8 +72293,7 @@ mod tests {
             .templates
             .insert("AmericaJetStealthFighter".into(), sf_tpl);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -72560,8 +72369,7 @@ mod tests {
             .set_health(160.0);
         logic.templates.insert("ChinaJetMIG".into(), m);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(800.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -72629,22 +72437,18 @@ mod tests {
             .set_health(180.0);
         logic.templates.insert("AmericaInfantryRanger".into(), r);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
 
         let src = logic
-            .create_object(
-                "AmericaInfantryRanger",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         // equip flashbang residual
         if let Some(o) = logic.objects.get_mut(&src) {
-            o.applied_upgrades.insert("Upgrade_AmericaRangerFlashBangGrenade".into());
+            o.applied_upgrades
+                .insert("Upgrade_AmericaRangerFlashBangGrenade".into());
             o.active_weapon_slot = 1;
         }
         let enemy = logic
@@ -72700,9 +72504,6 @@ mod tests {
         );
     }
 
-
-
-
     #[test]
     fn helix_napalm_bomb_projectile_falls_and_height_dies() {
         use crate::game_logic::host_helix_napalm::{
@@ -72723,11 +72524,7 @@ mod tests {
         logic.templates.insert("TestTank".into(), tank);
 
         let helix_id = logic
-            .create_object(
-                "ChinaVehicleHelix",
-                Team::China,
-                Vec3::new(0.0, 50.0, 0.0),
-            )
+            .create_object("ChinaVehicleHelix", Team::China, Vec3::new(0.0, 50.0, 0.0))
             .unwrap();
         {
             let h = logic.find_object_mut(helix_id).unwrap();
@@ -72791,9 +72588,7 @@ mod tests {
         );
     }
 
-
-
-#[test]
+    #[test]
     fn avenger_air_laser_spawns_laser_beam_object() {
         use crate::game_logic::host_avenger::{
             AVENGER_AIR_LASER, AVENGER_LASER_BEAM_LIFETIME_FRAMES, AVENGER_LASER_NAME,
@@ -72821,13 +72616,7 @@ mod tests {
         let from = Vec3::new(0.0, 10.0, 0.0);
         let to = Vec3::new(100.0, 40.0, 0.0);
         let bid = logic
-            .spawn_weapon_laser_beam_object(
-                AVENGER_LASER_NAME,
-                shooter,
-                Some(target),
-                from,
-                to,
-            )
+            .spawn_weapon_laser_beam_object(AVENGER_LASER_NAME, shooter, Some(target), from, to)
             .expect("AvengerLaserBeam");
         assert!(logic.honesty_weapon_laser_beam_object_ok());
         let beam = logic.find_object(bid).unwrap();
@@ -72839,19 +72628,17 @@ mod tests {
             .frame
             .saturating_add(AVENGER_LASER_BEAM_LIFETIME_FRAMES + 2);
         logic.update_weapon_laser_beam_objects();
-        assert!(
-            logic
-                .find_object(bid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(bid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
-#[test]
+    #[test]
     fn angry_mob_spawns_member_objects_on_nexus() {
         use crate::game_logic::host_angry_mob::{
-            ANGRY_MOB_INITIAL_MEMBERS, ANGRY_MOB_MEMBER_TEMPLATES, ANGRY_MOB_MAX_MEMBERS,
-            ANGRY_MOB_EXPAND_INTERVAL_FRAMES,
+            ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_INITIAL_MEMBERS, ANGRY_MOB_MAX_MEMBERS,
+            ANGRY_MOB_MEMBER_TEMPLATES,
         };
         use crate::game_logic::{KindOf, Team, ThingTemplate};
 
@@ -72925,15 +72712,13 @@ mod tests {
             n.health.current = 0.0;
         }
         logic.update_angry_mob_member_follow();
-        assert!(
-            logic
-                .find_object(mid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(mid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
-#[test]
+    #[test]
     fn countermeasures_divert_spawns_flare_objects() {
         use crate::game_logic::host_countermeasures::{
             try_divert_missile, FLARE_LIFETIME_FRAMES, FLARE_TEMPLATE_NAME, VOLLEY_SIZE,
@@ -72958,13 +72743,7 @@ mod tests {
         // Force many rolls until a divert succeeds (deterministic seed space).
         let mut diverted = false;
         for f in 0..64u32 {
-            if try_divert_missile(
-                &mut logic.countermeasures,
-                air,
-                ObjectId(900 + f),
-                f,
-                true,
-            ) {
+            if try_divert_missile(&mut logic.countermeasures, air, ObjectId(900 + f), f, true) {
                 diverted = true;
                 break;
             }
@@ -72982,19 +72761,19 @@ mod tests {
             "volley must spawn CountermeasureFlare objects, got {}",
             flares.len()
         );
-        assert!(flares.iter().all(|o| o.template_name == FLARE_TEMPLATE_NAME));
+        assert!(flares
+            .iter()
+            .all(|o| o.template_name == FLARE_TEMPLATE_NAME));
         let fid = flares[0].id;
         logic.frame = logic.frame.saturating_add(FLARE_LIFETIME_FRAMES + 2);
         logic.update_countermeasure_flare_objects();
-        assert!(
-            logic
-                .find_object(fid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(fid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
-#[test]
+    #[test]
     fn aurora_fuel_air_impact_spawns_gas_object() {
         use crate::game_logic::host_aurora_bomb::{
             HostAuroraBombKind, AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES,
@@ -73032,7 +72811,9 @@ mod tests {
             logic.frame,
         );
         assert!(mid > 0);
-        logic.frame = logic.frame.saturating_add(AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES);
+        logic.frame = logic
+            .frame
+            .saturating_add(AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES);
         logic.update_aurora_bombs();
 
         assert!(logic.honesty_aurora_fuel_air_gas_object_ok());
@@ -73046,7 +72827,10 @@ mod tests {
         let gid = gas.id;
         // Immediate blast should not have nuked the building before gas SlowDeath FINAL.
         let hp_mid = logic.find_object(building).unwrap().health.current;
-        assert_eq!(hp_mid, hp_before, "gas path defers primary blast to SlowDeath");
+        assert_eq!(
+            hp_mid, hp_before,
+            "gas path defers primary blast to SlowDeath"
+        );
 
         // Advance gas SlowDeath phase-by-phase (one event per update residual).
         for _ in 0..(FUEL_AIR_GAS_DESTRUCTION_DELAY_FRAMES + 4) {
@@ -73246,17 +73030,15 @@ mod tests {
             o.health.current = 0.0;
         }
         logic.cleanup_remote_charges_when_owner_dies();
-        assert!(
-            logic
-                .find_object(remote)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(remote)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
         assert!(logic.find_object(timed).unwrap().is_alive());
         let _ = BURTON_MAX_TIMED_CHARGES;
     }
 
-#[test]
+    #[test]
     fn sticky_bomb_destroyed_when_target_dies() {
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
@@ -75239,7 +75021,7 @@ mod tests {
     /// C++ ECMTankVehicleDisabler (SUBDUAL → DISABLED_SUBDUED cannot fire) +
     /// ECMTankMissileJammer FireWeaponUpdate pulse (PrimaryDamageRadius=150).
     /// Fail-closed: continuous aura (not full subdual damage / laser stream).
-    
+
     #[test]
     fn ecm_missile_jam_scatters_in_flight_projectile() {
         use crate::game_logic::host_ecm_jam::HOST_ECM_JAM_RADIUS;
@@ -75270,11 +75052,7 @@ mod tests {
             .create_object("ChinaTankECM", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("ecm");
         let tech = logic
-            .create_object(
-                "GLAVehicleTechnical",
-                Team::GLA,
-                Vec3::new(50.0, 0.0, 0.0),
-            )
+            .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .expect("tech");
         {
             let t = logic.find_object_mut(tech).unwrap();
@@ -75318,8 +75096,7 @@ mod tests {
         let _ = (ecm, HOST_ECM_JAM_RADIUS, TECH_CANNON_SHELL_PROJECTILE);
     }
 
-#[test]
-
+    #[test]
     #[test]
     fn ecm_jam_spawns_disable_stream_laser() {
         use crate::game_logic::host_ecm_jam::{
@@ -76069,11 +75846,8 @@ mod tests {
     }
 
     #[test]
-    
     #[test]
-    
     #[test]
-    
     #[test]
     fn spectre_orbit_spawns_howitzer_shell_objects() {
         use crate::game_logic::special_power_strikes::{
@@ -76104,13 +75878,9 @@ mod tests {
         {
             f.next_tick_frame = logic.frame;
         }
-        logic.special_power_strikes.record_orbit_tick_complete(
-            field_id,
-            0.0,
-            0,
-            0,
-            logic.frame,
-        );
+        logic
+            .special_power_strikes
+            .record_orbit_tick_complete(field_id, 0.0, 0, 0, logic.frame);
         logic.spawn_spectre_howitzer_shell_objects_for_new_spawns();
         assert!(logic
             .special_power_strikes
@@ -76127,12 +75897,10 @@ mod tests {
             .frame
             .saturating_add(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES + 2);
         logic.update_spectre_howitzer_shell_objects();
-        assert!(
-            logic
-                .find_object(sid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(sid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     #[test]
@@ -76150,14 +75918,16 @@ mod tests {
         let caster = logic
             .create_object("GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
-        let tid = logic.special_power_strikes.spawn_scud_poison_field_with_tier(
-            caster,
-            Team::GLA,
-            Vec3::new(160.0, 0.0, 160.0),
-            logic.frame,
-            1,
-            ScudStormAnthraxTier::AnthraxBeta,
-        );
+        let tid = logic
+            .special_power_strikes
+            .spawn_scud_poison_field_with_tier(
+                caster,
+                Team::GLA,
+                Vec3::new(160.0, 0.0, 160.0),
+                logic.frame,
+                1,
+                ScudStormAnthraxTier::AnthraxBeta,
+            );
         logic.spawn_anthrax_toxin_field_objects_for_new_fields();
         let field = logic
             .special_power_strikes
@@ -76176,12 +75946,10 @@ mod tests {
         let oid = obj.id;
         logic.frame = SCUD_STORM_POISON_DURATION_FRAMES + 5;
         logic.update_anthrax_toxin_field_objects();
-        assert!(
-            logic
-                .find_object(oid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(oid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     #[test]
@@ -76223,12 +75991,10 @@ mod tests {
         let oid = obj.id;
         logic.frame = SCUD_STORM_POISON_DURATION_FRAMES + 5;
         logic.update_anthrax_toxin_field_objects();
-        assert!(
-            logic
-                .find_object(oid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(oid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     #[test]
@@ -76271,12 +76037,10 @@ mod tests {
         assert_eq!(bound, Some(oid));
         logic.frame = ANTHRAX_TOXIN_DURATION_FRAMES + 5;
         logic.update_anthrax_toxin_field_objects();
-        assert!(
-            logic
-                .find_object(oid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(oid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     fn nuclear_missile_spawns_radiation_field_object() {
@@ -76288,7 +76052,9 @@ mod tests {
         ensure_test_tank_template(&mut logic);
         let mut silo = crate::game_logic::ThingTemplate::new("ChinaNuclearMissileLauncher");
         silo.add_kind_of(KindOf::Structure).set_health(5000.0);
-        logic.templates.insert("ChinaNuclearMissileLauncher".into(), silo);
+        logic
+            .templates
+            .insert("ChinaNuclearMissileLauncher".into(), silo);
         let caster = logic
             .create_object(
                 "ChinaNuclearMissileLauncher",
@@ -76304,7 +76070,9 @@ mod tests {
             1,
         );
         logic.spawn_nuke_radiation_field_objects_for_new_fields();
-        assert!(logic.special_power_strikes.honesty_radiation_object_spawn_ok());
+        assert!(logic
+            .special_power_strikes
+            .honesty_radiation_object_spawn_ok());
         assert!(logic.special_power_strikes.radiation_objects_spawned() >= 1);
         let obj = logic
             .get_objects()
@@ -76322,12 +76090,10 @@ mod tests {
         assert_eq!(bound, Some(oid));
         logic.frame = NUKE_RADIATION_DURATION_FRAMES + 5;
         logic.update_nuke_radiation_field_objects();
-        assert!(
-            logic
-                .find_object(oid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(oid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     #[test]
@@ -76342,9 +76108,7 @@ mod tests {
         paladin.add_kind_of(KindOf::Vehicle).set_health(400.0);
         logic.templates.insert("AmericaTankPaladin".into(), paladin);
         let mut missile = crate::game_logic::ThingTemplate::new("ScudStormMissile");
-        missile
-            .add_kind_of(KindOf::Projectile)
-            .set_health(50.0);
+        missile.add_kind_of(KindOf::Projectile).set_health(50.0);
         logic.templates.insert("ScudStormMissile".into(), missile);
         let carrier = logic
             .create_object("AmericaTankPaladin", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -76370,14 +76134,14 @@ mod tests {
         assert_eq!(beam.template_name, PDL_LASER_BEAM_DEFAULT);
         let bid = beam.id;
         assert!(logic.point_defense_laser_beams_spawned >= 1);
-        logic.frame = logic.frame.saturating_add(PDL_LASER_BEAM_LIFETIME_FRAMES + 2);
+        logic.frame = logic
+            .frame
+            .saturating_add(PDL_LASER_BEAM_LIFETIME_FRAMES + 2);
         logic.update_point_defense_laser_beam_objects();
-        assert!(
-            logic
-                .find_object(bid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(bid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     fn particle_cannon_spawns_connector_laser_objects() {
@@ -76389,7 +76153,9 @@ mod tests {
         ensure_test_tank_template(&mut logic);
         let mut puc = crate::game_logic::ThingTemplate::new("AmericaParticleUplinkCannon");
         puc.add_kind_of(KindOf::Structure).set_health(5000.0);
-        logic.templates.insert("AmericaParticleUplinkCannon".into(), puc);
+        logic
+            .templates
+            .insert("AmericaParticleUplinkCannon".into(), puc);
         let caster = logic
             .create_object(
                 "AmericaParticleUplinkCannon",
@@ -76405,7 +76171,9 @@ mod tests {
             1,
         );
         logic.spawn_particle_connector_laser_objects_for_new_beams();
-        assert!(logic.special_power_strikes.honesty_connector_object_spawn_ok());
+        assert!(logic
+            .special_power_strikes
+            .honesty_connector_object_spawn_ok());
         assert!(logic.special_power_strikes.connector_objects_spawned() >= 2);
         let names: Vec<_> = logic
             .get_objects()
@@ -76427,12 +76195,10 @@ mod tests {
         logic.frame = exp + 2;
         logic.update_particle_connector_laser_objects();
         for id in ids {
-            assert!(
-                logic
-                    .find_object(id)
-                    .map(|o| !o.is_alive() || o.status.destroyed)
-                    .unwrap_or(true)
-            );
+            assert!(logic
+                .find_object(id)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true));
         }
     }
 
@@ -76444,7 +76210,9 @@ mod tests {
         ensure_test_tank_template(&mut logic);
         let mut puc = crate::game_logic::ThingTemplate::new("AmericaParticleUplinkCannon");
         puc.add_kind_of(KindOf::Structure).set_health(5000.0);
-        logic.templates.insert("AmericaParticleUplinkCannon".into(), puc);
+        logic
+            .templates
+            .insert("AmericaParticleUplinkCannon".into(), puc);
         let caster = logic
             .create_object(
                 "AmericaParticleUplinkCannon",
@@ -76486,12 +76254,10 @@ mod tests {
             .unwrap();
         logic.frame = exp + 2;
         logic.update_particle_orbital_laser_objects();
-        assert!(
-            logic
-                .find_object(lid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(lid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     fn particle_uplink_spawns_trail_remnant_objects() {
@@ -76503,7 +76269,9 @@ mod tests {
         ensure_test_tank_template(&mut logic);
         let mut puc = crate::game_logic::ThingTemplate::new("AmericaParticleUplinkCannon");
         puc.add_kind_of(KindOf::Structure).set_health(5000.0);
-        logic.templates.insert("AmericaParticleUplinkCannon".into(), puc);
+        logic
+            .templates
+            .insert("AmericaParticleUplinkCannon".into(), puc);
         let caster = logic
             .create_object(
                 "AmericaParticleUplinkCannon",
@@ -76522,7 +76290,9 @@ mod tests {
         );
         // Manually mark as spawned this frame (spawn_remnant_field already pushes).
         logic.spawn_particle_trail_remnant_objects_for_new_fields();
-        assert!(logic.special_power_strikes.honesty_remnant_object_spawn_ok());
+        assert!(logic
+            .special_power_strikes
+            .honesty_remnant_object_spawn_ok());
         assert!(logic.special_power_strikes.remnant_objects_spawned() >= 1);
         let obj = logic
             .get_objects()
@@ -76540,12 +76310,10 @@ mod tests {
         assert_eq!(bound, Some(oid));
         logic.frame = PARTICLE_REMNANT_DURATION_FRAMES + 5;
         logic.update_particle_trail_remnant_objects();
-        assert!(
-            logic
-                .find_object(oid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(oid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     fn emp_pulse_spawns_effect_spheroid_residual() {
@@ -76573,12 +76341,10 @@ mod tests {
         let sid = sph.id;
         logic.frame = EMP_SPHEROID_LIFETIME_FRAMES + 5;
         logic.update_emp_pulse_spheroids();
-        assert!(
-            logic
-                .find_object(sid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(sid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     fn emp_pulse_residual_disables_vehicles_in_radius() {
@@ -80304,7 +80070,11 @@ mod tests {
         }
 
         let sc_id = logic
-            .create_object("AmericaStrategyCenter", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
             .expect("strategy center");
 
         let inf = logic
@@ -80363,7 +80133,6 @@ mod tests {
         );
         let _ = tank;
     }
-
 
     /// Residual: Strategy Center StealthDetectorUpdate enable stack (S&D).
     ///
@@ -81683,16 +81452,6 @@ mod tests {
     /// → CreateObjectDie OCL_CreateSneakAttackTunnel + FireWeaponUpdate shockwave
     /// residual. Fail-closed: not full Start animation / multi-shockwave / TunnelContain.
 
-
-
-
-
-
-
-
-
-
-
     #[test]
     fn radar_scan_spawns_radar_van_ping_object() {
         use crate::game_logic::host_radar_scan::{
@@ -81724,12 +81483,10 @@ mod tests {
         let pid = ping.id;
         logic.frame = RADAR_SCAN_DURATION_FRAMES + 5;
         logic.update_radar_van_pings();
-        assert!(
-            logic
-                .find_object(pid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(pid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
     #[test]
     fn spy_satellite_spawns_ping_object() {
@@ -81766,12 +81523,10 @@ mod tests {
         // Advance past DeletionUpdate lifetime residual.
         logic.frame = SPY_SATELLITE_DURATION_FRAMES + 5;
         logic.update_spy_satellite_pings();
-        assert!(
-            logic
-                .find_object(pid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(pid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     #[test]
@@ -81812,9 +81567,7 @@ mod tests {
         assert_eq!(alive_markers, 0);
         // Template was used.
         assert!(
-            logic
-                .templates
-                .contains_key(EMERGENCY_REPAIR_MARKER_LEVEL1)
+            logic.templates.contains_key(EMERGENCY_REPAIR_MARKER_LEVEL1)
                 || logic.emergency_repairs.markers_spawned >= 1
         );
     }
@@ -81894,11 +81647,7 @@ mod tests {
         // Direct residual exercise: schedule one unit and mark surface water via terrain stub.
         // Fallback: exercise kill path by setting cell underwater after create via registry API.
         let id = logic
-            .queue_ambush(
-                &SpecialPowerType::Ambush,
-                cc_id,
-                Vec3::new(50.0, 0.0, 50.0),
-            )
+            .queue_ambush(&SpecialPowerType::Ambush, cc_id, Vec3::new(50.0, 0.0, 50.0))
             .expect("ambush");
         assert!(id >= 1);
         // Manually exercise DiesOnBadLand residual helper path:
@@ -81915,12 +81664,10 @@ mod tests {
         logic.host_ambushes.record_dies_on_bad_land_kill();
         logic.mark_object_for_destruction(rebel, None);
         assert!(logic.host_ambushes.honesty_dies_on_bad_land_ok());
-        assert!(
-            logic
-                .find_object(rebel)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(rebel)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
     }
 
     #[test]
@@ -81943,11 +81690,7 @@ mod tests {
             .create_object("GLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let id = logic
-            .queue_ambush(
-                &SpecialPowerType::Ambush,
-                cc_id,
-                Vec3::new(100.0, 0.0, 0.0),
-            )
+            .queue_ambush(&SpecialPowerType::Ambush, cc_id, Vec3::new(100.0, 0.0, 0.0))
             .expect("ambush");
         assert!(id >= 1);
         // Advance through fade delay to spawn.
@@ -81958,7 +81701,10 @@ mod tests {
                 break;
             }
         }
-        assert!(logic.host_ambushes.fade_in_grants >= GLA_AMBUSH1_UNIT_COUNT as u32 || logic.host_ambushes.fade_in_grants >= 1);
+        assert!(
+            logic.host_ambushes.fade_in_grants >= GLA_AMBUSH1_UNIT_COUNT as u32
+                || logic.host_ambushes.fade_in_grants >= 1
+        );
         let stealthed = logic
             .get_objects()
             .values()
@@ -81992,9 +81738,15 @@ mod tests {
         }
         let mut tank_t = crate::game_logic::ThingTemplate::new("ChinaTankBattleMaster");
         tank_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
-        logic.templates.insert("ChinaTankBattleMaster".into(), tank_t);
+        logic
+            .templates
+            .insert("ChinaTankBattleMaster".into(), tank_t);
         let tank = logic
-            .create_object("ChinaTankBattleMaster", Team::China, Vec3::new(10.0, 0.0, 0.0))
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                Vec3::new(10.0, 0.0, 0.0),
+            )
             .unwrap();
         assert!(logic.activate_frenzy(
             1,
@@ -82014,7 +81766,10 @@ mod tests {
         // DeletionUpdate residual: 1 frame lifetime → due on following update.
         logic.update_frenzy_invisible_markers();
         assert!(
-            logic.find_object(mid).map(|o| o.is_alive()).unwrap_or(false),
+            logic
+                .find_object(mid)
+                .map(|o| o.is_alive())
+                .unwrap_or(false),
             "marker should survive spawn frame"
         );
         logic.update_frenzy_invisible_markers();
@@ -82057,7 +81812,10 @@ mod tests {
         assert!(logic.activate_emp_pulse(1, Vec3::new(140.0, 0.0, 0.0), Some(cc_id)));
         assert!(logic.emp_pulse_flight_reg.transports_spawned >= 1);
         // Not yet disabled until bomb impact.
-        assert!(!logic.find_object(foe).unwrap().is_disabled() || logic.emp_pulses().activation_count() == 0);
+        assert!(
+            !logic.find_object(foe).unwrap().is_disabled()
+                || logic.emp_pulses().activation_count() == 0
+        );
         for f in 0..400 {
             logic.frame = f;
             logic.update_emp_pulse_flights();
@@ -82068,7 +81826,10 @@ mod tests {
         assert!(logic.emp_pulse_flight_reg.bombs_dropped >= 1);
         assert!(logic.emp_pulse_flight_reg.detonations >= 1);
         assert!(
-            logic.find_object(foe).map(|o| o.is_disabled()).unwrap_or(false)
+            logic
+                .find_object(foe)
+                .map(|o| o.is_disabled())
+                .unwrap_or(false)
                 || logic.honesty_emp_pulse_disable_ok()
                 || logic.emp_pulses().honesty_disable_ok()
         );
@@ -82089,7 +81850,11 @@ mod tests {
         let jet = logic
             .spawn_cluster_mines_flight(cc_id, Vec3::new(180.0, 0.0, 0.0))
             .expect("cargo");
-        assert!(logic.find_object(jet).unwrap().cluster_mines_transport.is_some());
+        assert!(logic
+            .find_object(jet)
+            .unwrap()
+            .cluster_mines_transport
+            .is_some());
         assert!(logic.cluster_mines_flight_reg.transports_spawned >= 1);
         let mines_before = logic
             .get_objects()
@@ -82111,7 +81876,10 @@ mod tests {
             .values()
             .filter(|o| o.template_name.contains("Mine") || o.template_name.contains("mine"))
             .count();
-        assert!(mines_after > mines_before, "mines should be placed after bomb impact");
+        assert!(
+            mines_after > mines_before,
+            "mines should be placed after bomb impact"
+        );
         assert!(logic.honesty_cluster_mines_flight_ok());
     }
 
@@ -82137,7 +81905,11 @@ mod tests {
         let jet = logic
             .spawn_anthrax_bomb_flight(cc_id, Vec3::new(150.0, 0.0, 0.0))
             .expect("cargo");
-        assert!(logic.find_object(jet).unwrap().anthrax_bomb_transport.is_some());
+        assert!(logic
+            .find_object(jet)
+            .unwrap()
+            .anthrax_bomb_transport
+            .is_some());
         assert!(logic.anthrax_bomb_flight_reg.transports_spawned >= 1);
         for f in 0..400 {
             logic.frame = f;
@@ -82149,14 +81921,20 @@ mod tests {
         assert!(logic.anthrax_bomb_flight_reg.bombs_dropped >= 1);
         assert!(logic.anthrax_bomb_flight_reg.detonations >= 1);
         assert!(logic.anthrax_bomb_flight_reg.toxin_fields_spawned >= 1);
-        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        let hp1 = logic
+            .find_object(foe)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
         assert!(
-            hp1 < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            hp1 < hp0
+                || logic
+                    .find_object(foe)
+                    .map(|o| !o.is_alive())
+                    .unwrap_or(true),
             "anthrax bomb should damage nearby units"
         );
         assert!(logic.honesty_anthrax_bomb_flight_ok());
     }
-
 
     #[test]
     fn sneak_attack_spawns_tunnel_start() {
@@ -82199,7 +81977,10 @@ mod tests {
         }
         assert!(logic.host_sneak_attacks.tunnel_spawn_count >= 1);
         assert!(
-            logic.find_object(start_id).map(|o| !o.is_alive()).unwrap_or(true),
+            logic
+                .find_object(start_id)
+                .map(|o| !o.is_alive())
+                .unwrap_or(true),
             "TunnelStart should die when real tunnel spawns"
         );
         assert!(logic.host_sneak_attacks.honesty_tunnel_start_ok());
@@ -82251,9 +82032,16 @@ mod tests {
         );
         assert!(logic.host_sneak_attacks.honesty_multi_pulse_ok());
         assert!(logic.host_sneak_attacks.tunnel_spawn_count >= 1);
-        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        let hp1 = logic
+            .find_object(foe)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
         assert!(
-            hp1 < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            hp1 < hp0
+                || logic
+                    .find_object(foe)
+                    .map(|o| !o.is_alive())
+                    .unwrap_or(true),
             "multi-pulse shockwaves should damage nearby units"
         );
     }
@@ -82346,8 +82134,7 @@ mod tests {
                     o.is_alive()
                         && o.is_kind_of(crate::game_logic::KindOf::Structure)
                         && !o.sneak_tunnel_start
-                        && (o.template_name.contains("Tunnel")
-                            || o.template_name.contains("Sneak"))
+                        && (o.template_name.contains("Tunnel") || o.template_name.contains("Sneak"))
                 })
                 .count()
         };
@@ -86451,8 +86238,8 @@ mod tests {
     }
 
     /// Residual: CleanupArea clears toxin/radiation fields + mines at location.
-    
-        #[test]
+
+    #[test]
 
     fn cleanup_stream_projectile_flies_and_clears() {
         use crate::game_logic::host_cleanup_area::{
@@ -87859,7 +87646,6 @@ mod tests {
         assert!(logic.cia_intelligence().honesty_bonus_duration_ok());
     }
 
-
     #[test]
     fn cia_intelligence_special_power_reveals_enemy_units() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
@@ -88120,7 +87906,6 @@ mod tests {
     }
 
     #[test]
-    
     #[test]
     fn firewall_inch_forward_moves_segment_objects() {
         use crate::game_logic::host_firewall::FIREWALL_INCH_PER_FRAME;
@@ -88185,17 +87970,17 @@ mod tests {
             .filter(|o| o.firewall_segment)
             .collect();
         assert!(!segs.is_empty());
-        assert!(segs.iter().all(|o| o.template_name == FIREWALL_SEGMENT_TEMPLATE));
+        assert!(segs
+            .iter()
+            .all(|o| o.template_name == FIREWALL_SEGMENT_TEMPLATE));
         let ids: Vec<_> = segs.iter().map(|o| o.id).collect();
         logic.frame = FIREWALL_DURATION_FRAMES + 5;
         logic.update_firewall_segment_objects();
         for sid in ids {
-            assert!(
-                logic
-                    .find_object(sid)
-                    .map(|o| !o.is_alive() || o.status.destroyed)
-                    .unwrap_or(true)
-            );
+            assert!(logic
+                .find_object(sid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true));
         }
         let _ = id;
     }
@@ -88485,11 +88270,9 @@ mod tests {
                 .find_object(enemy_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_inferno_shell_projectile(cannon_id, from, aim, Some(enemy_id), false)
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_inferno_shell_projectile(cannon_id, from, aim, Some(enemy_id), false)
+                .is_some());
         }
         // DumbProjectile Bezier residual: advance InfernoTankShell to impact + FireField.
         for _ in 0..200 {
@@ -88585,7 +88368,7 @@ mod tests {
     /// Residual: GLA Angry Mob nexus damages nearby enemies over frames and
     /// expands member residual (InitialBurst → SpawnNumber).
     /// Fail-closed: not full SpawnBehavior member objects / MobMemberSlavedUpdate.
-    
+
     #[test]
     fn angry_mob_projectile_flies_and_impacts() {
         use crate::game_logic::host_angry_mob::{
@@ -88610,7 +88393,9 @@ mod tests {
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(200.0);
-        logic.templates.insert("TestInfantry".to_string(), enemy_tpl);
+        logic
+            .templates
+            .insert("TestInfantry".to_string(), enemy_tpl);
 
         let nexus = logic
             .create_object(
@@ -88622,7 +88407,10 @@ mod tests {
         let enemy = logic
             .create_object("TestInfantry", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .expect("enemy");
-        let hp_before = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        let hp_before = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
 
         let from = Vec3::new(0.0, 2.0, 0.0);
         let aim = Vec3::new(80.0, 0.0, 0.0);
@@ -88656,7 +88444,10 @@ mod tests {
         }
         logic.process_destroy_list();
 
-        let hp_after = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
         assert!(
             hp_after < hp_before - 0.5,
             "molotov impact should damage enemy {hp_before} -> {hp_after} (base {ANGRY_MOB_MOLOTOV_DAMAGE})"
@@ -88671,7 +88462,7 @@ mod tests {
         let _ = (ANGRY_MOB_ROCK_DAMAGE, ANGRY_MOB_ROCK_PROJECTILE);
     }
 
-#[test]
+    #[test]
     fn angry_mob_damages_nearby_enemies_over_frames() {
         use crate::game_logic::host_angry_mob::{
             angry_mob_damage_for_tick, is_angry_mob_nexus_template, ANGRY_MOB_ATTACK_RANGE,
@@ -91269,11 +91060,9 @@ mod tests {
                 .find_object(primary_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(200.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_nuke_cannon_shell_projectile(cannon_id, from, aim, None)
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_nuke_cannon_shell_projectile(cannon_id, from, aim, None)
+                .is_some());
         }
         // DumbProjectile Bezier residual: advance NukeCannonShell to impact.
         for _ in 0..200 {
@@ -91995,9 +91784,7 @@ mod tests {
 
     #[test]
     fn jet_airfield_rearm_waits_clip_reload_frames() {
-        use crate::game_logic::host_raptor::{
-            RAPTOR_CLIP_RELOAD_FRAMES, RAPTOR_CLIP_SIZE,
-        };
+        use crate::game_logic::host_raptor::{RAPTOR_CLIP_RELOAD_FRAMES, RAPTOR_CLIP_SIZE};
         use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
         use glam::Vec3;
 
@@ -92010,9 +91797,7 @@ mod tests {
         logic.templates.insert("AmericaAirfield".into(), af_tmpl);
         let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
         jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
-        jet_tmpl
-            .add_kind_of(KindOf::Aircraft)
-            .set_health(100.0);
+        jet_tmpl.add_kind_of(KindOf::Aircraft).set_health(100.0);
         logic.templates.insert("AmericaJetRaptor".into(), jet_tmpl);
 
         let af_id = logic
@@ -92044,7 +91829,11 @@ mod tests {
         {
             let jet = logic.objects.get(&jet_id).unwrap();
             assert_eq!(jet.contained_by, Some(af_id), "must dock immediately");
-            assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0), "ammo still empty during ClipReload");
+            assert_eq!(
+                jet.weapon.as_ref().unwrap().ammo,
+                Some(0),
+                "ammo still empty during ClipReload"
+            );
             assert_eq!(
                 jet.airfield_rearm_ready_frame,
                 Some(10 + RAPTOR_CLIP_RELOAD_FRAMES)
@@ -92056,7 +91845,14 @@ mod tests {
         logic.frame = 10 + RAPTOR_CLIP_RELOAD_FRAMES - 1;
         assert!(logic.try_return_to_base_rearm(jet_id));
         assert_eq!(
-            logic.objects.get(&jet_id).unwrap().weapon.as_ref().unwrap().ammo,
+            logic
+                .objects
+                .get(&jet_id)
+                .unwrap()
+                .weapon
+                .as_ref()
+                .unwrap()
+                .ammo,
             Some(0)
         );
 
@@ -92070,7 +91866,6 @@ mod tests {
             assert!(!jet.needs_return_to_base_rearm());
         }
     }
-
 
     #[test]
     fn command_button_hunt_hijack_issues_nearest_enemy_vehicle() {
@@ -92163,33 +91958,19 @@ mod tests {
     }
 
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
     fn ocl_special_power_daisy_and_moab_upgrade() {
         use crate::game_logic::host_ocl_special_power::{
@@ -92214,11 +91995,7 @@ mod tests {
             .expect("cc");
 
         let plan = logic
-            .plan_ocl_special_power(
-                "SuperweaponDaisyCutter",
-                id,
-                Vec3::new(300.0, 0.0, 300.0),
-            )
+            .plan_ocl_special_power("SuperweaponDaisyCutter", id, Vec3::new(300.0, 0.0, 300.0))
             .expect("daisy plan");
         assert_eq!(plan.ocl_name, "SUPERWEAPON_DaisyCutter");
         assert_eq!(plan.create_loc, OclCreateLocType::EdgeNearSource);
@@ -92228,21 +92005,13 @@ mod tests {
             let _ = p.unlock_science("SCIENCE_MOAB");
         }
         let plan2 = logic
-            .plan_ocl_special_power(
-                "SuperweaponDaisyCutter",
-                id,
-                Vec3::new(300.0, 0.0, 300.0),
-            )
+            .plan_ocl_special_power("SuperweaponDaisyCutter", id, Vec3::new(300.0, 0.0, 300.0))
             .expect("moab plan");
         assert_eq!(plan2.ocl_name, "SUPERWEAPON_MOAB");
         assert!(logic.ocl_special_power_reg.science_upgrades >= 1);
 
         let transport = logic
-            .execute_ocl_special_power(
-                "SuperweaponDaisyCutter",
-                id,
-                Vec3::new(300.0, 0.0, 300.0),
-            )
+            .execute_ocl_special_power("SuperweaponDaisyCutter", id, Vec3::new(300.0, 0.0, 300.0))
             .expect("transport");
         let t = logic.find_object(transport).expect("t");
         assert!(
@@ -92286,11 +92055,7 @@ mod tests {
             .expect("cc");
         let before_payload = logic.ocl_special_power_reg.payloads_spawned;
         let transport = logic
-            .execute_ocl_special_power(
-                "SuperweaponLeafletDrop",
-                id,
-                Vec3::new(250.0, 0.0, 250.0),
-            )
+            .execute_ocl_special_power("SuperweaponLeafletDrop", id, Vec3::new(250.0, 0.0, 250.0))
             .expect("leaflet transport");
         let t = logic.find_object(transport).unwrap();
         assert!(t.template_name.contains("B52"));
@@ -92318,19 +92083,14 @@ mod tests {
             )
             .expect("cc");
         let drone = logic
-            .execute_ocl_special_power(
-                "SpecialPowerSpyDrone",
-                id,
-                Vec3::new(80.0, 0.0, 80.0),
-            )
+            .execute_ocl_special_power("SpecialPowerSpyDrone", id, Vec3::new(80.0, 0.0, 80.0))
             .expect("drone");
         let d = logic.find_object(drone).unwrap();
         assert!(d.template_name.contains("SpyDrone"));
         assert!(logic.ocl_special_power_reg.create_objects_spawned >= 1);
     }
 
-
-        fn smart_bomb_homing_steers_toward_target() {
+    fn smart_bomb_homing_steers_toward_target() {
         use crate::game_logic::host_smart_bomb_target_homing::honesty_smart_bomb_target_homing_residual_ok;
         assert!(honesty_smart_bomb_target_homing_residual_ok());
 
@@ -92341,7 +92101,11 @@ mod tests {
         let id = logic
             .create_object("MOAB", Team::USA, Vec3::new(0.0, 80.0, 0.0))
             .expect("moab");
-        assert!(logic.find_object(id).unwrap().smart_bomb_target_homing.is_some());
+        assert!(logic
+            .find_object(id)
+            .unwrap()
+            .smart_bomb_target_homing
+            .is_some());
         assert!(logic.set_smart_bomb_target(id, Vec3::new(100.0, 0.0, 0.0)));
         logic.update_smart_bomb_target_homing();
         let p = logic.find_object(id).unwrap().get_position();
@@ -92351,8 +92115,7 @@ mod tests {
         assert!(logic.honesty_smart_bomb_target_homing_ok());
     }
 
-
-        fn spectre_gunship_deployment_spawns_at_far_edge() {
+    fn spectre_gunship_deployment_spawns_at_far_edge() {
         use crate::game_logic::host_spectre_gunship_deployment::{
             honesty_spectre_gunship_deployment_residual_ok, SPECTRE_GUNSHIP_TEMPLATE,
             SPECTRE_PREFERRED_ELEVATION,
@@ -92377,7 +92140,11 @@ mod tests {
                 Vec3::new(100.0, 0.0, 100.0),
             )
             .expect("cc");
-        assert!(logic.find_object(cc).unwrap().spectre_gunship_deployment.is_some());
+        assert!(logic
+            .find_object(cc)
+            .unwrap()
+            .spectre_gunship_deployment
+            .is_some());
         assert!(logic.spectre_gunship_deployment_reg.installed >= 1);
 
         let target = Vec3::new(250.0, 0.0, 250.0);
@@ -92389,26 +92156,24 @@ mod tests {
         assert!((g.get_position().y - SPECTRE_PREFERRED_ELEVATION).abs() < 0.1);
         assert_eq!(g.producer_id, Some(cc));
         assert_eq!(
-            logic
-                .find_object(cc)
-                .and_then(|o| o.spectre_gunship_deployment.as_ref().and_then(|d| d.gunship_id)),
+            logic.find_object(cc).and_then(|o| o
+                .spectre_gunship_deployment
+                .as_ref()
+                .and_then(|d| d.gunship_id)),
             Some(ship)
         );
         assert!(logic.spectre_gunship_deployment_reg.spawns >= 1);
         assert!(logic.honesty_spectre_gunship_deployment_ok());
     }
 
-
-        fn checkpoint_opens_for_ally_closes_for_enemy() {
+    fn checkpoint_opens_for_ally_closes_for_enemy() {
         use crate::game_logic::host_checkpoint_update::honesty_checkpoint_update_residual_ok;
         assert!(honesty_checkpoint_update_residual_ok());
 
         let mut logic = GameLogic::new();
         let mut tpl = crate::game_logic::ThingTemplate::new("AmericaCheckpoint");
         tpl.set_health(1000.0);
-        logic
-            .templates
-            .insert("AmericaCheckpoint".to_string(), tpl);
+        logic.templates.insert("AmericaCheckpoint".to_string(), tpl);
         ensure_test_infantry_template(&mut logic);
 
         let gate = logic
@@ -92452,18 +92217,20 @@ mod tests {
         assert!(
             logic
                 .find_object(gate)
-                .and_then(|o| o.checkpoint_update.as_ref().map(|c| !c.open && c.enemy_near))
+                .and_then(|o| o
+                    .checkpoint_update
+                    .as_ref()
+                    .map(|c| !c.open && c.enemy_near))
                 .unwrap_or(false),
             "enemy near must close checkpoint"
         );
         assert!(logic.honesty_checkpoint_update_ok());
     }
 
-
-        fn radius_decal_scud_storm_create_and_kill_on_idle() {
+    fn radius_decal_scud_storm_create_and_kill_on_idle() {
         use crate::game_logic::host_radius_decal_update::{
-            honesty_radius_decal_update_residual_ok, SCUD_STORM_DELIVERY_DECAL_RADIUS,
-            SCUD_STORM_DECAL_TEXTURE,
+            honesty_radius_decal_update_residual_ok, SCUD_STORM_DECAL_TEXTURE,
+            SCUD_STORM_DELIVERY_DECAL_RADIUS,
         };
         assert!(honesty_radius_decal_update_residual_ok());
 
@@ -92499,12 +92266,13 @@ mod tests {
         // Still attacking: decal stays.
         logic.set_current_frame(10);
         logic.update_radius_decal_update();
-        assert!(
-            logic
-                .find_object(id)
-                .and_then(|o| o.radius_decal_update.as_ref().map(|r| !r.delivery_decal.is_empty()))
-                .unwrap_or(false)
-        );
+        assert!(logic
+            .find_object(id)
+            .and_then(|o| o
+                .radius_decal_update
+                .as_ref()
+                .map(|r| !r.delivery_decal.is_empty()))
+            .unwrap_or(false));
 
         // Attack ends → killWhenNoLongerAttacking clears decal.
         {
@@ -92514,18 +92282,18 @@ mod tests {
         }
         logic.set_current_frame(20);
         logic.update_radius_decal_update();
-        assert!(
-            logic
-                .find_object(id)
-                .and_then(|o| o.radius_decal_update.as_ref().map(|r| r.delivery_decal.is_empty()))
-                .unwrap_or(false)
-        );
+        assert!(logic
+            .find_object(id)
+            .and_then(|o| o
+                .radius_decal_update
+                .as_ref()
+                .map(|r| r.delivery_decal.is_empty()))
+            .unwrap_or(false));
         assert!(logic.radius_decal_update_reg.attack_kills >= 1);
         assert!(logic.honesty_radius_decal_update_ok());
     }
 
-
-        fn float_update_ferry_sways() {
+    fn float_update_ferry_sways() {
         use crate::game_logic::host_float_update::honesty_float_update_residual_ok;
         assert!(honesty_float_update_residual_ok());
         let mut logic = GameLogic::new();
@@ -92571,9 +92339,6 @@ mod tests {
         assert!(crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok());
     }
 
-
-
-
     #[test]
     fn ocl_apply_random_force_technical() {
         use crate::game_logic::KindOf;
@@ -92611,7 +92376,9 @@ mod tests {
         ensure_test_player_for_team(&mut logic, Team::GLA);
         let mut gas_tpl = crate::game_logic::ThingTemplate::new("SupW_AuroraFuelAirGas");
         gas_tpl.set_health(1.0);
-        logic.templates.insert("SupW_AuroraFuelAirGas".into(), gas_tpl);
+        logic
+            .templates
+            .insert("SupW_AuroraFuelAirGas".into(), gas_tpl);
         let mut enemy = crate::game_logic::ThingTemplate::new("GLATankScorpion");
         enemy.add_kind_of(KindOf::Vehicle).set_health(500.0);
         logic.templates.insert("GLATankScorpion".into(), enemy);
@@ -92633,8 +92400,14 @@ mod tests {
         }
         assert!(logic.fuel_air_gas_reg.final_detonations >= 1);
         assert!(logic.fuel_air_gas_reg.midpoint_flames >= 1);
-        let foe_alive = logic.find_object(foe).map(|o| o.is_alive()).unwrap_or(false);
-        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        let foe_alive = logic
+            .find_object(foe)
+            .map(|o| o.is_alive())
+            .unwrap_or(false);
+        let hp1 = logic
+            .find_object(foe)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
         assert!(
             !foe_alive || hp1 < hp0,
             "detonation should damage nearby enemy (hp0={hp0} hp1={hp1})"
@@ -92667,20 +92440,12 @@ mod tests {
             .objects
             .values()
             .any(|o| o.template_name.contains("Debris"));
-        assert!(gas, "FuelAir gas should spawn from DaisyCutterBomb CreateObjectDie");
+        assert!(
+            gas,
+            "FuelAir gas should spawn from DaisyCutterBomb CreateObjectDie"
+        );
         assert!(debris, "shell debris should spawn");
     }
-
-
-
-
-
-
-
-
-
-
-
 
     #[test]
     fn moab_flight_uses_jet_b3() {
@@ -92744,7 +92509,11 @@ mod tests {
                 crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier::DaisyCutter,
             )
             .expect("b52");
-        assert!(logic.find_object(jet).unwrap().daisy_cutter_transport.is_some());
+        assert!(logic
+            .find_object(jet)
+            .unwrap()
+            .daisy_cutter_transport
+            .is_some());
         assert!(logic.daisy_cutter_flight_reg.transports_spawned >= 1);
         for f in 0..400 {
             logic.frame = f;
@@ -92755,9 +92524,16 @@ mod tests {
         }
         assert!(logic.daisy_cutter_flight_reg.bombs_dropped >= 1);
         assert!(logic.daisy_cutter_flight_reg.detonations >= 1);
-        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        let hp1 = logic
+            .find_object(foe)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
         assert!(
-            hp1 < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            hp1 < hp0
+                || logic
+                    .find_object(foe)
+                    .map(|o| !o.is_alive())
+                    .unwrap_or(true),
             "daisy detonation should damage nearby units"
         );
         assert!(logic.honesty_daisy_cutter_flight_ok());
@@ -92884,7 +92660,11 @@ mod tests {
                 A10StrikeScienceTier::Level1,
             )
             .expect("a10");
-        assert!(logic.find_object(jet).unwrap().a10_strike_transport.is_some());
+        assert!(logic
+            .find_object(jet)
+            .unwrap()
+            .a10_strike_transport
+            .is_some());
         assert!(logic.a10_strike_flight_reg.missiles_scheduled >= 6);
         for f in 0..400 {
             logic.frame = f;
@@ -92941,7 +92721,6 @@ mod tests {
         assert!(logic.artillery_barrage_flight_reg.impacts >= 1);
         assert!(logic.honesty_artillery_barrage_flight_ok());
     }
-
 
     #[test]
     fn china_carpet_bomb_flight_uses_china_payload() {
@@ -93031,7 +92810,11 @@ mod tests {
                 crate::game_logic::special_power_strikes::CarpetBombFactionTier::America,
             )
             .expect("b52");
-        assert!(logic.find_object(transport).unwrap().carpet_bomb_transport.is_some());
+        assert!(logic
+            .find_object(transport)
+            .unwrap()
+            .carpet_bomb_transport
+            .is_some());
         assert!(logic.carpet_bomb_flight_reg.bombs_scheduled >= 15);
         for f in 0..400 {
             logic.frame = f;
@@ -93044,7 +92827,10 @@ mod tests {
         assert!(logic.carpet_bomb_flight_reg.impacts >= 1);
         // Damage is applied at drop epicenters along the residual line; foe may
         // miss variance/line if off the stripe — check damage if still alive near center.
-        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        let hp1 = logic
+            .find_object(foe)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
         let _ = (hp0, hp1, foe);
         assert!(logic.honesty_carpet_bomb_flight_ok());
     }
@@ -93065,11 +92851,7 @@ mod tests {
             .create_object("Chem_GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let foe = logic
-            .create_object(
-                "AmericaTankCrusader",
-                Team::USA,
-                Vec3::new(80.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .unwrap();
         let hp0 = logic.find_object(foe).unwrap().health.current;
         assert!(logic.execute_ocl_attack(
@@ -93090,9 +92872,16 @@ mod tests {
                 || logic.scud_storm_missile_flight_reg.ignition_fx >= 1
                 || logic.scud_storm_missile_flight_reg.exhaust_fx >= 1
         );
-        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        let hp1 = logic
+            .find_object(foe)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
         assert!(
-            hp1 < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            hp1 < hp0
+                || logic
+                    .find_object(foe)
+                    .map(|o| !o.is_alive())
+                    .unwrap_or(true),
             "chem scud toxin primary should damage nearby units"
         );
         assert!(
@@ -93117,11 +92906,7 @@ mod tests {
             .create_object("GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let foe = logic
-            .create_object(
-                "AmericaTankCrusader",
-                Team::USA,
-                Vec3::new(100.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(100.0, 0.0, 0.0))
             .unwrap();
         let hp0 = logic.find_object(foe).unwrap().health.current;
         assert!(logic.execute_ocl_attack(
@@ -93145,9 +92930,16 @@ mod tests {
             "all 9 missiles should launch after stagger"
         );
         assert!(logic.scud_storm_missile_flight_reg.grounded >= 1);
-        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        let hp1 = logic
+            .find_object(foe)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
         assert!(
-            hp1 < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            hp1 < hp0
+                || logic
+                    .find_object(foe)
+                    .map(|o| !o.is_alive())
+                    .unwrap_or(true),
             "scud impact should damage nearby units"
         );
         assert!(
@@ -93186,16 +92978,16 @@ mod tests {
                 Vec3::new(50.0, 0.0, 0.0),
             )
             .expect("cruise");
-        assert!(
-            logic
-                .find_object(proj)
-                .unwrap()
-                .neutron_missile_update
-                .as_ref()
-                .map(|d| d.is_cruise)
-                .unwrap_or(false)
-        );
-        let neutron0 = logic.special_power_strikes.neutron_slow_death_spawned_total();
+        assert!(logic
+            .find_object(proj)
+            .unwrap()
+            .neutron_missile_update
+            .as_ref()
+            .map(|d| d.is_cruise)
+            .unwrap_or(false));
+        let neutron0 = logic
+            .special_power_strikes
+            .neutron_slow_death_spawned_total();
         for f in 0..600 {
             logic.frame = f;
             logic.update_neutron_missile_flights();
@@ -93205,13 +92997,22 @@ mod tests {
         }
         assert!(logic.neutron_missile_update_reg.grounded >= 1);
         assert_eq!(
-            logic.special_power_strikes.neutron_slow_death_spawned_total(),
+            logic
+                .special_power_strikes
+                .neutron_slow_death_spawned_total(),
             neutron0,
             "cruise must not spawn neutron SlowDeath field"
         );
-        let foe_hp = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        let foe_hp = logic
+            .find_object(foe)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
         assert!(
-            foe_hp < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            foe_hp < hp0
+                || logic
+                    .find_object(foe)
+                    .map(|o| !o.is_alive())
+                    .unwrap_or(true),
             "MOAB residual should damage nearby enemy"
         );
     }
@@ -93241,13 +93042,11 @@ mod tests {
                 Vec3::new(200.0, 0.0, 0.0),
             )
             .expect("missile");
-        assert!(
-            logic
-                .find_object(proj)
-                .unwrap()
-                .neutron_missile_update
-                .is_some()
-        );
+        assert!(logic
+            .find_object(proj)
+            .unwrap()
+            .neutron_missile_update
+            .is_some());
         assert!(
             logic
                 .find_object(proj)
@@ -93286,7 +93085,10 @@ mod tests {
         assert!(logic.neutron_missile_update_reg.launched >= 1);
         assert!(
             logic.special_power_strikes.neutron_slow_death_field_count() >= 1
-                || logic.special_power_strikes.neutron_slow_death_spawned_total() >= 1,
+                || logic
+                    .special_power_strikes
+                    .neutron_slow_death_spawned_total()
+                    >= 1,
             "ground impact should spawn NeutronMissileSlowDeath field"
         );
         // Advance SlowDeath midpoint → OCL_NukeRadiationField residual.
@@ -93352,7 +93154,11 @@ mod tests {
         ));
         assert_eq!(logic.ocl_fire_weapon_attack_reg.last_attack_shots, 9);
         let o = logic.find_object(id).unwrap();
-        assert!(o.fire_weapon_power.as_ref().map(|r| r.shots_remaining >= 9).unwrap_or(false));
+        assert!(o
+            .fire_weapon_power
+            .as_ref()
+            .map(|r| r.shots_remaining >= 9)
+            .unwrap_or(false));
     }
 
     #[test]
@@ -93391,17 +93197,14 @@ mod tests {
             logic.set_current_frame(u64::from(f));
             logic.update_prone_update();
         }
-        assert!(
-            logic
-                .find_object(id)
-                .and_then(|o| o.prone_update.as_ref().map(|p| !p.is_prone()))
-                .unwrap_or(false)
-        );
+        assert!(logic
+            .find_object(id)
+            .and_then(|o| o.prone_update.as_ref().map(|p| !p.is_prone()))
+            .unwrap_or(false));
         assert!(logic.honesty_prone_update_ok());
     }
 
-
-        fn active_shroud_upgrade_sets_shroud_range() {
+    fn active_shroud_upgrade_sets_shroud_range() {
         use crate::game_logic::host_active_shroud_upgrade::honesty_active_shroud_upgrade_residual_ok;
         assert!(honesty_active_shroud_upgrade_residual_ok());
 
@@ -93417,8 +93220,7 @@ mod tests {
         assert!(logic.honesty_active_shroud_upgrade_ok());
     }
 
-
-        fn animation_steering_battle_bus_turn_conditions() {
+    fn animation_steering_battle_bus_turn_conditions() {
         use crate::game_logic::host_animation_steering::{
             honesty_animation_steering_residual_ok, BATTLE_BUS_MIN_TRANSITION_FRAMES,
         };
@@ -93444,9 +93246,10 @@ mod tests {
         logic.set_current_frame(0);
         logic.update_animation_steering();
         assert_eq!(
-            logic
-                .find_object(id)
-                .and_then(|o| o.animation_steering.as_ref().and_then(|a| a.active_condition.clone())),
+            logic.find_object(id).and_then(|o| o
+                .animation_steering
+                .as_ref()
+                .and_then(|a| a.active_condition.clone())),
             Some("CENTER_TO_RIGHT".to_string())
         );
 
@@ -93457,16 +93260,16 @@ mod tests {
         logic.set_current_frame(u64::from(BATTLE_BUS_MIN_TRANSITION_FRAMES));
         logic.update_animation_steering();
         assert_eq!(
-            logic
-                .find_object(id)
-                .and_then(|o| o.animation_steering.as_ref().and_then(|a| a.active_condition.clone())),
+            logic.find_object(id).and_then(|o| o
+                .animation_steering
+                .as_ref()
+                .and_then(|a| a.active_condition.clone())),
             Some("RIGHT_TO_CENTER".to_string())
         );
         assert!(logic.honesty_animation_steering_ok());
     }
 
-
-        fn passengers_fire_upgrade_helix_battle_bunker() {
+    fn passengers_fire_upgrade_helix_battle_bunker() {
         use crate::game_logic::host_passengers_fire_upgrade::{
             honesty_passengers_fire_upgrade_residual_ok, UPGRADE_HELIX_BATTLE_BUNKER,
         };
@@ -93484,15 +93287,15 @@ mod tests {
             o.is_helix_transport = true;
             o.passengers_allowed_to_fire = false;
         }
-        let n = logic.apply_passengers_fire_upgrade_to_team(Team::China, UPGRADE_HELIX_BATTLE_BUNKER);
+        let n =
+            logic.apply_passengers_fire_upgrade_to_team(Team::China, UPGRADE_HELIX_BATTLE_BUNKER);
         assert!(n >= 1);
         assert!(logic.find_object(id).unwrap().passengers_allowed_to_fire);
         assert!(logic.passengers_fire_upgrade_reg.applies >= 1);
         assert!(logic.honesty_passengers_fire_upgrade_ok());
     }
 
-
-        fn enemy_near_wall_sets_model_condition_on_scan() {
+    fn enemy_near_wall_sets_model_condition_on_scan() {
         use crate::game_logic::host_enemy_near::honesty_enemy_near_residual_ok;
         assert!(honesty_enemy_near_residual_ok());
 
@@ -93505,11 +93308,7 @@ mod tests {
         ensure_test_infantry_template(&mut logic);
 
         let wall = logic
-            .create_object(
-                "AmericaWallSegment",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaWallSegment", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("wall");
         {
             let w = logic.find_object_mut(wall).unwrap();
@@ -93530,7 +93329,10 @@ mod tests {
         assert!(
             logic
                 .find_object(wall)
-                .and_then(|o| o.enemy_near.as_ref().map(|e| e.enemy_near && e.model_enemy_near))
+                .and_then(|o| o
+                    .enemy_near
+                    .as_ref()
+                    .map(|e| e.enemy_near && e.model_enemy_near))
                 .unwrap_or(false),
             "enemy in vision must set ENEMYNEAR residual"
         );
@@ -93538,8 +93340,7 @@ mod tests {
         assert!(logic.honesty_enemy_near_ok());
     }
 
-
-        fn base_regenerate_structure_heals_after_delay() {
+    fn base_regenerate_structure_heals_after_delay() {
         use crate::game_logic::host_base_regenerate::{
             honesty_base_regenerate_residual_ok, BASE_REGEN_DELAY_FRAMES,
             BASE_REGEN_HEAL_RATE_FRAMES,
@@ -93554,11 +93355,7 @@ mod tests {
             .templates
             .insert("AmericaCommandCenter".to_string(), tpl);
         let id = logic
-            .create_object(
-                "AmericaCommandCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("cc");
         assert!(logic.find_object(id).unwrap().base_regenerate.is_some());
         assert!(logic.base_regenerate_reg.installed >= 1);
@@ -93573,24 +93370,23 @@ mod tests {
         // Immediately after damage: still delayed.
         logic.update_base_regenerate();
         let mid = logic.find_object(id).unwrap().health.current;
-        assert!((mid - 500.0).abs() < 0.01, "no heal during delay, got {mid}");
+        assert!(
+            (mid - 500.0).abs() < 0.01,
+            "no heal during delay, got {mid}"
+        );
 
         // After delay, heal ticks.
         let wake = BASE_REGEN_DELAY_FRAMES;
         logic.set_current_frame(u64::from(wake));
         logic.update_base_regenerate();
         let after = logic.find_object(id).unwrap().health.current;
-        assert!(
-            after > 500.0,
-            "must heal after delay (after={after})"
-        );
+        assert!(after > 500.0, "must heal after delay (after={after})");
         assert!(logic.base_regenerate_reg.heal_ticks >= 1);
         assert!(logic.honesty_base_regenerate_ok());
         let _ = BASE_REGEN_HEAL_RATE_FRAMES;
     }
 
-
-        fn fire_spread_tree_ignites_neighbor() {
+    fn fire_spread_tree_ignites_neighbor() {
         use crate::game_logic::host_fire_spread::{
             honesty_fire_spread_residual_ok, TREE_SPREAD_TRY_RANGE,
         };
@@ -93641,8 +93437,7 @@ mod tests {
         assert!(logic.honesty_fire_spread_ok());
     }
 
-
-        fn status_bits_upgrade_booby_trap_sets_bit() {
+    fn status_bits_upgrade_booby_trap_sets_bit() {
         use crate::game_logic::host_status_bits_upgrade::honesty_status_bits_upgrade_residual_ok;
         assert!(honesty_status_bits_upgrade_residual_ok());
 
@@ -93653,17 +93448,22 @@ mod tests {
         let id = logic
             .create_object("GLATunnelNetwork", Team::GLA, Vec3::ZERO)
             .expect("net");
-        assert!(!logic.find_object(id).unwrap().has_object_status_bit("BOOBY_TRAPPED"));
+        assert!(!logic
+            .find_object(id)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED"));
 
         let n = logic.apply_status_bits_upgrade_to_team(Team::GLA, "Upgrade_GLABoobyTrap");
         assert!(n >= 1);
-        assert!(logic.find_object(id).unwrap().has_object_status_bit("BOOBY_TRAPPED"));
+        assert!(logic
+            .find_object(id)
+            .unwrap()
+            .has_object_status_bit("BOOBY_TRAPPED"));
         assert!(logic.status_bits_upgrade_reg.applies >= 1);
         assert!(logic.honesty_status_bits_upgrade_ok());
     }
 
-
-        fn tensile_formation_avalanche_damage_slide_and_rubble() {
+    fn tensile_formation_avalanche_damage_slide_and_rubble() {
         use crate::game_logic::host_tensile_formation::{
             honesty_tensile_formation_residual_ok, TENSILE_LIFE_MAX,
         };
@@ -93722,8 +93522,7 @@ mod tests {
         );
     }
 
-
-        fn toxin_fire_ocl_spawns_field_after_min_shots_and_coast() {
+    fn toxin_fire_ocl_spawns_field_after_min_shots_and_coast() {
         use crate::game_logic::host_toxin_tractor::{
             is_toxin_tractor_template, TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES,
             TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL,
@@ -97664,11 +97463,9 @@ mod tests {
                 .find_object(infantry_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(200.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_neutron_cannon_shell_projectile(cannon_id, from, aim, None)
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_neutron_cannon_shell_projectile(cannon_id, from, aim, None)
+                .is_some());
         }
         // DumbProjectile Bezier residual: advance shell to impact detonation.
         for _ in 0..200 {
@@ -97911,7 +97708,7 @@ mod tests {
             f.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
 
-                game_logic.set_current_frame(50);
+        game_logic.set_current_frame(50);
         // Direct residual path: upgrade test must not depend on full combat chooser matrix.
         let bunker_pos = game_logic
             .find_object(bunker_id)
@@ -97941,7 +97738,7 @@ mod tests {
         game_logic.process_destroy_list();
         game_logic.update_combat(&[fighter_id, bunker_id, inf_a, inf_b], LOGIC_FRAME_TIMESTEP);
 
-assert!(
+        assert!(
             game_logic.stealth_fighter_residual_fires() > 0
                 || game_logic.honesty_stealth_jet_missile_projectile_ok(),
             "stealth fighter / StealthJetMissile residual must fire"
@@ -98162,7 +97959,6 @@ assert!(
     /// Residual: Microwave tank attacking enemy structure applies DISABLED_SUBDUED
     /// (production stop residual) while cooking; clears when attack stops.
     #[test]
-
     #[test]
     fn microwave_disable_spawns_laser_stream() {
         use crate::game_logic::host_microwave::HOST_MICROWAVE_LASER_NAME;
@@ -98769,12 +98565,7 @@ assert!(
                 .find_object(comanche_id)
                 .map(|c| c.get_position())
                 .unwrap_or(Vec3::ZERO);
-            let _ = game_logic.spawn_comanche_rocket_pod_projectile(
-                comanche_id,
-                from,
-                impact,
-                0,
-            );
+            let _ = game_logic.spawn_comanche_rocket_pod_projectile(comanche_id, from, impact, 0);
             let _ = game_logic.apply_comanche_rocket_pod_area_at(impact, Some(comanche_id));
         }
 
@@ -99031,11 +98822,9 @@ assert!(
                 .find_object(tank_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_rocket_buggy_missile_projectile(buggy_id, from, aim, Some(tank_id))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_rocket_buggy_missile_projectile(buggy_id, from, aim, Some(tank_id))
+                .is_some());
             game_logic.rocket_buggy_residual_fires =
                 game_logic.rocket_buggy_residual_fires.saturating_add(1);
         }
@@ -99445,18 +99234,20 @@ assert!(
 
     #[test]
     fn scud_missile_projectile_lobs_and_impacts() {
-        use crate::game_logic::host_scud_launcher::{
-            SCUD_MISSILE_FUEL_FRAMES, SCUD_PROJECTILE,
-        };
+        use crate::game_logic::host_scud_launcher::{SCUD_MISSILE_FUEL_FRAMES, SCUD_PROJECTILE};
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         use glam::Vec3;
 
         let mut logic = GameLogic::new();
         let mut scud = ThingTemplate::new("GLAVehicleScudLauncher");
         scud.add_kind_of(KindOf::Vehicle).set_health(180.0);
-        logic.templates.insert("GLAVehicleScudLauncher".into(), scud);
+        logic
+            .templates
+            .insert("GLAVehicleScudLauncher".into(), scud);
         let mut tank = ThingTemplate::new("TestTank");
-        tank.add_kind_of(KindOf::Vehicle).add_kind_of(KindOf::Attackable).set_health(5000.0);
+        tank.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(5000.0);
         logic.templates.insert("TestTank".into(), tank);
 
         let launcher = logic
@@ -99524,8 +99315,7 @@ assert!(
             .templates
             .insert("AmericaVehicleTomahawk".into(), launcher);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(5000.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -99597,19 +99387,10 @@ assert!(
         logic.templates.insert("AmericaJetAurora".into(), jet);
 
         let src = logic
-            .create_object(
-                "AmericaJetAurora",
-                Team::USA,
-                Vec3::new(0.0, 100.0, 0.0),
-            )
+            .create_object("AmericaJetAurora", Team::USA, Vec3::new(0.0, 100.0, 0.0))
             .unwrap();
         let aim = Vec3::new(120.0, 0.0, 0.0);
-        let mid = logic.queue_aurora_bomb(
-            HostAuroraBombKind::Standard,
-            src,
-            Team::USA,
-            aim,
-        );
+        let mid = logic.queue_aurora_bomb(HostAuroraBombKind::Standard, src, Team::USA, aim);
         assert!(mid > 0);
         assert!(logic.aurora_bombs.honesty_projectile_ok());
         let pid = logic
@@ -99652,20 +99433,17 @@ assert!(
         let mut logic = GameLogic::new();
         let mut buggy = ThingTemplate::new("GLAVehicleRocketBuggy");
         buggy.add_kind_of(KindOf::Vehicle).set_health(120.0);
-        logic.templates.insert("GLAVehicleRocketBuggy".into(), buggy);
+        logic
+            .templates
+            .insert("GLAVehicleRocketBuggy".into(), buggy);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
 
         let src = logic
-            .create_object(
-                "GLAVehicleRocketBuggy",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLAVehicleRocketBuggy", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let enemy = logic
             .create_object("TestTank", Team::USA, Vec3::new(120.0, 0.0, 0.0))
@@ -99777,7 +99555,10 @@ assert!(
                 break;
             }
         }
-        assert!(apex > start_y + 20.0, "shell should loft on Bezier (apex={apex})");
+        assert!(
+            apex > start_y + 20.0,
+            "shell should loft on Bezier (apex={apex})"
+        );
         logic.process_destroy_list();
         // Infantry killed by neutron blast residual at impact.
         let alive = logic
@@ -99805,8 +99586,7 @@ assert!(
             .templates
             .insert("GLAInfantryTunnelDefender".into(), rpg);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -99866,7 +99646,7 @@ assert!(
     #[test]
     fn tank_hunter_missile_projectile_flies_and_impacts() {
         use crate::game_logic::host_tank_hunter::{
-            TANK_HUNTER_MISSILE_FUEL_FRAMES, TANK_HUNTER_DAMAGE, TANK_HUNTER_PROJECTILE,
+            TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_FUEL_FRAMES, TANK_HUNTER_PROJECTILE,
         };
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         use glam::Vec3;
@@ -99874,12 +99654,9 @@ assert!(
         let mut logic = GameLogic::new();
         let mut th = ThingTemplate::new("ChinaInfantryTankHunter");
         th.add_kind_of(KindOf::Infantry).set_health(100.0);
-        logic
-            .templates
-            .insert("ChinaInfantryTankHunter".into(), th);
+        logic.templates.insert("ChinaInfantryTankHunter".into(), th);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -99951,8 +99728,7 @@ assert!(
             .templates
             .insert("AmericaInfantryMissileDefender".into(), md);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -100024,8 +99800,7 @@ assert!(
         sc.add_kind_of(KindOf::Vehicle).set_health(200.0);
         logic.templates.insert("GLATankScorpion".into(), sc);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -100095,8 +99870,7 @@ assert!(
             .templates
             .insert("ChinaVehicleNukeLauncher".into(), nc);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(2000.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -100166,8 +99940,7 @@ assert!(
             .set_health(480.0);
         logic.templates.insert("AmericaTankCrusader".into(), c);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -100229,12 +100002,9 @@ assert!(
         bm.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(400.0);
-        logic
-            .templates
-            .insert("ChinaTankBattleMaster".into(), bm);
+        logic.templates.insert("ChinaTankBattleMaster".into(), bm);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -100302,8 +100072,7 @@ assert!(
             .set_health(1100.0);
         logic.templates.insert("ChinaTankOverlord".into(), ov);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -100352,7 +100121,6 @@ assert!(
         );
     }
 
-    
     #[test]
     fn inferno_fire_field_object_spawns_on_zone() {
         use crate::game_logic::host_inferno_cannon::{
@@ -100415,7 +100183,7 @@ assert!(
         );
     }
 
-#[test]
+    #[test]
     fn inferno_shell_bezier_flight_and_fire_field() {
         use crate::game_logic::host_inferno_cannon::{
             inferno_shell_flight_frames, INFERNO_CANNON_PROJECTILE, INFERNO_CANNON_SHELL_DAMAGE,
@@ -100432,8 +100200,7 @@ assert!(
             .templates
             .insert("ChinaVehicleInfernoCannon".into(), ic);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -100485,8 +100252,7 @@ assert!(
             "shell blast should damage (before={hp_before} after={hp_after} dmg={INFERNO_CANNON_SHELL_DAMAGE})"
         );
         assert!(
-            logic.honesty_inferno_fire_spawn_ok()
-                || logic.inferno_fire_zones().active_count() >= 1,
+            logic.honesty_inferno_fire_spawn_ok() || logic.inferno_fire_zones().active_count() >= 1,
             "detonate should spawn FireFieldSmall residual"
         );
     }
@@ -100494,7 +100260,8 @@ assert!(
     #[test]
     fn marauder_shell_bezier_flight_and_blast() {
         use crate::game_logic::host_marauder::{
-            marauder_shell_flight_frames, MARAUDER_DAMAGE, MARAUDER_SPEED_TIER0, MARAUDER_TANK_SHELL,
+            marauder_shell_flight_frames, MARAUDER_DAMAGE, MARAUDER_SPEED_TIER0,
+            MARAUDER_TANK_SHELL,
         };
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         use glam::Vec3;
@@ -100506,8 +100273,7 @@ assert!(
             .set_health(500.0);
         logic.templates.insert("GLATankMarauder".into(), m);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -100572,8 +100338,7 @@ assert!(
             .set_health(1000.0);
         logic.templates.insert("AmericaFireBase".into(), fb);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(500.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -100640,18 +100405,13 @@ assert!(
             .set_health(160.0);
         logic.templates.insert("AmericaJetRaptor".into(), r);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(800.0);
         logic.templates.insert("TestTank".into(), tank);
 
         let src = logic
-            .create_object(
-                "AmericaJetRaptor",
-                Team::USA,
-                Vec3::new(0.0, 80.0, 0.0),
-            )
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 80.0, 0.0))
             .unwrap();
         let enemy = logic
             .create_object("TestTank", Team::GLA, Vec3::new(120.0, 0.0, 0.0))
@@ -100698,14 +100458,6 @@ assert!(
         );
     }
 
-
-
-
-
-
-
-
-
     #[test]
     fn scorpion_missile_projectile_flies_and_impacts() {
         use crate::game_logic::host_scorpion::{
@@ -100719,8 +100471,7 @@ assert!(
         sc.add_kind_of(KindOf::Vehicle).set_health(200.0);
         logic.templates.insert("GLATankScorpion".into(), sc);
         let mut tank = ThingTemplate::new("TestTank");
-        tank
-            .add_kind_of(KindOf::Vehicle)
+        tank.add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable)
             .set_health(800.0);
         logic.templates.insert("TestTank".into(), tank);
@@ -100774,18 +100525,8 @@ assert!(
         );
     }
 
-
-
-
-
-
-
-
-
-
     /// Residual: GLA Technical transport capacity 5 + salvage weapon tiers.
-    
-    
+
     #[test]
     fn technical_cannon_shell_projectile_flies_and_impacts() {
         use crate::game_logic::host_technical::{
@@ -100814,14 +100555,12 @@ assert!(
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(200.0);
-        logic.templates.insert("TestInfantry".to_string(), victim_tpl);
+        logic
+            .templates
+            .insert("TestInfantry".to_string(), victim_tpl);
 
         let tech = logic
-            .create_object(
-                "GLAVehicleTechnical",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("technical");
         {
             let t = logic.find_object_mut(tech).expect("tech mut");
@@ -100829,21 +100568,19 @@ assert!(
             logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::One);
         }
         let enemy = logic
-            .create_object(
-                "TestInfantry",
-                Team::USA,
-                Vec3::new(120.0, 0.0, 0.0),
-            )
+            .create_object("TestInfantry", Team::USA, Vec3::new(120.0, 0.0, 0.0))
             .expect("enemy");
         let splash = logic
-            .create_object(
-                "TestInfantry",
-                Team::USA,
-                Vec3::new(125.0, 0.0, 0.0),
-            )
+            .create_object("TestInfantry", Team::USA, Vec3::new(125.0, 0.0, 0.0))
             .expect("splash");
-        let hp_before = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
-        let splash_before = logic.find_object(splash).map(|e| e.health.current).unwrap_or(0.0);
+        let hp_before = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let splash_before = logic
+            .find_object(splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
 
         let from = Vec3::new(0.0, 5.0, 0.0);
         let aim = Vec3::new(120.0, 0.0, 0.0);
@@ -100856,7 +100593,9 @@ assert!(
             Some(TECH_CANNON_SHELL_PROJECTILE)
         );
 
-        let max_steps = technical_cannon_shell_flight_frames(from, aim).saturating_add(5).max(10);
+        let max_steps = technical_cannon_shell_flight_frames(from, aim)
+            .saturating_add(5)
+            .max(10);
         for _ in 0..max_steps {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_technical_cannon_shell_projectiles();
@@ -100870,8 +100609,14 @@ assert!(
         }
         logic.process_destroy_list();
 
-        let hp_after = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
-        let splash_after = logic.find_object(splash).map(|e| e.health.current).unwrap_or(0.0);
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let splash_after = logic
+            .find_object(splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
         assert!(
             hp_after < hp_before - 0.5,
             "cannon shell impact should damage enemy {hp_before} -> {hp_after} (base {TECH_CANNON_DAMAGE})"
@@ -100889,7 +100634,7 @@ assert!(
         );
     }
 
-#[test]
+    #[test]
     fn technical_rpg_missile_projectile_flies_and_impacts() {
         use crate::game_logic::host_technical::{
             technical_rpg_flight_frames, TechnicalWeaponTier, TECHNICAL_RPG_MISSILE,
@@ -100933,13 +100678,12 @@ assert!(
             logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::Two);
         }
         let enemy = logic
-            .create_object(
-                "TestTank",
-                Team::USA,
-                glam::Vec3::new(120.0, 0.0, 0.0),
-            )
+            .create_object("TestTank", Team::USA, glam::Vec3::new(120.0, 0.0, 0.0))
             .expect("enemy");
-        let hp_before = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        let hp_before = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
 
         let from = glam::Vec3::new(0.0, 5.0, 0.0);
         let aim = glam::Vec3::new(120.0, 0.0, 0.0);
@@ -100968,7 +100712,10 @@ assert!(
         }
         logic.process_destroy_list();
 
-        let hp_after = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
         assert!(
             hp_after < hp_before - 0.5,
             "technical RPG impact should damage enemy {hp_before} -> {hp_after} (base {TECH_RPG_DAMAGE})"
@@ -100982,7 +100729,7 @@ assert!(
         );
     }
 
-#[test]
+    #[test]
     fn technical_residual_transport_and_salvage_weapon() {
         use crate::command_system::{CommandType, GameCommand};
         use crate::game_logic::host_technical::{
@@ -101099,11 +100846,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_technical_rpg_missile_projectile(tech_id, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_technical_rpg_missile_projectile(tech_id, from, aim, Some(enemy))
+                .is_some());
             game_logic.technical_residual_fires =
                 game_logic.technical_residual_fires.saturating_add(1);
         }
@@ -101172,12 +100917,12 @@ assert!(
     }
 
     /// Residual: GLA Toxin Tractor poison stream + contaminate spray field + death puddle.
-    
+
     #[test]
     fn toxin_stream_projectile_flies_and_impacts() {
         use crate::game_logic::host_toxin_tractor::{
-            toxin_stream_flight_frames, TOXIN_STREAM_MISSILE_FUEL_FRAMES, TOXIN_STREAM_NAME,
-            TOXIN_STREAM_PROJECTILE, TOXIN_STREAM_DAMAGE,
+            toxin_stream_flight_frames, TOXIN_STREAM_DAMAGE, TOXIN_STREAM_MISSILE_FUEL_FRAMES,
+            TOXIN_STREAM_NAME, TOXIN_STREAM_PROJECTILE,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -101201,7 +100946,9 @@ assert!(
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(100.0);
-        logic.templates.insert("TestInfantry".to_string(), victim_tpl);
+        logic
+            .templates
+            .insert("TestInfantry".to_string(), victim_tpl);
 
         let truck = logic
             .create_object(
@@ -101211,13 +100958,12 @@ assert!(
             )
             .expect("truck");
         let enemy = logic
-            .create_object(
-                "TestInfantry",
-                Team::USA,
-                glam::Vec3::new(80.0, 0.0, 0.0),
-            )
+            .create_object("TestInfantry", Team::USA, glam::Vec3::new(80.0, 0.0, 0.0))
             .expect("enemy");
-        let hp_before = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        let hp_before = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
 
         let from = glam::Vec3::new(0.0, 2.0, 0.0);
         let aim = glam::Vec3::new(80.0, 0.0, 0.0);
@@ -101253,7 +100999,10 @@ assert!(
         }
         logic.process_destroy_list();
 
-        let hp_after = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
         assert!(
             hp_after < hp_before - 0.5,
             "toxin stream impact should damage enemy {hp_before} -> {hp_after} (base {TOXIN_STREAM_DAMAGE})"
@@ -101267,7 +101016,7 @@ assert!(
         );
     }
 
-#[test]
+    #[test]
     fn toxin_tractor_residual_stream_spray_and_death_field() {
         use crate::game_logic::host_toxin_tractor::{
             is_toxin_tractor_template, TOXIN_MED_FIELD_DAMAGE, TOXIN_STREAM_DAMAGE,
@@ -101333,11 +101082,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(50.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_toxin_stream_projectile(toxin_id, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_toxin_stream_projectile(toxin_id, from, aim, Some(enemy))
+                .is_some());
         }
         for _ in 0..40 {
             game_logic.frame = game_logic.frame.saturating_add(1);
@@ -102020,9 +101767,7 @@ assert!(
 
     #[test]
     fn hellfire_scatter_misses_infantry_residual() {
-        use crate::game_logic::host_slave_drones::{
-            SlaveDroneKind, HELLFIRE_SCATTER_VS_INFANTRY,
-        };
+        use crate::game_logic::host_slave_drones::{SlaveDroneKind, HELLFIRE_SCATTER_VS_INFANTRY};
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
         ensure_host_weapon_store();
@@ -103095,17 +102840,15 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_marauder_shell_projectile(
-                        marauder_id,
-                        from,
-                        aim,
-                        Some(enemy),
-                        crate::game_logic::host_marauder::MARAUDER_SPEED_TIER0,
-                    )
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_marauder_shell_projectile(
+                    marauder_id,
+                    from,
+                    aim,
+                    Some(enemy),
+                    crate::game_logic::host_marauder::MARAUDER_SPEED_TIER0,
+                )
+                .is_some());
             game_logic.marauder_residual_fires =
                 game_logic.marauder_residual_fires.saturating_add(1);
         }
@@ -103128,8 +102871,7 @@ assert!(
             "marauder residual fire honesty"
         );
         assert!(
-            game_logic.honesty_marauder_ok()
-                || game_logic.honesty_marauder_shell_projectile_ok(),
+            game_logic.honesty_marauder_ok() || game_logic.honesty_marauder_shell_projectile_ok(),
             "marauder residual host path honesty"
         );
         let enemy_hp_after = game_logic
@@ -103257,11 +102999,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_scorpion_shell_projectile(scorp_id, from, aim, None, 0)
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_scorpion_shell_projectile(scorp_id, from, aim, None, 0)
+                .is_some());
             game_logic.scorpion_residual_fires =
                 game_logic.scorpion_residual_fires.saturating_add(1);
         }
@@ -103283,8 +103023,7 @@ assert!(
             "scorpion residual fire honesty"
         );
         assert!(
-            game_logic.honesty_scorpion_ok()
-                || game_logic.honesty_scorpion_shell_projectile_ok(),
+            game_logic.honesty_scorpion_ok() || game_logic.honesty_scorpion_shell_projectile_ok(),
             "scorpion residual host path honesty"
         );
         let enemy_hp_after = game_logic
@@ -103334,11 +103073,9 @@ assert!(
                 .find_object(far)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_scorpion_missile_projectile(scorp_id, from, aim, Some(far), 1)
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_scorpion_missile_projectile(scorp_id, from, aim, Some(far), 1)
+                .is_some());
             game_logic.scorpion_residual_missile_fires =
                 game_logic.scorpion_residual_missile_fires.saturating_add(1);
         }
@@ -103597,9 +103334,7 @@ assert!(
             &[mig_id, enemy, near_splash, mid_splash],
             LOGIC_FRAME_TIMESTEP,
         );
-        if game_logic.mig_residual_fires() == 0
-            && !game_logic.honesty_mig_missile_projectile_ok()
-        {
+        if game_logic.mig_residual_fires() == 0 && !game_logic.honesty_mig_missile_projectile_ok() {
             let from = game_logic
                 .find_object(mig_id)
                 .map(|o| o.get_position())
@@ -103608,13 +103343,10 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy))
-                    .is_some()
-            );
-            game_logic.mig_residual_fires =
-                game_logic.mig_residual_fires.saturating_add(1);
+            assert!(game_logic
+                .spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy))
+                .is_some());
+            game_logic.mig_residual_fires = game_logic.mig_residual_fires.saturating_add(1);
         }
         for _ in 0..120 {
             game_logic.frame = game_logic.frame.saturating_add(1);
@@ -103630,13 +103362,11 @@ assert!(
         game_logic.process_destroy_list();
 
         assert!(
-            game_logic.mig_residual_fires() > 0
-                || game_logic.honesty_mig_missile_projectile_ok(),
+            game_logic.mig_residual_fires() > 0 || game_logic.honesty_mig_missile_projectile_ok(),
             "mig residual fire honesty"
         );
         assert!(
-            game_logic.honesty_mig_ok()
-                || game_logic.honesty_mig_missile_projectile_ok(),
+            game_logic.honesty_mig_ok() || game_logic.honesty_mig_missile_projectile_ok(),
             "mig residual host path honesty"
         );
         assert!(
@@ -103771,9 +103501,7 @@ assert!(
         }
         game_logic.set_current_frame(50);
         game_logic.update_combat(&[mig_id, enemy], LOGIC_FRAME_TIMESTEP);
-        if game_logic.mig_residual_fires() == 0
-            && !game_logic.honesty_mig_missile_projectile_ok()
-        {
+        if game_logic.mig_residual_fires() == 0 && !game_logic.honesty_mig_missile_projectile_ok() {
             let from = game_logic
                 .find_object(mig_id)
                 .map(|o| o.get_position())
@@ -103783,8 +103511,7 @@ assert!(
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
             let _ = game_logic.spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy));
-            game_logic.mig_residual_fires =
-                game_logic.mig_residual_fires.saturating_add(1);
+            game_logic.mig_residual_fires = game_logic.mig_residual_fires.saturating_add(1);
         }
         for _ in 0..120 {
             game_logic.frame = game_logic.frame.saturating_add(1);
@@ -103799,8 +103526,7 @@ assert!(
         }
         game_logic.process_destroy_list();
         assert!(
-            game_logic.mig_residual_fires() > 0
-                || game_logic.honesty_mig_missile_projectile_ok()
+            game_logic.mig_residual_fires() > 0 || game_logic.honesty_mig_missile_projectile_ok()
         );
         assert!(
             game_logic.mig_residual_radiation_fields() > 0
@@ -103830,9 +103556,7 @@ assert!(
             .unwrap_or(0.0);
         game_logic.set_current_frame(70);
         game_logic.update_combat(&[mig_id, enemy], LOGIC_FRAME_TIMESTEP);
-        if game_logic.mig_residual_fires() == 0
-            && !game_logic.honesty_mig_missile_projectile_ok()
-        {
+        if game_logic.mig_residual_fires() == 0 && !game_logic.honesty_mig_missile_projectile_ok() {
             let from = game_logic
                 .find_object(mig_id)
                 .map(|o| o.get_position())
@@ -103842,8 +103566,7 @@ assert!(
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
             let _ = game_logic.spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy));
-            game_logic.mig_residual_fires =
-                game_logic.mig_residual_fires.saturating_add(1);
+            game_logic.mig_residual_fires = game_logic.mig_residual_fires.saturating_add(1);
         }
         for _ in 0..120 {
             game_logic.frame = game_logic.frame.saturating_add(1);
@@ -103964,11 +103687,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(150.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_fire_base_shell_projectile(fb_id, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_fire_base_shell_projectile(fb_id, from, aim, Some(enemy))
+                .is_some());
             game_logic.fire_base_residual_fires =
                 game_logic.fire_base_residual_fires.saturating_add(1);
         }
@@ -103991,8 +103712,7 @@ assert!(
             "fire base residual fire honesty"
         );
         assert!(
-            game_logic.honesty_fire_base_ok()
-                || game_logic.honesty_fire_base_shell_projectile_ok(),
+            game_logic.honesty_fire_base_ok() || game_logic.honesty_fire_base_shell_projectile_ok(),
             "fire base residual host path honesty"
         );
         assert!(
@@ -104096,13 +103816,10 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_raptor_missile_projectile(raptor_id, from, aim, Some(enemy))
-                    .is_some()
-            );
-            game_logic.raptor_residual_fires =
-                game_logic.raptor_residual_fires.saturating_add(1);
+            assert!(game_logic
+                .spawn_raptor_missile_projectile(raptor_id, from, aim, Some(enemy))
+                .is_some());
+            game_logic.raptor_residual_fires = game_logic.raptor_residual_fires.saturating_add(1);
         }
         for _ in 0..120 {
             game_logic.frame = game_logic.frame.saturating_add(1);
@@ -104123,8 +103840,7 @@ assert!(
             "raptor residual fire honesty"
         );
         assert!(
-            game_logic.honesty_raptor_ok()
-                || game_logic.honesty_raptor_missile_projectile_ok(),
+            game_logic.honesty_raptor_ok() || game_logic.honesty_raptor_missile_projectile_ok(),
             "raptor residual host path honesty"
         );
         let enemy_hp_after = game_logic
@@ -104272,11 +103988,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_stealth_jet_missile_projectile(fighter_id, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_stealth_jet_missile_projectile(fighter_id, from, aim, Some(enemy))
+                .is_some());
             game_logic.stealth_fighter_residual_fires =
                 game_logic.stealth_fighter_residual_fires.saturating_add(1);
         }
@@ -104635,11 +104349,9 @@ assert!(
                 .find_object(enemy_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_inferno_shell_projectile(cannon_id, from, aim, Some(enemy_id), true)
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_inferno_shell_projectile(cannon_id, from, aim, Some(enemy_id), true)
+                .is_some());
         }
         for _ in 0..200 {
             game_logic.frame = game_logic.frame.saturating_add(1);
@@ -104914,11 +104626,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_overlord_shell_projectile(ov_id, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_overlord_shell_projectile(ov_id, from, aim, Some(enemy))
+                .is_some());
         }
         for _ in 0..100 {
             game_logic.frame = game_logic.frame.saturating_add(1);
@@ -105231,11 +104941,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_battlemaster_shell_projectile(bm0, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_battlemaster_shell_projectile(bm0, from, aim, Some(enemy))
+                .is_some());
         }
         // DumbProjectile Bezier residual: advance BattleMasterTankShell to impact.
         for _ in 0..80 {
@@ -105566,11 +105274,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_tank_hunter_missile_projectile(th0, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_tank_hunter_missile_projectile(th0, from, aim, Some(enemy))
+                .is_some());
             game_logic.tank_hunter_residual_fires =
                 game_logic.tank_hunter_residual_fires.saturating_add(1);
         }
@@ -105913,11 +105619,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_flashbang_grenade_projectile(ranger_id, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_flashbang_grenade_projectile(ranger_id, from, aim, Some(enemy))
+                .is_some());
             game_logic.ranger_residual_flashbang_fires =
                 game_logic.ranger_residual_flashbang_fires.saturating_add(1);
         }
@@ -106211,11 +105915,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_rpg_trooper_missile_projectile(rpg_id, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_rpg_trooper_missile_projectile(rpg_id, from, aim, Some(enemy))
+                .is_some());
             game_logic.rpg_trooper_residual_fires =
                 game_logic.rpg_trooper_residual_fires.saturating_add(1);
         }
@@ -106463,13 +106165,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_missile_defender_missile_projectile(
-                        md_id, from, aim, Some(enemy), false,
-                    )
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_missile_defender_missile_projectile(md_id, from, aim, Some(enemy), false,)
+                .is_some());
             game_logic.missile_defender_residual_fires =
                 game_logic.missile_defender_residual_fires.saturating_add(1);
         }
@@ -106563,15 +106261,12 @@ assert!(
                 .find_object(far_enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(250.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_missile_defender_missile_projectile(
-                        md_id, from, aim, Some(far_enemy), true,
-                    )
-                    .is_some()
-            );
-            game_logic.missile_defender_residual_laser_fires =
-                game_logic.missile_defender_residual_laser_fires.saturating_add(1);
+            assert!(game_logic
+                .spawn_missile_defender_missile_projectile(md_id, from, aim, Some(far_enemy), true,)
+                .is_some());
+            game_logic.missile_defender_residual_laser_fires = game_logic
+                .missile_defender_residual_laser_fires
+                .saturating_add(1);
         }
         for _ in 0..120 {
             game_logic.frame = game_logic.frame.saturating_add(1);
@@ -107673,7 +107368,7 @@ assert!(
     }
 
     /// Residual: China Dragon Tank primary flame splash + BlackNapalm upgrade.
-    
+
     #[test]
     fn dragon_flame_projectile_flies_and_impacts() {
         use crate::game_logic::host_dragon_tank::{
@@ -107702,7 +107397,9 @@ assert!(
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(100.0);
-        logic.templates.insert("TestInfantry".to_string(), victim_tpl);
+        logic
+            .templates
+            .insert("TestInfantry".to_string(), victim_tpl);
 
         let dragon_id = logic
             .create_object(
@@ -107712,13 +107409,12 @@ assert!(
             )
             .expect("dragon");
         let enemy = logic
-            .create_object(
-                "TestInfantry",
-                Team::USA,
-                glam::Vec3::new(60.0, 0.0, 0.0),
-            )
+            .create_object("TestInfantry", Team::USA, glam::Vec3::new(60.0, 0.0, 0.0))
             .expect("enemy");
-        let hp_before = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        let hp_before = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
 
         let from = glam::Vec3::new(0.0, 2.0, 0.0);
         let aim = glam::Vec3::new(60.0, 0.0, 0.0);
@@ -107758,7 +107454,10 @@ assert!(
         }
         logic.process_destroy_list();
 
-        let hp_after = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
         assert!(
             hp_after < hp_before - 0.5,
             "flame impact splash should damage enemy {hp_before} -> {hp_after} (primary {DRAGON_PRIMARY_DAMAGE})"
@@ -107772,7 +107471,7 @@ assert!(
         );
     }
 
-#[test]
+    #[test]
     fn dragon_tank_residual_flame_and_black_napalm() {
         use crate::game_logic::host_dragon_tank::{
             is_dragon_tank_template, DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_TANK_FLAME_WEAPON,
@@ -107875,11 +107574,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(40.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_dragon_flame_projectile(dragon_id, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_dragon_flame_projectile(dragon_id, from, aim, Some(enemy))
+                .is_some());
             game_logic.dragon_tank_residual_fires =
                 game_logic.dragon_tank_residual_fires.saturating_add(1);
         }
@@ -108890,17 +108587,15 @@ assert!(
                 .find_object(enemy_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_usa_tank_shell_projectile(
-                        crusader_id,
-                        from,
-                        aim,
-                        crate::game_logic::host_usa_tanks::CRUSADER_WEAPON_SPEED,
-                        Some(enemy_id),
-                    )
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_usa_tank_shell_projectile(
+                    crusader_id,
+                    from,
+                    aim,
+                    crate::game_logic::host_usa_tanks::CRUSADER_WEAPON_SPEED,
+                    Some(enemy_id),
+                )
+                .is_some());
         }
         for _ in 0..80 {
             game_logic.frame = game_logic.frame.saturating_add(1);
@@ -108971,7 +108666,7 @@ assert!(
     }
 
     /// Residual: Humvee transport slots=5 + TOW air residual vs aircraft.
-    
+
     #[test]
     fn humvee_tow_missile_projectile_flies_and_impacts() {
         use crate::game_logic::host_humvee::{
@@ -109026,11 +108721,7 @@ assert!(
         logic.apply_tow_unlock_to_team(Team::USA, UPGRADE_AMERICA_TOW);
 
         let enemy = logic
-            .create_object(
-                "TestTank",
-                Team::GLA,
-                glam::Vec3::new(120.0, 0.0, 0.0),
-            )
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(120.0, 0.0, 0.0))
             .expect("enemy");
         let enemy_hp_before = logic
             .find_object(enemy)
@@ -109048,7 +108739,9 @@ assert!(
             Some(HUMVEE_MISSILE_PROJECTILE)
         );
 
-        let max_steps = humvee_ground_tow_flight_frames(120.0).saturating_add(40).max(20);
+        let max_steps = humvee_ground_tow_flight_frames(120.0)
+            .saturating_add(40)
+            .max(20);
         for _ in 0..max_steps {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_humvee_tow_missile_projectiles();
@@ -109081,7 +108774,7 @@ assert!(
         let _ = honesty_humvee_tow_missile_projectile_ok();
     }
 
-#[test]
+    #[test]
     fn humvee_residual_transport_and_air_tow() {
         use crate::game_logic::host_humvee::{
             is_humvee_template, HUMVEE_AIR_TOW_DAMAGE, HUMVEE_TRANSPORT_SLOTS,
@@ -109204,11 +108897,9 @@ assert!(
                 .find_object(jet_id)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(100.0, 40.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_humvee_tow_missile_projectile(humvee_id, from, aim, Some(jet_id), true)
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_humvee_tow_missile_projectile(humvee_id, from, aim, Some(jet_id), true)
+                .is_some());
             game_logic.humvee_tow_residual_fires =
                 game_logic.humvee_tow_residual_fires.saturating_add(1);
         }
@@ -109814,9 +109505,14 @@ assert!(
                 .find_object(building_id)
                 .map(|b| b.selection_radius.max(8.0))
                 .unwrap_or(8.0);
-            game_logic
-                .booby_trap
-                .install(building_id, rebel_id, Team::GLA, game_logic.frame, geom, None);
+            game_logic.booby_trap.install(
+                building_id,
+                rebel_id,
+                Team::GLA,
+                game_logic.frame,
+                geom,
+                None,
+            );
             if let Some(b) = game_logic.find_object_mut(building_id) {
                 b.set_status_booby_trapped(true);
             }
@@ -110025,8 +109721,7 @@ assert!(
         ensure_test_tank_template(&mut logic);
 
         let mut tpl = ThingTemplate::new("SupW_AmericaPatriotBattery");
-        tpl
-            .add_kind_of(KindOf::Structure)
+        tpl.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(1000.0);
@@ -110075,12 +109770,10 @@ assert!(
         let before = logic.supw_patriot_emp_residual_grants;
         logic.apply_supw_patriot_emp_residual_at(impact, bat, Team::USA, Some(tank));
         assert!(
-            logic.supw_patriot_emp_residual_grants > before
-                || logic.honesty_supw_patriot_emp_ok(),
+            logic.supw_patriot_emp_residual_grants > before || logic.honesty_supw_patriot_emp_ok(),
             "vehicle EMP grant residual"
         );
     }
-
 
     /// Residual: Chem Anthrax Gamma upgrade raises toxin tractor stream damage
     /// (20.5) and upgraded MediumPoisonField DoT (2.5/tick). Chem templates
@@ -110156,11 +109849,9 @@ assert!(
                 .find_object(enemy)
                 .map(|o| o.get_position())
                 .unwrap_or(Vec3::new(40.0, 0.0, 0.0));
-            assert!(
-                game_logic
-                    .spawn_toxin_stream_projectile(truck_id, from, aim, Some(enemy))
-                    .is_some()
-            );
+            assert!(game_logic
+                .spawn_toxin_stream_projectile(truck_id, from, aim, Some(enemy))
+                .is_some());
         }
         for _ in 0..40 {
             game_logic.frame = game_logic.frame.saturating_add(1);
@@ -110307,7 +109998,7 @@ assert!(
             t.record_host_weapon_stats();
         }
         game_logic.set_current_frame(60);
-                use crate::game_logic::host_toxin_tractor::{
+        use crate::game_logic::host_toxin_tractor::{
             TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES, TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL,
         };
         for f in 0..TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
@@ -110329,7 +110020,6 @@ assert!(
         assert!(
             game_logic.honesty_toxin_tractor_spray_ok(),
             "gamma spray residual honesty"
-
         );
         assert!(
             game_logic.toxin_tractor_registry().active_count() > 0,
@@ -115041,7 +114731,6 @@ assert!(
     }
 
     #[test]
-
     #[test]
     fn spy_drone_dynamic_shroud_grow_pulse_residual() {
         use crate::game_logic::host_spy_drone::{
@@ -115053,12 +114742,7 @@ assert!(
         if let Some(p) = logic.get_player_mut(0) {
             p.unlock_science(SPY_DRONE_REQUIRED_SCIENCE);
         }
-        assert!(logic.activate_spy_drone(
-            0,
-            Team::USA,
-            Vec3::new(200.0, 0.0, 200.0),
-            None,
-        ));
+        assert!(logic.activate_spy_drone(0, Team::USA, Vec3::new(200.0, 0.0, 200.0), None,));
         let act = logic.spy_drones().last().expect("activation");
         assert!(act.growing || act.grow_index > 0);
         assert!(act.radius + 0.01 < SPY_DRONE_VISION_RANGE || act.grow_index > 0);
@@ -115070,16 +114754,16 @@ assert!(
         assert!(!act.growing, "grow pulse must complete");
         assert!((act.radius - SPY_DRONE_VISION_RANGE).abs() < 0.01);
         assert!(logic.spy_drones().honesty_grow_ok());
-        assert!((spy_drone_scan_radius_after_updates(SPY_DRONE_GROW_UPDATES_TO_FINAL - 1)
-            - SPY_DRONE_VISION_RANGE)
-            .abs()
-            < 0.01);
         assert!(
-            logic
-                .get_objects()
-                .values()
-                .any(|o| o.template_name == SPY_DRONE_TEMPLATE)
+            (spy_drone_scan_radius_after_updates(SPY_DRONE_GROW_UPDATES_TO_FINAL - 1)
+                - SPY_DRONE_VISION_RANGE)
+                .abs()
+                < 0.01
         );
+        assert!(logic
+            .get_objects()
+            .values()
+            .any(|o| o.template_name == SPY_DRONE_TEMPLATE));
     }
     fn spy_drone_special_power_spawns_vehicle_residual() {
         use crate::command_system::SpecialPowerType;
@@ -115580,11 +115264,7 @@ assert!(
             o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
         }
         let target = logic
-            .create_object(
-                "AmericaTankCrusader",
-                Team::GLA,
-                Vec3::new(100.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankCrusader", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
             .unwrap();
 
         assert!(logic.activate_missile_defender_laser_guided(shooter, target));
@@ -115603,12 +115283,10 @@ assert!(
             .frame
             .saturating_add(LASER_GUIDED_BEAM_LIFETIME_FRAMES + 2);
         logic.update_missile_defender_laser_beam_objects();
-        assert!(
-            logic
-                .find_object(bid)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(true)
-        );
+        assert!(logic
+            .find_object(bid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true));
         let _ = LASER_GUIDED_ATTACH_BONE;
     }
 
@@ -124639,7 +124317,9 @@ assert!(
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(1000.0);
-        logic.templates.insert("AmericaFireBase".to_string(), fb_tpl);
+        logic
+            .templates
+            .insert("AmericaFireBase".to_string(), fb_tpl);
         let mut r_tpl = ThingTemplate::new("ChinaInfantryRedguard");
         r_tpl
             .add_kind_of(KindOf::Infantry)
@@ -124651,11 +124331,7 @@ assert!(
             .insert("ChinaInfantryRedguard".to_string(), r_tpl);
 
         let fb = logic
-            .create_object(
-                "AmericaFireBase",
-                Team::USA,
-                glam::Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaFireBase", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("firebase");
         let inf = logic
             .create_object(
@@ -124716,7 +124392,6 @@ assert!(
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn raptor_missile_scatters_vs_infantry() {
         use crate::game_logic::host_raptor::RAPTOR_SCATTER_VS_INFANTRY;
@@ -124728,7 +124403,9 @@ assert!(
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(160.0);
-        logic.templates.insert("AmericaJetRaptor".to_string(), r_tpl);
+        logic
+            .templates
+            .insert("AmericaJetRaptor".to_string(), r_tpl);
         let mut i_tpl = ThingTemplate::new("ChinaInfantryRedguard");
         i_tpl
             .add_kind_of(KindOf::Infantry)
@@ -124804,7 +124481,6 @@ assert!(
             .expect("aim2");
         assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
-
 
     #[test]
     fn missile_defender_missile_scatters_vs_infantry() {
@@ -124893,7 +124569,6 @@ assert!(
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn nuke_cannon_shell_scatters_vs_infantry() {
         use crate::game_logic::host_nuke_cannon::NUKE_CANNON_SCATTER_VS_INFANTRY;
@@ -124905,7 +124580,9 @@ assert!(
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(240.0);
-        logic.templates.insert("ChinaNukeCannon".to_string(), nc_tpl);
+        logic
+            .templates
+            .insert("ChinaNukeCannon".to_string(), nc_tpl);
         let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
         i_tpl
             .add_kind_of(KindOf::Infantry)
@@ -124977,7 +124654,6 @@ assert!(
             .expect("aim2");
         assert!((aim2[0] - 280.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
-
 
     #[test]
     fn tank_hunter_missile_scatters_vs_infantry() {
@@ -125065,7 +124741,6 @@ assert!(
         assert!((aim2[0] - 130.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn overlord_shell_scatters_vs_infantry() {
         use crate::game_logic::host_overlord_gun::OVERLORD_SCATTER_VS_INFANTRY;
@@ -125077,7 +124752,9 @@ assert!(
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(1100.0);
-        logic.templates.insert("ChinaTankOverlord".to_string(), ov_tpl);
+        logic
+            .templates
+            .insert("ChinaTankOverlord".to_string(), ov_tpl);
         let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
         i_tpl
             .add_kind_of(KindOf::Infantry)
@@ -125134,12 +124811,7 @@ assert!(
             .expect("tank");
         let before = logic.overlord_scatter_applied;
         let shell2 = logic
-            .spawn_overlord_shell_projectile(
-                ov,
-                from,
-                glam::Vec3::new(160.0, 0.0, 0.0),
-                Some(tank),
-            )
+            .spawn_overlord_shell_projectile(ov, from, glam::Vec3::new(160.0, 0.0, 0.0), Some(tank))
             .expect("shell2");
         assert_eq!(logic.overlord_scatter_applied, before);
         let aim2 = logic
@@ -125149,7 +124821,6 @@ assert!(
             .expect("aim2");
         assert!((aim2[0] - 160.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
-
 
     #[test]
     fn rpg_trooper_missile_scatters_vs_infantry() {
@@ -125237,7 +124908,6 @@ assert!(
         assert!((aim2[0] - 130.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn battlemaster_shell_scatters_vs_infantry() {
         use crate::game_logic::host_battlemaster::BATTLE_MASTER_SCATTER_VS_INFANTRY;
@@ -125324,7 +124994,6 @@ assert!(
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn scorpion_shell_scatters_vs_infantry() {
         use crate::game_logic::host_scorpion::SCORPION_SCATTER_VS_INFANTRY;
@@ -125348,11 +125017,7 @@ assert!(
             .insert("AmericaInfantryRanger".to_string(), i_tpl);
 
         let scorp = logic
-            .create_object(
-                "GLATankScorpion",
-                Team::GLA,
-                glam::Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLATankScorpion", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("scorp");
         let inf = logic
             .create_object(
@@ -125410,7 +125075,6 @@ assert!(
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn usa_tank_shell_scatters_vs_infantry() {
         use crate::game_logic::host_usa_tanks::{
@@ -125454,13 +125118,7 @@ assert!(
         let aim = glam::Vec3::new(120.0, 0.0, 0.0);
         let from = glam::Vec3::new(0.0, 6.0, 0.0);
         let shell = logic
-            .spawn_usa_tank_shell_projectile(
-                tank,
-                from,
-                aim,
-                CRUSADER_WEAPON_SPEED,
-                Some(inf),
-            )
+            .spawn_usa_tank_shell_projectile(tank, from, aim, CRUSADER_WEAPON_SPEED, Some(inf))
             .expect("shell");
         assert!(logic.honesty_usa_tank_scatter_ok());
         let s_aim = logic
@@ -125506,7 +125164,6 @@ assert!(
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn marauder_shell_scatters_vs_infantry() {
         use crate::game_logic::host_marauder::MARAUDER_SCATTER_VS_INFANTRY;
@@ -125530,11 +125187,7 @@ assert!(
             .insert("AmericaInfantryRanger".to_string(), i_tpl);
 
         let marauder = logic
-            .create_object(
-                "GLATankMarauder",
-                Team::GLA,
-                glam::Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLATankMarauder", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("marauder");
         let inf = logic
             .create_object(
@@ -125591,7 +125244,6 @@ assert!(
             .expect("aim2");
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
-
 
     #[test]
     fn technical_cannon_shell_scatters_vs_infantry() {
@@ -125679,7 +125331,6 @@ assert!(
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn tomahawk_missile_scatters_vs_infantry() {
         use crate::game_logic::host_tomahawk::TOMAHAWK_SCATTER_VS_INFANTRY;
@@ -125765,7 +125416,6 @@ assert!(
             .expect("aim2");
         assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
-
 
     #[test]
     fn rocket_buggy_missile_scatters_vs_infantry() {
@@ -125853,7 +125503,6 @@ assert!(
         assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn scud_launcher_missile_scatters_vs_infantry() {
         use crate::game_logic::host_scud_launcher::SCUD_SCATTER_VS_INFANTRY;
@@ -125940,7 +125589,6 @@ assert!(
             .expect("aim2");
         assert!((aim2[0] - 300.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
-
 
     #[test]
     fn flashbang_grenade_scatters_aim() {
@@ -126030,7 +125678,6 @@ assert!(
         assert!(d2 > 0.01 && d2 <= FLASHBANG_SCATTER_RADIUS + 0.01);
     }
 
-
     #[test]
     fn inferno_shell_scatters_vs_infantry() {
         use crate::game_logic::host_inferno_cannon::INFERNO_CANNON_SCATTER_VS_INFANTRY;
@@ -126118,7 +125765,6 @@ assert!(
         assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn stealth_jet_missile_scatters_vs_infantry() {
         use crate::game_logic::host_stealth_fighter::STEALTH_FIGHTER_SCATTER_VS_INFANTRY;
@@ -126204,7 +125850,6 @@ assert!(
             .expect("aim2");
         assert!((aim2[0] - 220.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
-
 
     #[test]
     fn humvee_tow_missile_scatters_vs_infantry() {
@@ -126306,7 +125951,6 @@ assert!(
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn neutron_shell_scatters_vs_infantry() {
         use crate::game_logic::host_neutron_shell::NEUTRON_WEAPON_SCATTER_VS_INFANTRY;
@@ -126393,7 +126037,6 @@ assert!(
         assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
-
     #[test]
     fn patriot_scatter_misses_infantry_residual() {
         use crate::game_logic::host_base_defense::PATRIOT_SCATTER_RADIUS_VS_INFANTRY;
@@ -126409,8 +126052,12 @@ assert!(
             .add_kind_of(KindOf::FSBaseDefense)
             .set_health(600.0)
             .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON)
-            .set_secondary_weapon_name(crate::game_logic::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON);
-        logic.templates.insert("USA_Patriot".to_string(), patriot_tpl);
+            .set_secondary_weapon_name(
+                crate::game_logic::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON,
+            );
+        logic
+            .templates
+            .insert("USA_Patriot".to_string(), patriot_tpl);
         ensure_test_infantry_template(&mut logic);
 
         let patriot = logic
@@ -126441,9 +126088,7 @@ assert!(
             }
         }
         assert!(saw_scatter, "expected patriot scatter peel vs infantry");
-        assert!(
-            (PATRIOT_SCATTER_RADIUS_VS_INFANTRY - 10.0).abs() < 0.01
-        );
+        assert!((PATRIOT_SCATTER_RADIUS_VS_INFANTRY - 10.0).abs() < 0.01);
         // Either miss was recorded, or a hit still damaged (deterministic seed dependent).
         let hp_after = logic
             .find_object(inf)
@@ -126544,9 +126189,7 @@ assert!(
             hp_before,
             hp_after
         );
-        assert!(
-            logic.honesty_stinger_scatter_ok() || logic.stinger_site_residual_ground_fires > 0
-        );
+        assert!(logic.honesty_stinger_scatter_ok() || logic.stinger_site_residual_ground_fires > 0);
     }
 
     #[test]
@@ -126629,14 +126272,17 @@ assert!(
             .find_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit without infantry scatter");
+        assert!(
+            hits > 0 && hp_after < hp_before,
+            "vehicle still hit without infantry scatter"
+        );
         assert!(logic.honesty_fire_base_scatter_ok());
     }
 
     #[test]
     fn technical_cannon_scatter_misses_infantry_residual() {
         use crate::game_logic::host_technical::{
-            TechnicalWeaponTier, TECH_CANNON_SCATTER_VS_INFANTRY, TECHNICAL_CANNON,
+            TechnicalWeaponTier, TECHNICAL_CANNON, TECH_CANNON_SCATTER_VS_INFANTRY,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -126938,9 +126584,7 @@ assert!(
 
     #[test]
     fn scorpion_scatter_misses_infantry_residual() {
-        use crate::game_logic::host_scorpion::{
-            SCORPION_SCATTER_VS_INFANTRY, SCORPION_TANK_GUN,
-        };
+        use crate::game_logic::host_scorpion::{SCORPION_SCATTER_VS_INFANTRY, SCORPION_TANK_GUN};
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
         ensure_host_weapon_store();
@@ -127013,9 +126657,7 @@ assert!(
 
     #[test]
     fn marauder_scatter_misses_infantry_residual() {
-        use crate::game_logic::host_marauder::{
-            MARAUDER_SCATTER_VS_INFANTRY, MARAUDER_TANK_GUN,
-        };
+        use crate::game_logic::host_marauder::{MARAUDER_SCATTER_VS_INFANTRY, MARAUDER_TANK_GUN};
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
         ensure_host_weapon_store();
@@ -127308,7 +126950,10 @@ assert!(
             .find_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit by splash");
+        assert!(
+            hits > 0 && hp_after < hp_before,
+            "vehicle still hit by splash"
+        );
     }
 
     #[test]
@@ -127386,14 +127031,15 @@ assert!(
             .find_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit by tow splash");
+        assert!(
+            hits > 0 && hp_after < hp_before,
+            "vehicle still hit by tow splash"
+        );
     }
 
     #[test]
     fn scud_launcher_scatter_misses_infantry_residual() {
-        use crate::game_logic::host_scud_launcher::{
-            SCUD_GUN_EXPLOSIVE, SCUD_SCATTER_VS_INFANTRY,
-        };
+        use crate::game_logic::host_scud_launcher::{SCUD_GUN_EXPLOSIVE, SCUD_SCATTER_VS_INFANTRY};
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
         ensure_host_weapon_store();
@@ -127456,7 +127102,10 @@ assert!(
             .find_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit by scud splash");
+        assert!(
+            hits > 0 && hp_after < hp_before,
+            "vehicle still hit by scud splash"
+        );
     }
 
     #[test]
@@ -127601,7 +127250,10 @@ assert!(
             .find_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit by shell splash");
+        assert!(
+            hits > 0 && hp_after < hp_before,
+            "vehicle still hit by shell splash"
+        );
     }
 
     #[test]
@@ -127886,9 +127538,7 @@ assert!(
 
     #[test]
     fn flashbang_scatter_misses_intended_residual() {
-        use crate::game_logic::host_ranger::{
-            FLASHBANG_SCATTER_RADIUS, RANGER_FLASHBANG_WEAPON,
-        };
+        use crate::game_logic::host_ranger::{FLASHBANG_SCATTER_RADIUS, RANGER_FLASHBANG_WEAPON};
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
         ensure_host_weapon_store();
@@ -128022,14 +127672,15 @@ assert!(
             .find_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        assert!(hits > 0 && hp_after < hp_before, "vehicle splash still hits");
+        assert!(
+            hits > 0 && hp_after < hp_before,
+            "vehicle splash still hits"
+        );
     }
 
     #[test]
     fn mig_scatter_misses_infantry_residual() {
-        use crate::game_logic::host_mig::{
-            MIG_SCATTER_VS_INFANTRY, NAPALM_MISSILE_WEAPON,
-        };
+        use crate::game_logic::host_mig::{MIG_SCATTER_VS_INFANTRY, NAPALM_MISSILE_WEAPON};
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
         ensure_host_weapon_store();
@@ -128047,11 +127698,7 @@ assert!(
         logic.templates.insert("ChinaJetMIG".to_string(), mig_tpl);
 
         let mig = logic
-            .create_object(
-                "ChinaJetMIG",
-                Team::China,
-                glam::Vec3::new(0.0, 50.0, 0.0),
-            )
+            .create_object("ChinaJetMIG", Team::China, glam::Vec3::new(0.0, 50.0, 0.0))
             .expect("mig");
         let inf = logic
             .create_object("TestInfantry", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
@@ -128106,13 +127753,14 @@ assert!(
         ensure_test_tank_template(&mut logic);
 
         let mut tpl = ThingTemplate::new("AmericaJetComanche");
-        tpl
-            .add_kind_of(KindOf::Aircraft)
+        tpl.add_kind_of(KindOf::Aircraft)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(200.0)
             .set_primary_weapon_name(COMANCHE_ANTITANK_WEAPON);
-        logic.templates.insert("AmericaJetComanche".to_string(), tpl);
+        logic
+            .templates
+            .insert("AmericaJetComanche".to_string(), tpl);
 
         let helo = logic
             .create_object(
@@ -128153,45 +127801,18 @@ assert!(
             .get(&tank)
             .map(|o| o.get_position())
             .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
-        let (hits, _) =
-            logic.apply_comanche_antitank_residual_at(impact, Some(helo), Some(tank));
+        let (hits, _) = logic.apply_comanche_antitank_residual_at(impact, Some(helo), Some(tank));
         let hp_after = logic
             .find_object(tank)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 }
 
 #[cfg(test)]
 mod skirmish_starting_unit_residual_tests {
     use super::*;
-
-
 
     #[test]
     fn spawn_skirmish_starting_units_spawns_missing_builder() {

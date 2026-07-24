@@ -80,7 +80,6 @@ pub const SCORPION_MISSILE_INITIAL_VELOCITY: f32 = 150.0;
 /// DistanceToTravelBeforeTurning residual.
 pub const SCORPION_MISSILE_TURN_DISTANCE: f32 = 30.0;
 
-
 /// Retail ScorpionMissileWeapon PrimaryDamage.
 pub const SCORPION_MISSILE_PRIMARY_DAMAGE: f32 = 100.0;
 /// Retail PrimaryDamageRadius.
@@ -173,16 +172,14 @@ pub fn is_scorpion_template(template_name: &str) -> bool {
 
 /// Whether residual fire should apply Scorpion residual path.
 
-
 /// Cubic Bezier residual sample for ScorpionTankShell DumbProjectileBehavior.
 pub fn scorpion_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
     let t = t.clamp(0.0, 1.0);
     let delta = to - from;
     let p0 = from;
     let p3 = to;
-    let p1 = from
-        + delta * SCORPION_SHELL_FIRST_PERCENT_INDENT
-        + Vec3::Y * SCORPION_SHELL_FIRST_HEIGHT;
+    let p1 =
+        from + delta * SCORPION_SHELL_FIRST_PERCENT_INDENT + Vec3::Y * SCORPION_SHELL_FIRST_HEIGHT;
     let p2 = from
         + delta * SCORPION_SHELL_SECOND_PERCENT_INDENT
         + Vec3::Y * SCORPION_SHELL_SECOND_HEIGHT;
@@ -400,16 +397,9 @@ pub fn honesty_scorpion_rocket_residual_ok() -> bool {
 /// Combined Wave 62 scorpion thin residual honesty pack.
 
 /// Apply ScorpionTankGun ScatterRadiusVsInfantry residual to aim.
-pub fn scorpion_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(SCORPION_TANK_GUN, target_is_infantry);
+pub fn scorpion_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(SCORPION_TANK_GUN, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = SCORPION_SCATTER_VS_INFANTRY;
     }
@@ -433,7 +423,6 @@ pub fn scorpion_scatter_misses_infantry(
     scatter_misses_intended_target(SCORPION_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
 
-
 /// Wave residual honesty: Scorpion ScatterRadiusVsInfantry peels.
 pub fn honesty_scorpion_scatter_vs_infantry_ok() -> bool {
     use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
@@ -445,8 +434,7 @@ pub fn honesty_scorpion_scatter_vs_infantry_ok() -> bool {
         && ((vs_plus - 10.0).abs() < 0.01 || vs_plus <= 0.0)
         && ground.abs() < 0.01
         && {
-            let (sc, applied) =
-                scorpion_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            let (sc, applied) = scorpion_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
             applied && sc.length() <= SCORPION_SCATTER_VS_INFANTRY + 0.01
         }
 }
@@ -472,11 +460,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= SCORPION_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(scorpion_scatter_misses_infantry(true, 23, 0.5));
         assert!(!scorpion_scatter_misses_infantry(true, 23, 100.0));
         assert!(!scorpion_scatter_misses_infantry(false, 23, 0.5));
-}
+    }
 
     #[test]
     fn scorpion_name_matrix() {

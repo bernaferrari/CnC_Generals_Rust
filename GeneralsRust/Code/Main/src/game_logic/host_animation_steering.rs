@@ -82,11 +82,7 @@ impl HostAnimationSteeringData {
     }
 
     /// One frame residual. Returns newly set condition name if changed.
-    pub fn tick(
-        &mut self,
-        now: u32,
-        turning: PhysicsTurningType,
-    ) -> Option<&'static str> {
+    pub fn tick(&mut self, now: u32, turning: PhysicsTurningType) -> Option<&'static str> {
         if now < self.next_transition_frame {
             return None;
         }
@@ -195,7 +191,10 @@ mod tests {
         // During transition, ignore.
         assert!(d.tick(1, PhysicsTurningType::TurnNone).is_none());
         // After transition frames, recenter path.
-        let c = d.tick(BATTLE_BUS_MIN_TRANSITION_FRAMES, PhysicsTurningType::TurnNone);
+        let c = d.tick(
+            BATTLE_BUS_MIN_TRANSITION_FRAMES,
+            PhysicsTurningType::TurnNone,
+        );
         assert_eq!(c, Some("RIGHT_TO_CENTER"));
         let c = d.tick(
             BATTLE_BUS_MIN_TRANSITION_FRAMES * 2,

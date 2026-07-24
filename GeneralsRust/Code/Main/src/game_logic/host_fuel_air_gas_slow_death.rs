@@ -111,9 +111,7 @@ impl HostFuelAirGasSlowDeathData {
                     weapon: FUEL_AIR_FLAME_WEAPON,
                 }
             }
-            FuelAirGasPhase::MidpointDone | FuelAirGasPhase::Arming
-                if now >= self.final_frame =>
-            {
+            FuelAirGasPhase::MidpointDone | FuelAirGasPhase::Arming if now >= self.final_frame => {
                 self.phase = FuelAirGasPhase::FinalDone;
                 if self.uses_supw_detonation {
                     FuelAirGasTickEvent::FinalDetonation {

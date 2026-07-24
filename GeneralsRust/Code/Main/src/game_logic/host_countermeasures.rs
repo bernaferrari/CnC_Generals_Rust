@@ -253,11 +253,12 @@ pub fn try_divert_missile(
     st.volleys_fired = st.volleys_fired.saturating_add(1);
     reg.total_diverts = reg.total_diverts.saturating_add(1);
     for vi in 0..flares {
-        reg.pending_flare_spawns.push(PendingCountermeasureFlareSpawn {
-            aircraft_id,
-            frame,
-            volley_index: vi,
-        });
+        reg.pending_flare_spawns
+            .push(PendingCountermeasureFlareSpawn {
+                aircraft_id,
+                frame,
+                volley_index: vi,
+            });
     }
     let _ = projectile_id;
     true

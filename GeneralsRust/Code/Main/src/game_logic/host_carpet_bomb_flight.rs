@@ -93,8 +93,7 @@ impl HostCarpetBombFlightRegistry {
     ) {
         let points = carpet_bomb_points_for_tier(target, tier);
         for (i, pt) in points.into_iter().enumerate() {
-            let drop_frame =
-                carpet_bomb_impact_frame_for_tier(activate_frame, i as u32, tier);
+            let drop_frame = carpet_bomb_impact_frame_for_tier(activate_frame, i as u32, tier);
             // Drop slightly before strike residual impact (approach residual).
             let drop_frame = drop_frame.saturating_sub(tier.drop_delay_frames().min(3));
             self.pending_drops.push(PendingCarpetBombDrop {
@@ -141,10 +140,14 @@ pub fn honesty_carpet_bomb_flight_residual_ok() -> bool {
         && carpet_bomb_points_for_tier(Vec3::ZERO, CarpetBombFactionTier::America).len() == 15
         && {
             let mut reg = HostCarpetBombFlightRegistry::new();
-            reg.schedule_drops(0, 1, Vec3::new(100.0, 0.0, 0.0), CarpetBombFactionTier::America);
+            reg.schedule_drops(
+                0,
+                1,
+                Vec3::new(100.0, 0.0, 0.0),
+                CarpetBombFactionTier::America,
+            );
             reg.bombs_scheduled == 15
-                && reg.pending_drops[0].drop_frame
-                    < reg.pending_drops[14].drop_frame
+                && reg.pending_drops[0].drop_frame < reg.pending_drops[14].drop_frame
         }
 }
 

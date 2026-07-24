@@ -7021,15 +7021,11 @@ impl HostSpecialPowerStrikeRegistry {
         &mut self.orbit_fields
     }
 
-    pub fn howitzer_shell_spawns_this_frame(
-        &self,
-    ) -> &[(ObjectId, super::Team, Vec3)] {
+    pub fn howitzer_shell_spawns_this_frame(&self) -> &[(ObjectId, super::Team, Vec3)] {
         &self.howitzer_shell_spawns_this_frame
     }
 
-    pub fn take_howitzer_shell_spawns_this_frame(
-        &mut self,
-    ) -> Vec<(ObjectId, super::Team, Vec3)> {
+    pub fn take_howitzer_shell_spawns_this_frame(&mut self) -> Vec<(ObjectId, super::Team, Vec3)> {
         std::mem::take(&mut self.howitzer_shell_spawns_this_frame)
     }
 
@@ -7042,8 +7038,7 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     pub fn record_howitzer_shell_object_spawn(&mut self) {
-        self.howitzer_shell_objects_spawned =
-            self.howitzer_shell_objects_spawned.saturating_add(1);
+        self.howitzer_shell_objects_spawned = self.howitzer_shell_objects_spawned.saturating_add(1);
     }
 
     /// Allocator cursor for next Particle Uplink beam field id (save/load).
@@ -7261,7 +7256,11 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Bind a spawned NukeRadiationFieldWeapon ObjectId onto a radiation field.
     pub fn bind_radiation_object(&mut self, radiation_id: u32, object_id: ObjectId) -> bool {
-        if let Some(f) = self.radiation_fields.iter_mut().find(|f| f.id == radiation_id) {
+        if let Some(f) = self
+            .radiation_fields
+            .iter_mut()
+            .find(|f| f.id == radiation_id)
+        {
             f.object_id = Some(object_id);
             self.radiation_objects_spawned = self.radiation_objects_spawned.saturating_add(1);
             return true;
@@ -7336,11 +7335,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.connector_objects_spawned > 0
     }
 
-    pub fn bind_connector_objects(
-        &mut self,
-        beam_id: u32,
-        object_ids: &[ObjectId],
-    ) -> bool {
+    pub fn bind_connector_objects(&mut self, beam_id: u32, object_ids: &[ObjectId]) -> bool {
         if let Some(f) = self.beam_fields.iter_mut().find(|f| f.id == beam_id) {
             f.connector_object_ids.extend_from_slice(object_ids);
             self.connector_objects_spawned = self

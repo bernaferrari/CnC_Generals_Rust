@@ -196,6 +196,9 @@ mod tests {
         assert!(honesty_ocl_fire_weapon_attack_residual_ok());
         let a = attack_plan_for_ocl("SUPERWEAPON_ScudStorm").unwrap();
         assert_eq!(a.weapon_slot, OclWeaponSlot::Primary);
-        assert_eq!(OclWeaponSlot::from_name("SECONDARY"), OclWeaponSlot::Secondary);
+        assert_eq!(
+            OclWeaponSlot::from_name("SECONDARY"),
+            OclWeaponSlot::Secondary
+        );
     }
 }

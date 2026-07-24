@@ -75,7 +75,6 @@ pub const CARGO_PLANE_APPROACH_DELAY_FRAMES: u32 = 90;
 pub const SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES: u32 = 85; // +door 5 → 90 Daisy residual
 pub const SUPERWEAPON_OCL_BOMB_DOOR_DELAY_FRAMES: u32 = 5;
 
-
 // --- OCL_AmericaSupplyDropZoneCrateDrop residual constants ---
 
 /// Retail DeliverPayload Transport.
@@ -1218,7 +1217,9 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => CARGO_PLANE_APPROACH_DELAY_FRAMES,
             HostDeliverPayloadKind::AmericaParadrop => CARGO_PLANE_APPROACH_DELAY_FRAMES,
-            HostDeliverPayloadKind::SuperweaponOclBomb => SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES,
+            HostDeliverPayloadKind::SuperweaponOclBomb => {
+                SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES
+            }
         }
     }
 
@@ -1450,7 +1451,6 @@ pub struct HostDeliverPayloadItemPlan {
     pub is_final_item: bool,
 }
 
-
 impl HostDeliverPayloadMission {
     pub fn effective_approach_delay(&self) -> u32 {
         self.approach_delay_override
@@ -1465,11 +1465,7 @@ impl HostDeliverPayloadMission {
             .activate_frame
             .saturating_add(self.effective_approach_delay())
             .saturating_add(self.effective_door_delay());
-        first.saturating_add(
-            self.kind
-                .drop_delay_frames()
-                .saturating_mul(item_index),
-        )
+        first.saturating_add(self.kind.drop_delay_frames().saturating_mul(item_index))
     }
     /// Recompute drop_frame/complete_frame from overrides.
     pub fn recompute_schedule(&mut self) {
@@ -2398,14 +2394,16 @@ mod tests {
     #[test]
     fn superweapon_ocl_bomb_spawns_single_payload() {
         assert!(HostDeliverPayloadKind::SuperweaponOclBomb.spawns_payload_objects());
-        assert_eq!(HostDeliverPayloadKind::SuperweaponOclBomb.payload_count(), 1);
+        assert_eq!(
+            HostDeliverPayloadKind::SuperweaponOclBomb.payload_count(),
+            1
+        );
         assert_eq!(
             HostDeliverPayloadKind::SuperweaponOclBomb.approach_delay_frames(),
             SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES
         );
         assert_eq!(
-            SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES
-                + SUPERWEAPON_OCL_BOMB_DOOR_DELAY_FRAMES,
+            SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES + SUPERWEAPON_OCL_BOMB_DOOR_DELAY_FRAMES,
             90,
             "default SuperweaponOclBomb total matches Daisy impact delay"
         );

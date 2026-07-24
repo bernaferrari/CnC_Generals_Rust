@@ -413,16 +413,9 @@ pub fn honesty_raptor_body_residual_ok() -> bool {
 /// Combined Wave 67 Raptor residual honesty pack.
 
 /// Apply RaptorJetMissileWeapon ScatterRadiusVsInfantry residual to aim point.
-pub fn raptor_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(RAPTOR_JET_MISSILE_WEAPON, target_is_infantry);
+pub fn raptor_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(RAPTOR_JET_MISSILE_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = RAPTOR_SCATTER_VS_INFANTRY;
     }
@@ -452,8 +445,7 @@ pub fn honesty_raptor_scatter_vs_infantry_ok() -> bool {
     (RAPTOR_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
         && (host_effective_scatter_radius(RAPTOR_JET_MISSILE_WEAPON, true) - 10.0).abs() < 0.01
         && host_effective_scatter_radius(RAPTOR_JET_MISSILE_WEAPON, false).abs() < 0.01
-        && (host_effective_scatter_radius(AIRF_RAPTOR_JET_MISSILE_WEAPON, true) - 10.0).abs()
-            < 0.01
+        && (host_effective_scatter_radius(AIRF_RAPTOR_JET_MISSILE_WEAPON, true) - 10.0).abs() < 0.01
 }
 
 pub fn honesty_raptor_residual_pack_ok() -> bool {
@@ -519,7 +511,6 @@ mod tests {
         assert!(has_laser_missiles_upgrade(&tags));
     }
 
-    
     #[test]
     fn raptor_scatter_vs_infantry_peels() {
         assert!(honesty_raptor_scatter_vs_infantry_ok());
@@ -532,11 +523,11 @@ mod tests {
         assert!((sc.x - aim.x).abs() > 0.01 || (sc.z - aim.z).abs() > 0.01);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d <= RAPTOR_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(raptor_scatter_misses_infantry(true, 61, 0.5));
         assert!(!raptor_scatter_misses_infantry(true, 61, 100.0));
         assert!(!raptor_scatter_misses_infantry(false, 61, 0.5));
-}
+    }
 
     #[test]
     fn raptor_residual_pack_honesty_wave67() {

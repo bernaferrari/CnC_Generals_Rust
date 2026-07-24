@@ -198,12 +198,7 @@ impl HostSpectreGunshipDeploymentData {
     ) -> SpectreDeploySpawnPlan {
         self.initial_target = Some(target_pos);
         let edge = self.edge_creation_coord(
-            source_pos,
-            target_pos,
-            map_min_x,
-            map_min_z,
-            map_max_x,
-            map_max_z,
+            source_pos, target_pos, map_min_x, map_min_z, map_max_x, map_max_z,
         );
         let spawn = self.final_spawn_position(edge, target_pos);
         self.last_spawn_pos = Some(spawn);
@@ -266,10 +261,26 @@ pub fn find_farthest_edge_point_residual(
     preferred_height: f32,
 ) -> Vec3 {
     let candidates = [
-        Vec3::new(target.x.clamp(map_min_x, map_max_x), preferred_height, map_min_z),
-        Vec3::new(map_max_x, preferred_height, target.z.clamp(map_min_z, map_max_z)),
-        Vec3::new(target.x.clamp(map_min_x, map_max_x), preferred_height, map_max_z),
-        Vec3::new(map_min_x, preferred_height, target.z.clamp(map_min_z, map_max_z)),
+        Vec3::new(
+            target.x.clamp(map_min_x, map_max_x),
+            preferred_height,
+            map_min_z,
+        ),
+        Vec3::new(
+            map_max_x,
+            preferred_height,
+            target.z.clamp(map_min_z, map_max_z),
+        ),
+        Vec3::new(
+            target.x.clamp(map_min_x, map_max_x),
+            preferred_height,
+            map_max_z,
+        ),
+        Vec3::new(
+            map_min_x,
+            preferred_height,
+            target.z.clamp(map_min_z, map_max_z),
+        ),
     ];
     let mut best = candidates[0];
     let mut best_d = -1.0f32;
