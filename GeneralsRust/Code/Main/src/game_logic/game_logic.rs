@@ -1711,6 +1711,8 @@ pub struct GameLogic {
     patriot_assist_lasers: Vec<crate::game_logic::host_base_defense::ResidualPatriotAssistLaser>,
     /// Weapon.ini LaserName residual beams (combat fire → presentation freeze).
     weapon_lasers: Vec<crate::game_logic::host_weapon_laser::ResidualWeaponLaser>,
+    /// Honesty: Weapon.ini LaserName SpecialObject Things spawned.
+    weapon_laser_beams_spawned: u32,
     /// C++ ProjectileStreamUpdate residual registry.
     projectile_streams: crate::game_logic::host_projectile_stream::ProjectileStreamRegistry,
     /// Pending AssistingClipSize residual clips (DelayBetweenShots cadence).
@@ -3135,6 +3137,7 @@ impl GameLogic {
             patriot_assist_laser_to_target: 0,
             patriot_assist_lasers: Vec::new(),
             weapon_lasers: Vec::new(),
+            weapon_laser_beams_spawned: 0,
             projectile_streams:
                 crate::game_logic::host_projectile_stream::ProjectileStreamRegistry::new(),
             pending_patriot_assists: Vec::new(),
@@ -6056,6 +6059,7 @@ impl GameLogic {
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
         self.update_point_defense_intercept();
         self.update_point_defense_laser_beam_objects();
+        self.update_weapon_laser_beam_objects();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -15455,6 +15459,7 @@ impl GameLogic {
                                 tname, pwn, swn, slot,
                             );
                         let to = impact_pos.unwrap_or(muzzle_pos);
+                        let laser_name_owned = laser_name.clone();
                         self.weapon_lasers.push(
                             crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone(
                                 laser_name,
@@ -15465,6 +15470,13 @@ impl GameLogic {
                                 (to.x, to.y, to.z),
                                 fire_frame,
                             ),
+                        );
+                        let _ = self.spawn_weapon_laser_beam_object(
+                            &laser_name_owned,
+                            attacker_id,
+                            fire_target,
+                            muzzle_pos,
+                            to,
                         );
                     }
                 }
@@ -31458,6 +31470,87 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Fail-closed: not full PointDefenseLaserUpdate velocity prediction,
     /// TERTIARY WeaponStore allocate, or laser drawable path.
     /// C++ PointDefenseLaserBeam ThingFactory Object residual (95ms LifetimeUpdate).
+    /// C++ Weapon::createLaser ThingFactory residual for combat LaserName beams.
+    pub fn spawn_weapon_laser_beam_object(
+        &mut self,
+        laser_name: &str,
+        from_id: ObjectId,
+        to_id: Option<ObjectId>,
+        from: glam::Vec3,
+        to: glam::Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_weapon_laser::{
+            laser_beam_lifetime_frames, WEAPON_LASER_BEAM_MAX_HEALTH,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if laser_name.is_empty() {
+            return None;
+        }
+        if !self.templates.contains_key(laser_name) {
+            let mut t = ThingTemplate::new(laser_name);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(WEAPON_LASER_BEAM_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(laser_name.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&from_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mid = glam::Vec3::new(
+            (from.x + to.x) * 0.5,
+            (from.y + to.y) * 0.5 + 5.0,
+            (from.z + to.z) * 0.5,
+        );
+        let bid = self.create_object(laser_name, team, mid)?;
+        let life = laser_beam_lifetime_frames(laser_name).max(1);
+        let expires = self.frame.saturating_add(life);
+        if let Some(o) = self.objects.get_mut(&bid) {
+            o.weapon_laser_beam = true;
+            o.producer_id = Some(from_id);
+            o.weapon_laser_beam_expires_frame = Some(expires);
+            o.health.maximum = WEAPON_LASER_BEAM_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, WEAPON_LASER_BEAM_MAX_HEALTH);
+        }
+        let _ = to_id;
+        self.weapon_laser_beams_spawned =
+            self.weapon_laser_beams_spawned.saturating_add(1);
+        Some(bid)
+    }
+
+    pub fn update_weapon_laser_beam_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.weapon_laser_beam {
+                    if let Some(exp) = o.weapon_laser_beam_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.weapon_laser_beam = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    pub fn honesty_weapon_laser_beam_object_ok(&self) -> bool {
+        self.weapon_laser_beams_spawned > 0
+    }
+
     pub fn spawn_point_defense_laser_beam(
         &mut self,
         carrier_id: ObjectId,
@@ -32868,6 +32961,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn clear_residual_weapon_lasers_for_presentation(&mut self) {
         self.weapon_lasers.clear();
+        self.weapon_laser_beams_spawned = 0;
     }
 
     /// Presentation / shell residual: inject host assist lasers for snapshot tests.
@@ -63410,7 +63504,62 @@ mod tests {
     
     
     
+    
     #[test]
+    fn avenger_air_laser_spawns_laser_beam_object() {
+        use crate::game_logic::host_avenger::{
+            AVENGER_AIR_LASER, AVENGER_LASER_BEAM_LIFETIME_FRAMES, AVENGER_LASER_NAME,
+        };
+        use crate::game_logic::host_weapon_laser::laser_beam_lifetime_frames;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        assert_eq!(laser_beam_lifetime_frames(AVENGER_LASER_NAME), 7);
+        assert_eq!(AVENGER_LASER_BEAM_LIFETIME_FRAMES, 7);
+
+        let mut logic = GameLogic::new();
+        let mut av = ThingTemplate::new("AmericaTankAvenger");
+        av.add_kind_of(KindOf::Vehicle).set_health(300.0);
+        logic.templates.insert("AmericaTankAvenger".into(), av);
+        let mut jet = ThingTemplate::new("ChinaJetMIG");
+        jet.add_kind_of(KindOf::Aircraft).set_health(100.0);
+        logic.templates.insert("ChinaJetMIG".into(), jet);
+
+        let shooter = logic
+            .create_object("AmericaTankAvenger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let target = logic
+            .create_object("ChinaJetMIG", Team::China, Vec3::new(100.0, 40.0, 0.0))
+            .unwrap();
+        let from = Vec3::new(0.0, 10.0, 0.0);
+        let to = Vec3::new(100.0, 40.0, 0.0);
+        let bid = logic
+            .spawn_weapon_laser_beam_object(
+                AVENGER_LASER_NAME,
+                shooter,
+                Some(target),
+                from,
+                to,
+            )
+            .expect("AvengerLaserBeam");
+        assert!(logic.honesty_weapon_laser_beam_object_ok());
+        let beam = logic.find_object(bid).unwrap();
+        assert_eq!(beam.template_name, AVENGER_LASER_NAME);
+        assert!(beam.weapon_laser_beam);
+        assert_eq!(beam.producer_id, Some(shooter));
+        let _ = AVENGER_AIR_LASER;
+        logic.frame = logic
+            .frame
+            .saturating_add(AVENGER_LASER_BEAM_LIFETIME_FRAMES + 2);
+        logic.update_weapon_laser_beam_objects();
+        assert!(
+            logic
+                .find_object(bid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
+#[test]
     fn angry_mob_spawns_member_objects_on_nexus() {
         use crate::game_logic::host_angry_mob::{
             ANGRY_MOB_INITIAL_MEMBERS, ANGRY_MOB_MEMBER_TEMPLATES, ANGRY_MOB_MAX_MEMBERS,

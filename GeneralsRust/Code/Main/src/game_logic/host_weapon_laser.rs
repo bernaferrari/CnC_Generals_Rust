@@ -4,8 +4,9 @@
 //! `LaserName` between shooter and target. Host residual freezes a short-lived
 //! beam descriptor for PresentationFrame / laser_segment_upload.
 //!
-//! Fail-closed: not full ThingFactory laser object, bone attach, or WGPU
-//! W3DLaserDraw texture sample parity.
+//! Fail-closed: ThingFactory laser object residual closed for combat LaserName
+//! (AvengerLaserBeam etc.); not full bone attach matrix or WGPU W3DLaserDraw
+//! texture sample parity.
 
 use super::ObjectId;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,22 @@ use serde::{Deserialize, Serialize};
 /// PointDefenseLaserBeam LifetimeUpdate is ~95ms → ~3f; keep a slightly longer
 /// observe window so presentation can freeze the beam mid-frame.
 pub const WEAPON_LASER_LIFETIME_FRAMES: u32 = 6;
+/// Retail AvengerLaserBeam LifetimeUpdate 205ms residual.
+pub const AVENGER_WEAPON_LASER_LIFETIME_FRAMES: u32 = 7;
+/// Default MaxHealth residual for laser beam Things.
+pub const WEAPON_LASER_BEAM_MAX_HEALTH: f32 = 1.0;
+
+/// Lifetime frames for a LaserName template residual.
+pub fn laser_beam_lifetime_frames(laser_name: &str) -> u32 {
+    let n = laser_name.to_ascii_lowercase();
+    if n.contains("avenger") {
+        AVENGER_WEAPON_LASER_LIFETIME_FRAMES
+    } else if n.contains("pointdefense") || n.contains("point_defense") {
+        3 // PointDefenseLaserBeam 95ms residual
+    } else {
+        WEAPON_LASER_LIFETIME_FRAMES
+    }
+}
 
 /// Host residual weapon laser beam (LaserName template).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
