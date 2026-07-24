@@ -679,6 +679,107 @@ pub fn challenge_menu_input(
     WindowMsgHandled::Handled
 }
 
+/// Residual: last general index selected via residual peels (`usize::MAX` = none).
+static RESIDUAL_CHALLENGE_SELECTED_INDEX: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(usize::MAX);
+/// Residual: ButtonPlay was fired with a selected general (host honesty).
+static RESIDUAL_CHALLENGE_PLAY_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn ensure_challenge_control_ids(state: &mut ChallengeMenuState) {
+    if state.button_play_id == 0 {
+        state.button_play_id = name_to_id("ChallengeMenu.wnd:ButtonPlay");
+        if state.button_play_id == 0 {
+            state.button_play_id = 0x434D_504C_u32 as i32; // 'CMPL'
+        }
+    }
+    if state.button_back_id == 0 {
+        state.button_back_id = name_to_id("ChallengeMenu.wnd:ButtonBack");
+    }
+    if state.parent_id == 0 {
+        state.parent_id = name_to_id("ChallengeMenu.wnd:ParentChallengeMenu");
+    }
+    for i in 0..NUM_GENERALS {
+        if state.general_button_ids[i] == 0 {
+            state.general_button_ids[i] =
+                name_to_id(&format!("ChallengeMenu.wnd:GeneralPosition{i}"));
+        }
+    }
+}
+
+/// Residual: select a challenge general (GeneralPositionN residual).
+/// State-only — skips audio preview / bio image residual.
+pub fn simulate_challenge_menu_select_general(index: usize) -> bool {
+    if index >= NUM_GENERALS {
+        return false;
+    }
+    let state_handle = challenge_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_challenge_control_ids(&mut state);
+    state.last_button_index = Some(index);
+    state.is_shutting_down = false;
+    RESIDUAL_CHALLENGE_SELECTED_INDEX.store(index, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_CHALLENGE_PLAY_REQUESTED.store(false, std::sync::atomic::Ordering::Relaxed);
+    state.last_button_index == Some(index)
+}
+
+/// Residual: currently selected challenge general index.
+pub fn residual_challenge_selected_general() -> Option<usize> {
+    let idx = RESIDUAL_CHALLENGE_SELECTED_INDEX.load(std::sync::atomic::Ordering::Relaxed);
+    if idx >= NUM_GENERALS {
+        None
+    } else {
+        Some(idx)
+    }
+}
+
+/// Residual: ButtonPlay was requested after a general selection.
+pub fn residual_challenge_play_requested() -> bool {
+    RESIDUAL_CHALLENGE_PLAY_REQUESTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: fire retail `ChallengeMenu.wnd:ButtonPlay` via state latch.
+/// C++ path calls startChallengeGame (campaign map + difficulty). Host residual
+/// skips asset/campaign start and only records the play request honesty.
+pub fn simulate_challenge_menu_play_button_gadget_selected() -> bool {
+    let state_handle = challenge_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_challenge_control_ids(&mut state);
+    if state.is_shutting_down {
+        return false;
+    }
+    let Some(index) = state.last_button_index else {
+        return false;
+    };
+    if index >= NUM_GENERALS {
+        return false;
+    }
+    RESIDUAL_CHALLENGE_SELECTED_INDEX.store(index, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_CHALLENGE_PLAY_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+    true
+}
+
+/// Residual: fire retail `ChallengeMenu.wnd:ButtonBack` (shell pop residual latch).
+pub fn simulate_challenge_menu_back_button_gadget_selected() -> bool {
+    let state_handle = challenge_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_challenge_control_ids(&mut state);
+    // C++ back pops shell; residual clears selection and marks shutdown-ish clean exit.
+    state.last_button_index = None;
+    state.is_shutting_down = false;
+    RESIDUAL_CHALLENGE_PLAY_REQUESTED.store(false, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_CHALLENGE_SELECTED_INDEX.store(usize::MAX, std::sync::atomic::Ordering::Relaxed);
+    state.button_back_id != 0 || state.button_play_id != 0
+}
+
+/// Residual: select general + ButtonPlay composite (pre-start honesty).
+pub fn simulate_challenge_menu_prepare_start(index: usize) -> bool {
+    if !simulate_challenge_menu_select_general(index) {
+        return false;
+    }
+    simulate_challenge_menu_play_button_gadget_selected()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
