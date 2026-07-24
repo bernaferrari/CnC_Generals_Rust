@@ -198,6 +198,7 @@ pub mod host_minigunner;
 pub mod host_missile_defender;
 mod host_model_condition_upgrade;
 pub mod host_money_crate;
+pub mod host_mouse_keyboard_view_residual_wave112;
 pub mod host_neutron_missile_slow_death;
 pub mod host_neutron_shell;
 pub mod host_nuclear_tanks;
