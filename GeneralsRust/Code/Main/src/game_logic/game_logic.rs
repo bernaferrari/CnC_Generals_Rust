@@ -30970,7 +30970,104 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ OCLSpecialPower::doSpecialPowerAtLocation residual plan.
-    pub fn plan_ocl_special_power(
+        /// C++ ObjectCreationList::create residual after OCLSpecialPower plan.
+    ///
+    /// Spawns transport at creation_coord (DeliverPayload) or CreateObject names
+    /// at target (SpyDrone). Payload object is tagged at target for drop residual.
+    pub fn execute_ocl_special_power(
+        &mut self,
+        power_template: &str,
+        caster_id: ObjectId,
+        target_pos: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_ocl_special_power::{
+            create_object_for_ocl, deliver_payload_for_ocl,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let plan = self.plan_ocl_special_power(power_template, caster_id, target_pos)?;
+        let team = self.objects.get(&caster_id)?.team;
+
+        if let Some(create) = create_object_for_ocl(&plan.ocl_name) {
+            let mut last = None;
+            for name in &create.object_names {
+                for _ in 0..create.count.max(1) {
+                    if !self.templates.contains_key(name) {
+                        let mut tpl = ThingTemplate::new(name);
+                        tpl.add_kind_of(KindOf::Vehicle)
+                            .add_kind_of(KindOf::Selectable)
+                            .set_health(100.0);
+                        self.templates.insert(name.clone(), tpl);
+                    }
+                    if let Some(id) = self.create_object(name, team, plan.target_coord) {
+                        if let Some(o) = self.objects.get_mut(&id) {
+                            o.producer_id = Some(caster_id);
+                        }
+                        self.ocl_special_power_reg.record_create_object_spawn();
+                        last = Some(id);
+                    }
+                }
+            }
+            return last;
+        }
+
+        let deliver = deliver_payload_for_ocl(&plan.ocl_name)?;
+        // Spawn transport at creation edge/above.
+        if !self.templates.contains_key(&deliver.transport) {
+            let mut tpl = ThingTemplate::new(&deliver.transport);
+            tpl.add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(500.0);
+            self.templates.insert(deliver.transport.clone(), tpl);
+        }
+        let transport_id = self.create_object(&deliver.transport, team, plan.creation_coord)?;
+        if let Some(t) = self.objects.get_mut(&transport_id) {
+            t.producer_id = Some(caster_id);
+            // Orient toward target (host XZ).
+            let p = t.get_position();
+            let yaw = (plan.target_coord.z - p.z).atan2(plan.target_coord.x - p.x);
+            t.set_orientation(yaw);
+            if deliver.start_at_preferred_height {
+                let mut pos = p;
+                pos.y = pos.y.max(120.0);
+                t.set_position(pos);
+            }
+        }
+        self.ocl_special_power_reg.record_transport_spawn();
+
+        // Payload residual at target (bomb/leaflet container) — drop point.
+        if !self.templates.contains_key(&deliver.payload) {
+            let mut tpl = ThingTemplate::new(&deliver.payload);
+            if deliver.payload.to_ascii_lowercase().contains("bomb")
+                || deliver.payload.to_ascii_lowercase().contains("moab")
+                || deliver.payload.to_ascii_lowercase().contains("missile")
+            {
+                tpl.add_kind_of(KindOf::Projectile);
+            } else if deliver.payload.to_ascii_lowercase().contains("infantry")
+                || deliver.payload.to_ascii_lowercase().contains("ranger")
+            {
+                tpl.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable);
+            } else {
+                tpl.add_kind_of(KindOf::Vehicle);
+            }
+            tpl.set_health(100.0);
+            self.templates.insert(deliver.payload.clone(), tpl);
+        }
+        let mut payload_pos = plan.target_coord;
+        payload_pos.y = payload_pos.y.max(50.0) + deliver.drop_offset_y.abs();
+        if let Some(pid) = self.create_object(&deliver.payload, team, payload_pos) {
+            if let Some(o) = self.objects.get_mut(&pid) {
+                o.producer_id = Some(transport_id);
+                // Smart bomb course residual when applicable.
+                let _ = o.set_smart_bomb_target(plan.target_coord);
+            }
+            self.ocl_special_power_reg.record_payload_spawn();
+        }
+        Some(transport_id)
+    }
+
+pub fn plan_ocl_special_power(
         &mut self,
         power_template: &str,
         caster_id: ObjectId,
@@ -46392,6 +46489,14 @@ fn update_scud_poison_zones(&mut self) {
         // C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
         if kind == HostSuperweaponKind::SpectreGunship {
             let _ = self.initiate_spectre_gunship_deployment(source_object, target_position);
+        }
+        // C++ OCLSpecialPower::doSpecialPowerAtLocation → ObjectCreationList::create residual.
+        if let Some(tmpl) =
+            crate::game_logic::host_ocl_special_power::special_power_template_for_host_kind(
+                kind.label(),
+            )
+        {
+            let _ = self.execute_ocl_special_power(tmpl, source_object, target_position);
         }
         // CarpetBomb faction residual (America / AirForce / China payload matrix).
         if kind == HostSuperweaponKind::CarpetBomb {
@@ -75960,7 +76065,52 @@ mod tests {
             .expect("moab plan");
         assert_eq!(plan2.ocl_name, "SUPERWEAPON_MOAB");
         assert!(logic.ocl_special_power_reg.science_upgrades >= 1);
+
+        let transport = logic
+            .execute_ocl_special_power(
+                "SuperweaponDaisyCutter",
+                id,
+                Vec3::new(300.0, 0.0, 300.0),
+            )
+            .expect("transport");
+        let t = logic.find_object(transport).expect("t");
+        assert!(
+            t.template_name.contains("B3") || t.template_name.contains("B52"),
+            "MOAB/Daisy transport residual got {}",
+            t.template_name
+        );
+        assert!(logic.ocl_special_power_reg.transports_spawned >= 1);
+        assert!(logic.ocl_special_power_reg.payloads_spawned >= 1);
         assert!(logic.honesty_ocl_special_power_ok());
+    }
+
+    #[test]
+    fn ocl_special_power_spy_drone_create_object() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic
+            .templates
+            .insert("AmericaCommandCenter".to_string(), cc);
+        let id = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                Vec3::new(10.0, 0.0, 10.0),
+            )
+            .expect("cc");
+        let drone = logic
+            .execute_ocl_special_power(
+                "SpecialPowerSpyDrone",
+                id,
+                Vec3::new(80.0, 0.0, 80.0),
+            )
+            .expect("drone");
+        let d = logic.find_object(drone).unwrap();
+        assert!(d.template_name.contains("SpyDrone"));
+        assert!(logic.ocl_special_power_reg.create_objects_spawned >= 1);
     }
 
 

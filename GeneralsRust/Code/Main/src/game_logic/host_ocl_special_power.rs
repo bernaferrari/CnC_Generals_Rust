@@ -307,6 +307,172 @@ pub fn default_map_extents() -> (f32, f32, f32, f32) {
     )
 }
 
+
+/// DeliverPayload residual peel from ObjectCreationList.ini.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OclDeliverPayloadPeel {
+    pub ocl_name: String,
+    pub transport: String,
+    pub payload: String,
+    pub delivery_distance: f32,
+    pub drop_offset_y: f32,
+    pub start_at_preferred_height: bool,
+    pub start_at_max_speed: bool,
+}
+
+/// CreateObject residual peel (SpyDrone style).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OclCreateObjectPeel {
+    pub ocl_name: String,
+    pub object_names: Vec<String>,
+    pub count: u32,
+}
+
+pub fn deliver_payload_for_ocl(ocl: &str) -> Option<OclDeliverPayloadPeel> {
+    let n = ocl.to_ascii_lowercase();
+    if n.contains("daisycutter") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: "SUPERWEAPON_DaisyCutter".into(),
+            transport: "AmericaJetB52".into(),
+            payload: "DaisyCutterBomb".into(),
+            delivery_distance: 140.0,
+            drop_offset_y: -10.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    if n.contains("moab") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: "SUPERWEAPON_MOAB".into(),
+            transport: "AmericaJetB3".into(),
+            payload: "MOAB".into(),
+            delivery_distance: 160.0,
+            drop_offset_y: -10.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    if n.contains("leaflet") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: "SUPERWEAPON_LeafletDrop".into(),
+            transport: "AmericaJetB52".into(),
+            payload: "LeafletContainer".into(),
+            delivery_distance: 160.0,
+            drop_offset_y: -10.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    if n.contains("a10thunderboltmissilestrike3") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: ocl.into(),
+            transport: "AmericaJetA10Thunderbolt".into(),
+            payload: "A10ThunderboltMissile".into(),
+            delivery_distance: 160.0,
+            drop_offset_y: -10.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    if n.contains("a10thunderboltmissilestrike2") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: ocl.into(),
+            transport: "AmericaJetA10Thunderbolt".into(),
+            payload: "A10ThunderboltMissile".into(),
+            delivery_distance: 160.0,
+            drop_offset_y: -10.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    if n.contains("a10") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: "SUPERWEAPON_A10ThunderboltMissileStrike1".into(),
+            transport: "AmericaJetA10Thunderbolt".into(),
+            payload: "A10ThunderboltMissile".into(),
+            delivery_distance: 160.0,
+            drop_offset_y: -10.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    if n.contains("paradrop3") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: "SUPERWEAPON_Paradrop3".into(),
+            transport: "AmericaJetCargoPlane".into(),
+            payload: "AmericaInfantryRanger".into(),
+            delivery_distance: 160.0,
+            drop_offset_y: -10.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    if n.contains("paradrop2") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: "SUPERWEAPON_Paradrop2".into(),
+            transport: "AmericaJetCargoPlane".into(),
+            payload: "AmericaInfantryRanger".into(),
+            delivery_distance: 160.0,
+            drop_offset_y: -10.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    if n.contains("paradrop") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: "SUPERWEAPON_Paradrop1".into(),
+            transport: "AmericaJetCargoPlane".into(),
+            payload: "AmericaInfantryRanger".into(),
+            delivery_distance: 160.0,
+            drop_offset_y: -10.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    if n.contains("cratedrop") {
+        return Some(OclDeliverPayloadPeel {
+            ocl_name: "SUPERWEAPON_CrateDrop".into(),
+            transport: "AmericaJetCargoPlane".into(),
+            payload: "SupplyDropZoneCrate".into(),
+            delivery_distance: 160.0,
+            drop_offset_y: -10.0,
+            start_at_preferred_height: true,
+            start_at_max_speed: true,
+        });
+    }
+    None
+}
+
+pub fn create_object_for_ocl(ocl: &str) -> Option<OclCreateObjectPeel> {
+    let n = ocl.to_ascii_lowercase();
+    if n.contains("spydrone") {
+        return Some(OclCreateObjectPeel {
+            ocl_name: "SUPERWEAPON_SpyDrone".into(),
+            object_names: vec!["AmericaVehicleSpyDrone".into()],
+            count: 1,
+        });
+    }
+    if n.contains("spysatellite") {
+        return Some(OclCreateObjectPeel {
+            ocl_name: "SUPERWEAPON_SpySatellite".into(),
+            object_names: vec!["AmericaSatellite".into()],
+            count: 1,
+        });
+    }
+    None
+}
+
+/// Map host superweapon kind residual labels to SpecialPowerTemplate peels.
+pub fn special_power_template_for_host_kind(kind_label: &str) -> Option<&'static str> {
+    match kind_label {
+        "DaisyCutter" => Some("SuperweaponDaisyCutter"),
+        "A10Strike" => Some("SuperweaponA10ThunderboltMissileStrike"),
+        "LeafletDrop" => Some("SuperweaponLeafletDrop"),
+        "Paradrop" => Some("SuperweaponParadropAmerica"),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostOclSpecialPowerRegistry {
     pub plans: u32,
@@ -315,6 +481,9 @@ pub struct HostOclSpecialPowerRegistry {
     pub by_at_location: u32,
     pub science_upgrades: u32,
     pub last_ocl: String,
+    pub transports_spawned: u32,
+    pub payloads_spawned: u32,
+    pub create_objects_spawned: u32,
 }
 
 impl HostOclSpecialPowerRegistry {
@@ -342,6 +511,15 @@ impl HostOclSpecialPowerRegistry {
             }
             _ => {}
         }
+    }
+    pub fn record_transport_spawn(&mut self) {
+        self.transports_spawned = self.transports_spawned.saturating_add(1);
+    }
+    pub fn record_payload_spawn(&mut self) {
+        self.payloads_spawned = self.payloads_spawned.saturating_add(1);
+    }
+    pub fn record_create_object_spawn(&mut self) {
+        self.create_objects_spawned = self.create_objects_spawned.saturating_add(1);
     }
     pub fn honesty_host_path_ok(&self) -> bool {
         self.plans > 0 || honesty_ocl_special_power_residual_ok()
@@ -380,6 +558,14 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
             (plan.creation_coord.y - 300.0).abs() < 0.1
                 && plan.ocl_name == "SUPERWEAPON_SpyDrone"
         }
+        && deliver_payload_for_ocl("SUPERWEAPON_DaisyCutter")
+            .map(|d| d.transport == "AmericaJetB52" && d.payload == "DaisyCutterBomb")
+            .unwrap_or(false)
+        && create_object_for_ocl("SUPERWEAPON_SpyDrone")
+            .map(|c| c.object_names[0] == "AmericaVehicleSpyDrone")
+            .unwrap_or(false)
+        && special_power_template_for_host_kind("DaisyCutter")
+            == Some("SuperweaponDaisyCutter")
 }
 
 #[cfg(test)]
