@@ -15,7 +15,9 @@
 //! - SpawnBehavior member SpecialObject residual closed (template rotation + follow)
 //! - Not full member models / wander locomotor matrix
 //! - Not full MobMemberSlavedUpdate / MobNexusContain slave AI matrix
-//! - Not full rock/molotov projectile objects / ArmTheMob AK47 WeaponSet swap
+//! - Rock/molotov DumbProjectile Bezier lob residual (GLAAngryMobRockProjectileObject /
+//!   GLAAngryMobMolotovCocktailProjectileObject First/SecondHeight + WeaponSpeed)
+//! - Not full ArmTheMob AK47 WeaponSet swap / member models / wander locomotor matrix
 //! - Not AggregateHealth nexus HP bar / IGNORED_IN_GUI member selection kluge
 //! - Not network AngryMob replication (network deferred)
 
@@ -68,6 +70,39 @@ pub const UPGRADE_GLA_ARM_THE_MOB: &str = "Upgrade_GLAArmTheMob";
 /// binds a synthetic aggregate fire weapon for host combat/AI range).
 pub const ANGRY_MOB_RESIDUAL_WEAPON: &str = "GLAAngryMobResidualWeapon";
 
+/// Retail rock projectile weapon residual.
+pub const ANGRY_MOB_ROCK_WEAPON: &str = "GLAAngryMobRockProjectileWeapon";
+/// Retail molotov projectile weapon residual.
+pub const ANGRY_MOB_MOLOTOV_WEAPON: &str = "GLAAngryMobMolotovCocktailProjectileWeapon";
+/// Retail rock ProjectileObject residual.
+pub const ANGRY_MOB_ROCK_PROJECTILE: &str = "GLAAngryMobRockProjectileObject";
+/// Retail molotov ProjectileObject residual.
+pub const ANGRY_MOB_MOLOTOV_PROJECTILE: &str = "GLAAngryMobMolotovCocktailProjectileObject";
+/// Rock PrimaryDamage residual.
+pub const ANGRY_MOB_ROCK_DAMAGE: f32 = 40.0;
+/// Rock PrimaryDamageRadius residual.
+pub const ANGRY_MOB_ROCK_RADIUS: f32 = 1.0;
+/// Rock WeaponSpeed residual (dist/sec).
+pub const ANGRY_MOB_ROCK_WEAPON_SPEED: f32 = 130.0;
+/// Molotov PrimaryDamage residual.
+pub const ANGRY_MOB_MOLOTOV_DAMAGE: f32 = 40.0;
+/// Molotov PrimaryDamageRadius residual.
+pub const ANGRY_MOB_MOLOTOV_RADIUS: f32 = 11.0;
+/// Molotov WeaponSpeed residual (dist/sec).
+pub const ANGRY_MOB_MOLOTOV_WEAPON_SPEED: f32 = 60.0;
+/// Rock DumbProjectile First/SecondHeight residual.
+pub const ANGRY_MOB_ROCK_FIRST_HEIGHT: f32 = 10.0;
+pub const ANGRY_MOB_ROCK_SECOND_HEIGHT: f32 = 10.0;
+/// Molotov DumbProjectile First/SecondHeight residual (tall arc).
+pub const ANGRY_MOB_MOLOTOV_FIRST_HEIGHT: f32 = 30.0;
+pub const ANGRY_MOB_MOLOTOV_SECOND_HEIGHT: f32 = 30.0;
+/// Shared First/SecondPercentIndent residual (50% / 90%).
+pub const ANGRY_MOB_PROJ_FIRST_PERCENT_INDENT: f32 = 0.50;
+pub const ANGRY_MOB_PROJ_SECOND_PERCENT_INDENT: f32 = 0.90;
+/// Projectile MaxHealth residual.
+pub const ANGRY_MOB_PROJ_MAX_HEALTH: f32 = 100.0;
+
+
 /// Residual fire audio (pistol/AK ambient residual cue).
 pub const ANGRY_MOB_FIRE_AUDIO: &str = "AngryMobWeaponPistol";
 
@@ -83,6 +118,117 @@ fn alnum_lower(s: &str) -> String {
 ///
 /// Fail-closed: name residual (not full KindOf MOB_NEXUS / SpawnBehavior matrix).
 /// Excludes individual mob members, projectiles, weapons, and command tokens.
+
+/// Kind of residual Angry Mob thrown projectile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AngryMobProjectileKind {
+    Rock,
+    Molotov,
+}
+
+impl AngryMobProjectileKind {
+    pub fn as_u8(self) -> u8 {
+        match self {
+            Self::Rock => 0,
+            Self::Molotov => 1,
+        }
+    }
+    pub fn from_u8(v: u8) -> Self {
+        if v == 1 {
+            Self::Molotov
+        } else {
+            Self::Rock
+        }
+    }
+    pub fn projectile_name(self) -> &'static str {
+        match self {
+            Self::Rock => ANGRY_MOB_ROCK_PROJECTILE,
+            Self::Molotov => ANGRY_MOB_MOLOTOV_PROJECTILE,
+        }
+    }
+    pub fn weapon_speed(self) -> f32 {
+        match self {
+            Self::Rock => ANGRY_MOB_ROCK_WEAPON_SPEED,
+            Self::Molotov => ANGRY_MOB_MOLOTOV_WEAPON_SPEED,
+        }
+    }
+    pub fn damage(self) -> f32 {
+        match self {
+            Self::Rock => ANGRY_MOB_ROCK_DAMAGE,
+            Self::Molotov => ANGRY_MOB_MOLOTOV_DAMAGE,
+        }
+    }
+    pub fn radius(self) -> f32 {
+        match self {
+            Self::Rock => ANGRY_MOB_ROCK_RADIUS,
+            Self::Molotov => ANGRY_MOB_MOLOTOV_RADIUS,
+        }
+    }
+    pub fn first_height(self) -> f32 {
+        match self {
+            Self::Rock => ANGRY_MOB_ROCK_FIRST_HEIGHT,
+            Self::Molotov => ANGRY_MOB_MOLOTOV_FIRST_HEIGHT,
+        }
+    }
+    pub fn second_height(self) -> f32 {
+        match self {
+            Self::Rock => ANGRY_MOB_ROCK_SECOND_HEIGHT,
+            Self::Molotov => ANGRY_MOB_MOLOTOV_SECOND_HEIGHT,
+        }
+    }
+}
+
+/// Cubic Bezier point residual (DumbProjectileBehavior First/SecondHeight + indents).
+pub fn angry_mob_projectile_bezier_point(
+    from: Vec3,
+    to: Vec3,
+    t: f32,
+    kind: AngryMobProjectileKind,
+) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * ANGRY_MOB_PROJ_FIRST_PERCENT_INDENT
+        + Vec3::Y * kind.first_height();
+    let p2 = from
+        + delta * ANGRY_MOB_PROJ_SECOND_PERCENT_INDENT
+        + Vec3::Y * kind.second_height();
+    let u = 1.0 - t;
+    p0 * (u * u * u)
+        + p1 * (3.0 * u * u * t)
+        + p2 * (3.0 * u * t * t)
+        + p3 * (t * t * t)
+}
+
+/// Flight frames from horizontal distance / WeaponSpeed @ 30 FPS.
+pub fn angry_mob_projectile_flight_frames(from: Vec3, to: Vec3, kind: AngryMobProjectileKind) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let frames = (dist / (kind.weapon_speed() / ANGRY_MOB_LOGIC_FPS)).ceil() as u32;
+    frames.max(1)
+}
+
+/// Splash damage at distance for rock/molotov residual.
+pub fn angry_mob_projectile_damage_at(kind: AngryMobProjectileKind, distance: f32) -> f32 {
+    if distance <= kind.radius() + 0.001 {
+        kind.damage()
+    } else {
+        0.0
+    }
+}
+
+/// Alternate rock/molotov residual by tick counter (member mix honesty).
+pub fn angry_mob_projectile_kind_for_tick(tick_index: u32) -> AngryMobProjectileKind {
+    if tick_index % 3 == 2 {
+        AngryMobProjectileKind::Molotov
+    } else {
+        AngryMobProjectileKind::Rock
+    }
+}
+
 pub fn is_angry_mob_nexus_template(template_name: &str) -> bool {
     let n = alnum_lower(template_name);
     if n.is_empty() {
@@ -596,10 +742,29 @@ pub fn honesty_angry_mob_upgrade_residual_ok() -> bool {
 }
 
 /// Combined Wave 69 Angry Mob residual honesty pack.
+/// Wave residual honesty: rock/molotov DumbProjectile peels.
+pub fn honesty_angry_mob_projectile_ok() -> bool {
+    ANGRY_MOB_ROCK_PROJECTILE == "GLAAngryMobRockProjectileObject"
+        && ANGRY_MOB_MOLOTOV_PROJECTILE == "GLAAngryMobMolotovCocktailProjectileObject"
+        && ANGRY_MOB_ROCK_WEAPON == "GLAAngryMobRockProjectileWeapon"
+        && ANGRY_MOB_MOLOTOV_WEAPON == "GLAAngryMobMolotovCocktailProjectileWeapon"
+        && (ANGRY_MOB_ROCK_DAMAGE - 40.0).abs() < 0.01
+        && (ANGRY_MOB_ROCK_RADIUS - 1.0).abs() < 0.01
+        && (ANGRY_MOB_ROCK_WEAPON_SPEED - 130.0).abs() < 0.01
+        && (ANGRY_MOB_MOLOTOV_DAMAGE - 40.0).abs() < 0.01
+        && (ANGRY_MOB_MOLOTOV_RADIUS - 11.0).abs() < 0.01
+        && (ANGRY_MOB_MOLOTOV_WEAPON_SPEED - 60.0).abs() < 0.01
+        && (ANGRY_MOB_ROCK_FIRST_HEIGHT - 10.0).abs() < 0.01
+        && (ANGRY_MOB_MOLOTOV_FIRST_HEIGHT - 30.0).abs() < 0.01
+        && (ANGRY_MOB_PROJ_FIRST_PERCENT_INDENT - 0.50).abs() < 0.001
+        && (ANGRY_MOB_PROJ_SECOND_PERCENT_INDENT - 0.90).abs() < 0.001
+}
+
 pub fn honesty_angry_mob_residual_pack_ok() -> bool {
     honesty_angry_mob_weapon_residual_ok()
         && honesty_angry_mob_body_residual_ok()
         && honesty_angry_mob_upgrade_residual_ok()
+        && honesty_angry_mob_projectile_ok()
 }
 
 #[cfg(test)]
@@ -738,6 +903,28 @@ mod tests {
             reg.apply_due_expands(frame);
         }
         assert_eq!(reg.member_count_of(mob_id), Some(ANGRY_MOB_MAX_MEMBERS));
+    }
+
+    #[test]
+    fn rock_molotov_projectile_peels() {
+        assert!(honesty_angry_mob_projectile_ok());
+        let from = Vec3::ZERO;
+        let to = Vec3::new(100.0, 0.0, 0.0);
+        assert!(angry_mob_projectile_flight_frames(from, to, AngryMobProjectileKind::Rock) >= 1);
+        assert!(
+            angry_mob_projectile_flight_frames(from, to, AngryMobProjectileKind::Molotov)
+                > angry_mob_projectile_flight_frames(from, to, AngryMobProjectileKind::Rock)
+        );
+        let mid = angry_mob_projectile_bezier_point(from, to, 0.5, AngryMobProjectileKind::Molotov);
+        assert!(mid.y > 5.0, "molotov tall arc");
+        assert_eq!(
+            angry_mob_projectile_kind_for_tick(2),
+            AngryMobProjectileKind::Molotov
+        );
+        assert_eq!(
+            angry_mob_projectile_kind_for_tick(0),
+            AngryMobProjectileKind::Rock
+        );
     }
 
     #[test]
