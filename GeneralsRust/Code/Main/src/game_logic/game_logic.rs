@@ -1537,6 +1537,8 @@ pub struct GameLogic {
     tomahawk_missiles_spawned: u32,
     /// Honesty: Tomahawk ScatterRadiusVsInfantry aim offsets applied.
     tomahawk_scatter_applied: u32,
+    /// Honesty: Tomahawk ScatterRadiusVsInfantry residual misses vs infantry.
+    tomahawk_scatter_misses: u32,
     /// Honesty: RocketBuggyMissile projectiles spawned residual.
     rocket_buggy_missiles_spawned: u32,
     /// Honesty: Rocket Buggy ScatterRadiusVsInfantry aim offsets applied.
@@ -3174,6 +3176,7 @@ impl GameLogic {
             scud_missiles_spawned: 0,
             tomahawk_missiles_spawned: 0,
             tomahawk_scatter_applied: 0,
+            tomahawk_scatter_misses: 0,
             rocket_buggy_missiles_spawned: 0,
             rocket_buggy_scatter_applied: 0,
             scud_launcher_scatter_applied: 0,
@@ -3703,6 +3706,7 @@ impl GameLogic {
         self.scud_missiles_spawned = 0;
         self.tomahawk_missiles_spawned = 0;
         self.tomahawk_scatter_applied = 0;
+        self.tomahawk_scatter_misses = 0;
         self.rocket_buggy_missiles_spawned = 0;
         self.rocket_buggy_scatter_applied = 0;
         self.scud_launcher_scatter_applied = 0;
@@ -33363,7 +33367,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: Tomahawk ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_tomahawk_scatter_ok(&self) -> bool {
-        self.tomahawk_scatter_applied > 0
+        self.tomahawk_scatter_applied > 0 || self.tomahawk_scatter_misses > 0
     }
 
     pub fn tomahawk_residual_fires(&self) -> u32 {
@@ -38859,6 +38863,36 @@ fn update_scud_poison_zones(&mut self) {
         if scattered {
             self.tomahawk_scatter_applied = self.tomahawk_scatter_applied.saturating_add(1);
         }
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_tomahawk::tomahawk_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > crate::game_logic::host_tomahawk::TOMAHAWK_SECONDARY_RADIUS {
+                        self.tomahawk_scatter_misses =
+                            self.tomahawk_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let mut start = from;
         start.y = start.y.max(aim.y) + TOMAHAWK_PREFERRED_HEIGHT * 0.2;
@@ -39047,12 +39081,57 @@ fn update_scud_poison_zones(&mut self) {
     ) -> (u32, bool) {
         use crate::game_logic::host_tomahawk::{
             is_legal_tomahawk_splash_target, is_tomahawk_template, tomahawk_damage_at,
-            TOMAHAWK_FIRE_AUDIO, TOMAHAWK_SECONDARY_RADIUS,
+            tomahawk_scatter_aim, tomahawk_scatter_misses_infantry, TOMAHAWK_FIRE_AUDIO,
+            TOMAHAWK_SECONDARY_RADIUS,
         };
 
         let source_team = source
             .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
             .unwrap_or(Team::Neutral);
+
+        // C++ TomahawkMissileWeapon ScatterRadiusVsInfantry residual on instant apply.
+        let mut impact = impact;
+        let intended_is_infantry = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        if intended_is_infantry {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source.map(|s| s.0).unwrap_or(0),
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = tomahawk_scatter_aim(impact, true, seed);
+            if scattered {
+                self.tomahawk_scatter_applied =
+                    self.tomahawk_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if tomahawk_scatter_misses_infantry(true, seed, hit_r) {
+                let intended_pos = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position());
+                if let Some(pos) = intended_pos {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > TOMAHAWK_SECONDARY_RADIUS {
+                        self.tomahawk_scatter_misses =
+                            self.tomahawk_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
@@ -39086,6 +39165,13 @@ fn update_scud_poison_zones(&mut self) {
                     (dx * dx + dz * dz).sqrt()
                 };
                 let is_intended = intended_target == Some(*id);
+                // Scatter miss residual: intended infantry outside splash is not force-hit.
+                if is_intended
+                    && intended_is_infantry
+                    && dist > TOMAHAWK_SECONDARY_RADIUS
+                {
+                    return None;
+                }
                 if is_intended || dist <= TOMAHAWK_SECONDARY_RADIUS {
                     Some((*id, dist, is_intended))
                 } else {
@@ -125762,6 +125848,82 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
     }
+
+    #[test]
+    fn tomahawk_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_tomahawk::{
+            TOMAHAWK_MISSILE_WEAPON, TOMAHAWK_SCATTER_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut th_tpl = ThingTemplate::new("AmericaVehicleTomahawk");
+        th_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(TOMAHAWK_MISSILE_WEAPON);
+        logic
+            .templates
+            .insert("AmericaVehicleTomahawk".to_string(), th_tpl);
+
+        let th = logic
+            .create_object(
+                "AmericaVehicleTomahawk",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tomahawk");
+        if let Some(o) = logic.objects.get_mut(&th) {
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let impact = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(80.0, 0.0, 0.0));
+        let _ = logic.apply_tomahawk_residual_at(impact, Some(th), Some(inf));
+        assert!(
+            logic.tomahawk_scatter_applied > 0
+                || logic.tomahawk_scatter_misses > 0
+                || logic.honesty_tomahawk_scatter_ok(),
+            "tomahawk scatter residual must peel vs infantry"
+        );
+        assert!((TOMAHAWK_SCATTER_VS_INFANTRY - 20.0).abs() < 0.01);
+
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(70.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(70.0, 0.0, 0.0));
+        let (hits, _) = logic.apply_tomahawk_residual_at(impact, Some(th), Some(tank));
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
+    }
+
 
 
 
