@@ -2463,21 +2463,39 @@ impl CnCGameEngine {
                             "Menus/SkirmishGameOptionsMenu.wnd",
                         );
                         // Bind control IDs + selected map into WND state when possible.
+                        // Prefer retail map-select overlay residual (ButtonSelectMap →
+                        // Listbox/OK) before Start, matching C++ player map pick.
+                        let mut map_select_wnd_ok = false;
                         if let Some(map) = args.get("map") {
-                            game_client::gui::callbacks::set_skirmish_menu_selected_map(
+                            map_select_wnd_ok = game_client::gui::callbacks::simulate_skirmish_map_select_and_confirm(
                                 map.clone(),
                             );
+                            if !map_select_wnd_ok {
+                                game_client::gui::callbacks::set_skirmish_menu_selected_map(
+                                    map.clone(),
+                                );
+                            }
                         }
                         wnd_start_ok = game_client::gui::callbacks::simulate_skirmish_start_button_gadget_selected();
+                        if map_select_wnd_ok && wnd_start_ok {
+                            // Preserve map-select residual in cmd when both peels fire.
+                            // Final cmd is rewritten below after NewGame drain.
+                            self.runtime_host_last_gameplay_cmd =
+                                "click_skirmish_map_select_ok_wnd".into();
+                        }
                         if wnd_start_ok {
                             // WND path posts NewGame; drain immediately so headless host
                             // does not wait for next Menu tick.
+                            let start_cmd = if map_select_wnd_ok {
+                                "click_skirmish_start_ok_wnd_via_map_select"
+                            } else {
+                                "click_skirmish_start_ok_wnd"
+                            };
                             if let Some((mode, faction, map, skirmish)) =
                                 self.take_pending_new_game_start_request()
                             {
                                 self.start_game_from_ui(mode, faction, map, skirmish);
-                                self.runtime_host_last_gameplay_cmd =
-                                    "click_skirmish_start_ok_wnd".into();
+                                self.runtime_host_last_gameplay_cmd = start_cmd.into();
                             } else if gamelogic::helpers::TheGameLogic::is_start_new_game_requested(
                             ) {
                                 gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
@@ -2485,8 +2503,7 @@ impl CnCGameEngine {
                                     self.build_start_request_from_pending_globals(None)
                                 {
                                     self.start_game_from_ui(mode, faction, map, skirmish);
-                                    self.runtime_host_last_gameplay_cmd =
-                                        "click_skirmish_start_ok_wnd".into();
+                                    self.runtime_host_last_gameplay_cmd = start_cmd.into();
                                 } else {
                                     self.runtime_host_last_gameplay_cmd =
                                         "click_skirmish_start_wnd_pending".into();
@@ -2495,6 +2512,10 @@ impl CnCGameEngine {
                                 self.runtime_host_last_gameplay_cmd =
                                     "click_skirmish_start_wnd_pending".into();
                             }
+                        } else if map_select_wnd_ok {
+                            // Map committed but Start did not claim — still honest residual.
+                            self.runtime_host_last_gameplay_cmd =
+                                "click_skirmish_map_select_ok_wnd".into();
                         }
                     }
                 }
