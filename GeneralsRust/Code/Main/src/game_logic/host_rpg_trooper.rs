@@ -70,7 +70,7 @@ pub const RPG_TROOPER_DEATH_TYPE: &str = "EXPLODED";
 pub const RPG_TROOPER_CLIP_SIZE: u32 = 0;
 /// Retail AutoReloadsClip residual.
 pub const RPG_TROOPER_AUTO_RELOADS_CLIP: bool = true;
-/// Retail ScatterRadiusVsInfantry residual (honesty only; host fail-closed no random miss).
+/// Retail ScatterRadiusVsInfantry residual (projectile aim offset + instant-apply impact).
 pub const RPG_TROOPER_SCATTER_VS_INFANTRY: f32 = 10.0;
 /// Retail ProjectileDetonationFX residual.
 pub const RPG_TROOPER_DETONATION_FX: &str = "WeaponFX_RocketBuggyMissileDetonation";
@@ -317,6 +317,20 @@ pub fn rpg_trooper_scatter_aim(
     (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
 }
 
+/// Whether TunnelDefenderRocketWeapon residual misses intended infantry via ScatterRadiusVsInfantry.
+pub fn rpg_trooper_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(RPG_TROOPER_SCATTER_VS_INFANTRY, seed, target_hit_radius)
+}
+
+
 /// Wave residual honesty: RPG Trooper ScatterRadiusVsInfantry peels.
 pub fn honesty_rpg_trooper_scatter_vs_infantry_ok() -> bool {
     use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
@@ -354,7 +368,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= RPG_TROOPER_SCATTER_VS_INFANTRY + 0.01);
-    }
+    
+        assert!(rpg_trooper_scatter_misses_infantry(true, 29, 0.5));
+        assert!(!rpg_trooper_scatter_misses_infantry(true, 29, 100.0));
+        assert!(!rpg_trooper_scatter_misses_infantry(false, 29, 0.5));
+}
     use std::collections::HashSet;
 
     #[test]
