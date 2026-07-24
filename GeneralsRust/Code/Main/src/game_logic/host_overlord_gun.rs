@@ -371,12 +371,29 @@ pub fn overlord_scatter_aim(
     use crate::game_logic::weapon_bootstrap::{
         host_effective_scatter_radius, scatter_aim_offset,
     };
-    let scatter = host_effective_scatter_radius(OVERLORD_TANK_GUN, target_is_infantry);
+    let mut scatter =
+        host_effective_scatter_radius(OVERLORD_TANK_GUN, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = OVERLORD_SCATTER_VS_INFANTRY;
+    }
     if scatter <= 0.0 {
         return (aim, false);
     }
     let off = scatter_aim_offset(seed, scatter);
     (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Whether OverlordTankGun residual misses intended infantry via ScatterRadiusVsInfantry.
+pub fn overlord_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(OVERLORD_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
 
 /// Wave residual honesty: Overlord ScatterRadiusVsInfantry peels.
@@ -409,7 +426,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= OVERLORD_SCATTER_VS_INFANTRY + 0.01);
-    }
+    
+        assert!(overlord_scatter_misses_infantry(true, 53, 0.5));
+        assert!(!overlord_scatter_misses_infantry(true, 53, 100.0));
+        assert!(!overlord_scatter_misses_infantry(false, 53, 0.5));
+}
 
     #[test]
     fn overlord_gun_name_matrix() {
