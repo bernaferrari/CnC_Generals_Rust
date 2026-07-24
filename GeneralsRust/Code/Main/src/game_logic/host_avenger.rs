@@ -21,8 +21,9 @@
 //! - PDL residual: AvengerPointDefenseLaserOne/Two ScanRange **200**.
 //!
 //! Fail-closed honesty:
+//! - AvengerLaserBeam SpecialObject residual closed (LifetimeUpdate 205ms)
 //! - Not full portable AmericaTankAvengerLaserTurret OverlordContain passenger
-//! - Not full dual independent AirLaser streams / laser drawable bone attach
+//! - Not full dual independent AirLaser streams / bone attach matrix
 //! - Not full StatusDamageHelper Xfer / multi-status exclusivity matrix
 //! - Not network FAERIE_FIRE / Avenger replication (network deferred)
 
@@ -77,6 +78,14 @@ pub const AVENGER_AIR_LASER_ANTI_AIRBORNE_VEHICLE: bool = true;
 pub const AVENGER_AIR_LASER_ANTI_AIRBORNE_INFANTRY: bool = false;
 /// Retail LaserName residual.
 pub const AVENGER_LASER_NAME: &str = "AvengerLaserBeam";
+/// Retail AvengerLaserBeam LifetimeUpdate Min/MaxLifetime = 205 ms → 7f @ 30 FPS.
+pub const AVENGER_LASER_BEAM_LIFETIME_MS: u32 = 205;
+pub const AVENGER_LASER_BEAM_LIFETIME_FRAMES: u32 =
+    (AVENGER_LASER_BEAM_LIFETIME_MS * 30 + 999) / 1000;
+/// Retail AvengerLaserBeam presentation body residual.
+pub const AVENGER_LASER_BEAM_MAX_HEALTH: f32 = 1.0;
+/// Retail LaserBoneName residual (AvengerAirLaserOne).
+pub const AVENGER_LASER_BONE_NAME: &str = "TurretFX01";
 
 /// Retail GameData.ini WeaponBonus TARGET_FAERIE_FIRE RATE_OF_FIRE 150%.
 pub const FAERIE_FIRE_ROF_MULTIPLIER: f32 = 1.50;
@@ -333,6 +342,7 @@ pub fn honesty_avenger_air_laser_residual_ok() -> bool {
         && AVENGER_AIR_LASER_ANTI_AIRBORNE_VEHICLE
         && !AVENGER_AIR_LASER_ANTI_AIRBORNE_INFANTRY
         && AVENGER_LASER_NAME == "AvengerLaserBeam"
+        && AVENGER_LASER_BEAM_LIFETIME_FRAMES == 7
         && AVENGER_AIR_LASER_AUDIO == "AvengerAirLaserWeapon"
         && {
             let a = avenger_air_laser_weapon();
