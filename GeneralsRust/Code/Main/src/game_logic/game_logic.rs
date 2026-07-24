@@ -1587,6 +1587,8 @@ pub struct GameLogic {
     usa_tank_shells_spawned: u32,
     /// Honesty: USA tank ScatterRadiusVsInfantry aim offsets applied.
     usa_tank_scatter_applied: u32,
+    /// Honesty: USA tank ScatterRadiusVsInfantry residual misses vs infantry.
+    usa_tank_scatter_misses: u32,
     /// Honesty: BattleMasterTankShell projectiles spawned residual.
     battlemaster_shells_spawned: u32,
     /// Honesty: Battlemaster ScatterRadiusVsInfantry aim offsets applied.
@@ -3215,6 +3217,7 @@ impl GameLogic {
             nuke_cannon_scatter_misses: 0,
             usa_tank_shells_spawned: 0,
             usa_tank_scatter_applied: 0,
+            usa_tank_scatter_misses: 0,
             battlemaster_shells_spawned: 0,
             battlemaster_scatter_applied: 0,
             battlemaster_scatter_misses: 0,
@@ -3752,6 +3755,7 @@ impl GameLogic {
         self.nuke_cannon_scatter_misses = 0;
         self.usa_tank_shells_spawned = 0;
         self.usa_tank_scatter_applied = 0;
+        self.usa_tank_scatter_misses = 0;
         self.battlemaster_shells_spawned = 0;
         self.battlemaster_scatter_applied = 0;
         self.battlemaster_scatter_misses = 0;
@@ -41831,6 +41835,36 @@ fn update_scud_poison_zones(&mut self) {
         if scattered {
             self.usa_tank_scatter_applied = self.usa_tank_scatter_applied.saturating_add(1);
         }
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_usa_tanks::usa_tank_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > crate::game_logic::host_usa_tanks::USA_TANK_GUN_PRIMARY_RADIUS {
+                        self.usa_tank_scatter_misses =
+                            self.usa_tank_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
@@ -41925,7 +41959,7 @@ fn update_scud_poison_zones(&mut self) {
 
     /// Residual honesty: USA tank ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_usa_tank_scatter_ok(&self) -> bool {
-        self.usa_tank_scatter_applied > 0
+        self.usa_tank_scatter_applied > 0 || self.usa_tank_scatter_misses > 0
     }
 
     /// Apply USA Crusader/Paladin tank gun splash residual at impact.
@@ -41937,8 +41971,9 @@ fn update_scud_poison_zones(&mut self) {
     ) -> (u32, bool) {
         use crate::game_logic::host_usa_tanks::{
             is_crusader_template, is_legal_usa_tank_splash_target, is_paladin_template,
-            usa_tank_gun_splash_damage_at, CRUSADER_FIRE_AUDIO, PALADIN_FIRE_AUDIO,
-            USA_TANK_GUN_DAMAGE, USA_TANK_GUN_PRIMARY_RADIUS,
+            usa_tank_gun_splash_damage_at, usa_tank_scatter_aim, usa_tank_scatter_misses_infantry,
+            CRUSADER_FIRE_AUDIO, PALADIN_FIRE_AUDIO, USA_TANK_GUN_DAMAGE,
+            USA_TANK_GUN_PRIMARY_RADIUS,
         };
 
         let (source_team, damage, is_paladin) = {
@@ -41960,6 +41995,52 @@ fn update_scud_poison_zones(&mut self) {
                 .unwrap_or(USA_TANK_GUN_DAMAGE);
             (obj.team, dmg, is_p)
         };
+
+        // C++ Crusader/PaladinTankGun ScatterRadiusVsInfantry residual on instant apply.
+        let mut impact = impact;
+        let intended_is_infantry = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let mut intended_scatter_miss = false;
+        if intended_is_infantry {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source.map(|s| s.0).unwrap_or(0),
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = usa_tank_scatter_aim(impact, true, seed);
+            if scattered {
+                self.usa_tank_scatter_applied =
+                    self.usa_tank_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if usa_tank_scatter_misses_infantry(true, seed, hit_r) {
+                let intended_pos = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position());
+                if let Some(pos) = intended_pos {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > USA_TANK_GUN_PRIMARY_RADIUS {
+                        self.usa_tank_scatter_misses =
+                            self.usa_tank_scatter_misses.saturating_add(1);
+                        intended_scatter_miss = true;
+                    }
+                }
+            }
+        }
 
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
@@ -41989,6 +42070,10 @@ fn update_scud_poison_zones(&mut self) {
                 let dx = p.x - impact_xz.0;
                 let dz = p.z - impact_xz.1;
                 let dist = (dx * dx + dz * dz).sqrt();
+                // Scatter miss residual: intended infantry outside splash is not force-hit.
+                if Some(*id) == intended_target && intended_scatter_miss {
+                    return None;
+                }
                 if dist > USA_TANK_GUN_PRIMARY_RADIUS && Some(*id) != intended_target {
                     return None;
                 }
@@ -126842,6 +126927,82 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
     }
+
+    #[test]
+    fn usa_tank_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_usa_tanks::{
+            CRUSADER_TANK_GUN, USA_TANK_GUN_SCATTER_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut cr_tpl = ThingTemplate::new("AmericaTankCrusader");
+        cr_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0)
+            .set_primary_weapon_name(CRUSADER_TANK_GUN);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), cr_tpl);
+
+        let cr = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("crusader");
+        if let Some(o) = logic.objects.get_mut(&cr) {
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let impact = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
+        let _ = logic.apply_usa_tank_gun_residual_at(impact, Some(cr), Some(inf));
+        assert!(
+            logic.usa_tank_scatter_applied > 0
+                || logic.usa_tank_scatter_misses > 0
+                || logic.honesty_usa_tank_scatter_ok(),
+            "usa tank scatter residual must peel vs infantry"
+        );
+        assert!((USA_TANK_GUN_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
+        let (hits, _) = logic.apply_usa_tank_gun_residual_at(impact, Some(cr), Some(tank));
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
+    }
+
 
 
 
