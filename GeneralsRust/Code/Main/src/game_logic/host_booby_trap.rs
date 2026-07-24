@@ -25,8 +25,8 @@
 //!   Geometry CYLINDER **8**/ **8**, StealthDelay **0**, InnateStealth **Yes**
 //!
 //! Fail-closed honesty:
-//! - Not full SpecialObject BoobyTrap StickyBombUpdate bone attach / stealth matrix
-//! - Not full MaxSpecialObjects=100 list / UniqueSpecialObjectTargets matrix
+//! - BoobyTrap SpecialObject spawn + MaxSpecialObjects residual closed
+//!   (StickyBomb bone matrix / stealth GPU / geometry partition fail-closed)
 //! - Not full geometry-based partition iterate FROM_BOUNDINGSPHERE_3D matrix
 //! - Not network booby-trap replication (network deferred)
 
@@ -134,6 +134,9 @@ pub struct HostBoobyTrapPlant {
     pub plant_frame: u32,
     /// Residual geometry radius used at detonation (selection_radius residual).
     pub geometry_radius: f32,
+    /// C++ SpecialObject BoobyTrap Thing id residual.
+    #[serde(default)]
+    pub charge_object_id: Option<ObjectId>,
 }
 
 /// Host residual honesty registry for BoobyTrap plant / detonate.
@@ -192,6 +195,7 @@ impl HostBoobyTrapRegistry {
         planter_team: super::Team,
         plant_frame: u32,
         geometry_radius: f32,
+        charge_object_id: Option<ObjectId>,
     ) -> Option<HostBoobyTrapPlant> {
         let prev = self.plants.remove(&structure_id.0);
         self.plants.insert(
@@ -202,11 +206,32 @@ impl HostBoobyTrapRegistry {
                 planter_team,
                 plant_frame,
                 geometry_radius: geometry_radius.max(1.0),
+                charge_object_id,
             },
         );
         self.last_plant_frame.insert(planter_id.0, plant_frame);
         self.plants_total = self.plants_total.saturating_add(1);
         prev
+    }
+
+    /// Active SpecialObject count for MaxSpecialObjects residual.
+    pub fn active_special_objects_for_planter(&self, planter_id: ObjectId) -> u32 {
+        self.plants
+            .values()
+            .filter(|p| p.planter_id == planter_id && p.charge_object_id.is_some())
+            .count() as u32
+    }
+
+    /// Whether planter may place another BoobyTrap (MaxSpecialObjects residual).
+    pub fn can_place_special_object(&self, planter_id: ObjectId) -> bool {
+        self.active_special_objects_for_planter(planter_id) < BOOBY_MAX_SPECIAL_OBJECTS
+    }
+
+    /// Bind charge object id after spawn residual.
+    pub fn set_charge_object(&mut self, structure_id: ObjectId, charge_id: ObjectId) {
+        if let Some(p) = self.plants.get_mut(&structure_id.0) {
+            p.charge_object_id = Some(charge_id);
+        }
     }
 
     /// Take plant for detonation (clears residual).
@@ -418,7 +443,9 @@ mod tests {
     #[test]
     fn residual_registry_plant_and_detonate() {
         let mut reg = HostBoobyTrapRegistry::new();
-        reg.install(ObjectId(10), ObjectId(1), Team::GLA, 5, 12.0);
+        reg.install(ObjectId(10), ObjectId(1), Team::GLA, 5, 12.0, Some(ObjectId(99)));
+        assert!(reg.can_place_special_object(ObjectId(1))); // 1 < 100
+        assert_eq!(reg.active_special_objects_for_planter(ObjectId(1)), 1);
         assert!(reg.is_booby_trapped(ObjectId(10)));
         assert!(reg.honesty_plant_ok());
         let plant = reg.take_plant(ObjectId(10)).expect("plant");
