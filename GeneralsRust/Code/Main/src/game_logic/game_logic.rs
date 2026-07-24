@@ -72036,7 +72036,13 @@ mod tests {
         }
 
         let target = Vec3::new(200.0, 0.0, 100.0);
-        let objects_before = game_logic.get_objects().len();
+        let infantry_count = |gl: &GameLogic| {
+            gl.get_objects()
+                .values()
+                .filter(|o| o.is_kind_of(crate::game_logic::KindOf::Infantry))
+                .count()
+        };
+        assert_eq!(infantry_count(&game_logic), 0);
 
         game_logic.queue_command(GameCommand {
             command_type: CommandType::DoSpecialPower {
@@ -72068,10 +72074,16 @@ mod tests {
                 .any(|e| e.event_type == "SuperweaponParadrop"),
             "activation must queue SuperweaponParadrop audio"
         );
+        // Cargo plane / parachute DeliverPayload residual may spawn before
+        // infantry drop delay; residual infantry must not appear yet.
         assert_eq!(
-            game_logic.get_objects().len(),
-            objects_before,
+            infantry_count(&game_logic),
+            0,
             "no infantry before drop delay"
+        );
+        assert!(
+            game_logic.host_paradrops.transports_spawned >= 1,
+            "cargo plane residual should spawn on queue"
         );
         assert!(!game_logic
             .host_paradrops()
@@ -72080,8 +72092,8 @@ mod tests {
         game_logic.frame = 89;
         game_logic.update_paradrops();
         assert_eq!(
-            game_logic.get_objects().len(),
-            objects_before,
+            infantry_count(&game_logic),
+            0,
             "still no infantry one frame before drop"
         );
 
@@ -72143,8 +72155,9 @@ mod tests {
             "drop must queue ParadropLanding audio"
         );
         assert_eq!(
-            game_logic.get_objects().len(),
-            objects_before + AMERICA_PARADROP_UNIT_COUNT as usize
+            infantry_count(&game_logic),
+            AMERICA_PARADROP_UNIT_COUNT as usize,
+            "infantry count after paradrop drop"
         );
     }
 
