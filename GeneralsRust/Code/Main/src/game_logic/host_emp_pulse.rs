@@ -20,8 +20,9 @@
 //! - EMP_HARDENED residual name markers (cargo plane / bomber / A10 / Spectre path)
 //!
 //! Fail-closed honesty:
-//! - Not full OCL cargo plane flight / EMPPulseBomb projectile physics /
-//!   EMPPulseEffectSpheroid drawable GPU scale/tint / EMPSparks particle volume
+//! - EMPPulseEffectSpheroid object spawn residual closed (GPU scale/tint fail-closed)
+//! - Cargo plane + EMPPulseBomb flight residual closed; not full projectile physics
+//! - Not full EMPSparks particle volume / GPU tint path
 //! - Not full subdual / reject-mask ally matrix beyond residual kindof filters
 //! - Not multiplayer shared-synced timer / academy / shortcut UI parity
 //! - Not network EMP replication (network deferred)
@@ -282,6 +283,8 @@ pub struct HostEmpPulseRegistry {
     pub disable_count: u32,
     /// Total airborne EMP kills residual.
     pub airborne_kill_count: u32,
+    /// Honesty: EMPPulseEffectSpheroid objects spawned.
+    pub spheroids_spawned: u32,
 }
 
 impl HostEmpPulseRegistry {
@@ -333,6 +336,14 @@ impl HostEmpPulseRegistry {
     /// Residual honesty: at least one EMP pulse activated.
     pub fn honesty_activate_ok(&self) -> bool {
         self.activation_count > 0
+    }
+
+    pub fn record_spheroid_spawn(&mut self) {
+        self.spheroids_spawned = self.spheroids_spawned.saturating_add(1);
+    }
+
+    pub fn honesty_spheroid_ok(&self) -> bool {
+        self.spheroids_spawned > 0
     }
 
     /// Residual honesty: at least one unit/structure received DISABLED_EMP.

@@ -6097,6 +6097,7 @@ impl GameLogic {
         self.update_daisy_cutter_flights();
         self.update_anthrax_bomb_flights();
         self.update_cluster_mines_flights();
+        self.update_emp_pulse_spheroids();
         self.update_emp_pulse_flights();
         self.update_frenzy_invisible_markers();
         self.update_gps_scrambler_grow();
@@ -28907,6 +28908,69 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ SUPERWEAPON_EMPPulse ChinaJetCargoPlane + EMPPulseBomb residual.
+    /// C++ OCL_EMPPulseEffectSpheroids CreateObject EMPPulseEffectSpheroid residual.
+    pub fn spawn_emp_pulse_spheroid(
+        &mut self,
+        position: Vec3,
+        producer: ObjectId,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_emp_pulse::{
+            EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_LIFETIME_FRAMES,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self
+            .objects
+            .get(&producer)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        if !self.templates.contains_key(EMP_PULSE_EFFECT_SPHEROID) {
+            let mut t = ThingTemplate::new(EMP_PULSE_EFFECT_SPHEROID);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(EMP_PULSE_EFFECT_SPHEROID.to_string(), t);
+        }
+        let sid = self.create_object(EMP_PULSE_EFFECT_SPHEROID, team, position)?;
+        if let Some(o) = self.objects.get_mut(&sid) {
+            o.emp_pulse_spheroid = true;
+            o.producer_id = Some(producer);
+            o.emp_pulse_spheroid_expires_frame =
+                Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
+        }
+        self.emp_pulses.record_spheroid_spawn();
+        self.emp_pulse_flight_reg.record_spheroid();
+        Some(sid)
+    }
+
+    pub fn update_emp_pulse_spheroids(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.emp_pulse_spheroid {
+                    if let Some(exp) = o.emp_pulse_spheroid_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.emp_pulse_spheroid = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn spawn_emp_pulse_flight(
         &mut self,
         source_id: ObjectId,
@@ -41687,6 +41751,17 @@ fn update_scud_poison_zones(&mut self) {
                 .with_position(location)
                 .with_priority(180),
         );
+        // Direct-path residual also spawns EMPPulseEffectSpheroid (OCL on detonation).
+        if let Some(pid) = caster_id {
+            let _ = self.spawn_emp_pulse_spheroid(location, pid);
+        } else {
+            // No caster: spawn under Neutral producer residual via temp object skip —
+            // still spawn at location with first friendly unit if any.
+            if let Some((pid, _)) = self.objects.iter().next() {
+                let _ = self.spawn_emp_pulse_spheroid(location, *pid);
+            }
+        }
+
         let _ = self.combat_particles.spawn(
             CombatParticleKind::WeaponImpact,
             location,
@@ -64654,6 +64729,41 @@ mod tests {
     }
 
     #[test]
+    
+    #[test]
+    fn emp_pulse_spawns_effect_spheroid_residual() {
+        use crate::game_logic::host_emp_pulse::{
+            EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_LIFETIME_FRAMES,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        ensure_test_player_for_team(&mut logic, Team::China);
+        let mut cc = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let caster = logic
+            .create_object("ChinaCommandCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.apply_emp_pulse_at(0, Vec3::new(100.0, 0.0, 100.0), Some(caster)));
+        assert!(logic.emp_pulses().honesty_spheroid_ok());
+        let sph = logic
+            .get_objects()
+            .values()
+            .find(|o| o.emp_pulse_spheroid)
+            .expect("spheroid");
+        assert_eq!(sph.template_name, EMP_PULSE_EFFECT_SPHEROID);
+        let sid = sph.id;
+        logic.frame = EMP_SPHEROID_LIFETIME_FRAMES + 5;
+        logic.update_emp_pulse_spheroids();
+        assert!(
+            logic
+                .find_object(sid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
     fn emp_pulse_residual_disables_vehicles_in_radius() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
         use crate::game_logic::host_emp_pulse::{
