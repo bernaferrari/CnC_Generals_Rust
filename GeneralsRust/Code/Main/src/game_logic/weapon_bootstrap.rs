@@ -1385,6 +1385,10 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
     if n.contains("firebase") || (n.contains("howitzer") && !n.contains("neutron")) {
         return 15.0;
     }
+    // Neutron shell residual ScatterRadiusVsInfantry **10** (before NukeCannon primary 30).
+    if n.contains("neutron") {
+        return 10.0;
+    }
     // Nuke Cannon residual ScatterRadiusVsInfantry **30**.
     if n.contains("nukecannon") || n.contains("nuke_cannon") {
         return 30.0;
@@ -1426,9 +1430,6 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
         || n.contains("humvee")
     {
         return 10.0;
-    }
-    if n.contains("neutron") {
-        return 15.0;
     }
     0.0
 }
