@@ -5976,6 +5976,8 @@ impl GameLogic {
         self.update_special_power_strikes();
         self.spawn_nuke_radiation_field_objects_for_new_fields();
         self.update_nuke_radiation_field_objects();
+        self.spawn_anthrax_toxin_field_objects_for_new_fields();
+        self.update_anthrax_toxin_field_objects();
 
         // Host America Paradrop residual: spawn infantry after approach delay.
         // Fail-closed vs full OCL cargo plane / parachute payload path.
@@ -50020,6 +50022,8 @@ fn update_scud_poison_zones(&mut self) {
             );
         }
 
+        self.spawn_anthrax_toxin_field_objects_for_new_fields();
+        self.update_anthrax_toxin_field_objects();
         self.special_power_strikes.prune_expired_toxin(frame);
     }
 
@@ -50182,6 +50186,88 @@ fn update_scud_poison_zones(&mut self) {
         }
 
         self.special_power_strikes.prune_expired_beam(frame);
+    }
+
+    /// C++ PoisonFieldAnthraxBomb ThingFactory Object residual.
+    pub fn spawn_anthrax_toxin_field_objects_for_new_fields(&mut self) {
+        use crate::game_logic::special_power_strikes::{
+            ANTHRAX_TOXIN_DURATION_FRAMES, ANTHRAX_TOXIN_FIELD_MAX_HEALTH,
+            ANTHRAX_TOXIN_OBJECT_NAME,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let pending: Vec<(u32, ObjectId, Team, Vec3, u32)> = self
+            .special_power_strikes
+            .toxin_spawned_this_frame()
+            .iter()
+            .filter_map(|tid| {
+                self.special_power_strikes
+                    .toxin_fields()
+                    .iter()
+                    .find(|f| f.id == *tid && f.object_id.is_none())
+                    .map(|f| {
+                        (
+                            f.id,
+                            f.source_object,
+                            f.source_team,
+                            f.position,
+                            f.expires_frame.saturating_sub(f.spawn_frame),
+                        )
+                    })
+            })
+            .collect();
+        if pending.is_empty() {
+            return;
+        }
+        if !self.templates.contains_key(ANTHRAX_TOXIN_OBJECT_NAME) {
+            let mut t = ThingTemplate::new(ANTHRAX_TOXIN_OBJECT_NAME);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(ANTHRAX_TOXIN_FIELD_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(ANTHRAX_TOXIN_OBJECT_NAME.to_string(), t);
+        }
+        for (tid, source, team, pos, lifetime) in pending {
+            let expires = self.frame.saturating_add(lifetime.max(1));
+            if let Some(oid) = self.create_object(ANTHRAX_TOXIN_OBJECT_NAME, team, pos) {
+                if let Some(o) = self.objects.get_mut(&oid) {
+                    o.anthrax_toxin_field = true;
+                    o.producer_id = Some(source);
+                    o.anthrax_toxin_field_expires_frame = Some(expires);
+                    o.health.maximum = ANTHRAX_TOXIN_FIELD_MAX_HEALTH;
+                    Self::write_object_health_authority_aware(o, ANTHRAX_TOXIN_FIELD_MAX_HEALTH);
+                }
+                let _ = self.special_power_strikes.bind_toxin_object(tid, oid);
+            }
+        }
+        let _ = ANTHRAX_TOXIN_DURATION_FRAMES;
+    }
+
+    pub fn update_anthrax_toxin_field_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.anthrax_toxin_field {
+                    if let Some(exp) = o.anthrax_toxin_field_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.anthrax_toxin_field = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
     }
 
     /// C++ NukeRadiationFieldWeapon ThingFactory Object residual.
@@ -64884,6 +64970,55 @@ mod tests {
     #[test]
     
     #[test]
+    
+    #[test]
+    fn anthrax_bomb_spawns_toxin_field_object() {
+        use crate::game_logic::special_power_strikes::{
+            ANTHRAX_TOXIN_DURATION_FRAMES, ANTHRAX_TOXIN_OBJECT_NAME,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut scud = crate::game_logic::ThingTemplate::new("GLAScudStorm");
+        scud.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("GLAScudStorm".into(), scud);
+        let caster = logic
+            .create_object("GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let tid = logic.special_power_strikes.spawn_toxin_field(
+            caster,
+            Team::GLA,
+            Vec3::new(120.0, 0.0, 120.0),
+            logic.frame,
+            1,
+        );
+        logic.spawn_anthrax_toxin_field_objects_for_new_fields();
+        assert!(logic.special_power_strikes.honesty_toxin_object_spawn_ok());
+        assert!(logic.special_power_strikes.toxin_objects_spawned() >= 1);
+        let obj = logic
+            .get_objects()
+            .values()
+            .find(|o| o.anthrax_toxin_field)
+            .expect("toxin field object");
+        assert_eq!(obj.template_name, ANTHRAX_TOXIN_OBJECT_NAME);
+        let oid = obj.id;
+        let bound = logic
+            .special_power_strikes
+            .toxin_fields()
+            .iter()
+            .find(|f| f.id == tid)
+            .and_then(|f| f.object_id);
+        assert_eq!(bound, Some(oid));
+        logic.frame = ANTHRAX_TOXIN_DURATION_FRAMES + 5;
+        logic.update_anthrax_toxin_field_objects();
+        assert!(
+            logic
+                .find_object(oid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
     fn nuclear_missile_spawns_radiation_field_object() {
         use crate::game_logic::special_power_strikes::{
             NUKE_RADIATION_DURATION_FRAMES, NUKE_RADIATION_OBJECT_NAME,
