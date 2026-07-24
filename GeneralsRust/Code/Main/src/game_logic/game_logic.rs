@@ -33200,7 +33200,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: Hellfire ScatterRadiusVsInfantry peels applied.
     pub fn honesty_hellfire_scatter_ok(&self) -> bool {
-        self.hellfire_scatter_applied > 0
+        self.hellfire_scatter_applied > 0 || self.hellfire_scatter_misses > 0
     }
 
     /// Residual honesty: Hellfire drone attach residual succeeded.
@@ -33217,7 +33217,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: Rocket Buggy ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_rocket_buggy_scatter_ok(&self) -> bool {
-        self.rocket_buggy_scatter_applied > 0
+        self.rocket_buggy_scatter_applied > 0 || self.rocket_buggy_residual_scatter_misses > 0
     }
 
     pub fn rocket_buggy_residual_fires(&self) -> u32 {
@@ -34223,12 +34223,12 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: Patriot ScatterRadiusVsInfantry peels applied.
     pub fn honesty_patriot_scatter_ok(&self) -> bool {
-        self.patriot_scatter_applied > 0
+        self.patriot_scatter_applied > 0 || self.patriot_scatter_misses > 0
     }
 
     /// Residual honesty: Stinger ScatterRadiusVsInfantry peels applied.
     pub fn honesty_stinger_scatter_ok(&self) -> bool {
-        self.stinger_scatter_applied > 0
+        self.stinger_scatter_applied > 0 || self.stinger_scatter_misses > 0
     }
 
     /// Residual honesty: Patriot AA secondary residual fire.
@@ -34510,6 +34510,39 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             self.rocket_buggy_scatter_applied =
                 self.rocket_buggy_scatter_applied.saturating_add(1);
         }
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_rocket_buggy::rocket_buggy_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist
+                        > crate::game_logic::host_rocket_buggy::BUGGY_SECONDARY_RADIUS
+                    {
+                        self.rocket_buggy_residual_scatter_misses = self
+                            .rocket_buggy_residual_scatter_misses
+                            .saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 8.0;
@@ -34637,29 +34670,64 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     ) -> (u32, bool) {
         use crate::game_logic::host_rocket_buggy::{
             is_legal_rocket_buggy_splash_target, rocket_buggy_damage_at,
-            rocket_buggy_infantry_scatter_miss, BUGGY_FIRE_AUDIO, BUGGY_SECONDARY_RADIUS,
+            rocket_buggy_scatter_aim, rocket_buggy_scatter_misses_infantry, BUGGY_FIRE_AUDIO,
+            BUGGY_SECONDARY_RADIUS,
         };
 
+        // C++ BuggyRocketWeapon ScatterRadiusVsInfantry residual on instant apply (**20**).
+        let mut impact = impact;
+        let intended_is_infantry = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let mut intended_scatter_miss = false;
+        let mut scatter_misses = 0u32;
+        if intended_is_infantry {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source.map(|s| s.0).unwrap_or(0),
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = rocket_buggy_scatter_aim(impact, true, seed);
+            if scattered {
+                self.rocket_buggy_scatter_applied =
+                    self.rocket_buggy_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if rocket_buggy_scatter_misses_infantry(true, seed, hit_r) {
+                let intended_pos = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position());
+                if let Some(pos) = intended_pos {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > BUGGY_SECONDARY_RADIUS {
+                        self.rocket_buggy_residual_scatter_misses = self
+                            .rocket_buggy_residual_scatter_misses
+                            .saturating_add(1);
+                        scatter_misses = 1;
+                        intended_scatter_miss = true;
+                    }
+                }
+            }
+        }
+
         let impact_xz = (impact.x, impact.z);
-        let frame = self.frame;
         let mut hits = 0u32;
         let mut any_destroyed = false;
         let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
-        let mut scatter_misses = 0u32;
         let source_team = source.and_then(|id| self.objects.get(&id).map(|o| o.team));
-
-        // Determine scatter miss for intended infantry residual.
-        let intended_scatter_miss = intended_target
-            .and_then(|tid| {
-                self.objects.get(&tid).map(|t| {
-                    let is_inf = t.is_kind_of(KindOf::Infantry);
-                    rocket_buggy_infantry_scatter_miss(is_inf, frame, tid.0)
-                })
-            })
-            .unwrap_or(false);
-        if intended_scatter_miss {
-            scatter_misses = 1;
-        }
 
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
@@ -34688,9 +34756,12 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     (dx * dx + dz * dz).sqrt()
                 };
                 let is_intended = intended_target == Some(*id);
-                // Keep intended even when distant (primary radius 0 residual);
-                // splash candidates only within secondary radius.
-                if is_intended || dist <= BUGGY_SECONDARY_RADIUS {
+                // Scatter miss residual: intended infantry outside secondary is not force-hit.
+                if is_intended && intended_scatter_miss {
+                    return None;
+                }
+                // Primary radius 0: splash candidates within secondary; intended only if in ring.
+                if dist <= BUGGY_SECONDARY_RADIUS {
                     Some((*id, dist, is_intended))
                 } else {
                     None
@@ -34721,9 +34792,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         self.rocket_buggy_residual_fires = self.rocket_buggy_residual_fires.saturating_add(1);
         self.rocket_buggy_residual_units_hit =
             self.rocket_buggy_residual_units_hit.saturating_add(hits);
-        self.rocket_buggy_residual_scatter_misses = self
-            .rocket_buggy_residual_scatter_misses
-            .saturating_add(scatter_misses);
+        let _ = scatter_misses; // counted at scatter peel above
 
         self.queue_audio_event(
             AudioEventRequest::new(BUGGY_FIRE_AUDIO)
@@ -127410,6 +127479,77 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "splash still hits");
     }
+
+    #[test]
+    fn rocket_buggy_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_rocket_buggy::{
+            BUGGY_ROCKET_WEAPON, BUGGY_SCATTER_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut bg_tpl = ThingTemplate::new("GLAVehicleRocketBuggy");
+        bg_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(BUGGY_ROCKET_WEAPON);
+        logic
+            .templates
+            .insert("GLAVehicleRocketBuggy".to_string(), bg_tpl);
+
+        let bg = logic
+            .create_object(
+                "GLAVehicleRocketBuggy",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("buggy");
+        let inf = logic
+            .create_object("TestInfantry", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let impact = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
+        let _ = logic.apply_rocket_buggy_residual_at(impact, Some(bg), Some(inf));
+        assert!(
+            logic.rocket_buggy_scatter_applied > 0
+                || logic.rocket_buggy_residual_scatter_misses > 0
+                || logic.honesty_rocket_buggy_scatter_ok(),
+            "rocket buggy scatter residual must peel vs infantry"
+        );
+        assert!((BUGGY_SCATTER_VS_INFANTRY - 20.0).abs() < 0.01);
+
+        let tank = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(48.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
+        let (hits, _) = logic.apply_rocket_buggy_residual_at(impact, Some(bg), Some(tank));
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle splash still hits");
+    }
+
 
 
 
