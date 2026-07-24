@@ -6667,6 +6667,8 @@ pub struct HostParticleRemnantField {
     pub id: u32,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    /// Host GameLogic ObjectId for ParticleUplinkCannonTrailRemnant residual.
+    pub object_id: Option<ObjectId>,
     /// Pulse epicenter residual (swath position at spawn).
     pub position: Vec3,
     pub spawn_frame: u32,
@@ -6784,6 +6786,8 @@ pub struct HostSpecialPowerStrikeRegistry {
     remnant_spawned_this_frame: Vec<u32>,
     /// Lifetime count of remnant fields spawned (survives prune; honesty).
     remnant_fields_spawned_total: u32,
+    /// Honesty: ParticleUplinkCannonTrailRemnant GameLogic objects spawned.
+    remnant_objects_spawned: u32,
     /// Lifetime remnant damage applications (honesty after field expiry).
     remnant_damage_applications_total: u32,
 }
@@ -6838,6 +6842,7 @@ impl HostSpecialPowerStrikeRegistry {
             next_remnant_id: 1,
             remnant_spawned_this_frame: Vec::new(),
             remnant_fields_spawned_total: 0,
+            remnant_objects_spawned: 0,
             remnant_damage_applications_total: 0,
         }
     }
@@ -6875,6 +6880,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.remnant_spawned_this_frame.clear();
         self.next_remnant_id = 1;
         self.remnant_fields_spawned_total = 0;
+        self.remnant_objects_spawned = 0;
         self.remnant_damage_applications_total = 0;
     }
 
@@ -6997,6 +7003,7 @@ impl HostSpecialPowerStrikeRegistry {
             Vec::new(),
             0,
             0,
+            0,
         );
     }
 
@@ -7033,6 +7040,7 @@ impl HostSpecialPowerStrikeRegistry {
             Vec::new(),
             0,
             0,
+            0,
         );
     }
 
@@ -7062,6 +7070,7 @@ impl HostSpecialPowerStrikeRegistry {
         next_remnant_id: u32,
         remnant_fields: impl IntoIterator<Item = HostParticleRemnantField>,
         remnant_fields_spawned_total: u32,
+        remnant_objects_spawned: u32,
         remnant_damage_applications_total: u32,
     ) {
         self.clear();
@@ -7116,6 +7125,7 @@ impl HostSpecialPowerStrikeRegistry {
         }
         self.next_remnant_id = next_remnant_id.max(max_rem.saturating_add(1)).max(1);
         self.remnant_fields_spawned_total = remnant_fields_spawned_total.max(max_rem);
+        self.remnant_objects_spawned = remnant_objects_spawned;
         self.remnant_damage_applications_total = remnant_damage_applications_total;
     }
 
@@ -7153,6 +7163,24 @@ impl HostSpecialPowerStrikeRegistry {
 
     pub fn remnant_fields_spawned_total(&self) -> u32 {
         self.remnant_fields_spawned_total
+    }
+
+    pub fn remnant_objects_spawned(&self) -> u32 {
+        self.remnant_objects_spawned
+    }
+
+    pub fn honesty_remnant_object_spawn_ok(&self) -> bool {
+        self.remnant_objects_spawned > 0
+    }
+
+    /// Bind a spawned ParticleUplinkCannonTrailRemnant ObjectId onto a remnant field.
+    pub fn bind_remnant_object(&mut self, remnant_id: u32, object_id: ObjectId) -> bool {
+        if let Some(f) = self.remnant_fields.iter_mut().find(|f| f.id == remnant_id) {
+            f.object_id = Some(object_id);
+            self.remnant_objects_spawned = self.remnant_objects_spawned.saturating_add(1);
+            return true;
+        }
+        false
     }
 
     pub fn remnant_damage_applications_total(&self) -> u32 {
@@ -9534,6 +9562,7 @@ impl HostSpecialPowerStrikeRegistry {
             id,
             source_object,
             source_team,
+            object_id: None,
             position,
             spawn_frame,
             expires_frame: spawn_frame.saturating_add(PARTICLE_REMNANT_DURATION_FRAMES),

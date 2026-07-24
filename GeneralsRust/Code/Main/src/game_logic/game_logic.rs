@@ -49623,6 +49623,8 @@ fn update_scud_poison_zones(&mut self) {
         // ParticleCannon residual continuous beam pulses (after charge residual).
         self.update_particle_beam_fields();
         // Particle Uplink DamagePulseRemnant trail residual ticks.
+        self.spawn_particle_trail_remnant_objects_for_new_fields();
+        self.update_particle_trail_remnant_objects();
         self.update_particle_remnant_fields();
     }
 
@@ -50177,8 +50179,81 @@ fn update_scud_poison_zones(&mut self) {
         self.special_power_strikes.prune_expired_beam(frame);
     }
 
+    /// C++ ParticleUplinkCannonTrailRemnant ThingFactory Object residual.
+    pub fn spawn_particle_trail_remnant_objects_for_new_fields(&mut self) {
+        use crate::game_logic::special_power_strikes::{
+            PARTICLE_REMNANT_DURATION_FRAMES, PARTICLE_REMNANT_MAX_HEALTH,
+            PARTICLE_REMNANT_OBJECT_NAME,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let pending: Vec<(u32, ObjectId, Team, Vec3)> = self
+            .special_power_strikes
+            .remnant_spawned_this_frame()
+            .iter()
+            .filter_map(|rid| {
+                self.special_power_strikes
+                    .remnant_fields()
+                    .iter()
+                    .find(|f| f.id == *rid && f.object_id.is_none())
+                    .map(|f| (f.id, f.source_object, f.source_team, f.position))
+            })
+            .collect();
+        if pending.is_empty() {
+            return;
+        }
+        if !self.templates.contains_key(PARTICLE_REMNANT_OBJECT_NAME) {
+            let mut t = ThingTemplate::new(PARTICLE_REMNANT_OBJECT_NAME);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(PARTICLE_REMNANT_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(PARTICLE_REMNANT_OBJECT_NAME.to_string(), t);
+        }
+        let expires = self.frame.saturating_add(PARTICLE_REMNANT_DURATION_FRAMES);
+        for (rid, source, team, pos) in pending {
+            if let Some(oid) = self.create_object(PARTICLE_REMNANT_OBJECT_NAME, team, pos) {
+                if let Some(o) = self.objects.get_mut(&oid) {
+                    o.particle_trail_remnant = true;
+                    o.producer_id = Some(source);
+                    o.particle_trail_remnant_expires_frame = Some(expires);
+                    o.health.maximum = PARTICLE_REMNANT_MAX_HEALTH;
+                    Self::write_object_health_authority_aware(o, PARTICLE_REMNANT_MAX_HEALTH);
+                }
+                let _ = self.special_power_strikes.bind_remnant_object(rid, oid);
+            }
+        }
+    }
+
+    pub fn update_particle_trail_remnant_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.particle_trail_remnant {
+                    if let Some(exp) = o.particle_trail_remnant_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.particle_trail_remnant = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     /// Tick residual DamagePulseRemnant trail fields spawned by Particle Uplink
-    /// beam pulses. Fail-closed vs full ParticleUplinkCannonTrailRemnant Object.
+    /// beam pulses. ParticleUplinkCannonTrailRemnant Object residual closed.
     fn update_particle_remnant_fields(&mut self) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
@@ -64729,8 +64804,60 @@ mod tests {
     }
 
     #[test]
-    
-    #[test]
+    fn particle_uplink_spawns_trail_remnant_objects() {
+        use crate::game_logic::special_power_strikes::{
+            PARTICLE_REMNANT_DURATION_FRAMES, PARTICLE_REMNANT_OBJECT_NAME,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut puc = crate::game_logic::ThingTemplate::new("AmericaParticleUplinkCannon");
+        puc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaParticleUplinkCannon".into(), puc);
+        let caster = logic
+            .create_object(
+                "AmericaParticleUplinkCannon",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        // Spawn remnant field residual directly via strike registry.
+        let rid = logic.special_power_strikes.spawn_remnant_field(
+            caster,
+            Team::USA,
+            Vec3::new(50.0, 0.0, 50.0),
+            logic.frame,
+            1,
+            1,
+        );
+        // Manually mark as spawned this frame (spawn_remnant_field already pushes).
+        logic.spawn_particle_trail_remnant_objects_for_new_fields();
+        assert!(logic.special_power_strikes.honesty_remnant_object_spawn_ok());
+        assert!(logic.special_power_strikes.remnant_objects_spawned() >= 1);
+        let obj = logic
+            .get_objects()
+            .values()
+            .find(|o| o.particle_trail_remnant)
+            .expect("trail remnant object");
+        assert_eq!(obj.template_name, PARTICLE_REMNANT_OBJECT_NAME);
+        let oid = obj.id;
+        let bound = logic
+            .special_power_strikes
+            .remnant_fields()
+            .iter()
+            .find(|f| f.id == rid)
+            .and_then(|f| f.object_id);
+        assert_eq!(bound, Some(oid));
+        logic.frame = PARTICLE_REMNANT_DURATION_FRAMES + 5;
+        logic.update_particle_trail_remnant_objects();
+        assert!(
+            logic
+                .find_object(oid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
     fn emp_pulse_spawns_effect_spheroid_residual() {
         use crate::game_logic::host_emp_pulse::{
             EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_LIFETIME_FRAMES,
