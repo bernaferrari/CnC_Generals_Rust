@@ -14,6 +14,7 @@ pub mod host_smart_bomb_target_homing;
 pub mod host_special_power_update_module;
 pub mod host_ocl_special_power;
 pub mod host_ocl_create_debris;
+pub mod host_ocl_fire_weapon_attack;
 pub mod host_float_update;
 pub mod host_ai_decision_log;
 pub mod host_ai_mood_log;
