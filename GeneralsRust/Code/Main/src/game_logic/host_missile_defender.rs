@@ -28,6 +28,7 @@
 //!
 //! Fail-closed honesty:
 //! - LaserBeam SpecialObject residual closed (Muzzle01 attach matrix / WGPU W3DLaserDraw fail-closed)
+//! - MissileDefenderMissile projectile flight residual closed (MissileAI peels + splash)
 //! - Not full ScatterRadiusVsInfantry random miss matrix
 //! - Not full PLAYER_UPGRADE DAMAGE 125% live weapon-bonus apply matrix
 //! - Not network laser-lock replication (network deferred)
@@ -44,6 +45,15 @@ pub const MISSILE_DEFENDER_MISSILE_WEAPON: &str = "MissileDefenderMissileWeapon"
 pub const MISSILE_DEFENDER_LASER_GUIDED_WEAPON: &str = "MissileDefenderLaserGuidedMissileWeapon";
 /// Retail projectile residual.
 pub const MISSILE_DEFENDER_MISSILE: &str = "MissileDefenderMissile";
+/// Retail MissileDefenderMissile MaxHealth residual.
+pub const MD_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// Retail MissileAIUpdate FuelLifetime 3000ms → 90 frames @ 30 FPS.
+pub const MD_MISSILE_FUEL_MS: u32 = 3_000;
+pub const MD_MISSILE_FUEL_FRAMES: u32 = 90;
+/// Retail MissileAIUpdate InitialVelocity residual (dist/sec).
+pub const MD_MISSILE_INITIAL_VELOCITY: f32 = 150.0;
+/// Retail DistanceToTravelBeforeTurning residual.
+pub const MD_MISSILE_TURN_DISTANCE: f32 = 3.0;
 /// Retail special power template.
 pub const SPECIAL_ABILITY_MISSILE_DEFENDER_LASER: &str =
     "SpecialAbilityMissileDefenderLaserGuidedMissiles";
@@ -305,6 +315,8 @@ pub fn honesty_missile_defender_primary_residual_ok() -> bool {
         && (MISSILE_DEFENDER_PROJECTILE_SPEED - 600.0).abs() < 0.01
         && MISSILE_DEFENDER_MISSILE_WEAPON == "MissileDefenderMissileWeapon"
         && MISSILE_DEFENDER_MISSILE == "MissileDefenderMissile"
+        && MD_MISSILE_FUEL_FRAMES == 90
+        && (MD_MISSILE_INITIAL_VELOCITY - 150.0).abs() < 0.01
         && MISSILE_DEFENDER_PRIMARY_DAMAGE_TYPE == "INFANTRY_MISSILE"
         && MISSILE_DEFENDER_DEATH_TYPE == "NORMAL"
         && MISSILE_DEFENDER_CLIP_SIZE == 0

@@ -1233,6 +1233,24 @@ pub struct Object {
     /// C++ TankHunterMissile projectile residual.
     #[serde(default)]
     pub tank_hunter_missile_projectile: bool,
+    /// C++ MissileDefenderMissile projectile residual.
+    #[serde(default)]
+    pub missile_defender_missile_projectile: bool,
+    /// Aim point for MissileDefender missile residual.
+    #[serde(default)]
+    pub missile_defender_missile_aim: Option<[f32; 3]>,
+    /// Intended target id residual.
+    #[serde(default)]
+    pub missile_defender_missile_intended: Option<u32>,
+    /// Distance travelled this MissileDefender missile flight residual.
+    #[serde(default)]
+    pub missile_defender_missile_travelled: f32,
+    /// Absolute frame when MissileDefender missile FuelLifetime residual expires.
+    #[serde(default)]
+    pub missile_defender_missile_fuel_expires_frame: Option<u32>,
+    /// Whether this MD missile was fired from laser-guided secondary residual.
+    #[serde(default)]
+    pub missile_defender_missile_laser_slot: bool,
     /// Aim point for TankHunter missile residual.
     #[serde(default)]
     pub tank_hunter_missile_aim: Option<[f32; 3]>,
@@ -2114,6 +2132,12 @@ impl Object {
             tank_hunter_missile_intended: None,
             tank_hunter_missile_travelled: 0.0,
             tank_hunter_missile_fuel_expires_frame: None,
+            missile_defender_missile_projectile: false,
+            missile_defender_missile_aim: None,
+            missile_defender_missile_intended: None,
+            missile_defender_missile_travelled: 0.0,
+            missile_defender_missile_fuel_expires_frame: None,
+            missile_defender_missile_laser_slot: false,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
@@ -2593,6 +2617,12 @@ impl Object {
             tank_hunter_missile_intended: None,
             tank_hunter_missile_travelled: 0.0,
             tank_hunter_missile_fuel_expires_frame: None,
+            missile_defender_missile_projectile: false,
+            missile_defender_missile_aim: None,
+            missile_defender_missile_intended: None,
+            missile_defender_missile_travelled: 0.0,
+            missile_defender_missile_fuel_expires_frame: None,
+            missile_defender_missile_laser_slot: false,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,

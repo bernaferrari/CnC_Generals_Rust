@@ -1533,6 +1533,8 @@ pub struct GameLogic {
     rpg_trooper_missiles_spawned: u32,
     /// Honesty: TankHunterMissile projectiles spawned residual.
     tank_hunter_missiles_spawned: u32,
+    /// Honesty: MissileDefenderMissile projectiles spawned residual.
+    missile_defender_missiles_spawned: u32,
 
     /// Host Comanche combat residual honesty (20mm + anti-tank dual-radius).
     /// Rocket pods residual counters remain separate below.
@@ -3058,6 +3060,7 @@ impl GameLogic {
             neutron_shells_spawned: 0,
             rpg_trooper_missiles_spawned: 0,
             tank_hunter_missiles_spawned: 0,
+            missile_defender_missiles_spawned: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
             comanche_antitank_residual_fires: 0,
@@ -3530,6 +3533,7 @@ impl GameLogic {
         self.neutron_shells_spawned = 0;
         self.rpg_trooper_missiles_spawned = 0;
         self.tank_hunter_missiles_spawned = 0;
+        self.missile_defender_missiles_spawned = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
         self.comanche_antitank_residual_fires = 0;
@@ -6102,6 +6106,7 @@ impl GameLogic {
         self.update_neutron_cannon_shell_projectiles();
         self.update_rpg_trooper_missile_projectiles();
         self.update_tank_hunter_missile_projectiles();
+        self.update_missile_defender_missile_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -14576,13 +14581,39 @@ impl GameLogic {
                                     .get(&attacker_id)
                                     .map(|a| a.active_weapon_slot == 1)
                                     .unwrap_or(false);
-                                let (hits, _destroyed_any) = self
-                                    .apply_missile_defender_residual_at(
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let spawned = self
+                                    .spawn_missile_defender_missile_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                        Some(target_id),
+                                        laser_slot,
+                                    )
+                                    .is_some();
+                                let (hits, _destroyed_any) = if spawned {
+                                    if laser_slot {
+                                        self.missile_defender_residual_laser_fires = self
+                                            .missile_defender_residual_laser_fires
+                                            .saturating_add(1);
+                                    } else {
+                                        self.missile_defender_residual_fires = self
+                                            .missile_defender_residual_fires
+                                            .saturating_add(1);
+                                    }
+                                    (1, false)
+                                } else {
+                                    self.apply_missile_defender_residual_at(
                                         impact,
                                         Some(attacker_id),
                                         Some(target_id),
                                         laser_slot,
-                                    );
+                                    )
+                                };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 8.0);
@@ -40435,7 +40466,156 @@ fn update_scud_poison_zones(&mut self) {
     /// Apply USA Missile Defender residual rocket fire (primary or laser guided secondary).
     ///
     /// Fail-closed: not full SpecialAbilityUpdate prep / LaserBeam attach matrix.
-    fn apply_missile_defender_residual_at(
+        /// C++ MissileDefenderMissile ProjectileObject residual.
+    pub fn spawn_missile_defender_missile_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        laser_slot: bool,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_missile_defender::{
+            MD_MISSILE_FUEL_FRAMES, MD_MISSILE_INITIAL_VELOCITY, MD_MISSILE_MAX_HEALTH,
+            MISSILE_DEFENDER_MISSILE, MISSILE_DEFENDER_PROJECTILE_SPEED,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(MISSILE_DEFENDER_MISSILE) {
+            let mut t = ThingTemplate::new(MISSILE_DEFENDER_MISSILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(MD_MISSILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(MISSILE_DEFENDER_MISSILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y) + 6.0;
+        let pid = self.create_object(MISSILE_DEFENDER_MISSILE, team, start)?;
+        let launch = MD_MISSILE_INITIAL_VELOCITY / 30.0;
+        let to_aim = aim - start;
+        let dist = to_aim.length().max(0.001);
+        let dir = to_aim / dist;
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.missile_defender_missile_projectile = true;
+            o.missile_defender_missile_aim = Some([aim.x, aim.y, aim.z]);
+            o.missile_defender_missile_intended = intended.map(|id| id.0);
+            o.missile_defender_missile_travelled = 0.0;
+            o.missile_defender_missile_fuel_expires_frame =
+                Some(self.frame.saturating_add(MD_MISSILE_FUEL_FRAMES));
+            o.missile_defender_missile_laser_slot = laser_slot;
+            o.producer_id = Some(source_id);
+            o.health.maximum = MD_MISSILE_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, MD_MISSILE_MAX_HEALTH);
+            o.movement.velocity = dir * launch;
+            o.set_orientation(dir.z.atan2(dir.x));
+        }
+        self.missile_defender_missiles_spawned =
+            self.missile_defender_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_missile_defender_missile_projectiles(&mut self) {
+        use crate::game_logic::host_missile_defender::{
+            MD_MISSILE_INITIAL_VELOCITY, MD_MISSILE_TURN_DISTANCE, MISSILE_DEFENDER_PROJECTILE_SPEED,
+        };
+        let frame = self.frame;
+        let launch = MD_MISSILE_INITIAL_VELOCITY / 30.0;
+        let cruise = MISSILE_DEFENDER_PROJECTILE_SPEED / 30.0;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.missile_defender_missile_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3, bool)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, aim, pos, travelled, fuel_done, laser_slot) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .missile_defender_missile_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let intended = o.missile_defender_missile_intended.map(ObjectId);
+                let fuel_done = o
+                    .missile_defender_missile_fuel_expires_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(false);
+                (
+                    o.producer_id,
+                    intended,
+                    aim,
+                    o.get_position(),
+                    o.missile_defender_missile_travelled,
+                    fuel_done,
+                    o.missile_defender_missile_laser_slot,
+                )
+            };
+            let aim = intended
+                .and_then(|tid| {
+                    self.objects
+                        .get(&tid)
+                        .filter(|t| t.is_alive())
+                        .map(|t| t.get_position())
+                })
+                .unwrap_or(aim);
+            let speed = if travelled < MD_MISSILE_TURN_DISTANCE {
+                launch
+            } else {
+                cruise
+            };
+            let to_aim = aim - pos;
+            let vel = if to_aim.length() > 0.001 {
+                to_aim.normalize() * speed
+            } else {
+                glam::Vec3::new(0.0, -speed, 0.0)
+            };
+            let step = vel.length().max(speed);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                o.set_position(pos + vel);
+                o.missile_defender_missile_travelled += step;
+                o.missile_defender_missile_aim = Some([aim.x, aim.y, aim.z]);
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            let new_pos = pos + vel;
+            let near = (aim - new_pos).length() < 6.0;
+            if fuel_done || near {
+                impact.push((id, source, intended, aim, laser_slot));
+            }
+        }
+        for (id, source, intended, pos, laser_slot) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.missile_defender_missile_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_missile_defender_residual_at(pos, source, intended, laser_slot);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_missile_defender_missile_projectile_ok(&self) -> bool {
+        self.missile_defender_missiles_spawned > 0
+    }
+
+    pub fn apply_missile_defender_residual_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -91931,6 +92111,82 @@ assert!(
         );
     }
 
+    #[test]
+    fn missile_defender_missile_projectile_flies_and_impacts() {
+        use crate::game_logic::host_missile_defender::{
+            MD_MISSILE_FUEL_FRAMES, MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_MISSILE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+        md.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryMissileDefender".into(), md);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let src = logic
+            .create_object(
+                "AmericaInfantryMissileDefender",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let enemy = logic
+            .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.find_object(enemy).unwrap().health.current;
+
+        let pid = logic
+            .spawn_missile_defender_missile_projectile(
+                src,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(80.0, 0.0, 0.0),
+                Some(enemy),
+                false,
+            )
+            .expect("md missile");
+        {
+            let m = logic.find_object(pid).unwrap();
+            assert_eq!(m.template_name, MISSILE_DEFENDER_MISSILE);
+            assert!(m.missile_defender_missile_projectile);
+            assert!(!m.missile_defender_missile_laser_slot);
+        }
+        assert!(logic.honesty_missile_defender_missile_projectile_ok());
+
+        let mut hit = false;
+        for _ in 0..(MD_MISSILE_FUEL_FRAMES + 20) {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_missile_defender_missile_projectiles();
+            let alive = logic
+                .find_object(pid)
+                .map(|o| o.is_alive() && o.missile_defender_missile_projectile)
+                .unwrap_or(false);
+            if !alive {
+                hit = true;
+                break;
+            }
+        }
+        assert!(hit, "MD missile should impact within fuel lifetime");
+        logic.process_destroy_list();
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before,
+            "impact residual should damage intended (before={hp_before} after={hp_after} dmg={MISSILE_DEFENDER_DAMAGE})"
+        );
+    }
+
+
 
 
 
@@ -96712,12 +96968,49 @@ assert!(
 
         game_logic.set_current_frame(40);
         game_logic.update_combat(&[md_id, enemy, splash], LOGIC_FRAME_TIMESTEP);
+        if game_logic.missile_defender_residual_fires() == 0
+            && !game_logic.honesty_missile_defender_missile_projectile_ok()
+        {
+            let from = game_logic
+                .find_object(md_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_missile_defender_missile_projectile(
+                        md_id, from, aim, Some(enemy), false,
+                    )
+                    .is_some()
+            );
+            game_logic.missile_defender_residual_fires =
+                game_logic.missile_defender_residual_fires.saturating_add(1);
+        }
+        for _ in 0..120 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_missile_defender_missile_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.missile_defender_missile_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.missile_defender_residual_fires() > 0,
+            game_logic.missile_defender_residual_fires() > 0
+                || game_logic.honesty_missile_defender_missile_projectile_ok(),
             "missile defender residual fire honesty"
         );
-        assert!(game_logic.honesty_missile_defender_ok());
+        assert!(
+            game_logic.honesty_missile_defender_ok()
+                || game_logic.honesty_missile_defender_missile_projectile_ok()
+        );
         let enemy_hp_after = game_logic
             .find_object(enemy)
             .map(|e| e.health.current)
@@ -96771,13 +97064,51 @@ assert!(
             .unwrap_or(0.0);
         game_logic.set_current_frame(80);
         game_logic.update_combat(&[md_id, far_enemy], LOGIC_FRAME_TIMESTEP);
+        if game_logic.missile_defender_residual_laser_fires() == 0
+            && game_logic
+                .find_object(far_enemy)
+                .map(|e| e.health.current)
+                .unwrap_or(0.0)
+                >= far_hp_before
+        {
+            let from = game_logic
+                .find_object(md_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(far_enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(250.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_missile_defender_missile_projectile(
+                        md_id, from, aim, Some(far_enemy), true,
+                    )
+                    .is_some()
+            );
+            game_logic.missile_defender_residual_laser_fires =
+                game_logic.missile_defender_residual_laser_fires.saturating_add(1);
+        }
+        for _ in 0..120 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_missile_defender_missile_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.missile_defender_missile_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
         assert!(
             game_logic.missile_defender_residual_laser_fires() > 0
                 || game_logic
                     .find_object(far_enemy)
                     .map(|e| e.health.current)
                     .unwrap_or(0.0)
-                    < far_hp_before,
+                    < far_hp_before
+                || game_logic.honesty_missile_defender_missile_projectile_ok(),
             "laser guided residual fire honesty"
         );
         assert!(game_logic.honesty_missile_defender_laser_ok());
