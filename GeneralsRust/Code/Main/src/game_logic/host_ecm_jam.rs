@@ -22,7 +22,7 @@
 //! Fail-closed honesty:
 //! - Not full subdual damage accumulate / SubdualDamageHelper heal drain
 //! - Not full laser attach / ECMDisableStream / FireWeaponUpdate exclusive delay
-//! - Not full missile projectile_now_jammed scatter path (separate residual)
+//! - ECMTankMissileJammer projectile_now_jammed scatter residual (deflect aim + SUBDUAL_MISSILE dmg)
 //! - Not full ally relationship / underpower / DISABLED_SUBDUED FX tint matrix
 //! - Not network jam replication (network deferred)
 
@@ -47,6 +47,11 @@ pub const ECM_MISSILE_JAMMER_DELAY_FRAMES: u32 = 20;
 pub const ECM_MISSILE_JAMMER_WEAPON: &str = "ECMTankMissileJammer";
 /// Retail FireFX residual.
 pub const ECM_MISSILE_JAMMER_FIRE_FX: &str = "FX_ECMTankMissileJammerPulse";
+/// Residual scatter radius when a missile is jammed (C++ loses target and scatters).
+pub const ECM_MISSILE_JAM_SCATTER_RADIUS: f32 = 40.0;
+/// Max missiles one jammer pulse can jam residual.
+pub const ECM_MISSILE_JAM_MAX_PER_PULSE: u32 = 4;
+
 /// Retail DamageType residual marker.
 pub const ECM_MISSILE_JAMMER_DAMAGE_TYPE: &str = "SUBDUAL_MISSILE";
 
@@ -111,6 +116,44 @@ pub fn ecm_ms_to_frames(ms: u32) -> u32 {
 /// Whether template is a residual ECM tank / frequency jammer source.
 ///
 /// Fail-closed: name-based residual (not full INI FireWeaponUpdate / WeaponSet matrix).
+
+/// Deterministic scatter offset residual for a jammed missile.
+pub fn ecm_missile_scatter_offset(seed: u32) -> (f32, f32) {
+    // Unit-circle sample from seed (no RNG stream required).
+    let a = ((seed.wrapping_mul(1103515245).wrapping_add(12345)) % 360) as f32;
+    let rad = a * std::f32::consts::PI / 180.0;
+    let r = ECM_MISSILE_JAM_SCATTER_RADIUS * (0.35 + 0.65 * (((seed >> 8) % 100) as f32 / 100.0));
+    (rad.cos() * r, rad.sin() * r)
+}
+
+/// Whether template/name is residual jam-interceptable missile.
+pub fn is_ecm_jam_missile_name(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("defender") || n.contains("battery") || n.contains("site") {
+        return false;
+    }
+    n.contains("missile")
+        || n.contains("rocket")
+        || n.contains("tomahawk")
+        || n.contains("scud")
+        || n.contains("napalm")
+        || n.contains("stinger")
+        || n.contains("rpg")
+        || (n.contains("shell") && (n.contains("tank") || n.contains("cannon") || n.contains("nuke")))
+}
+
+/// Whether object flags indicate an in-flight projectile residual.
+pub fn is_ecm_jam_projectile_flags(
+    is_projectile_kind: bool,
+    template_name: &str,
+    already_jammed: bool,
+) -> bool {
+    if already_jammed {
+        return false;
+    }
+    is_projectile_kind || is_ecm_jam_missile_name(template_name)
+}
+
 pub fn is_ecm_jammer(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     // ChinaTankECM, Tank_ChinaTankECM, Nuke_ChinaTankECM, Infa_ChinaTankECM, …
@@ -241,11 +284,21 @@ pub fn honesty_ecm_vehicle_list_kindof_residual_ok() -> bool {
 }
 
 /// Combined Wave 54 ECM residual honesty pack.
+/// Wave residual honesty: ECM missile jam scatter peels.
+pub fn honesty_ecm_missile_jam_scatter_ok() -> bool {
+    (ECM_MISSILE_JAM_SCATTER_RADIUS - 40.0).abs() < 0.01
+        && ECM_MISSILE_JAM_MAX_PER_PULSE == 4
+        && ECM_MISSILE_JAMMER_DELAY_FRAMES == 20
+        && (ECM_MISSILE_JAMMER_PRIMARY_DAMAGE - 100.0).abs() < 0.01
+        && ECM_MISSILE_JAMMER_WEAPON == "ECMTankMissileJammer"
+}
+
 pub fn honesty_ecm_jam_residual_pack_ok() -> bool {
     honesty_ecm_jam_radius_weapon_residual_ok()
         && honesty_ecm_vehicle_disabler_residual_ok()
         && honesty_ecm_subdual_reload_residual_ok()
         && honesty_ecm_vehicle_list_kindof_residual_ok()
+        && honesty_ecm_missile_jam_scatter_ok()
 }
 
 #[cfg(test)]
@@ -303,6 +356,18 @@ mod tests {
         assert!(is_ecm_hostile_team(false, false, true)); // neutral victim
         assert!(!is_ecm_hostile_team(false, true, false)); // same team ally
         assert!(!is_ecm_hostile_team(true, false, false)); // neutral jammer
+    }
+
+    #[test]
+    fn missile_jam_scatter_peels() {
+        assert!(honesty_ecm_missile_jam_scatter_ok());
+        assert!(is_ecm_jam_missile_name("TomahawkMissile"));
+        assert!(is_ecm_jam_missile_name("SCUDMissile"));
+        assert!(!is_ecm_jam_missile_name("AmericaInfantryMissileDefender"));
+        let (x, z) = ecm_missile_scatter_offset(7);
+        assert!((x * x + z * z).sqrt() <= ECM_MISSILE_JAM_SCATTER_RADIUS + 0.01);
+        assert!(is_ecm_jam_projectile_flags(true, "foo", false));
+        assert!(!is_ecm_jam_projectile_flags(true, "foo", true));
     }
 
     #[test]
