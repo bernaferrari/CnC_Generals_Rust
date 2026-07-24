@@ -11,7 +11,8 @@
 //! Fail-closed honesty:
 //! - Not full DragonTankFireWallWeapon projectile stream / OCL segment spawn
 //! - Not InchForwardLocomotor crawl of FireWallSegment objects
-//! - Not BlackNapalm upgraded segment weapons / particle systems
+//! - BlackNapalm upgraded segment weapons residual closed (5 dmg / OCL_FireWallSegmentUpgraded)
+//! - Not full particle systems / GPU firestorm FX
 //! - Not FIRE_WEAPON command-button weapon-slot matrix / multi-select AI
 //! - Not multiplayer shared-synced timer / UnitSpecificSound EVA parity
 
@@ -30,6 +31,8 @@ pub const FIREWALL_TICK_INTERVAL_FRAMES: u32 = 8;
 
 /// Retail FireWallSegmentWeapon PrimaryDamage.
 pub const FIREWALL_DAMAGE_PER_TICK: f32 = 4.0;
+/// Retail FireWallSegmentUpgradedWeapon PrimaryDamage (BlackNapalm).
+pub const FIREWALL_DAMAGE_PER_TICK_UPGRADED: f32 = 5.0;
 
 /// Retail FireWallSegmentWeapon PrimaryDamageRadius.
 pub const FIREWALL_SEGMENT_RADIUS: f32 = 10.0;
@@ -66,6 +69,8 @@ pub struct HostFireWall {
     pub id: u32,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    /// BlackNapalm PLAYER_UPGRADE residual (segment weapon 5 dmg / upgraded OCL).
+    pub upgraded: bool,
     pub target_position: Vec3,
     pub activate_frame: u32,
     pub expires_frame: u32,
@@ -115,6 +120,8 @@ pub struct HostFireWallRegistry {
     active: Vec<HostFireWall>,
     /// Total activations (honesty).
     pub activations: u32,
+    /// BlackNapalm upgraded activations (honesty).
+    pub upgraded_activations: u32,
     /// Walls that have expired (bookkeeping prune).
     pub expirations: u32,
     /// Total residual damage applied across all walls.
@@ -206,6 +213,7 @@ impl HostFireWallRegistry {
         caster_pos: Vec3,
         target_pos: Vec3,
         activate_frame: u32,
+        upgraded: bool,
     ) -> u32 {
         let id = self.alloc_id();
         let segments = Self::build_segments(caster_pos, target_pos);
@@ -213,6 +221,7 @@ impl HostFireWallRegistry {
             id,
             source_object,
             source_team,
+            upgraded,
             target_position: target_pos,
             activate_frame,
             expires_frame: activate_frame.saturating_add(FIREWALL_DURATION_FRAMES),
@@ -225,7 +234,28 @@ impl HostFireWallRegistry {
         };
         self.active.push(wall);
         self.activations = self.activations.saturating_add(1);
+        if upgraded {
+            self.upgraded_activations = self.upgraded_activations.saturating_add(1);
+        }
         id
+    }
+
+    /// Damage per tick for a wall (BlackNapalm upgrades segment weapon 4 → 5).
+    pub fn wall_damage_per_tick(upgraded: bool) -> f32 {
+        if upgraded {
+            FIREWALL_DAMAGE_PER_TICK_UPGRADED
+        } else {
+            FIREWALL_DAMAGE_PER_TICK
+        }
+    }
+
+    /// Segment template / OCL residual for upgrade state.
+    pub fn wall_segment_template(upgraded: bool) -> &'static str {
+        if upgraded {
+            FIREWALL_SEGMENT_TEMPLATE_UPGRADED
+        } else {
+            FIREWALL_SEGMENT_TEMPLATE
+        }
     }
 
     /// Plan damage for all walls due to tick this frame.
@@ -259,7 +289,7 @@ impl HostFireWallRegistry {
                 if in_fire {
                     hits.push(HostFireWallDamageHit {
                         target_id: id,
-                        damage: FIREWALL_DAMAGE_PER_TICK,
+                        damage: Self::wall_damage_per_tick(wall.upgraded),
                         wall_id: wall.id,
                     });
                 }
@@ -304,6 +334,10 @@ impl HostFireWallRegistry {
     }
 
     /// Residual honesty: at least one FireWall activated.
+    pub fn honesty_upgraded_ok(&self) -> bool {
+        self.upgraded_activations > 0
+    }
+
     pub fn honesty_activate_ok(&self) -> bool {
         self.activations > 0
     }
@@ -360,6 +394,12 @@ pub const FIREWALL_DRAGON_PRIMARY_DAMAGE: f32 = 10.0;
 pub const FIREWALL_OCL_SEGMENT: &str = "OCL_FireWallSegment";
 /// Retail OCL_FireWallSegment CreateObject residual.
 pub const FIREWALL_SEGMENT_TEMPLATE: &str = "FireWallSegment";
+/// Retail BlackNapalm upgraded segment object.
+pub const FIREWALL_SEGMENT_TEMPLATE_UPGRADED: &str = "FireWallSegmentUpgraded";
+/// Retail BlackNapalm OCL CreateObject residual.
+pub const FIREWALL_OCL_UPGRADED: &str = "OCL_FireWallSegmentUpgraded";
+/// Retail upgraded segment weapon residual.
+pub const FIREWALL_SEGMENT_WEAPON_UPGRADED: &str = "FireWallSegmentUpgradedWeapon";
 /// Retail segment MaxHealth residual (ImmortalBody).
 pub const FIREWALL_SEGMENT_MAX_HEALTH: f32 = 50.0;
 /// Retail FireWallSegmentWeapon AttackRange residual.
@@ -406,9 +446,21 @@ pub fn honesty_firewall_ability_residual_ok() -> bool {
             .is_empty()
 }
 
+/// Wave residual honesty: BlackNapalm FireWallSegment upgrade peels.
+pub fn honesty_firewall_black_napalm_ok() -> bool {
+    (FIREWALL_DAMAGE_PER_TICK_UPGRADED - 5.0).abs() < 0.01
+        && (FIREWALL_DAMAGE_PER_TICK - 4.0).abs() < 0.01
+        && FIREWALL_SEGMENT_TEMPLATE_UPGRADED == "FireWallSegmentUpgraded"
+        && FIREWALL_OCL_UPGRADED == "OCL_FireWallSegmentUpgraded"
+        && FIREWALL_SEGMENT_WEAPON_UPGRADED == "FireWallSegmentUpgradedWeapon"
+        && FIREWALL_OCL_SEGMENT == "OCL_FireWallSegment"
+}
+
 /// Combined Wave 69 FireWall residual honesty pack.
 pub fn honesty_firewall_residual_pack_ok() -> bool {
-    honesty_firewall_weapon_residual_ok() && honesty_firewall_ability_residual_ok()
+    honesty_firewall_weapon_residual_ok()
+        && honesty_firewall_ability_residual_ok()
+        && honesty_firewall_black_napalm_ok()
 }
 
 #[cfg(test)]
@@ -445,6 +497,7 @@ mod tests {
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(80.0, 0.0, 0.0),
             0,
+            false,
         );
         assert!(reg.honesty_activate_ok());
         assert!(!reg.honesty_damage_ok());
@@ -488,6 +541,7 @@ mod tests {
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(50.0, 0.0, 0.0),
             10,
+            false,
         );
         reg.prune_expired(10 + FIREWALL_DURATION_FRAMES - 1);
         assert_eq!(reg.active_count(), 1);
@@ -502,9 +556,45 @@ mod tests {
         assert_eq!(firewall_ms_to_frames(4_000), 120);
         assert!(honesty_firewall_weapon_residual_ok());
         assert!(honesty_firewall_ability_residual_ok());
+        assert!(honesty_firewall_black_napalm_ok());
         assert!(honesty_firewall_residual_pack_ok());
         assert_eq!(FIREWALL_DAMAGE_TYPE, "FLAME");
         assert_eq!(FIREWALL_DEATH_TYPE, "BURNED");
         assert_eq!(FIREWALL_OCL_SEGMENT, "OCL_FireWallSegment");
     }
+    #[test]
+    fn firewall_black_napalm_upgraded_damage() {
+        assert!((HostFireWallRegistry::wall_damage_per_tick(false) - 4.0).abs() < 0.01);
+        assert!((HostFireWallRegistry::wall_damage_per_tick(true) - 5.0).abs() < 0.01);
+        assert_eq!(
+            HostFireWallRegistry::wall_segment_template(true),
+            "FireWallSegmentUpgraded"
+        );
+        assert_eq!(
+            HostFireWallRegistry::wall_segment_template(false),
+            "FireWallSegment"
+        );
+
+        let mut reg = HostFireWallRegistry::new();
+        let id = reg.activate(
+            ObjectId(1),
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(80.0, 0.0, 0.0),
+            0,
+            true,
+        );
+        assert!(reg.honesty_upgraded_ok());
+        let wall = reg.active_walls().iter().find(|w| w.id == id).unwrap();
+        assert!(wall.upgraded);
+
+        let seg = wall.segments[0].position;
+        let plans = reg.plan_due_ticks(
+            0,
+            &[(ObjectId(99), seg, Team::USA, true)],
+        );
+        assert_eq!(plans.len(), 1);
+        assert!((plans[0].hits[0].damage - 5.0).abs() < 0.01);
+    }
+
 }

@@ -30370,32 +30370,37 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         source_team: Team,
     ) -> u32 {
         use crate::game_logic::host_firewall::{
-            FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_MAX_HEALTH, FIREWALL_SEGMENT_TEMPLATE,
+            FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_MAX_HEALTH, HostFireWallRegistry,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let positions: Vec<Vec3> = self
+        let (positions, upgraded): (Vec<Vec3>, bool) = self
             .fire_walls
             .active_walls()
             .iter()
             .find(|w| w.id == wall_id)
-            .map(|w| w.segments.iter().map(|s| s.position).collect())
+            .map(|w| {
+                (
+                    w.segments.iter().map(|s| s.position).collect(),
+                    w.upgraded,
+                )
+            })
             .unwrap_or_default();
         if positions.is_empty() {
             return 0;
         }
-        if !self.templates.contains_key(FIREWALL_SEGMENT_TEMPLATE) {
-            let mut t = ThingTemplate::new(FIREWALL_SEGMENT_TEMPLATE);
+        let template = HostFireWallRegistry::wall_segment_template(upgraded);
+        if !self.templates.contains_key(template) {
+            let mut t = ThingTemplate::new(template);
             t.add_kind_of(KindOf::Immobile)
                 .set_health(FIREWALL_SEGMENT_MAX_HEALTH)
                 .set_cost(0, 0);
-            self.templates
-                .insert(FIREWALL_SEGMENT_TEMPLATE.to_string(), t);
+            self.templates.insert(template.to_string(), t);
         }
         let expires = self.frame.saturating_add(FIREWALL_DURATION_FRAMES);
         let mut spawned = 0u32;
         for pos in positions {
-            if let Some(sid) = self.create_object(FIREWALL_SEGMENT_TEMPLATE, source_team, pos) {
+            if let Some(sid) = self.create_object(template, source_team, pos) {
                 if let Some(o) = self.objects.get_mut(&sid) {
                     o.firewall_segment = true;
                     o.producer_id = Some(source_object);
@@ -53300,6 +53305,12 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         self.fire_walls.honesty_host_path_ok()
     }
 
+    /// Residual honesty: BlackNapalm FireWall segment upgrade used at least once.
+    pub fn honesty_firewall_black_napalm_ok(&self) -> bool {
+        self.fire_walls.honesty_upgraded_ok()
+            || self.dragon_tank_residual_black_napalm_upgrades > 0
+    }
+
     /// Activate China FireWall residual: line of fire damage zones from caster
     /// toward `target_position` (retail DragonTankFireWallWeapon → OCL_FireWallSegment).
     ///
@@ -53310,14 +53321,19 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
+        use crate::game_logic::host_dragon_tank::has_black_napalm_upgrade;
         use crate::game_logic::host_firewall::{FIREWALL_ACTIVATE_AUDIO, FIREWALL_BURN_AUDIO};
 
-        let (caster_pos, source_team) = {
+        let (caster_pos, source_team, upgraded) = {
             let obj = self.objects.get(&source_object)?;
             if !obj.is_alive() {
                 return None;
             }
-            (obj.get_position(), obj.team)
+            (
+                obj.get_position(),
+                obj.team,
+                has_black_napalm_upgrade(&obj.applied_upgrades),
+            )
         };
 
         let frame = self.frame;
@@ -53327,7 +53343,13 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
             caster_pos,
             target_position,
             frame,
+            upgraded,
         );
+        if upgraded {
+            self.dragon_tank_residual_black_napalm_upgrades = self
+                .dragon_tank_residual_black_napalm_upgrades
+                .saturating_add(1);
+        }
 
         self.queue_audio_event(
             AudioEventRequest::new(FIREWALL_ACTIVATE_AUDIO)
@@ -84929,7 +84951,84 @@ mod tests {
     /// Residual: China FireWall (Dragon Tank Firestorm) does not queue superweapon strikes.
 
     #[test]
-    fn firewall_spawns_segment_objects_residual() {
+    fn firewall_black_napalm_upgraded_segments_and_damage() {
+        use crate::game_logic::host_dragon_tank::UPGRADE_CHINA_BLACK_NAPALM;
+        use crate::game_logic::host_firewall::{
+            FIREWALL_DAMAGE_PER_TICK_UPGRADED, FIREWALL_SEGMENT_TEMPLATE_UPGRADED,
+        };
+
+        let mut logic = GameLogic::new();
+        let mut dragon_tpl = ThingTemplate::new("ChinaTankDragon");
+        dragon_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("ChinaTankDragon".to_string(), dragon_tpl);
+
+        let mut victim_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        victim_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), victim_tpl);
+
+        let caster = logic
+            .create_object("ChinaTankDragon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("dragon");
+        {
+            let o = logic.find_object_mut(caster).unwrap();
+            o.apply_upgrade_tag(UPGRADE_CHINA_BLACK_NAPALM);
+        }
+
+        let wall_id = logic
+            .activate_firewall(caster, Vec3::new(80.0, 0.0, 0.0))
+            .expect("firewall");
+        assert!(logic.fire_walls.honesty_upgraded_ok());
+        assert!(logic.honesty_firewall_black_napalm_ok());
+
+        let upgraded_segments = logic
+            .objects
+            .values()
+            .filter(|o| o.firewall_segment && o.template_name == FIREWALL_SEGMENT_TEMPLATE_UPGRADED)
+            .count();
+        assert!(
+            upgraded_segments >= 1,
+            "BlackNapalm should spawn FireWallSegmentUpgraded objects"
+        );
+
+        // Place victim on first segment and tick damage.
+        let seg_pos = logic
+            .fire_walls
+            .active_walls()
+            .iter()
+            .find(|w| w.id == wall_id)
+            .and_then(|w| w.segments.first().map(|s| s.position))
+            .expect("seg");
+        let victim = logic
+            .create_object("AmericaInfantryRanger", Team::USA, seg_pos)
+            .expect("victim");
+        let hp_before = logic.find_object(victim).unwrap().health.current;
+        logic.update_firewalls();
+        let hp_after = logic
+            .find_object(victim)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (hp_before - hp_after - FIREWALL_DAMAGE_PER_TICK_UPGRADED).abs() < 0.1
+                || hp_after + 0.01 < hp_before,
+            "upgraded wall should apply 5 dmg residual, before={hp_before} after={hp_after}"
+        );
+        assert!(logic.honesty_firewall_damage_ok());
+    }
+
+    #[test]
+        fn firewall_spawns_segment_objects_residual() {
         use crate::game_logic::host_firewall::{
             FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_TEMPLATE,
         };
