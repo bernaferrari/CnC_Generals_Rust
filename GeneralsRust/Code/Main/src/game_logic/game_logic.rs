@@ -27391,7 +27391,20 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 (grounded, phase)
             };
             if grounded || matches!(phase, NeutronMissileFlightPhase::Dead) {
-                // Impact: fire slow-death / create-object-die residuals then destroy.
+                // Impact: C++ NeutronMissileSlowDeath blast field + die residuals.
+                let (pos, team, producer) = self
+                    .objects
+                    .get(&id)
+                    .map(|o| (o.get_position(), o.team, o.producer_id))
+                    .unwrap_or((Vec3::ZERO, Team::Neutral, None));
+                let source = producer.unwrap_or(id);
+                self.special_power_strikes.spawn_neutron_slow_death_field(
+                    source,
+                    team,
+                    pos,
+                    self.frame,
+                    0,
+                );
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.fire_create_object_die();
                     o.fire_fx_list_die();
@@ -77075,6 +77088,11 @@ mod tests {
         }
         assert!(grounded, "missile should complete loft/dive");
         assert!(logic.neutron_missile_update_reg.launched >= 1);
+        assert!(
+            logic.special_power_strikes.neutron_slow_death_field_count() >= 1
+                || logic.special_power_strikes.neutron_slow_death_spawned_total() >= 1,
+            "ground impact should spawn NeutronMissileSlowDeath field"
+        );
         assert!(logic.honesty_neutron_missile_update_ok());
     }
 
