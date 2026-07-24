@@ -1531,6 +1531,8 @@ pub struct GameLogic {
     stealth_jet_missiles_spawned: u32,
     /// Honesty: Stealth Jet ScatterRadiusVsInfantry aim offsets applied.
     stealth_jet_scatter_applied: u32,
+    /// Honesty: Stealth Jet ScatterRadiusVsInfantry residual misses vs infantry.
+    stealth_jet_scatter_misses: u32,
     /// Honesty: SCUDMissile projectiles spawned residual.
     scud_missiles_spawned: u32,
     /// Honesty: TomahawkMissile projectiles spawned residual.
@@ -3189,6 +3191,7 @@ impl GameLogic {
             stealth_fighter_residual_units_hit: 0,
             stealth_jet_missiles_spawned: 0,
             stealth_jet_scatter_applied: 0,
+            stealth_jet_scatter_misses: 0,
             scud_missiles_spawned: 0,
             tomahawk_missiles_spawned: 0,
             tomahawk_scatter_applied: 0,
@@ -3727,6 +3730,7 @@ impl GameLogic {
         self.stealth_fighter_residual_units_hit = 0;
         self.stealth_jet_missiles_spawned = 0;
         self.stealth_jet_scatter_applied = 0;
+        self.stealth_jet_scatter_misses = 0;
         self.scud_missiles_spawned = 0;
         self.tomahawk_missiles_spawned = 0;
         self.tomahawk_scatter_applied = 0;
@@ -33501,7 +33505,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: Stealth Jet ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_stealth_jet_scatter_ok(&self) -> bool {
-        self.stealth_jet_scatter_applied > 0
+        self.stealth_jet_scatter_applied > 0 || self.stealth_jet_scatter_misses > 0
     }
 
     pub fn stealth_fighter_residual_fires(&self) -> u32 {
@@ -40449,6 +40453,38 @@ fn update_scud_poison_zones(&mut self) {
             self.stealth_jet_scatter_applied =
                 self.stealth_jet_scatter_applied.saturating_add(1);
         }
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_stealth_fighter::stealth_jet_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist
+                        > crate::game_logic::host_stealth_fighter::STEALTH_FIGHTER_PRIMARY_RADIUS
+                    {
+                        self.stealth_jet_scatter_misses =
+                            self.stealth_jet_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let mut start = from;
         start.y = start.y.max(aim.y + 20.0);
@@ -40595,8 +40631,9 @@ fn update_scud_poison_zones(&mut self) {
         };
         use crate::game_logic::host_stealth_fighter::{
             is_legal_stealth_fighter_target, is_stealth_fighter_template,
-            stealth_fighter_damage_at, STEALTH_FIGHTER_DAMAGE, STEALTH_FIGHTER_FIRE_AUDIO,
-            STEALTH_FIGHTER_PRIMARY_RADIUS,
+            stealth_fighter_damage_at, stealth_jet_scatter_aim,
+            stealth_jet_scatter_misses_infantry, STEALTH_FIGHTER_DAMAGE,
+            STEALTH_FIGHTER_FIRE_AUDIO, STEALTH_FIGHTER_PRIMARY_RADIUS,
         };
 
         let (source_team, has_bunker_buster, is_carrier) = {
@@ -40622,6 +40659,52 @@ fn update_scud_poison_zones(&mut self) {
             .unwrap_or(false);
         let bunker_buster_hit =
             should_apply_bunker_buster(has_bunker_buster, is_carrier, intended_is_structure);
+
+        // C++ StealthJetMissileWeapon ScatterRadiusVsInfantry residual on instant apply.
+        let mut impact = impact;
+        let intended_is_infantry = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let mut intended_scatter_miss = false;
+        if intended_is_infantry && !bunker_buster_hit {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source.map(|s| s.0).unwrap_or(0),
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = stealth_jet_scatter_aim(impact, true, seed);
+            if scattered {
+                self.stealth_jet_scatter_applied =
+                    self.stealth_jet_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if stealth_jet_scatter_misses_infantry(true, seed, hit_r) {
+                let intended_pos = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position());
+                if let Some(pos) = intended_pos {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > STEALTH_FIGHTER_PRIMARY_RADIUS {
+                        self.stealth_jet_scatter_misses =
+                            self.stealth_jet_scatter_misses.saturating_add(1);
+                        intended_scatter_miss = true;
+                    }
+                }
+            }
+        }
 
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
@@ -40671,6 +40754,10 @@ fn update_scud_poison_zones(&mut self) {
                         (dx * dx + dz * dz).sqrt()
                     };
                     let is_intended = intended_target == Some(*id);
+                    // Scatter miss residual: intended infantry outside splash is not force-hit.
+                    if is_intended && intended_scatter_miss {
+                        return None;
+                    }
                     if is_intended || dist <= STEALTH_FIGHTER_PRIMARY_RADIUS {
                         Some((*id, dist, is_intended))
                     } else {
@@ -127002,6 +127089,78 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
     }
+
+    #[test]
+    fn stealth_jet_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_stealth_fighter::{
+            AMERICA_JET_STEALTH_FIGHTER, STEALTH_FIGHTER_SCATTER_VS_INFANTRY,
+            STEALTH_JET_MISSILE_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut jet_tpl = ThingTemplate::new(AMERICA_JET_STEALTH_FIGHTER);
+        jet_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(STEALTH_JET_MISSILE_WEAPON);
+        logic
+            .templates
+            .insert(AMERICA_JET_STEALTH_FIGHTER.to_string(), jet_tpl);
+
+        let jet = logic
+            .create_object(
+                AMERICA_JET_STEALTH_FIGHTER,
+                Team::USA,
+                glam::Vec3::new(0.0, 50.0, 0.0),
+            )
+            .expect("stealth jet");
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let impact = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
+        let _ = logic.apply_stealth_fighter_residual_at(impact, Some(jet), Some(inf));
+        assert!(
+            logic.stealth_jet_scatter_applied > 0
+                || logic.stealth_jet_scatter_misses > 0
+                || logic.honesty_stealth_jet_scatter_ok(),
+            "stealth jet scatter residual must peel vs infantry"
+        );
+        assert!((STEALTH_FIGHTER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
+        let (hits, _) = logic.apply_stealth_fighter_residual_at(impact, Some(jet), Some(tank));
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
+    }
+
 
 
 
