@@ -87,6 +87,9 @@ pub fn height_die_config_for_template(name: &str) -> Option<(f32, bool, u32)> {
     if n.contains("scud") && n.contains("missile") {
         return Some((10.0, true, 0));
     }
+    if n.contains("tomahawk") && n.contains("missile") {
+        return Some((10.0, true, 0));
+    }
     if n.contains("nuke") && n.contains("missile") {
         return Some((50.0, true, 1000)); // InitialDelay peel residual
     }

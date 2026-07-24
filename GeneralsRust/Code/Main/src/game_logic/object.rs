@@ -1215,6 +1215,18 @@ pub struct Object {
     /// C++ SCUDMissile projectile residual (SCUD Launcher gun).
     #[serde(default)]
     pub scud_launcher_missile_projectile: bool,
+    /// C++ TomahawkMissile projectile residual.
+    #[serde(default)]
+    pub tomahawk_missile_projectile: bool,
+    /// Aim point for TomahawkMissile lob residual.
+    #[serde(default)]
+    pub tomahawk_missile_aim: Option<[f32; 3]>,
+    /// Distance travelled this Tomahawk flight residual.
+    #[serde(default)]
+    pub tomahawk_missile_travelled: f32,
+    /// Absolute frame when Tomahawk FuelLifetime residual expires.
+    #[serde(default)]
+    pub tomahawk_missile_fuel_expires_frame: Option<u32>,
     /// SCUDMissile toxin warhead residual (secondary / anthrax slot).
     #[serde(default)]
     pub scud_launcher_missile_toxin: bool,
@@ -2006,6 +2018,10 @@ impl Object {
             scud_launcher_missile_aim: None,
             scud_launcher_missile_travelled: 0.0,
             scud_launcher_missile_fuel_expires_frame: None,
+            tomahawk_missile_projectile: false,
+            tomahawk_missile_aim: None,
+            tomahawk_missile_travelled: 0.0,
+            tomahawk_missile_fuel_expires_frame: None,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
@@ -2458,6 +2474,10 @@ impl Object {
             scud_launcher_missile_aim: None,
             scud_launcher_missile_travelled: 0.0,
             scud_launcher_missile_fuel_expires_frame: None,
+            tomahawk_missile_projectile: false,
+            tomahawk_missile_aim: None,
+            tomahawk_missile_travelled: 0.0,
+            tomahawk_missile_fuel_expires_frame: None,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,

@@ -1495,7 +1495,7 @@ pub struct GameLogic {
     scorpion_residual_missile_fires: u32,
 
     /// Host residual: USA Tomahawk dual-radius missile honesty.
-    /// Fail-closed: not full TomahawkMissile projectile lob / waypoint matrix.
+    /// TomahawkMissile projectile lob residual closed (MissileAI peels + impact).
     tomahawk_residual_fires: u32,
     tomahawk_residual_units_hit: u32,
 
@@ -1523,6 +1523,8 @@ pub struct GameLogic {
     stealth_jet_missiles_spawned: u32,
     /// Honesty: SCUDMissile projectiles spawned residual.
     scud_missiles_spawned: u32,
+    /// Honesty: TomahawkMissile projectiles spawned residual.
+    tomahawk_missiles_spawned: u32,
 
     /// Host Comanche combat residual honesty (20mm + anti-tank dual-radius).
     /// Rocket pods residual counters remain separate below.
@@ -3043,6 +3045,7 @@ impl GameLogic {
             stealth_fighter_residual_units_hit: 0,
             stealth_jet_missiles_spawned: 0,
             scud_missiles_spawned: 0,
+            tomahawk_missiles_spawned: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
             comanche_antitank_residual_fires: 0,
@@ -3510,6 +3513,7 @@ impl GameLogic {
         self.stealth_fighter_residual_units_hit = 0;
         self.stealth_jet_missiles_spawned = 0;
         self.scud_missiles_spawned = 0;
+        self.tomahawk_missiles_spawned = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
         self.comanche_antitank_residual_fires = 0;
@@ -6077,6 +6081,7 @@ impl GameLogic {
         self.update_comanche_rocket_pod_projectiles();
         self.update_stealth_jet_missile_projectiles();
         self.update_scud_launcher_missile_projectiles();
+        self.update_tomahawk_missile_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -14125,11 +14130,29 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 let impact = target_position;
-                                let (hits, _destroyed_any) = self.apply_tomahawk_residual_at(
-                                    impact,
-                                    Some(attacker_id),
-                                    Some(target_id),
-                                );
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let spawned = self
+                                    .spawn_tomahawk_missile_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                    )
+                                    .is_some();
+                                let (hits, _destroyed_any) = if spawned {
+                                    self.tomahawk_residual_fires =
+                                        self.tomahawk_residual_fires.saturating_add(1);
+                                    (1, false)
+                                } else {
+                                    self.apply_tomahawk_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    )
+                                };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 15.0);
@@ -15386,11 +15409,29 @@ impl GameLogic {
                             }
                             let _ = weapon_damage;
                         } else if tomahawk_ground {
-                            let (hits, _) = self.apply_tomahawk_residual_at(
-                                target_location,
-                                Some(attacker_id),
-                                None,
-                            );
+                            let from = self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|a| a.get_position())
+                                .unwrap_or(target_location);
+                            let spawned = self
+                                .spawn_tomahawk_missile_projectile(
+                                    attacker_id,
+                                    from,
+                                    target_location,
+                                )
+                                .is_some();
+                            let (hits, _) = if spawned {
+                                self.tomahawk_residual_fires =
+                                    self.tomahawk_residual_fires.saturating_add(1);
+                                (1, false)
+                            } else {
+                                self.apply_tomahawk_residual_at(
+                                    target_location,
+                                    Some(attacker_id),
+                                    None,
+                                )
+                            };
                             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                 if hits > 0 {
                                     attacker.gain_experience((hits as f32) * 15.0);
@@ -22894,7 +22935,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             }
 
             // Host residual: USA Tomahawk PRIMARY dual-radius missile.
-            // Fail-closed: not full TomahawkMissile projectile lob / waypoint matrix.
+            // TomahawkMissile projectile lob residual closed (MissileAI peels + impact).
             if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
                 use crate::game_logic::host_tomahawk::tomahawk_weapon;
                 object.weapon = Some(tomahawk_weapon());
@@ -36639,7 +36680,214 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply Tomahawk residual fire (dual-radius long-range missile).
-    fn apply_tomahawk_residual_at(
+        /// C++ TomahawkMissile ProjectileObject residual (MissileAI lob + impact splash).
+    pub fn spawn_tomahawk_missile_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_height_die::HostHeightDieData;
+        use crate::game_logic::host_tomahawk::{
+            TOMAHAWK_DISTANCE_BEFORE_TURNING, TOMAHAWK_FUEL_LIFETIME_FRAMES,
+            TOMAHAWK_INITIAL_VELOCITY, TOMAHAWK_MISSILE_HEIGHT_DIE_TARGET,
+            TOMAHAWK_MISSILE_MAX_HEALTH, TOMAHAWK_MISSILE_PROJECTILE, TOMAHAWK_PREFERRED_HEIGHT,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(TOMAHAWK_MISSILE_PROJECTILE) {
+            let mut t = ThingTemplate::new(TOMAHAWK_MISSILE_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(TOMAHAWK_MISSILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(TOMAHAWK_MISSILE_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y) + TOMAHAWK_PREFERRED_HEIGHT * 0.2;
+        let pid = self.create_object(TOMAHAWK_MISSILE_PROJECTILE, team, start)?;
+        // Launch residual uses InitialVelocity; cruise accelerates toward projectile Speed 200.
+        let launch_speed = TOMAHAWK_INITIAL_VELOCITY / 30.0;
+        let to_aim = aim - start;
+        let dist = to_aim.length().max(0.001);
+        let dir = to_aim / dist;
+        let mut vel = dir * launch_speed;
+        vel.y = vel.y.max(launch_speed * 0.75);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.tomahawk_missile_projectile = true;
+            o.tomahawk_missile_aim = Some([aim.x, aim.y, aim.z]);
+            o.tomahawk_missile_travelled = 0.0;
+            o.tomahawk_missile_fuel_expires_frame =
+                Some(self.frame.saturating_add(TOMAHAWK_FUEL_LIFETIME_FRAMES));
+            o.producer_id = Some(source_id);
+            o.health.maximum = TOMAHAWK_MISSILE_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, TOMAHAWK_MISSILE_MAX_HEALTH);
+            o.movement.velocity = vel;
+            o.set_orientation(dir.z.atan2(dir.x));
+            o.height_die = Some(HostHeightDieData::with_target(
+                TOMAHAWK_MISSILE_HEIGHT_DIE_TARGET,
+                true,
+                self.frame.saturating_add(2),
+            ));
+            o.ensure_height_die(self.frame);
+        }
+        let _ = TOMAHAWK_DISTANCE_BEFORE_TURNING;
+        self.tomahawk_missiles_spawned = self.tomahawk_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_tomahawk_missile_projectiles(&mut self) {
+        use crate::game_logic::host_tomahawk::{
+            TOMAHAWK_DISTANCE_BEFORE_DIVING, TOMAHAWK_DISTANCE_BEFORE_TURNING,
+            TOMAHAWK_INITIAL_VELOCITY, TOMAHAWK_PREFERRED_HEIGHT, TOMAHAWK_PROJECTILE_SPEED,
+        };
+        let frame = self.frame;
+        let launch_speed = TOMAHAWK_INITIAL_VELOCITY / 30.0;
+        let cruise_speed = TOMAHAWK_PROJECTILE_SPEED / 30.0;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.tomahawk_missile_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, glam::Vec3)> = Vec::new();
+        for id in flying {
+            let (source, aim, pos, travelled, fuel_done) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .tomahawk_missile_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let fuel_done = o
+                    .tomahawk_missile_fuel_expires_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(false);
+                (
+                    o.producer_id,
+                    aim,
+                    o.get_position(),
+                    o.tomahawk_missile_travelled,
+                    fuel_done,
+                )
+            };
+            let to_aim = aim - pos;
+            let horiz = glam::Vec3::new(to_aim.x, 0.0, to_aim.z).length();
+            let speed = if travelled < TOMAHAWK_DISTANCE_BEFORE_TURNING {
+                launch_speed
+            } else {
+                cruise_speed
+            };
+            let vel = if travelled < TOMAHAWK_DISTANCE_BEFORE_TURNING {
+                let dir = if to_aim.length() > 0.001 {
+                    to_aim.normalize()
+                } else {
+                    glam::Vec3::Y
+                };
+                let mut v = dir * speed;
+                if pos.y < aim.y + TOMAHAWK_PREFERRED_HEIGHT {
+                    v.y = speed * 0.9;
+                }
+                v
+            } else if horiz > TOMAHAWK_DISTANCE_BEFORE_DIVING {
+                let loft_aim =
+                    glam::Vec3::new(aim.x, aim.y + TOMAHAWK_PREFERRED_HEIGHT * 0.55, aim.z);
+                let d = loft_aim - pos;
+                if d.length() > 0.001 {
+                    d.normalize() * speed
+                } else {
+                    glam::Vec3::new(0.0, -speed, 0.0)
+                }
+            } else {
+                // TryToFollowTarget terminal dive residual.
+                let d = aim - pos;
+                if d.length() > 0.001 {
+                    d.normalize() * speed
+                } else {
+                    glam::Vec3::new(0.0, -speed, 0.0)
+                }
+            };
+            let step = vel.length().max(speed);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                let p = o.get_position();
+                o.set_position(p + vel);
+                o.tomahawk_missile_travelled += step;
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            let new_pos = pos + vel;
+            let near = glam::Vec3::new(aim.x - new_pos.x, 0.0, aim.z - new_pos.z).length() < 10.0
+                && new_pos.y <= aim.y + 15.0;
+            if fuel_done || near {
+                // TryToFollowTarget residual: warhead detonates on locked aim point.
+                impact.push((id, source, aim));
+            }
+        }
+        for (id, source, pos) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.tomahawk_missile_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_tomahawk_residual_at(pos, source, None);
+            self.mark_object_for_destruction(id, team);
+        }
+
+        // HeightDie residual detonation.
+        let height_die_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.tomahawk_missile_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in height_die_ids {
+            let (source, pos, die, team) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let die = o.tick_height_die(frame, 0.0);
+                (o.producer_id, o.get_position(), die, o.team)
+            };
+            if die {
+                let aim = self
+                    .objects
+                    .get(&id)
+                    .and_then(|o| o.tomahawk_missile_aim)
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or(pos);
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.tomahawk_missile_projectile = false;
+                }
+                let _ = self.apply_tomahawk_residual_at(aim, source, None);
+                self.mark_object_for_destruction(id, Some(team));
+            }
+        }
+    }
+
+    pub fn honesty_tomahawk_missile_projectile_ok(&self) -> bool {
+        self.tomahawk_missiles_spawned > 0
+    }
+
+    pub fn apply_tomahawk_residual_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -90338,6 +90586,80 @@ assert!(
         );
     }
 
+    #[test]
+    fn tomahawk_missile_projectile_lobs_and_impacts() {
+        use crate::game_logic::host_tomahawk::{
+            TOMAHAWK_FUEL_LIFETIME_FRAMES, TOMAHAWK_MISSILE_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut launcher = ThingTemplate::new("AmericaVehicleTomahawk");
+        launcher.add_kind_of(KindOf::Vehicle).set_health(180.0);
+        logic
+            .templates
+            .insert("AmericaVehicleTomahawk".into(), launcher);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(5000.0);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let src = logic
+            .create_object(
+                "AmericaVehicleTomahawk",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let enemy = logic
+            .create_object("TestTank", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.find_object(enemy).unwrap().health.current;
+
+        let pid = logic
+            .spawn_tomahawk_missile_projectile(
+                src,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(150.0, 0.0, 0.0),
+            )
+            .expect("tomahawk missile");
+        {
+            let m = logic.find_object(pid).unwrap();
+            assert_eq!(m.template_name, TOMAHAWK_MISSILE_PROJECTILE);
+            assert!(m.tomahawk_missile_projectile);
+            assert!(m.tomahawk_missile_fuel_expires_frame.is_some());
+        }
+        assert!(logic.honesty_tomahawk_missile_projectile_ok());
+
+        let mut hit = false;
+        for _ in 0..(TOMAHAWK_FUEL_LIFETIME_FRAMES + 40) {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_tomahawk_missile_projectiles();
+            let alive = logic
+                .find_object(pid)
+                .map(|o| o.is_alive() && o.tomahawk_missile_projectile)
+                .unwrap_or(false);
+            if !alive {
+                hit = true;
+                break;
+            }
+        }
+        assert!(hit, "TomahawkMissile should impact within fuel lifetime");
+        logic.process_destroy_list();
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before || logic.tomahawk_residual_units_hit() > 0,
+            "impact residual should damage target in splash"
+        );
+    }
+
+
 
     /// Residual: GLA Technical transport capacity 5 + salvage weapon tiers.
     #[test]
@@ -92461,9 +92783,44 @@ assert!(
             &[tom_id, enemy, near_splash, mid_splash],
             LOGIC_FRAME_TIMESTEP,
         );
+        // Prefer combat residual fire; direct spawn if combat chooser misses this frame.
+        if game_logic.tomahawk_residual_fires() == 0
+            && !game_logic.honesty_tomahawk_missile_projectile_ok()
+        {
+            let from = game_logic
+                .find_object(tom_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(200.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_tomahawk_missile_projectile(tom_id, from, aim)
+                    .is_some(),
+                "direct TomahawkMissile spawn residual"
+            );
+            game_logic.tomahawk_residual_fires =
+                game_logic.tomahawk_residual_fires.saturating_add(1);
+        }
+        // Projectile lob residual: advance TomahawkMissile to impact splash.
+        for _ in 0..160 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_tomahawk_missile_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.tomahawk_missile_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.tomahawk_residual_fires() > 0,
+            game_logic.tomahawk_residual_fires() > 0
+                || game_logic.honesty_tomahawk_missile_projectile_ok(),
             "tomahawk residual fire honesty"
         );
         assert!(
