@@ -50,7 +50,7 @@ pub const FIRE_BASE_PROJECTILE_SPEED: f32 = 300.0;
 pub const FIRE_BASE_MIN_WEAPON_SPEED: f32 = 75.0;
 /// Retail ScaleWeaponSpeed residual honesty.
 pub const FIRE_BASE_SCALE_WEAPON_SPEED: bool = true;
-/// Retail ScatterRadiusVsInfantry residual (honesty only; host fail-closed no random miss).
+/// Retail ScatterRadiusVsInfantry residual (projectile aim offset + instant-apply impact).
 pub const FIRE_BASE_SCATTER_VS_INFANTRY: f32 = 15.0;
 /// Retail DamageType residual.
 pub const FIRE_BASE_DAMAGE_TYPE: &str = "EXPLOSION";
@@ -309,13 +309,34 @@ pub fn fire_base_scatter_aim(
     use crate::game_logic::weapon_bootstrap::{
         host_effective_scatter_radius, scatter_aim_offset,
     };
-    let scatter = host_effective_scatter_radius(FIRE_BASE_HOWITZER_WEAPON, target_is_infantry);
+    let mut scatter =
+        host_effective_scatter_radius(FIRE_BASE_HOWITZER_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = FIRE_BASE_SCATTER_VS_INFANTRY;
+    }
     if scatter <= 0.0 {
         return (aim, false);
     }
     let off = scatter_aim_offset(seed, scatter);
     let scattered = Vec3::new(aim.x + off.x, aim.y, aim.z + off.z);
     (scattered, true)
+}
+
+/// Whether FireBaseHowitzerGun residual misses intended infantry via ScatterRadiusVsInfantry.
+///
+/// Howitzer splash still uses the scattered impact point; this peels the intended
+/// direct-hit residual when the aim offset exceeds the target hit radius (and the
+/// shell lands outside PrimaryDamageRadius of the intended unit).
+pub fn fire_base_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(FIRE_BASE_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
 
 /// Wave residual honesty: Fire Base ScatterRadiusVsInfantry peels.
@@ -342,7 +363,11 @@ mod tests {
         assert!((sc.x - aim.x).abs() > 0.01 || (sc.z - aim.z).abs() > 0.01);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d <= FIRE_BASE_SCATTER_VS_INFANTRY + 0.01);
-    }
+    
+        assert!(fire_base_scatter_misses_infantry(true, 17, 0.5));
+        assert!(!fire_base_scatter_misses_infantry(true, 17, 100.0));
+        assert!(!fire_base_scatter_misses_infantry(false, 17, 0.5));
+}
 
     #[test]
     fn fire_base_name_matrix() {

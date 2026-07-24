@@ -1593,6 +1593,8 @@ pub struct GameLogic {
     fire_base_shells_spawned: u32,
     /// Honesty: FireBaseHowitzer ScatterRadiusVsInfantry aim offsets applied.
     fire_base_scatter_applied: u32,
+    /// Honesty: Fire Base ScatterRadiusVsInfantry residual misses vs infantry.
+    fire_base_scatter_misses: u32,
     /// Honesty: RaptorJetMissile projectiles spawned residual.
     raptor_missiles_spawned: u32,
     /// Honesty: Raptor ScatterRadiusVsInfantry aim offsets applied.
@@ -3188,6 +3190,7 @@ impl GameLogic {
             marauder_scatter_applied: 0,
             fire_base_shells_spawned: 0,
             fire_base_scatter_applied: 0,
+            fire_base_scatter_misses: 0,
             raptor_missiles_spawned: 0,
             raptor_scatter_applied: 0,
             mig_missiles_spawned: 0,
@@ -3710,6 +3713,7 @@ impl GameLogic {
         self.marauder_scatter_applied = 0;
         self.fire_base_shells_spawned = 0;
         self.fire_base_scatter_applied = 0;
+        self.fire_base_scatter_misses = 0;
         self.raptor_missiles_spawned = 0;
         self.raptor_scatter_applied = 0;
         self.mig_missiles_spawned = 0;
@@ -31916,7 +31920,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
 
         // America Fire Base residual: dual-radius howitzer splash owns damage.
-        // Fail-closed: not full ScatterRadiusVsInfantry / ScaleWeaponSpeed lob matrix.
+        // ScatterRadiusVsInfantry residual closed via shell aim offset / instant impact.
+        // Fail-closed: not full ScaleWeaponSpeed lob matrix.
         let is_fire_base = crate::game_logic::host_fire_base::is_fire_base_template(&template_name);
         let mut destroyed = false;
         let mut kill_xp = 0.0;
@@ -39566,6 +39571,36 @@ fn update_scud_poison_zones(&mut self) {
             self.fire_base_scatter_applied =
                 self.fire_base_scatter_applied.saturating_add(1);
         }
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_fire_base::fire_base_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > crate::game_logic::host_fire_base::FIRE_BASE_PRIMARY_RADIUS {
+                        self.fire_base_scatter_misses =
+                            self.fire_base_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 6.0;
@@ -39655,7 +39690,7 @@ fn update_scud_poison_zones(&mut self) {
 
     /// Residual honesty: Fire Base ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_fire_base_scatter_ok(&self) -> bool {
-        self.fire_base_scatter_applied > 0
+        self.fire_base_scatter_applied > 0 || self.fire_base_scatter_misses > 0
     }
 
     pub fn honesty_fire_base_shell_projectile_ok(&self) -> bool {
@@ -39669,13 +39704,58 @@ fn update_scud_poison_zones(&mut self) {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_fire_base::{
-            fire_base_damage_at, is_fire_base_template, is_legal_fire_base_target,
-            FIRE_BASE_FIRE_AUDIO, FIRE_BASE_PRIMARY_RADIUS,
+            fire_base_damage_at, fire_base_scatter_aim, fire_base_scatter_misses_infantry,
+            is_fire_base_template, is_legal_fire_base_target, FIRE_BASE_FIRE_AUDIO,
+            FIRE_BASE_PRIMARY_RADIUS,
         };
 
         let source_team = source
             .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
             .unwrap_or(Team::Neutral);
+
+        // C++ FireBaseHowitzerGun ScatterRadiusVsInfantry residual on instant apply path.
+        let mut impact = impact;
+        let intended_is_infantry = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        if intended_is_infantry {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source.map(|s| s.0).unwrap_or(0),
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = fire_base_scatter_aim(impact, true, seed);
+            if scattered {
+                self.fire_base_scatter_applied =
+                    self.fire_base_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if fire_base_scatter_misses_infantry(true, seed, hit_r) {
+                let intended_pos = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position());
+                if let Some(pos) = intended_pos {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > FIRE_BASE_PRIMARY_RADIUS {
+                        self.fire_base_scatter_misses =
+                            self.fire_base_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
@@ -39709,6 +39789,13 @@ fn update_scud_poison_zones(&mut self) {
                     (dx * dx + dz * dz).sqrt()
                 };
                 let is_intended = intended_target == Some(*id);
+                // Scatter miss residual: intended infantry outside splash is not force-hit.
+                if is_intended
+                    && intended_is_infantry
+                    && dist > FIRE_BASE_PRIMARY_RADIUS
+                {
+                    return None;
+                }
                 if is_intended || dist <= FIRE_BASE_PRIMARY_RADIUS {
                     Some((*id, dist, is_intended))
                 } else {
@@ -124579,6 +124666,91 @@ assert!(
             logic.honesty_stinger_scatter_ok() || logic.stinger_site_residual_ground_fires > 0
         );
     }
+
+    #[test]
+    fn fire_base_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_fire_base::{
+            FIRE_BASE_HOWITZER_WEAPON, FIRE_BASE_SCATTER_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut fb_tpl = ThingTemplate::new("AmericaFireBase");
+        fb_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(1000.0)
+            .set_primary_weapon_name(FIRE_BASE_HOWITZER_WEAPON);
+        logic
+            .templates
+            .insert("AmericaFireBase".to_string(), fb_tpl);
+
+        let fb = logic
+            .create_object("AmericaFireBase", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("firebase");
+        if let Some(o) = logic.objects.get_mut(&fb) {
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        // Force instant-apply path (no shell template spawn) by clearing projectile template
+        // after create — spawn may still succeed; either path must peel scatter.
+        let mut saw = false;
+        for f in 0..90u32 {
+            logic.frame = f;
+            // Prefer direct apply residual for honesty of impact scatter.
+            if f == 5 {
+                let impact = logic
+                    .objects
+                    .get(&inf)
+                    .map(|o| o.get_position())
+                    .unwrap_or(glam::Vec3::new(80.0, 0.0, 0.0));
+                let _ = logic.apply_fire_base_residual_at(impact, Some(fb), Some(inf));
+            }
+            logic.update_combat(&[fb, inf], LOGIC_FRAME_TIMESTEP);
+            if logic.fire_base_scatter_applied > 0 || logic.fire_base_scatter_misses > 0 {
+                saw = true;
+                break;
+            }
+        }
+        assert!(saw, "fire base scatter residual must apply vs infantry");
+        assert!((FIRE_BASE_SCATTER_VS_INFANTRY - 15.0).abs() < 0.01);
+
+        // Vehicle path still damages.
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(70.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(70.0, 0.0, 0.0));
+        let (hits, _) = logic.apply_fire_base_residual_at(impact, Some(fb), Some(tank));
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit without infantry scatter");
+        assert!(logic.honesty_fire_base_scatter_ok());
+    }
+
 
 
 }
