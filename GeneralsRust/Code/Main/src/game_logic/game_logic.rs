@@ -1557,6 +1557,8 @@ pub struct GameLogic {
     marauder_shells_spawned: u32,
     /// Honesty: Fire Base GenericTankShell lob projectiles spawned residual.
     fire_base_shells_spawned: u32,
+    /// Honesty: FireBaseHowitzer ScatterRadiusVsInfantry aim offsets applied.
+    fire_base_scatter_applied: u32,
     /// Honesty: RaptorJetMissile projectiles spawned residual.
     raptor_missiles_spawned: u32,
     /// Honesty: NapalmMissile / MiG projectiles spawned residual.
@@ -3118,6 +3120,7 @@ impl GameLogic {
             inferno_shells_spawned: 0,
             marauder_shells_spawned: 0,
             fire_base_shells_spawned: 0,
+            fire_base_scatter_applied: 0,
             raptor_missiles_spawned: 0,
             mig_missiles_spawned: 0,
             flashbang_grenades_spawned: 0,
@@ -3614,6 +3617,7 @@ impl GameLogic {
         self.inferno_shells_spawned = 0;
         self.marauder_shells_spawned = 0;
         self.fire_base_shells_spawned = 0;
+        self.fire_base_scatter_applied = 0;
         self.raptor_missiles_spawned = 0;
         self.mig_missiles_spawned = 0;
         self.flashbang_grenades_spawned = 0;
@@ -33187,6 +33191,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: America Fire Base howitzer residual fired.
     pub fn honesty_fire_base_ok(&self) -> bool {
         self.fire_base_residual_fires > 0
+            || self.fire_base_shells_spawned > 0
+            || self.fire_base_scatter_applied > 0
     }
 
     pub fn fire_base_residual_fires(&self) -> u32 {
@@ -39076,6 +39082,27 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on FireBaseHowitzerGun vs infantry.
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) = crate::game_logic::host_fire_base::fire_base_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
+        if scattered {
+            self.fire_base_scatter_applied =
+                self.fire_base_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 6.0;
         let pid = self.create_object(FIRE_BASE_PROJECTILE, team, start)?;
@@ -39160,6 +39187,11 @@ fn update_scud_poison_zones(&mut self) {
             let _ = self.apply_fire_base_residual_at(pos, source, intended);
             self.mark_object_for_destruction(id, team);
         }
+    }
+
+    /// Residual honesty: Fire Base ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_fire_base_scatter_ok(&self) -> bool {
+        self.fire_base_scatter_applied > 0
     }
 
     pub fn honesty_fire_base_shell_projectile_ok(&self) -> bool {
@@ -121752,6 +121784,95 @@ assert!(
         let a = logic.objects.get(&atk).unwrap();
         assert!(matches!(a.ai_state, AIState::Idle) || a.target.is_none());
     }
+
+    #[test]
+    fn fire_base_shell_scatters_vs_infantry() {
+        use crate::game_logic::host_fire_base::FIRE_BASE_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut fb_tpl = ThingTemplate::new("AmericaFireBase");
+        fb_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaFireBase".to_string(), fb_tpl);
+        let mut r_tpl = ThingTemplate::new("ChinaInfantryRedguard");
+        r_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryRedguard".to_string(), r_tpl);
+
+        let fb = logic
+            .create_object(
+                "AmericaFireBase",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("firebase");
+        let inf = logic
+            .create_object(
+                "ChinaInfantryRedguard",
+                Team::China,
+                glam::Vec3::new(120.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(120.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 10.0, 0.0);
+        let shell = logic
+            .spawn_fire_base_shell_projectile(fb, from, aim, Some(inf))
+            .expect("shell");
+        assert!(logic.honesty_fire_base_scatter_ok());
+        let shell_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.fire_base_shell_aim)
+            .expect("aim");
+        let dx = shell_aim[0] - aim.x;
+        let dz = shell_aim[2] - aim.z;
+        let d = (dx * dx + dz * dz).sqrt();
+        assert!(d > 0.01, "infantry aim should scatter");
+        assert!(d <= FIRE_BASE_SCATTER_VS_INFANTRY + 0.01);
+
+        // Vehicle target: no scatter.
+        let mut t_tpl = ThingTemplate::new("ChinaTankBattlemaster");
+        t_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("ChinaTankBattlemaster".to_string(), t_tpl);
+        let tank = logic
+            .create_object(
+                "ChinaTankBattlemaster",
+                Team::China,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.fire_base_scatter_applied;
+        let shell2 = logic
+            .spawn_fire_base_shell_projectile(
+                fb,
+                from,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+                Some(tank),
+            )
+            .expect("shell2");
+        assert_eq!(logic.fire_base_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.fire_base_shell_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
 }
 
 #[cfg(test)]
@@ -121816,6 +121937,3 @@ mod skirmish_starting_unit_residual_tests {
         assert!(o.is_worker() || o.can_construct(), "dozer should construct");
     }
 }
-
-
-

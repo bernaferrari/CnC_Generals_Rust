@@ -20,7 +20,7 @@
 //! - Not full SPAWNS_ARE_THE_WEAPONS / garrison-howitzer HiveStructureBody matrix
 //! - GenericTankShell ScaleWeaponSpeed lob Bezier flight residual closed
 //! - Not full Turret pitch drawable matrix
-//! - Not full ScatterRadiusVsInfantry residual miss cone
+//! - ScatterRadiusVsInfantry **15** residual miss cone closed (deterministic aim offset)
 //! - Not network Fire Base replication (network deferred)
 
 use super::Weapon;
@@ -294,11 +294,55 @@ pub fn honesty_fire_base_body_residual_ok() -> bool {
 /// Combined Wave 63 Fire Base residual honesty pack.
 pub fn honesty_fire_base_residual_pack_ok() -> bool {
     honesty_fire_base_weapon_residual_ok() && honesty_fire_base_body_residual_ok()
+        && honesty_fire_base_scatter_vs_infantry_ok()
+}
+
+
+/// Apply FireBaseHowitzerGun ScatterRadiusVsInfantry residual to aim point.
+///
+/// C++ Weapon::fireWeapon scatter only vs infantry targets. Deterministic seed.
+pub fn fire_base_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let scatter = host_effective_scatter_radius(FIRE_BASE_HOWITZER_WEAPON, target_is_infantry);
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    let scattered = Vec3::new(aim.x + off.x, aim.y, aim.z + off.z);
+    (scattered, true)
+}
+
+/// Wave residual honesty: Fire Base ScatterRadiusVsInfantry peels.
+pub fn honesty_fire_base_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    (FIRE_BASE_SCATTER_VS_INFANTRY - 15.0).abs() < 0.01
+        && (host_effective_scatter_radius(FIRE_BASE_HOWITZER_WEAPON, true) - 15.0).abs() < 0.01
+        && host_effective_scatter_radius(FIRE_BASE_HOWITZER_WEAPON, false).abs() < 0.01
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fire_base_scatter_vs_infantry_peels() {
+        assert!(honesty_fire_base_scatter_vs_infantry_ok());
+        let aim = Vec3::new(100.0, 0.0, 50.0);
+        let (no_sc, applied) = fire_base_scatter_aim(aim, false, 7);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = fire_base_scatter_aim(aim, true, 7);
+        assert!(applied);
+        assert!((sc.x - aim.x).abs() > 0.01 || (sc.z - aim.z).abs() > 0.01);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d <= FIRE_BASE_SCATTER_VS_INFANTRY + 0.01);
+    }
 
     #[test]
     fn fire_base_name_matrix() {
@@ -333,6 +377,7 @@ mod tests {
     fn fire_base_residual_pack_honesty_wave63() {
         assert!(honesty_fire_base_weapon_residual_ok());
         assert!(honesty_fire_base_body_residual_ok());
+        assert!(honesty_fire_base_scatter_vs_infantry_ok());
         assert!(honesty_fire_base_residual_pack_ok());
         assert_eq!(fire_base_ms_to_frames(2_000), 60);
         assert_eq!(fire_base_ms_to_frames(0), 0);
