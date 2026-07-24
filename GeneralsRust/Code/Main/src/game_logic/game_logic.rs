@@ -6096,6 +6096,7 @@ impl GameLogic {
         self.update_cluster_mines_flights();
         self.update_emp_pulse_flights();
         self.update_frenzy_invisible_markers();
+        self.update_gps_scrambler_grow();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -29099,6 +29100,131 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ OCL GPSScrambler_InvisibleMarker residual.
+    pub fn spawn_gps_scrambler_marker(
+        &mut self,
+        team: Team,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_INVISIBLE_MARKER;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(GPS_SCRAMBLER_INVISIBLE_MARKER) {
+            let mut t = ThingTemplate::new(GPS_SCRAMBLER_INVISIBLE_MARKER);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(GPS_SCRAMBLER_INVISIBLE_MARKER.to_string(), t);
+        }
+        let mid = self.create_object(GPS_SCRAMBLER_INVISIBLE_MARKER, team, position)?;
+        if let Some(o) = self.objects.get_mut(&mid) {
+            o.gps_scrambler_marker = true;
+        }
+        self.gps_scramblers.record_marker_spawn();
+        Some(mid)
+    }
+
+    /// C++ GrantStealthBehavior radius grow pulse residual (Start 20 → Final 100).
+    pub fn update_gps_scrambler_grow(&mut self) {
+        use crate::game_logic::host_gps_scrambler::{
+            gps_scrambler_grow_is_final, gps_scrambler_scan_radius_after_updates,
+            in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name,
+            is_legal_gps_scrambler_target, GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL,
+        };
+
+        // Collect grow work without holding registry mut across object mut.
+        let work: Vec<(u32, Vec3, f32, Team, Option<ObjectId>)> = {
+            let mut out = Vec::new();
+            for a in self.gps_scramblers.growing_missions_mut() {
+                if a.grow_index >= GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL {
+                    a.growing = false;
+                    a.radius = gps_scrambler_scan_radius_after_updates(a.grow_index.saturating_sub(1));
+                    continue;
+                }
+                let radius = gps_scrambler_scan_radius_after_updates(a.grow_index);
+                a.radius = radius;
+                a.grow_index = a.grow_index.saturating_add(1);
+                if gps_scrambler_grow_is_final(a.grow_index.saturating_sub(1))
+                    || a.grow_index >= GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL
+                {
+                    a.growing = false;
+                }
+                let team = a
+                    .caster_id
+                    .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
+                    .unwrap_or(Team::GLA);
+                out.push((a.id, a.location, radius, team, a.caster_id));
+            }
+            out
+        };
+
+        for (_aid, location, radius, team, caster_id) in work {
+            self.gps_scramblers.record_grow_pulse();
+            let center = (location.x, location.z);
+            let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if !obj.is_alive() {
+                        return None;
+                    }
+                    if obj.gps_scrambler_marker {
+                        return None;
+                    }
+                    let pos = obj.get_position();
+                    if !in_gps_scrambler_radius_2d(center, (pos.x, pos.z), radius) {
+                        return None;
+                    }
+                    let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
+                    let is_infantry = obj.is_kind_of(KindOf::Infantry);
+                    let same_team = obj.team == team;
+                    let under_construction =
+                        obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                    let is_disguise = is_gps_scrambler_disguise_name(&obj.template_name);
+                    Some((
+                        *id,
+                        is_vehicle,
+                        is_infantry,
+                        same_team,
+                        under_construction,
+                        is_disguise,
+                    ))
+                })
+                .collect();
+
+            let mut grants = 0u32;
+            for (id, is_vehicle, is_infantry, same_team, under_construction, is_disguise) in
+                candidates
+            {
+                if !is_legal_gps_scrambler_target(
+                    is_vehicle,
+                    is_infantry,
+                    true,
+                    same_team,
+                    under_construction,
+                    is_disguise,
+                ) {
+                    continue;
+                }
+                let Some(target) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let was = target.is_effectively_stealthed();
+                target.apply_grant_stealth();
+                if !was || target.is_effectively_stealthed() {
+                    grants = grants.saturating_add(1);
+                }
+            }
+            if grants > 0 {
+                // Bookkeeping on registry grant_count via record if available.
+                self.gps_scramblers.grant_count =
+                    self.gps_scramblers.grant_count.saturating_add(grants);
+            }
+            let _ = caster_id;
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -43088,6 +43214,7 @@ fn update_scud_poison_zones(&mut self) {
         use crate::game_logic::host_gps_scrambler::{
             in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name,
             is_legal_gps_scrambler_target, HostGpsScrambler, GPS_SCRAMBLER_ACTIVATE_AUDIO,
+            GPS_SCRAMBLER_INVISIBLE_MARKER, GPS_SCRAMBLER_START_RADIUS,
             HOST_GPS_SCRAMBLER_RADIUS,
         };
 
@@ -43113,7 +43240,8 @@ fn update_scud_poison_zones(&mut self) {
                 // Residual: never grant to the invisible marker/caster building itself
                 // when it is a structure (command center). Units at caster pos still ok.
                 let pos = obj.get_position();
-                if !in_gps_scrambler_radius_2d(center, (pos.x, pos.z), HOST_GPS_SCRAMBLER_RADIUS) {
+                // GrantStealthBehavior StartRadius residual (grow expands later).
+                if !in_gps_scrambler_radius_2d(center, (pos.x, pos.z), GPS_SCRAMBLER_START_RADIUS) {
                     return None;
                 }
                 let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
@@ -43160,15 +43288,21 @@ fn update_scud_poison_zones(&mut self) {
             }
         }
 
+        // C++ OCL SUPERWEAPON_GPSScrambler → GPSScrambler_InvisibleMarker residual.
+        let marker_id = self.spawn_gps_scrambler_marker(caster_team, location);
+
         let entry_id = self.gps_scramblers.alloc_id();
         self.gps_scramblers.record_activation(HostGpsScrambler {
             id: entry_id,
             player_id,
             location,
-            radius: HOST_GPS_SCRAMBLER_RADIUS,
+            radius: GPS_SCRAMBLER_START_RADIUS,
             activate_frame: frame,
             caster_id,
             grants,
+            grow_index: 0,
+            growing: true,
+            marker_id,
         });
 
         // C++ SuperweaponLaunched GPS Scrambler EVA residual.
@@ -68818,6 +68952,12 @@ mod tests {
         });
         game_logic.process_commands();
 
+        // GrantStealthBehavior grow residual: expand StartRadius → FinalRadius.
+        use crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL;
+        for _ in 0..GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL {
+            game_logic.update_gps_scrambler_grow();
+        }
+
         assert!(
             game_logic.honesty_gps_scrambler_activate_ok(),
             "GPS Scrambler residual must record activation honesty"
@@ -69217,6 +69357,56 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn gps_scrambler_grows_and_spawns_marker() {
+        use crate::game_logic::host_gps_scrambler::{
+            GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL, GPS_SCRAMBLER_INVISIBLE_MARKER,
+            GPS_SCRAMBLER_START_RADIUS,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        if let Some(p) = logic.get_player_mut(2) {
+            p.unlock_science("SCIENCE_GPSScrambler");
+        }
+        let mut tank_near = crate::game_logic::ThingTemplate::new("GLATankScorpion");
+        tank_near.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("GLATankScorpion".into(), tank_near);
+        let mut tank_far = crate::game_logic::ThingTemplate::new("GLATankMarauder");
+        tank_far.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("GLATankMarauder".into(), tank_far);
+        let near = logic
+            .create_object("GLATankScorpion", Team::GLA, Vec3::new(15.0, 0.0, 0.0))
+            .unwrap();
+        // Outside start radius 20, inside final 100.
+        let far = logic
+            .create_object("GLATankMarauder", Team::GLA, Vec3::new(60.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.activate_gps_scrambler(2, Vec3::ZERO, Some(near)));
+        assert!(logic.gps_scramblers.markers_spawned >= 1);
+        assert!(logic
+            .get_objects()
+            .values()
+            .any(|o| o.gps_scrambler_marker && o.template_name == GPS_SCRAMBLER_INVISIBLE_MARKER));
+        assert!(logic.find_object(near).unwrap().is_effectively_stealthed());
+        assert!(
+            !logic.find_object(far).unwrap().is_effectively_stealthed(),
+            "far unit outside StartRadius should not be stealthed yet"
+        );
+        for _ in 0..GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL {
+            logic.update_gps_scrambler_grow();
+        }
+        assert!(logic.gps_scramblers.grow_pulses >= 1);
+        assert!(
+            logic.find_object(far).unwrap().is_effectively_stealthed(),
+            "far unit should receive stealth as radius grows"
+        );
+        assert!(logic.gps_scramblers.honesty_grow_ok());
+        assert!(logic.gps_scramblers.honesty_marker_ok());
+        let _ = GPS_SCRAMBLER_START_RADIUS;
+    }
 
     #[test]
     fn ambush_dies_on_bad_land_drowns() {
