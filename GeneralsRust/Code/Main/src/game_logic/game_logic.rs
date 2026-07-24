@@ -49706,6 +49706,65 @@ fn update_scud_poison_zones(&mut self) {
 
         self.host_sneak_attacks.clear_frame_events();
 
+        // C++ Start FireWeaponUpdate multi-pulse residual (Small + 2× Big).
+        let due_pulses = self.host_sneak_attacks.take_due_shockwaves(self.frame);
+        for pulse in due_pulses {
+            let center = (pulse.target_position.x, pulse.target_position.z);
+            let candidates: Vec<(ObjectId, bool)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if !obj.is_alive() {
+                        return None;
+                    }
+                    let pos = obj.get_position();
+                    if !in_sneak_shockwave_radius_2d(center, (pos.x, pos.z), pulse.radius) {
+                        return None;
+                    }
+                    let under_construction =
+                        obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                    Some((*id, under_construction))
+                })
+                .collect();
+
+            let mut hits: u32 = 0;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+            for (id, under_construction) in candidates {
+                if !is_legal_sneak_shockwave_target(true, under_construction) {
+                    continue;
+                }
+                let Some(target) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                if !target.is_alive() {
+                    continue;
+                }
+                let destroyed =
+                    target.take_damage_from_immediate(pulse.damage, Some(pulse.source_object));
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    destroy_ids.push((id, pulse.source_team));
+                }
+            }
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+            if hits > 0 || pulse.pulse_index == 0 {
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    pulse.target_position,
+                    self.frame,
+                    Some(pulse.source_object),
+                    None,
+                );
+            }
+            self.host_sneak_attacks.record_multi_pulse_apply(hits);
+            if let Some(m) = self.host_sneak_attacks.get_mut(pulse.mission_id) {
+                m.shockwave_hits = m.shockwave_hits.saturating_add(hits);
+                m.shockwave_damage_total += pulse.damage * hits as f32;
+            }
+        }
+
         let plans = self.host_sneak_attacks.plan_due_spawns(self.frame);
         for plan in plans {
             if !self.templates.contains_key(&plan.tunnel_template) {
@@ -49720,56 +49779,18 @@ fn update_scud_poison_zones(&mut self) {
             let tunnel_id =
                 self.create_object(&template_name, plan.source_team, plan.target_position);
 
-            // Residual shockwave damage pulse (Big weapon residual) at spawn.
-            let center = (plan.target_position.x, plan.target_position.z);
-            let candidates: Vec<(ObjectId, bool)> = self
-                .objects
-                .iter()
-                .filter_map(|(id, obj)| {
-                    if !obj.is_alive() {
-                        return None;
-                    }
-                    // Residual: do not damage the freshly spawned tunnel itself.
-                    if tunnel_id == Some(*id) {
-                        return None;
-                    }
-                    let pos = obj.get_position();
-                    if !in_sneak_shockwave_radius_2d(center, (pos.x, pos.z), plan.shockwave_radius)
-                    {
-                        return None;
-                    }
-                    let under_construction =
-                        obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
-                    Some((*id, under_construction))
-                })
-                .collect();
-
-            let mut shockwave_hits: u32 = 0;
-            let mut shockwave_damage_total = 0.0_f32;
-            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-
-            for (id, under_construction) in candidates {
-                if !is_legal_sneak_shockwave_target(true, under_construction) {
-                    continue;
-                }
-                let Some(target) = self.objects.get_mut(&id) else {
-                    continue;
-                };
-                if !target.is_alive() {
-                    continue;
-                }
-                let dmg = plan.shockwave_damage;
-                let killed = target.take_damage_from_immediate(dmg, Some(plan.source_object));
-                shockwave_hits = shockwave_hits.saturating_add(1);
-                shockwave_damage_total += dmg;
-                if killed {
-                    destroy_ids.push((id, plan.source_team));
-                }
-            }
-
-            for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction(id, Some(killer_team));
-            }
+            // Shockwave damage is multi-pulse residual (applied above); tunnel spawn
+            // only creates the structure + audio residual.
+            let shockwave_hits = self
+                .host_sneak_attacks
+                .get(plan.mission_id)
+                .map(|m| m.shockwave_hits)
+                .unwrap_or(0);
+            let shockwave_damage_total = self
+                .host_sneak_attacks
+                .get(plan.mission_id)
+                .map(|m| m.shockwave_damage_total)
+                .unwrap_or(0.0);
 
             self.queue_audio_event(
                 AudioEventRequest::new(plan.kind.spawn_audio())
@@ -49802,6 +49823,7 @@ fn update_scud_poison_zones(&mut self) {
             );
         }
     }
+
 
     pub fn get_frame(&self) -> u32 {
         self.frame
@@ -68550,6 +68572,60 @@ mod tests {
     /// C++ SuperweaponSneakAttack → OCL_CreateSneakAttackTunnelStart Lifetime 5000ms
     /// → CreateObjectDie OCL_CreateSneakAttackTunnel + FireWeaponUpdate shockwave
     /// residual. Fail-closed: not full Start animation / multi-shockwave / TunnelContain.
+
+    #[test]
+    fn sneak_attack_multi_pulse_shockwaves() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_sneak_attack::sneak_attack_shockwave_pulses;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        if let Some(p) = logic.get_player_mut(2) {
+            p.unlock_science("SCIENCE_SneakAttack");
+        }
+        let mut cc = crate::game_logic::ThingTemplate::new("GLACommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("GLACommandCenter".into(), cc);
+        let mut foe_t = crate::game_logic::ThingTemplate::new("AmericaTankCrusader");
+        foe_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("AmericaTankCrusader".into(), foe_t);
+        let cc_id = logic
+            .create_object("GLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let foe = logic
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let id = logic
+            .queue_sneak_attack(
+                &SpecialPowerType::SneakAttack,
+                cc_id,
+                Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("sneak");
+        assert!(id >= 1);
+        assert_eq!(logic.host_sneak_attacks.pending_shockwaves.len(), 3);
+        assert_eq!(sneak_attack_shockwave_pulses().len(), 3);
+        // Advance through all pulse frames (1, 30, 75) and tunnel spawn (150).
+        for f in 0..=160 {
+            logic.frame = f;
+            logic.update_sneak_attacks();
+        }
+        assert!(
+            logic.host_sneak_attacks.multi_pulse_applies >= 3,
+            "expected 3 multi-pulse applies, got {}",
+            logic.host_sneak_attacks.multi_pulse_applies
+        );
+        assert!(logic.host_sneak_attacks.honesty_multi_pulse_ok());
+        assert!(logic.host_sneak_attacks.tunnel_spawn_count >= 1);
+        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        assert!(
+            hp1 < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            "multi-pulse shockwaves should damage nearby units"
+        );
+    }
+
     #[test]
     fn sneak_attack_residual_spawns_tunnel_and_shockwave() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
@@ -68561,6 +68637,11 @@ mod tests {
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
         ensure_test_infantry_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        if let Some(p) = game_logic.get_player_mut(2) {
+            p.unlock_science("SCIENCE_SneakAttack");
+        }
 
         let caster_id = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
