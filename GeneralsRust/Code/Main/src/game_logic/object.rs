@@ -3034,7 +3034,7 @@ impl Object {
         if !h.is_active() {
             return false;
         }
-        let (dx, dy, dz, dori, done) = h.tick(current_frame, hat);
+        let (dx, dy, dz, dori, done, _blade) = h.tick(current_frame, hat);
         let mut np = pos;
         np.x += dx;
         np.y = (np.y + dy).max(terrain_height);
