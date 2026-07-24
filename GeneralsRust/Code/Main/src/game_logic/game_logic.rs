@@ -1519,6 +1519,10 @@ pub struct GameLogic {
     mig_residual_tactical_nuke_upgrades: u32,
     mig_residual_fire_fields: u32,
     mig_residual_radiation_fields: u32,
+    /// Honesty: MiG NapalmMissile ScatterRadiusVsInfantry peels applied.
+    mig_scatter_applied: u32,
+    /// Honesty: MiG ScatterRadiusVsInfantry residual misses vs infantry.
+    mig_scatter_misses: u32,
     /// Host America Fire Base howitzer residual honesty.
     fire_base_residual_fires: u32,
     fire_base_residual_units_hit: u32,
@@ -3189,6 +3193,8 @@ impl GameLogic {
             mig_residual_tactical_nuke_upgrades: 0,
             mig_residual_fire_fields: 0,
             mig_residual_radiation_fields: 0,
+            mig_scatter_applied: 0,
+            mig_scatter_misses: 0,
             fire_base_residual_fires: 0,
             fire_base_residual_units_hit: 0,
             stealth_fighter_residual_fires: 0,
@@ -3730,6 +3736,8 @@ impl GameLogic {
         self.mig_residual_tactical_nuke_upgrades = 0;
         self.mig_residual_fire_fields = 0;
         self.mig_residual_radiation_fields = 0;
+        self.mig_scatter_applied = 0;
+        self.mig_scatter_misses = 0;
         self.fire_base_residual_fires = 0;
         self.fire_base_residual_units_hit = 0;
         self.stealth_fighter_residual_fires = 0;
@@ -33455,6 +33463,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         self.mig_residual_fires > 0
             || self.mig_residual_black_napalm_upgrades > 0
             || self.mig_residual_tactical_nuke_upgrades > 0
+            || self.mig_scatter_applied > 0
+            || self.mig_scatter_misses > 0
+    }
+
+    /// Residual honesty: MiG ScatterRadiusVsInfantry peels applied.
+    pub fn honesty_mig_scatter_ok(&self) -> bool {
+        self.mig_scatter_applied > 0 || self.mig_scatter_misses > 0
     }
 
     pub fn honesty_mig_black_napalm_ok(&self) -> bool {
@@ -39890,6 +39905,51 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on NapalmMissileWeapon vs infantry (**10**).
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) = crate::game_logic::host_mig::mig_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
+        if scattered {
+            self.mig_scatter_applied = self.mig_scatter_applied.saturating_add(1);
+        }
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_mig::mig_scatter_misses_infantry(true, seed, hit_r) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > crate::game_logic::host_mig::MIG_PRIMARY_RADIUS {
+                        self.mig_scatter_misses = self.mig_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y + 20.0);
         let pid = self.create_object(MIG_PROJECTILE, team, start)?;
@@ -40021,8 +40081,9 @@ fn update_scud_poison_zones(&mut self) {
     ) -> (u32, bool) {
         use crate::game_logic::host_mig::{
             is_legal_mig_target, is_mig_template, is_nuke_mig_template, mig_damage_at,
-            mig_fire_field_upgraded, mig_loadout, mig_secondary_radius, mig_spawns_fire_field,
-            mig_spawns_radiation, MigLoadout, MIG_FIRE_AUDIO,
+            mig_fire_field_upgraded, mig_loadout, mig_scatter_aim, mig_scatter_misses_infantry,
+            mig_secondary_radius, mig_spawns_fire_field, mig_spawns_radiation, MigLoadout,
+            MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS,
         };
 
         let (source_team, loadout) = {
@@ -40042,6 +40103,51 @@ fn update_scud_poison_zones(&mut self) {
                 (Team::Neutral, MigLoadout::Standard)
             }
         };
+
+        // C++ NapalmMissileWeapon ScatterRadiusVsInfantry residual on instant apply.
+        let mut impact = impact;
+        let intended_is_infantry = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let mut intended_scatter_miss = false;
+        if intended_is_infantry {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source.map(|s| s.0).unwrap_or(0),
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = mig_scatter_aim(impact, true, seed);
+            if scattered {
+                self.mig_scatter_applied = self.mig_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if mig_scatter_misses_infantry(true, seed, hit_r) {
+                let intended_pos = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position());
+                if let Some(pos) = intended_pos {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    // Outside primary: not force-hit. Secondary splash may still apply by dist.
+                    if dist > MIG_PRIMARY_RADIUS {
+                        self.mig_scatter_misses = self.mig_scatter_misses.saturating_add(1);
+                        intended_scatter_miss = true;
+                    }
+                }
+            }
+        }
 
         let max_radius = mig_secondary_radius(loadout);
         let impact_xz = (impact.x, impact.z);
@@ -40076,6 +40182,15 @@ fn update_scud_poison_zones(&mut self) {
                     (dx * dx + dz * dz).sqrt()
                 };
                 let is_intended = intended_target == Some(*id);
+                // Scatter miss residual: intended infantry outside primary is not force-hit
+                // (secondary splash may still apply via distance).
+                if is_intended && intended_scatter_miss {
+                    if dist > max_radius {
+                        return None;
+                    }
+                    // Keep as splash-only (not force primary).
+                    return Some((*id, dist, false));
+                }
                 if is_intended || dist <= max_radius {
                     Some((*id, dist, is_intended))
                 } else {
@@ -127549,6 +127664,75 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle splash still hits");
     }
+
+    #[test]
+    fn mig_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_mig::{
+            MIG_SCATTER_VS_INFANTRY, NAPALM_MISSILE_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut mig_tpl = ThingTemplate::new("ChinaJetMIG");
+        mig_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(NAPALM_MISSILE_WEAPON);
+        logic.templates.insert("ChinaJetMIG".to_string(), mig_tpl);
+
+        let mig = logic
+            .create_object(
+                "ChinaJetMIG",
+                Team::China,
+                glam::Vec3::new(0.0, 50.0, 0.0),
+            )
+            .expect("mig");
+        let inf = logic
+            .create_object("TestInfantry", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let impact = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
+        let _ = logic.apply_mig_residual_at(impact, Some(mig), Some(inf));
+        assert!(
+            logic.mig_scatter_applied > 0
+                || logic.mig_scatter_misses > 0
+                || logic.honesty_mig_scatter_ok(),
+            "mig scatter residual must peel vs infantry"
+        );
+        assert!((MIG_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+
+        let tank = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(48.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
+        let (hits, _) = logic.apply_mig_residual_at(impact, Some(mig), Some(tank));
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
+    }
+
 
 
 
