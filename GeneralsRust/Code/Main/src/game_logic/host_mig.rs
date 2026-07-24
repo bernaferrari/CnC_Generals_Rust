@@ -60,6 +60,8 @@ pub const UPGRADE_CHINA_AIRCRAFT_ARMOR: &str = "Upgrade_ChinaAircraftArmor";
 pub const MIG_PRIMARY_DAMAGE: f32 = 75.0;
 /// Standard PrimaryDamageRadius.
 pub const MIG_PRIMARY_RADIUS: f32 = 5.0;
+/// Retail NapalmMissileWeapon ScatterRadiusVsInfantry residual.
+pub const MIG_SCATTER_VS_INFANTRY: f32 = 10.0;
 /// Standard SecondaryDamage.
 pub const MIG_SECONDARY_DAMAGE: f32 = 40.0;
 /// BlackNapalm SecondaryDamage residual.
@@ -377,6 +379,43 @@ pub fn mig_damage_at(distance_from_impact: f32, loadout: MigLoadout) -> f32 {
     }
 }
 
+/// C++ ScatterRadiusVsInfantry residual on NapalmMissileWeapon / BlackNapalm / Nuke MiG.
+pub fn mig_scatter_aim(
+    aim: glam::Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (glam::Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let mut scatter = host_effective_scatter_radius(NAPALM_MISSILE_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = MIG_SCATTER_VS_INFANTRY;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (
+        glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z),
+        true,
+    )
+}
+
+/// Whether MiG napalm residual misses intended infantry via ScatterRadiusVsInfantry.
+pub fn mig_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(MIG_SCATTER_VS_INFANTRY, seed, target_hit_radius)
+}
+
+
 /// Legal residual splash / fire target.
 pub fn is_legal_mig_target(
     is_alive: bool,
@@ -531,6 +570,25 @@ mod tests {
         assert!(mig_spawns_radiation(MigLoadout::NukeBase));
         assert!(!mig_spawns_fire_field(MigLoadout::NukeBase));
     }
+
+    #[test]
+    fn mig_scatter_vs_infantry_peels() {
+        assert!((MIG_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+        let aim = glam::Vec3::new(10.0, 0.0, 20.0);
+        let (sc, applied) = mig_scatter_aim(aim, true, 31);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= MIG_SCATTER_VS_INFANTRY + 0.01);
+        let (sc2, _) = mig_scatter_aim(aim, true, 31);
+        assert_eq!(sc, sc2);
+        let (nosc, applied2) = mig_scatter_aim(aim, false, 31);
+        assert!(!applied2);
+        assert_eq!(nosc, aim);
+        assert!(mig_scatter_misses_infantry(true, 67, 0.5));
+        assert!(!mig_scatter_misses_infantry(true, 67, 100.0));
+        assert!(!mig_scatter_misses_infantry(false, 67, 0.5));
+    }
+
 
     #[test]
     fn mig_residual_pack_honesty_wave67() {
