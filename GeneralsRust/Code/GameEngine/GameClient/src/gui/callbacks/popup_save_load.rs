@@ -904,3 +904,154 @@ pub fn save_load_menu_system(
         _ => WindowMsgHandled::Ignored,
     }
 }
+
+/// Residual layout filename prefixes used by SaveLoad menus.
+pub const SAVE_LOAD_LAYOUT_PREFIX_POPUP: &str = "PopupSaveLoad.wnd";
+pub const SAVE_LOAD_LAYOUT_PREFIX_FULL: &str = "SaveLoad.wnd";
+
+/// Residual: last SaveLoad action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualSaveLoadAction {
+    None = 0,
+    SelectSlot = 1,
+    Load = 2,
+    Save = 3,
+    Delete = 4,
+    Back = 5,
+}
+
+static RESIDUAL_SAVE_LOAD_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_SAVE_LOAD_SLOT: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(-1);
+
+fn residual_action_store(action: ResidualSaveLoadAction) {
+    RESIDUAL_SAVE_LOAD_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last SaveLoad residual action.
+pub fn residual_save_load_last_action() -> ResidualSaveLoadAction {
+    match RESIDUAL_SAVE_LOAD_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualSaveLoadAction::SelectSlot,
+        2 => ResidualSaveLoadAction::Load,
+        3 => ResidualSaveLoadAction::Save,
+        4 => ResidualSaveLoadAction::Delete,
+        5 => ResidualSaveLoadAction::Back,
+        _ => ResidualSaveLoadAction::None,
+    }
+}
+
+/// Residual: last selected slot index (-1 if none).
+pub fn residual_save_load_selected_slot() -> Option<i32> {
+    let slot = RESIDUAL_SAVE_LOAD_SLOT.load(std::sync::atomic::Ordering::Relaxed);
+    if slot < 0 {
+        None
+    } else {
+        Some(slot)
+    }
+}
+
+/// Residual: bind SaveLoad gadget IDs for popup or full-screen layout.
+pub fn simulate_save_load_menu_bind_layout(popup: bool, layout_type: SaveLoadLayoutType) -> bool {
+    let prefix = if popup {
+        SAVE_LOAD_LAYOUT_PREFIX_POPUP
+    } else {
+        SAVE_LOAD_LAYOUT_PREFIX_FULL
+    };
+    let state_handle = save_load_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    init_gadget_ids(&mut state, prefix);
+    state.is_popup = popup;
+    state.current_layout_type = layout_type;
+    state.is_shutting_down = false;
+    state.button_load != 0
+        || state.button_save != 0
+        || state.button_back != 0
+        || state.listbox_games != 0
+}
+
+/// Residual: select a listbox games slot index (no live listbox widget required).
+pub fn simulate_save_load_menu_select_slot(slot_index: i32) -> bool {
+    if slot_index < 0 {
+        return false;
+    }
+    let state_handle = save_load_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    if state.listbox_games == 0 {
+        init_gadget_ids(&mut state, SAVE_LOAD_LAYOUT_PREFIX_FULL);
+    }
+    RESIDUAL_SAVE_LOAD_SLOT.store(slot_index, std::sync::atomic::Ordering::Relaxed);
+    residual_action_store(ResidualSaveLoadAction::SelectSlot);
+    true
+}
+
+/// Residual: fire ButtonLoad without full do_load_game (asset/engine reset).
+/// Requires a prior select_slot residual. Latches Load action honesty.
+pub fn simulate_save_load_menu_load_button_gadget_selected() -> bool {
+    let state_handle = save_load_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    if state.button_load == 0 {
+        init_gadget_ids(&mut state, SAVE_LOAD_LAYOUT_PREFIX_FULL);
+    }
+    if residual_save_load_selected_slot().is_none() {
+        // C++ ignores Load with no selection.
+        return false;
+    }
+    // Layout type LoadOnly / SaveAndLoad can load; SaveOnly cannot.
+    if matches!(state.current_layout_type, SaveLoadLayoutType::SaveOnly) {
+        return false;
+    }
+    residual_action_store(ResidualSaveLoadAction::Load);
+    true
+}
+
+/// Residual: fire ButtonSave without full save file write.
+pub fn simulate_save_load_menu_save_button_gadget_selected() -> bool {
+    let state_handle = save_load_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    if state.button_save == 0 {
+        init_gadget_ids(&mut state, SAVE_LOAD_LAYOUT_PREFIX_FULL);
+    }
+    if matches!(state.current_layout_type, SaveLoadLayoutType::LoadOnly) {
+        return false;
+    }
+    residual_action_store(ResidualSaveLoadAction::Save);
+    true
+}
+
+/// Residual: fire ButtonDelete without filesystem remove.
+pub fn simulate_save_load_menu_delete_button_gadget_selected() -> bool {
+    let state_handle = save_load_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    if state.button_delete == 0 {
+        init_gadget_ids(&mut state, SAVE_LOAD_LAYOUT_PREFIX_FULL);
+    }
+    if residual_save_load_selected_slot().is_none() {
+        return false;
+    }
+    residual_action_store(ResidualSaveLoadAction::Delete);
+    true
+}
+
+/// Residual: fire ButtonBack (shell pop / popup hide residual latch).
+pub fn simulate_save_load_menu_back_button_gadget_selected() -> bool {
+    let state_handle = save_load_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    if state.button_back == 0 {
+        init_gadget_ids(&mut state, SAVE_LOAD_LAYOUT_PREFIX_FULL);
+    }
+    residual_action_store(ResidualSaveLoadAction::Back);
+    RESIDUAL_SAVE_LOAD_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
+    true
+}
+
+/// Residual: full-screen LoadOnly path: bind + select slot + Load.
+pub fn simulate_save_load_menu_prepare_load(slot_index: i32) -> bool {
+    if !simulate_save_load_menu_bind_layout(false, SaveLoadLayoutType::LoadOnly) {
+        return false;
+    }
+    if !simulate_save_load_menu_select_slot(slot_index) {
+        return false;
+    }
+    simulate_save_load_menu_load_button_gadget_selected()
+}

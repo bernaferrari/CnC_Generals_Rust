@@ -2697,12 +2697,56 @@ impl CnCGameEngine {
                 {
                     wnd_ok =
                         game_client::gui::simulate_main_menu_load_game_button_gadget_selected();
+                    // Also bind SaveLoad LoadOnly residual controls.
+                    let _ = game_client::gui::callbacks::simulate_save_load_menu_bind_layout(
+                        false,
+                        game_engine::SaveLoadLayoutType::LoadOnly,
+                    );
                 }
                 self.enter_shell_menu_from_runtime_host(Some("LoadGame"));
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
                     "open_load_game_ok_wnd".into()
                 } else {
                     "open_load_game_ok".into()
+                };
+            }
+            "click_save_load" => {
+                // Retail SaveLoad list select + Load/Save/Delete/Back residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "load".to_string());
+                let slot = args
+                    .get("slot")
+                    .and_then(|v| v.parse::<i32>().ok())
+                    .unwrap_or(0);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_save_load_menu_back_button_gadget_selected,
+                        simulate_save_load_menu_delete_button_gadget_selected,
+                        simulate_save_load_menu_prepare_load,
+                        simulate_save_load_menu_save_button_gadget_selected,
+                        simulate_save_load_menu_select_slot,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "save" => {
+                            let _ = simulate_save_load_menu_select_slot(slot);
+                            simulate_save_load_menu_save_button_gadget_selected()
+                        }
+                        "delete" => {
+                            let _ = simulate_save_load_menu_select_slot(slot);
+                            simulate_save_load_menu_delete_button_gadget_selected()
+                        }
+                        "back" => simulate_save_load_menu_back_button_gadget_selected(),
+                        _ => simulate_save_load_menu_prepare_load(slot),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_save_load_ok_wnd_{action}")
+                } else {
+                    "click_save_load_miss".into()
                 };
             }
             "open_online" => {

@@ -237,6 +237,7 @@ pub mod host_rng_residual;
 pub mod host_rocket_buggy;
 pub mod host_rpg_trooper;
 pub mod host_saboteur;
+pub mod host_save_load_menu_residual_wave121;
 pub mod host_science_rank;
 pub mod host_scorpion;
 pub mod host_script_map_team_player_residual;
@@ -1449,6 +1450,10 @@ pub use host_main_menu_skirmish_nav_residual_wave114::{
     honesty_main_menu_skirmish_names_residual_wave114,
     honesty_main_menu_skirmish_nav_residual_pack_wave114,
     honesty_main_menu_skirmish_nav_steps_residual_wave114,
+};
+pub use host_save_load_menu_residual_wave121::{
+    honesty_save_load_control_stems_residual_wave121, honesty_save_load_layout_residual_wave121,
+    honesty_save_load_menu_residual_pack_wave121, honesty_save_load_nav_commands_residual_wave121,
 };
 pub use host_skirmish_map_select_residual_wave115::{
     honesty_skirmish_map_select_commands_residual_wave115,
