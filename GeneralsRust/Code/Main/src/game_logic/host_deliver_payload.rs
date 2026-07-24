@@ -70,6 +70,11 @@ pub const DELIVER_PAYLOAD_LOGIC_FPS: f32 = 30.0;
 /// (fail-closed vs full CreateAtEdge transit + DeliveryDistance approach).
 /// ~3s @ 30 FPS — matches host paradrop / DaisyCutter family residual.
 pub const CARGO_PLANE_APPROACH_DELAY_FRAMES: u32 = 90;
+/// OCL superweapon bomb approach residual (Daisy/MOAB/A10 DeliverPayload).
+/// Shorter than supply cargo; FuelAirBombPower impact delay is separate host path.
+pub const SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES: u32 = 60;
+pub const SUPERWEAPON_OCL_BOMB_DOOR_DELAY_FRAMES: u32 = 5;
+
 
 // --- OCL_AmericaSupplyDropZoneCrateDrop residual constants ---
 
@@ -1194,6 +1199,9 @@ pub enum HostDeliverPayloadKind {
     /// America Paradrop cargo-plane DeliverPayload residual honesty
     /// (`SUPERWEAPON_Paradrop*`). Infantry spawn is owned by host_paradrop.
     AmericaParadrop,
+    /// OCLSpecialPower DeliverPayload bomb residual (Daisy/MOAB/A10/Leaflet bomb path).
+    /// Single payload after approach; transport may be a live Object from execute_ocl.
+    SuperweaponOclBomb,
 }
 
 impl HostDeliverPayloadKind {
@@ -1201,6 +1209,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => "SupplyDropZoneCrate",
             HostDeliverPayloadKind::AmericaParadrop => "AmericaParadrop",
+            HostDeliverPayloadKind::SuperweaponOclBomb => "SuperweaponOclBomb",
         }
     }
 
@@ -1209,6 +1218,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => CARGO_PLANE_APPROACH_DELAY_FRAMES,
             HostDeliverPayloadKind::AmericaParadrop => CARGO_PLANE_APPROACH_DELAY_FRAMES,
+            HostDeliverPayloadKind::SuperweaponOclBomb => SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES,
         }
     }
 
@@ -1217,6 +1227,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => CARGO_PLANE_DOOR_DELAY_FRAMES,
             HostDeliverPayloadKind::AmericaParadrop => CARGO_PLANE_DOOR_DELAY_FRAMES,
+            HostDeliverPayloadKind::SuperweaponOclBomb => SUPERWEAPON_OCL_BOMB_DOOR_DELAY_FRAMES,
         }
     }
 
@@ -1226,6 +1237,7 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_DROP_DELAY_FRAMES,
             // Paradrop infantry stagger owned by host_paradrop residual.
             HostDeliverPayloadKind::AmericaParadrop => 0,
+            HostDeliverPayloadKind::SuperweaponOclBomb => 0,
         }
     }
 
@@ -1234,6 +1246,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_CARGO_TRANSPORT,
             HostDeliverPayloadKind::AmericaParadrop => PARADROP_CARGO_TRANSPORT,
+            HostDeliverPayloadKind::SuperweaponOclBomb => "AmericaJetB52",
         }
     }
 
@@ -1242,6 +1255,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_PUT_IN_CONTAINER,
             HostDeliverPayloadKind::AmericaParadrop => PARADROP_PUT_IN_CONTAINER,
+            HostDeliverPayloadKind::SuperweaponOclBomb => "",
         }
     }
 
@@ -1250,6 +1264,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_PAYLOAD_COUNT,
             HostDeliverPayloadKind::AmericaParadrop => 0,
+            HostDeliverPayloadKind::SuperweaponOclBomb => 1,
         }
     }
 
@@ -1258,6 +1273,8 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_PAYLOAD_TEMPLATE,
             HostDeliverPayloadKind::AmericaParadrop => "",
+            // Overridden at queue time via payload_template string.
+            HostDeliverPayloadKind::SuperweaponOclBomb => "DaisyCutterBomb",
         }
     }
 
@@ -1266,6 +1283,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_CRATE_SPACING,
             HostDeliverPayloadKind::AmericaParadrop => 0.0,
+            HostDeliverPayloadKind::SuperweaponOclBomb => 0.0,
         }
     }
 
@@ -1278,6 +1296,7 @@ impl HostDeliverPayloadKind {
                 SUPPLY_DROP_DROP_OFFSET_Z,
             ),
             HostDeliverPayloadKind::AmericaParadrop => Vec3::new(0.0, -10.0, 0.0),
+            HostDeliverPayloadKind::SuperweaponOclBomb => Vec3::new(0.0, -10.0, 0.0),
         }
     }
 
@@ -1286,6 +1305,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_MAX_ATTEMPTS,
             HostDeliverPayloadKind::AmericaParadrop => PARADROP_MAX_ATTEMPTS,
+            HostDeliverPayloadKind::SuperweaponOclBomb => PARADROP_MAX_ATTEMPTS,
         }
     }
 
@@ -1294,6 +1314,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_PRE_OPEN_DISTANCE,
             HostDeliverPayloadKind::AmericaParadrop => PARADROP_PRE_OPEN_DISTANCE,
+            HostDeliverPayloadKind::SuperweaponOclBomb => PARADROP_PRE_OPEN_DISTANCE,
         }
     }
 
@@ -1302,12 +1323,17 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_DELIVERY_DISTANCE,
             HostDeliverPayloadKind::AmericaParadrop => 0.0,
+            HostDeliverPayloadKind::SuperweaponOclBomb => 140.0,
         }
     }
 
     /// Whether this kind should spawn residual payload objects on drop frames.
     pub fn spawns_payload_objects(self) -> bool {
-        matches!(self, HostDeliverPayloadKind::SupplyDropZoneCrate)
+        matches!(
+            self,
+            HostDeliverPayloadKind::SupplyDropZoneCrate
+                | HostDeliverPayloadKind::SuperweaponOclBomb
+        )
     }
 
     /// Whether BuildingPickup residual cash should credit on drop complete.
@@ -1319,6 +1345,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_CARGO_APPROACH_AUDIO,
             HostDeliverPayloadKind::AmericaParadrop => "SuperweaponParadrop",
+            HostDeliverPayloadKind::SuperweaponOclBomb => "SuperweaponDaisyCutter",
         }
     }
 
@@ -1326,6 +1353,7 @@ impl HostDeliverPayloadKind {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_CARGO_DROP_AUDIO,
             HostDeliverPayloadKind::AmericaParadrop => "ParadropLanding",
+            HostDeliverPayloadKind::SuperweaponOclBomb => "BombDrop",
         }
     }
 
@@ -1370,6 +1398,8 @@ pub struct HostDeliverPayloadMission {
     pub id: u32,
     pub kind: HostDeliverPayloadKind,
     pub source_object: ObjectId,
+    /// Live transport Object spawned by OCLSpecialPower residual (optional).
+    pub transport_object_id: Option<ObjectId>,
     pub source_team: super::Team,
     pub target_position: Vec3,
     pub activate_frame: u32,
@@ -1583,6 +1613,10 @@ impl HostDeliverPayloadRegistry {
         self.missions.get(&id)
     }
 
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut HostDeliverPayloadMission> {
+        self.missions.get_mut(&id)
+    }
+
     pub fn missions_snapshot(&self) -> Vec<HostDeliverPayloadMission> {
         let mut v: Vec<_> = self.missions.values().cloned().collect();
         v.sort_by_key(|m| m.id);
@@ -1687,6 +1721,7 @@ impl HostDeliverPayloadRegistry {
             id,
             kind,
             source_object,
+            transport_object_id: None,
             source_team,
             target_position,
             activate_frame,
@@ -1709,7 +1744,13 @@ impl HostDeliverPayloadRegistry {
         self.flights_queued = self.flights_queued.saturating_add(1);
         // CreateAtEdge AmericaJetCargoPlane flight residual (presentation state).
         if kind.spawns_payload_objects() {
-            let flight = HostCargoPlaneFlight::new_supply_drop(id, target_position);
+            let mut flight = HostCargoPlaneFlight::new_supply_drop(id, target_position);
+            if kind == HostDeliverPayloadKind::SuperweaponOclBomb {
+                flight.transport_template = kind.transport_template().to_string();
+                // B52 preferred height residual honesty.
+                flight.preferred_height = flight.preferred_height.max(120.0);
+                flight.delivery_distance = 140.0;
+            }
             self.create_at_edge_spawns = self.create_at_edge_spawns.saturating_add(1);
             self.cargo_flights.insert(id, flight);
         }
@@ -2262,6 +2303,17 @@ pub fn residual_allowed_delivery_distance(kind: HostDeliverPayloadKind) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn superweapon_ocl_bomb_spawns_single_payload() {
+        assert!(HostDeliverPayloadKind::SuperweaponOclBomb.spawns_payload_objects());
+        assert_eq!(HostDeliverPayloadKind::SuperweaponOclBomb.payload_count(), 1);
+        assert_eq!(
+            HostDeliverPayloadKind::SuperweaponOclBomb.approach_delay_frames(),
+            SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES
+        );
+    }
+
     use crate::game_logic::Team;
 
     #[test]

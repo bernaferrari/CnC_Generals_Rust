@@ -21131,6 +21131,24 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         // CreateAtEdge cargo-plane flight residual presentation (approach band /
         // door open). Fail-closed: not full aircraft Object / locomotor.
         self.host_deliver_payloads.tick_cargo_flights();
+        // Sync OCLSpecialPower transport objects to cargo-flight residual positions.
+        let flight_sync: Vec<(ObjectId, Vec3, f32)> = self
+            .host_deliver_payloads
+            .missions_snapshot()
+            .into_iter()
+            .filter_map(|m| {
+                let tid = m.transport_object_id?;
+                let flight = self.host_deliver_payloads.cargo_flight(m.id)?;
+                let yaw = flight.dir_z.atan2(flight.dir_x);
+                Some((tid, flight.current_pos, yaw))
+            })
+            .collect();
+        for (tid, pos, yaw) in flight_sync {
+            if let Some(o) = self.objects.get_mut(&tid) {
+                o.set_position(pos);
+                o.set_orientation(yaw);
+            }
+        }
         // AmericaParadrop cargo bookkeeping is completed from update_paradrops
         // (infantry spawn ownership). Only spawn-capable kinds resolve here.
         let item_plans: Vec<_> = self
@@ -21153,6 +21171,20 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             let spawned_id =
                 self.create_object(&template_name, plan.source_team, plan.spawn_position);
             if let Some(id) = spawned_id {
+                if plan.kind
+                    == crate::game_logic::host_deliver_payload::HostDeliverPayloadKind::SuperweaponOclBomb
+                {
+                    // OCL bomb/missile residual: course-home to target; no crate parachute.
+                    if let Some(obj) = self.objects.get_mut(&id) {
+                        if let Some(m) = self.host_deliver_payloads.get(plan.mission_id) {
+                            let _ = obj.set_smart_bomb_target(m.target_position);
+                            if let Some(tid) = m.transport_object_id {
+                                obj.producer_id = Some(tid);
+                            }
+                        }
+                    }
+                    self.ocl_special_power_reg.record_payload_spawn();
+                } else {
                 // Residual MoneyCrateCollide registration (unit + BuildingPickup).
                 self.host_money_crates.register_supply_drop_crate(id);
                 self.host_money_crates.arm_default_deletion(
@@ -21172,6 +21204,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                             .record_parachute_directly_override();
                     }
                 }
+                } // else supply-drop crate path
             }
             self.host_deliver_payloads
                 .record_item_spawned(plan.mission_id, spawned_id);
@@ -31044,6 +31077,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             return Some(transport_id);
         }
 
+        // C++ DeliverPayload: payload spawns after approach/door delay, not at fire.
+        // Queue SuperweaponOclBomb mission; update_deliver_payloads drops payload.
         if !self.templates.contains_key(&deliver.payload) {
             let mut tpl = ThingTemplate::new(&deliver.payload);
             let pl = deliver.payload.to_ascii_lowercase();
@@ -31057,14 +31092,27 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             tpl.set_health(100.0);
             self.templates.insert(deliver.payload.clone(), tpl);
         }
-        let mut payload_pos = plan.target_coord;
-        payload_pos.y = payload_pos.y.max(50.0) + deliver.drop_offset_y.abs();
-        if let Some(pid) = self.create_object(&deliver.payload, team, payload_pos) {
-            if let Some(o) = self.objects.get_mut(&pid) {
-                o.producer_id = Some(transport_id);
-                let _ = o.set_smart_bomb_target(plan.target_coord);
+        let mission_id = self.host_deliver_payloads.queue(
+            crate::game_logic::host_deliver_payload::HostDeliverPayloadKind::SuperweaponOclBomb,
+            caster_id,
+            team,
+            plan.target_coord,
+            self.frame,
+            deliver.payload.clone(),
+        );
+        // Bind live transport object to cargo flight residual for approach motion.
+        if let Some(m) = self.host_deliver_payloads.get_mut(mission_id) {
+            m.transport_object_id = Some(transport_id);
+            m.transport_template = deliver.transport.clone();
+        }
+        if let Some(flight) = self.host_deliver_payloads.cargo_flight_mut(mission_id) {
+            flight.transport_template = deliver.transport.clone();
+            // Snap OCL edge-spawn transport onto CreateAtEdge residual.
+            if let Some(t) = self.objects.get_mut(&transport_id) {
+                t.set_position(flight.current_pos);
+                let yaw = flight.dir_z.atan2(flight.dir_x);
+                t.set_orientation(yaw);
             }
-            self.ocl_special_power_reg.record_payload_spawn();
         }
         Some(transport_id)
     }
@@ -76098,7 +76146,19 @@ mod tests {
             t.template_name
         );
         assert!(logic.ocl_special_power_reg.transports_spawned >= 1);
-        assert!(logic.ocl_special_power_reg.payloads_spawned >= 1);
+        assert_eq!(
+            logic.ocl_special_power_reg.payloads_spawned, 0,
+            "payload delayed until DeliverPayload approach completes"
+        );
+        // Advance through SuperweaponOclBomb approach + door residual.
+        for _ in 0..80 {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_deliver_payloads();
+        }
+        assert!(
+            logic.ocl_special_power_reg.payloads_spawned >= 1,
+            "payload should spawn after OCL DeliverPayload approach residual"
+        );
         assert!(logic.honesty_ocl_special_power_ok());
     }
 
