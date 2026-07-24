@@ -1137,6 +1137,8 @@ pub struct GameLogic {
     prone_update_reg: crate::game_logic::host_prone_update::HostProneUpdateRegistry,
     /// C++ RadiusDecalUpdate residual counters.
     radius_decal_update_reg: crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateRegistry,
+    /// C++ CheckpointUpdate residual counters.
+    checkpoint_update_reg: crate::game_logic::host_checkpoint_update::HostCheckpointUpdateRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2813,6 +2815,7 @@ impl GameLogic {
             float_update_reg: crate::game_logic::host_float_update::HostFloatUpdateRegistry::new(),
             prone_update_reg: crate::game_logic::host_prone_update::HostProneUpdateRegistry::new(),
             radius_decal_update_reg: crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateRegistry::new(),
+            checkpoint_update_reg: crate::game_logic::host_checkpoint_update::HostCheckpointUpdateRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3272,6 +3275,7 @@ impl GameLogic {
         self.float_update_reg.clear();
         self.prone_update_reg.clear();
         self.radius_decal_update_reg.clear();
+        self.checkpoint_update_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -5991,6 +5995,7 @@ impl GameLogic {
         self.update_float_update();
         self.update_prone_update();
         self.update_radius_decal_update();
+        self.update_checkpoint_update();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -22196,6 +22201,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             if object.radius_decal_update.is_some() {
                 self.radius_decal_update_reg.record_install();
             }
+            object.install_checkpoint_update_if_needed();
+            if object.checkpoint_update.is_some() {
+                self.checkpoint_update_reg.record_install();
+            }
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -27197,6 +27206,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_radius_decal_update::honesty_radius_decal_update_residual_ok()
     }
 
+    pub fn honesty_checkpoint_update_ok(&self) -> bool {
+        self.checkpoint_update_reg.honesty_host_path_ok()
+            && crate::game_logic::host_checkpoint_update::honesty_checkpoint_update_residual_ok()
+    }
+
     pub fn tensile_formation_registry(
         &self,
     ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
@@ -30836,7 +30850,100 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ RadiusDecalUpdate::update residual.
-    fn update_radius_decal_update(&mut self) {
+        /// C++ CheckpointUpdate residual (open gate for allies when clear of enemies).
+    fn update_checkpoint_update(&mut self) {
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.checkpoint_update.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let (team, pos, vision, needs_scan) = {
+                let Some(obj) = self.objects.get(&id) else {
+                    continue;
+                };
+                let Some(cp) = obj.checkpoint_update.as_ref() else {
+                    continue;
+                };
+                (
+                    obj.team,
+                    obj.get_position(),
+                    cp.vision_range.max(obj.vision_range),
+                    cp.needs_scan(),
+                )
+            };
+
+            let scan = if needs_scan {
+                self.checkpoint_update_reg.record_scan();
+                let mut enemy = false;
+                let mut ally = false;
+                for (oid, o) in self.objects.iter() {
+                    if *oid == id || !o.is_alive() {
+                        continue;
+                    }
+                    let op = o.get_position();
+                    let dx = op.x - pos.x;
+                    let dz = op.z - pos.z;
+                    if (dx * dx + dz * dz).sqrt() > vision {
+                        continue;
+                    }
+                    if o.is_targetable_by_enemy_of(team) {
+                        enemy = true;
+                    } else if o.team == team {
+                        ally = true;
+                    }
+                    if enemy && ally {
+                        break;
+                    }
+                }
+                Some((enemy, ally))
+            } else {
+                None
+            };
+
+            if let Some(obj) = self.objects.get_mut(&id) {
+                if let Some(cp) = obj.checkpoint_update.as_mut() {
+                    let was_open = cp.open;
+                    let changed = cp.tick(scan);
+                    if changed {
+                        if cp.open && !was_open {
+                            self.checkpoint_update_reg.record_open();
+                        } else if !cp.open && was_open {
+                            self.checkpoint_update_reg.record_close();
+                        }
+                        // Door model condition residual.
+                        if let Some(name) = cp.door_anim.model_condition() {
+                            if let Some(bit) =
+                                crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                                    name,
+                                )
+                            {
+                                // Clear both door bits then set active.
+                                if let Some(b) =
+                                    crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                                        "DOOR_1_OPENING",
+                                    )
+                                {
+                                    obj.model_condition_bits &= !(1u128 << b);
+                                }
+                                if let Some(b) =
+                                    crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                                        "DOOR_1_CLOSING",
+                                    )
+                                {
+                                    obj.model_condition_bits &= !(1u128 << b);
+                                }
+                                obj.model_condition_bits |= 1u128 << bit;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+fn update_radius_decal_update(&mut self) {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -46067,6 +46174,10 @@ fn update_scud_poison_zones(&mut self) {
             scud_anthrax_tier,
             a10_tier,
         );
+        // C++ OCL DeliveryDecal via RadiusDecalUpdate on SCUD Storm host.
+        if kind == HostSuperweaponKind::ScudStorm {
+            let _ = self.create_delivery_radius_decal(source_object, target_position);
+        }
         // CarpetBomb faction residual (America / AirForce / China payload matrix).
         if kind == HostSuperweaponKind::CarpetBomb {
             use crate::command_system::SpecialPowerType;
@@ -75581,7 +75692,70 @@ mod tests {
     #[test]
 
     #[test]
-    fn radius_decal_scud_storm_create_and_kill_on_idle() {
+
+    #[test]
+    fn checkpoint_opens_for_ally_closes_for_enemy() {
+        use crate::game_logic::host_checkpoint_update::honesty_checkpoint_update_residual_ok;
+        assert!(honesty_checkpoint_update_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new("AmericaCheckpoint");
+        tpl.set_health(1000.0);
+        logic
+            .templates
+            .insert("AmericaCheckpoint".to_string(), tpl);
+        ensure_test_infantry_template(&mut logic);
+
+        let gate = logic
+            .create_object("AmericaCheckpoint", Team::USA, Vec3::ZERO)
+            .expect("gate");
+        {
+            let g = logic.find_object_mut(gate).unwrap();
+            g.vision_range = 150.0;
+            if let Some(cp) = g.checkpoint_update.as_mut() {
+                cp.vision_range = 150.0;
+                cp.scan_delay = 0;
+            }
+        }
+        assert!(logic.find_object(gate).unwrap().checkpoint_update.is_some());
+
+        let ally = logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("ally");
+        let _ = ally;
+        logic.update_checkpoint_update();
+        assert!(
+            logic
+                .find_object(gate)
+                .and_then(|o| o.checkpoint_update.as_ref().map(|c| c.open && c.ally_near))
+                .unwrap_or(false),
+            "ally near must open checkpoint"
+        );
+        assert!(logic.checkpoint_update_reg.opens >= 1);
+
+        let enemy = logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("enemy");
+        let _ = enemy;
+        {
+            let g = logic.find_object_mut(gate).unwrap();
+            if let Some(cp) = g.checkpoint_update.as_mut() {
+                cp.scan_delay = 0;
+            }
+        }
+        logic.update_checkpoint_update();
+        assert!(
+            logic
+                .find_object(gate)
+                .and_then(|o| o.checkpoint_update.as_ref().map(|c| !c.open && c.enemy_near))
+                .unwrap_or(false),
+            "enemy near must close checkpoint"
+        );
+        assert!(logic.honesty_checkpoint_update_ok());
+    }
+
+
+        fn radius_decal_scud_storm_create_and_kill_on_idle() {
         use crate::game_logic::host_radius_decal_update::{
             honesty_radius_decal_update_residual_ok, SCUD_STORM_DELIVERY_DECAL_RADIUS,
             SCUD_STORM_DECAL_TEXTURE,

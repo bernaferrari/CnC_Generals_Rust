@@ -1070,6 +1070,9 @@ pub struct Object {
     /// C++ RadiusDecalUpdate residual (SW delivery decal).
     #[serde(default)]
     pub radius_decal_update: Option<crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateData>,
+    /// C++ CheckpointUpdate residual (ally gate).
+    #[serde(default)]
+    pub checkpoint_update: Option<crate::game_logic::host_checkpoint_update::HostCheckpointUpdateData>,
     /// C++ HelicopterSlowDeathBehavior residual.
     #[serde(default)]
     pub helicopter_slow_death:
@@ -1728,6 +1731,7 @@ impl Object {
             float_update: None,
             prone_update: None,
             radius_decal_update: None,
+            checkpoint_update: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -2108,6 +2112,7 @@ impl Object {
             float_update: None,
             prone_update: None,
             radius_decal_update: None,
+            checkpoint_update: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -3750,6 +3755,21 @@ impl Object {
             )
         {
             self.radius_decal_update = Some(data);
+        }
+    }
+
+    pub fn install_checkpoint_update_if_needed(&mut self) {
+        if self.checkpoint_update.is_some() {
+            return;
+        }
+        if let Some(mut data) =
+            crate::game_logic::host_checkpoint_update::HostCheckpointUpdateData::for_template(
+                &self.template_name,
+                self.vision_range,
+            )
+        {
+            data.vision_range = self.vision_range.max(data.vision_range);
+            self.checkpoint_update = Some(data);
         }
     }
 
