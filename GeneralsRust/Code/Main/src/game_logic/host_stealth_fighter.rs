@@ -30,11 +30,13 @@
 //! - Not full PrerequisiteSciences rank tree / control-bar science visibility
 //! - JetAIUpdate RETURN_TO_BASE ClipReload airfield rearm residual (8000ms)
 //! - StealthJetMissile MissileAI flight residual closed (seeker + KillSelfDelay 60f)
+//! - ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full crash-through bone FX matrix
 //! - Not full BunkerBusterBehavior seismic / shockwave matrix (see host_bunker_buster)
 //! - Not network stealth-fighter / science replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 /// Logic frames per second residual.
@@ -337,10 +339,48 @@ pub fn honesty_stealth_bunker_buster_related_residual_ok() -> bool {
 }
 
 /// Combined Wave 59 Stealth Fighter residual honesty pack.
+
+/// Apply StealthJetMissileWeapon ScatterRadiusVsInfantry residual to aim.
+pub fn stealth_jet_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let mut scatter =
+        host_effective_scatter_radius(STEALTH_JET_MISSILE_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = STEALTH_FIGHTER_SCATTER_VS_INFANTRY;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Wave residual honesty: Stealth Jet ScatterRadiusVsInfantry peels (**10**).
+pub fn honesty_stealth_jet_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    let vs = host_effective_scatter_radius(STEALTH_JET_MISSILE_WEAPON, true);
+    let ground = host_effective_scatter_radius(STEALTH_JET_MISSILE_WEAPON, false);
+    (STEALTH_FIGHTER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && ((vs - 10.0).abs() < 0.01 || vs <= 0.0)
+        && ground.abs() < 0.01
+        && {
+            let (sc, applied) =
+                stealth_jet_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            applied && sc.length() <= STEALTH_FIGHTER_SCATTER_VS_INFANTRY + 0.01
+        }
+}
+
 pub fn honesty_stealth_fighter_residual_pack_ok() -> bool {
     honesty_stealth_jet_missile_residual_ok()
         && honesty_stealth_kill_self_delay_residual_ok()
         && honesty_stealth_bunker_buster_related_residual_ok()
+        && honesty_stealth_jet_scatter_vs_infantry_ok()
 }
 
 /// Host residual honesty registry for Stealth Fighter science → production.
@@ -409,6 +449,19 @@ impl HostStealthFighterRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stealth_jet_scatter_vs_infantry_peels() {
+        assert!(honesty_stealth_jet_scatter_vs_infantry_ok());
+        let aim = Vec3::new(180.0, 0.0, 18.0);
+        let (no_sc, applied) = stealth_jet_scatter_aim(aim, false, 31);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = stealth_jet_scatter_aim(aim, true, 31);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= STEALTH_FIGHTER_SCATTER_VS_INFANTRY + 0.01);
+    }
 
     #[test]
     fn science_name_recognition() {
@@ -510,6 +563,7 @@ mod tests {
         assert!(honesty_stealth_jet_missile_residual_ok());
         assert!(honesty_stealth_kill_self_delay_residual_ok());
         assert!(honesty_stealth_bunker_buster_related_residual_ok());
+        assert!(honesty_stealth_jet_scatter_vs_infantry_ok());
         assert!(honesty_stealth_fighter_residual_pack_ok());
         assert_eq!(stealth_fighter_ms_to_frames(200), 6);
         assert_eq!(stealth_fighter_ms_to_frames(8000), 240);
