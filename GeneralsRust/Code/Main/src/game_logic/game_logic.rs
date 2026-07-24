@@ -28403,15 +28403,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
-    /// C++ SUPERWEAPON_DaisyCutter AmericaJetB52 + DaisyCutterBomb residual.
+    /// C++ SUPERWEAPON_DaisyCutter / SUPERWEAPON_MOAB jet + bomb residual.
     pub fn spawn_daisy_cutter_flight(
         &mut self,
         source_id: ObjectId,
         target: Vec3,
+        tier: crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_daisy_cutter_flight::{
-            HostDaisyCutterFlightData, DAISY_BOMB_OBJECT, DAISY_TRANSPORT,
-        };
+        use crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightData;
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
@@ -28428,37 +28427,34 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             160.0,
             source_pos.z - dz / dist * 360.0,
         );
-        if !self.templates.contains_key(DAISY_TRANSPORT) {
-            let mut t = ThingTemplate::new(DAISY_TRANSPORT);
+        let transport = tier.transport();
+        let bomb = tier.bomb();
+        if !self.templates.contains_key(transport) {
+            let mut t = ThingTemplate::new(transport);
             t.set_health(500.0)
                 .add_kind_of(KindOf::Aircraft)
                 .add_kind_of(KindOf::Vehicle);
-            self.templates.insert(DAISY_TRANSPORT.to_string(), t);
+            self.templates.insert(transport.to_string(), t);
         }
-        if !self.templates.contains_key(DAISY_BOMB_OBJECT) {
-            let mut t = ThingTemplate::new(DAISY_BOMB_OBJECT);
+        if !self.templates.contains_key(bomb) {
+            let mut t = ThingTemplate::new(bomb);
             t.set_health(100.0).add_kind_of(KindOf::Projectile);
-            self.templates.insert(DAISY_BOMB_OBJECT.to_string(), t);
+            self.templates.insert(bomb.to_string(), t);
         }
-        let tid = self.create_object(DAISY_TRANSPORT, team, edge)?;
+        let tid = self.create_object(transport, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.producer_id = Some(source_id);
             o.daisy_cutter_transport =
-                Some(HostDaisyCutterFlightData::start(edge, target));
+                Some(HostDaisyCutterFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }
-        self.daisy_cutter_flight_reg.record_transport();
+        self.daisy_cutter_flight_reg.record_transport(tier);
         Some(tid)
     }
 
     pub fn update_daisy_cutter_flights(&mut self) {
         use crate::game_logic::combat::DamageType;
-        use crate::game_logic::host_daisy_cutter_flight::{
-            DAISY_BOMB_OBJECT, DAISY_DELIVERY_DISTANCE,
-        };
-        use crate::game_logic::special_power_strikes::{
-            DAISY_CUTTER_PRIMARY_DAMAGE, DAISY_CUTTER_PRIMARY_RADIUS,
-        };
+        use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
 
         let tids: Vec<ObjectId> = self
             .objects
@@ -28466,7 +28462,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             .filter(|(_, o)| o.daisy_cutter_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
-        let mut drops: Vec<(Team, Vec3, ObjectId)> = Vec::new();
+        let mut drops: Vec<(Team, Vec3, ObjectId, DaisyFlightPayloadTier)> = Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -28477,6 +28473,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             };
             let (new_pos, vel, over) = data.tick_transport(pos);
             let target = data.target;
+            let tier = data.tier;
             let _ = data;
             o.set_position(new_pos);
             o.movement.velocity = vel;
@@ -28487,15 +28484,20 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 let team = o.team;
                 let producer = o.producer_id.unwrap_or(id);
                 o.daisy_cutter_transport = None;
-                drops.push((team, target, producer));
+                drops.push((team, target, producer, tier));
             }
         }
-        for (team, target, producer) in drops {
+        for (team, target, producer, tier) in drops {
+            let bomb = tier.bomb();
             let drop_pos = Vec3::new(target.x, 90.0, target.z);
-            if let Some(bid) = self.create_object(DAISY_BOMB_OBJECT, team, drop_pos) {
+            if let Some(bid) = self.create_object(bomb, team, drop_pos) {
                 if let Some(o) = self.objects.get_mut(&bid) {
                     o.producer_id = Some(producer);
                     o.daisy_cutter_bomb = true;
+                    // Stash tier via MOAB name residual for detonation path.
+                    if tier == DaisyFlightPayloadTier::Moab {
+                        o.template_name = bomb.to_string();
+                    }
                     o.movement.velocity = Vec3::new(0.0, -16.0, 0.0);
                     let _ = o.set_smart_bomb_target(target);
                 }
@@ -28511,27 +28513,32 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             .collect();
         let mut destroy = Vec::new();
         for id in bombs {
-            let (pos, producer, team) = {
+            let (pos, producer, team, is_moab) = {
                 let Some(o) = self.objects.get_mut(&id) else {
                     continue;
                 };
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
                 o.set_position(p);
-                (p, o.producer_id, o.team)
+                let is_moab = o.template_name == "MOAB"
+                    || o.template_name.contains("MOAB");
+                (p, o.producer_id, o.team, is_moab)
             };
             if pos.y <= 5.0 {
-                // Primary DaisyCutterDetonationWeapon residual.
+                let tier = if is_moab {
+                    DaisyFlightPayloadTier::Moab
+                } else {
+                    DaisyFlightPayloadTier::DaisyCutter
+                };
                 self.apply_fuel_air_radius_damage(
                     id,
                     producer,
                     team,
                     Vec3::new(pos.x, 0.0, pos.z),
-                    DAISY_CUTTER_PRIMARY_DAMAGE,
-                    DAISY_CUTTER_PRIMARY_RADIUS,
+                    tier.primary_damage(),
+                    tier.primary_radius(),
                     DamageType::Explosive,
                 );
-                // Fuel-air gas SlowDeath residual install path.
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.ensure_fuel_air_gas_slow_death(self.frame);
                     if o.fuel_air_gas_slow_death.is_some() {
@@ -28552,8 +28559,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         for id in destroy {
             self.mark_object_for_destruction(id, None);
         }
-        let _ = DAISY_DELIVERY_DISTANCE;
     }
+
 
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
@@ -48277,9 +48284,15 @@ fn update_scud_poison_zones(&mut self) {
                 a10_tier,
             );
         }
-        // C++ DaisyCutter DeliverPayload residual (B52 + DaisyCutterBomb).
+        // C++ DaisyCutter / MOAB DeliverPayload residual (B52 or JetB3 + bomb).
         if kind == HostSuperweaponKind::DaisyCutter {
-            let _ = self.spawn_daisy_cutter_flight(source_object, target_position);
+            use crate::command_system::SpecialPowerType;
+            use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
+            let tier = match power {
+                SpecialPowerType::FuelAirBomb => DaisyFlightPayloadTier::Moab,
+                _ => DaisyFlightPayloadTier::DaisyCutter,
+            };
+            let _ = self.spawn_daisy_cutter_flight(source_object, target_position, tier);
         }
         // C++ OCL FireWeaponNugget / AttackNugget residual (Neutron / Cruise / ScudStorm).
         if let Some(nugget) =
@@ -78365,6 +78378,43 @@ mod tests {
 
 
 
+
+    #[test]
+    fn moab_flight_uses_jet_b3() {
+        use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let cc_id = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let jet = logic
+            .spawn_daisy_cutter_flight(
+                cc_id,
+                Vec3::new(180.0, 0.0, 0.0),
+                DaisyFlightPayloadTier::Moab,
+            )
+            .expect("b3");
+        assert_eq!(
+            logic.find_object(jet).unwrap().template_name,
+            "AmericaJetB3"
+        );
+        assert!(logic.daisy_cutter_flight_reg.moab_transports_spawned >= 1);
+        for f in 0..400 {
+            logic.frame = f;
+            logic.update_daisy_cutter_flights();
+            if logic.daisy_cutter_flight_reg.detonations >= 1 {
+                break;
+            }
+        }
+        assert!(logic.daisy_cutter_flight_reg.bombs_dropped >= 1);
+        assert!(logic.daisy_cutter_flight_reg.detonations >= 1);
+        assert!(logic.honesty_daisy_cutter_flight_ok());
+    }
+
     #[test]
     fn daisy_cutter_flight_drops_bomb() {
         use crate::game_logic::KindOf;
@@ -78385,7 +78435,11 @@ mod tests {
             .unwrap();
         let hp0 = logic.find_object(foe).unwrap().health.current;
         let jet = logic
-            .spawn_daisy_cutter_flight(cc_id, Vec3::new(160.0, 0.0, 0.0))
+            .spawn_daisy_cutter_flight(
+                cc_id,
+                Vec3::new(160.0, 0.0, 0.0),
+                crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier::DaisyCutter,
+            )
             .expect("b52");
         assert!(logic.find_object(jet).unwrap().daisy_cutter_transport.is_some());
         assert!(logic.daisy_cutter_flight_reg.transports_spawned >= 1);
