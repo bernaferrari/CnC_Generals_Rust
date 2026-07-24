@@ -382,8 +382,7 @@ mod tests {
         assert!(!is_ecm_jam_projectile_flags(true, "foo", true));
     }
 
-        #[test]
-#[test]
+    #[test]
     fn ecm_disable_stream_peels() {
         assert!(honesty_ecm_disable_stream_ok());
         assert_eq!(ECM_DISABLE_STREAM_LASER, "ECMDisableStream");
