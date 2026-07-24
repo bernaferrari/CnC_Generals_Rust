@@ -130,6 +130,7 @@ pub mod host_enum_table_residual;
 pub mod host_env_contain_residual;
 pub mod host_faction_skirmish_residual;
 pub mod host_fire_base;
+pub mod host_fire_spread;
 mod host_fire_weapon_power;
 mod host_fire_weapon_when_damaged;
 mod host_fire_weapon_when_dead;
