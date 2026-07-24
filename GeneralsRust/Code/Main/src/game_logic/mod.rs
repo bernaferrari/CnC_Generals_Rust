@@ -227,6 +227,7 @@ mod host_sub_objects_upgrade;
 pub mod host_superweapon_kindof;
 pub mod host_supply_drop_zone;
 pub mod host_tank_hunter;
+pub mod host_tensile_formation;
 pub mod host_technical;
 pub mod host_terrain_bridge_water_road_residual_wave108;
 pub mod host_terrorist;
