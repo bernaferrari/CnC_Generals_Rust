@@ -1115,6 +1115,13 @@ pub struct Object {
     /// C++ ClusterMinesBomb HeightDie residual.
     #[serde(default)]
     pub cluster_mines_bomb: bool,
+    /// C++ EMPPulse ChinaJetCargoPlane transport residual.
+    #[serde(default)]
+    pub emp_pulse_transport:
+        Option<crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightData>,
+    /// C++ EMPPulseBomb HeightDie residual.
+    #[serde(default)]
+    pub emp_pulse_bomb: bool,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1820,6 +1827,8 @@ impl Object {
             sneak_tunnel_start: false,
             cluster_mines_transport: None,
             cluster_mines_bomb: false,
+            emp_pulse_transport: None,
+            emp_pulse_bomb: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2223,6 +2232,8 @@ impl Object {
             sneak_tunnel_start: false,
             cluster_mines_transport: None,
             cluster_mines_bomb: false,
+            emp_pulse_transport: None,
+            emp_pulse_bomb: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,

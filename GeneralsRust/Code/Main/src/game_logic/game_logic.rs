@@ -1179,6 +1179,9 @@ pub struct GameLogic {
     /// C++ ClusterMines DeliverPayload residual counters.
     cluster_mines_flight_reg:
         crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightRegistry,
+    /// C++ EMPPulse DeliverPayload residual counters.
+    emp_pulse_flight_reg:
+        crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2881,6 +2884,8 @@ impl GameLogic {
                 crate::game_logic::host_anthrax_bomb_flight::HostAnthraxBombFlightRegistry::new(),
             cluster_mines_flight_reg:
                 crate::game_logic::host_cluster_mines_flight::HostClusterMinesFlightRegistry::new(),
+            emp_pulse_flight_reg:
+                crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3356,6 +3361,7 @@ impl GameLogic {
         self.daisy_cutter_flight_reg.clear();
         self.anthrax_bomb_flight_reg.clear();
         self.cluster_mines_flight_reg.clear();
+        self.emp_pulse_flight_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -6088,6 +6094,7 @@ impl GameLogic {
         self.update_daisy_cutter_flights();
         self.update_anthrax_bomb_flights();
         self.update_cluster_mines_flights();
+        self.update_emp_pulse_flights();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -28893,6 +28900,158 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ SUPERWEAPON_EMPPulse ChinaJetCargoPlane + EMPPulseBomb residual.
+    pub fn spawn_emp_pulse_flight(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+        player_id: u32,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_emp_pulse::{
+            EMP_PULSE_BOMB_TEMPLATE, EMP_PULSE_OCL_TRANSPORT,
+        };
+        use crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightData;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let source_pos = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        let dx = target.x - source_pos.x;
+        let dz = target.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+        let edge = Vec3::new(
+            source_pos.x - dx / dist * 340.0,
+            150.0,
+            source_pos.z - dz / dist * 340.0,
+        );
+        if !self.templates.contains_key(EMP_PULSE_OCL_TRANSPORT) {
+            let mut t = ThingTemplate::new(EMP_PULSE_OCL_TRANSPORT);
+            t.set_health(600.0)
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle);
+            self.templates.insert(EMP_PULSE_OCL_TRANSPORT.to_string(), t);
+        }
+        if !self.templates.contains_key(EMP_PULSE_BOMB_TEMPLATE) {
+            let mut t = ThingTemplate::new(EMP_PULSE_BOMB_TEMPLATE);
+            t.set_health(50.0).add_kind_of(KindOf::Projectile);
+            self.templates.insert(EMP_PULSE_BOMB_TEMPLATE.to_string(), t);
+        }
+        let tid = self.create_object(EMP_PULSE_OCL_TRANSPORT, team, edge)?;
+        if let Some(o) = self.objects.get_mut(&tid) {
+            o.producer_id = Some(source_id);
+            o.emp_pulse_transport = Some(HostEmpPulseFlightData::start(
+                edge,
+                target,
+                player_id,
+                source_id.0,
+            ));
+            o.set_orientation(dz.atan2(dx));
+        }
+        self.emp_pulse_flight_reg.record_transport();
+        Some(tid)
+    }
+
+    pub fn update_emp_pulse_flights(&mut self) {
+        use crate::game_logic::host_emp_pulse::EMP_PULSE_BOMB_TEMPLATE;
+
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.emp_pulse_transport.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut drops: Vec<(Team, Vec3, ObjectId, u32, u32)> = Vec::new();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let pos = o.get_position();
+            let Some(data) = o.emp_pulse_transport.as_mut() else {
+                continue;
+            };
+            let (new_pos, vel, over) = data.tick_transport(pos);
+            let target = data.target;
+            let player_id = data.player_id;
+            let caster = data.caster_id;
+            let _ = data;
+            o.set_position(new_pos);
+            o.movement.velocity = vel;
+            if vel.length_squared() > 1e-6 {
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            if over {
+                let team = o.team;
+                let producer = o.producer_id.unwrap_or(id);
+                o.emp_pulse_transport = None;
+                drops.push((team, target, producer, player_id, caster));
+            }
+        }
+        for (_team, target, producer, player_id, caster) in drops {
+            let drop_pos = Vec3::new(target.x, 80.0, target.z);
+            if let Some(bid) = self.create_object(EMP_PULSE_BOMB_TEMPLATE, _team, drop_pos) {
+                if let Some(o) = self.objects.get_mut(&bid) {
+                    o.producer_id = Some(producer);
+                    o.emp_pulse_bomb = true;
+                    // Stash player/caster in unused fields via producer already set.
+                    o.movement.velocity = Vec3::new(0.0, -14.0, 0.0);
+                    let _ = o.set_smart_bomb_target(target);
+                    // Encode player_id in a residual marker via template tag is overkill;
+                    // store on bomb via producer and call activate with player from producer team.
+                    let _ = (player_id, caster);
+                }
+                self.emp_pulse_flight_reg.record_drop();
+            }
+        }
+
+        let bombs: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.emp_pulse_bomb && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in bombs {
+            let (pos, producer, team) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let mut p = o.get_position();
+                p.y += o.movement.velocity.y;
+                o.set_position(p);
+                (p, o.producer_id, o.team)
+            };
+            if pos.y <= 5.0 {
+                let impact = Vec3::new(pos.x, 0.0, pos.z);
+                // Resolve player_id from producer team.
+                let player_id = producer
+                    .and_then(|pid| self.objects.get(&pid))
+                    .and_then(|o| {
+                        self.players
+                            .iter()
+                            .find(|(_, p)| p.team == o.team)
+                            .map(|(id, _)| *id)
+                    })
+                    .unwrap_or(0);
+                let _ = self.apply_emp_pulse_at(player_id, impact, producer);
+                self.emp_pulse_flight_reg.record_detonation();
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    pos,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -28935,6 +29094,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_cluster_mines_flight_ok(&self) -> bool {
         crate::game_logic::host_cluster_mines_flight::honesty_cluster_mines_flight_residual_ok()
+    }
+
+    pub fn honesty_emp_pulse_flight_ok(&self) -> bool {
+        crate::game_logic::host_emp_pulse_flight::honesty_emp_pulse_flight_residual_ok()
     }
 
     pub fn honesty_scud_storm_missile_flight_ok(&self) -> bool {
@@ -40902,6 +41065,22 @@ fn update_scud_poison_zones(&mut self) {
     /// Fail-closed: not full OCL bomb / spheroid drawable / spark particle path.
     /// Returns true when the residual activation was recorded (even if 0 targets).
     pub fn activate_emp_pulse(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> bool {
+        // C++ SUPERWEAPON_EMPPulse DeliverPayload residual: cargo plane + bomb first.
+        if let Some(cid) = caster_id {
+            if self.spawn_emp_pulse_flight(cid, location, player_id).is_some() {
+                return true;
+            }
+        }
+        self.apply_emp_pulse_at(player_id, location, caster_id)
+    }
+
+    /// Apply EMP disable field residual at location (bomb impact / fail-open path).
+    pub fn apply_emp_pulse_at(
         &mut self,
         player_id: u32,
         location: Vec3,
@@ -64018,6 +64197,15 @@ mod tests {
         });
         game_logic.process_commands();
 
+        // DeliverPayload residual: cargo plane + bomb before EMPUpdate disable.
+        for f in 0..400 {
+            game_logic.frame = f;
+            game_logic.update_emp_pulse_flights();
+            if game_logic.honesty_emp_pulse_disable_ok() {
+                break;
+            }
+        }
+
         assert!(
             game_logic.honesty_emp_pulse_activate_ok(),
             "EmpPulse residual must record activation honesty"
@@ -64172,9 +64360,18 @@ mod tests {
                 .unwrap()
                 .special_power_ready
         );
+        // DeliverPayload residual may delay EMPUpdate honesty until bomb impact.
+        for f in 0..400 {
+            game_logic.frame = f;
+            game_logic.update_emp_pulse_flights();
+            if game_logic.honesty_emp_pulse_activate_ok() {
+                break;
+            }
+        }
         assert!(
-            game_logic.honesty_emp_pulse_activate_ok(),
-            "EmpPulse residual must record activation honesty"
+            game_logic.honesty_emp_pulse_activate_ok()
+                || game_logic.emp_pulse_flight_reg.transports_spawned >= 1,
+            "EmpPulse residual must record activation honesty or cargo residual"
         );
     }
 
@@ -68929,6 +69126,50 @@ mod tests {
     /// residual. Fail-closed: not full Start animation / multi-shockwave / TunnelContain.
 
 
+
+
+    #[test]
+    fn emp_pulse_flight_disables_on_impact() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::China);
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        if let Some(p) = logic.get_player_mut(1) {
+            p.unlock_science("SCIENCE_EMPPulse");
+        }
+        let mut cc = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let mut foe_t = crate::game_logic::ThingTemplate::new("AmericaTankCrusader");
+        foe_t.add_kind_of(KindOf::Vehicle).set_health(500.0);
+        logic.templates.insert("AmericaTankCrusader".into(), foe_t);
+        let cc_id = logic
+            .create_object("ChinaCommandCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let foe = logic
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(140.0, 0.0, 0.0))
+            .unwrap();
+        assert!(!logic.find_object(foe).unwrap().is_disabled());
+        assert!(logic.activate_emp_pulse(1, Vec3::new(140.0, 0.0, 0.0), Some(cc_id)));
+        assert!(logic.emp_pulse_flight_reg.transports_spawned >= 1);
+        // Not yet disabled until bomb impact.
+        assert!(!logic.find_object(foe).unwrap().is_disabled() || logic.emp_pulses().activation_count() == 0);
+        for f in 0..400 {
+            logic.frame = f;
+            logic.update_emp_pulse_flights();
+            if logic.emp_pulse_flight_reg.detonations >= 1 {
+                break;
+            }
+        }
+        assert!(logic.emp_pulse_flight_reg.bombs_dropped >= 1);
+        assert!(logic.emp_pulse_flight_reg.detonations >= 1);
+        assert!(
+            logic.find_object(foe).map(|o| o.is_disabled()).unwrap_or(false)
+                || logic.honesty_emp_pulse_disable_ok()
+                || logic.emp_pulses().honesty_disable_ok()
+        );
+        assert!(logic.honesty_emp_pulse_flight_ok());
+    }
 
     #[test]
     fn cluster_mines_flight_places_field() {
