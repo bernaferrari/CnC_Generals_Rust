@@ -49629,7 +49629,9 @@ fn update_scud_poison_zones(&mut self) {
         // ParticleCannon residual continuous beam pulses (after charge residual).
         self.update_particle_beam_fields();
         self.spawn_particle_orbital_laser_objects_for_new_beams();
+        self.spawn_particle_connector_laser_objects_for_new_beams();
         self.update_particle_orbital_laser_objects();
+        self.update_particle_connector_laser_objects();
         // Particle Uplink DamagePulseRemnant trail residual ticks.
         self.spawn_particle_trail_remnant_objects_for_new_fields();
         self.update_particle_trail_remnant_objects();
@@ -50429,6 +50431,106 @@ fn update_scud_poison_zones(&mut self) {
                 o.status.effectively_dead = true;
                 o.health.current = 0.0;
                 o.nuke_radiation_field = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    /// C++ Medium/Intense ConnectorLaser ThingFactory Objects (STATUS_FIRING residual).
+    pub fn spawn_particle_connector_laser_objects_for_new_beams(&mut self) {
+        use crate::game_logic::special_power_strikes::{
+            PARTICLE_CONNECTOR_INTENSE_LASER, PARTICLE_CONNECTOR_LASER_MAX_HEALTH,
+            PARTICLE_CONNECTOR_MEDIUM_LASER,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let pending: Vec<(u32, ObjectId, Team, Vec3, u32)> = self
+            .special_power_strikes
+            .beam_spawned_this_frame()
+            .iter()
+            .filter_map(|bid| {
+                self.special_power_strikes
+                    .beam_fields()
+                    .iter()
+                    .find(|f| f.id == *bid && f.connector_object_ids.is_empty())
+                    .map(|f| {
+                        (
+                            f.id,
+                            f.source_object,
+                            f.source_team,
+                            // Connector residual originates at caster building.
+                            self.objects
+                                .get(&f.source_object)
+                                .map(|o| o.get_position())
+                                .unwrap_or(f.position),
+                            f.expires_frame.saturating_sub(f.spawn_frame),
+                        )
+                    })
+            })
+            .collect();
+        if pending.is_empty() {
+            return;
+        }
+        for name in [PARTICLE_CONNECTOR_MEDIUM_LASER, PARTICLE_CONNECTOR_INTENSE_LASER] {
+            if !self.templates.contains_key(name) {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Immobile)
+                    .set_health(PARTICLE_CONNECTOR_LASER_MAX_HEALTH)
+                    .set_cost(0, 0);
+                self.templates.insert(name.to_string(), t);
+            }
+        }
+        for (bid, source, team, pos, lifetime) in pending {
+            let expires = self.frame.saturating_add(lifetime.max(1));
+            // Medium connector slightly above building; intense higher toward orbit.
+            let placements = [
+                (PARTICLE_CONNECTOR_MEDIUM_LASER, Vec3::new(pos.x, pos.y + 40.0, pos.z)),
+                (PARTICLE_CONNECTOR_INTENSE_LASER, Vec3::new(pos.x, pos.y + 120.0, pos.z)),
+            ];
+            let mut ids = Vec::new();
+            for (name, cpos) in placements {
+                if let Some(oid) = self.create_object(name, team, cpos) {
+                    if let Some(o) = self.objects.get_mut(&oid) {
+                        o.particle_connector_laser = true;
+                        o.producer_id = Some(source);
+                        o.particle_connector_laser_expires_frame = Some(expires);
+                        o.health.maximum = PARTICLE_CONNECTOR_LASER_MAX_HEALTH;
+                        Self::write_object_health_authority_aware(
+                            o,
+                            PARTICLE_CONNECTOR_LASER_MAX_HEALTH,
+                        );
+                    }
+                    ids.push(oid);
+                }
+            }
+            if !ids.is_empty() {
+                let _ = self.special_power_strikes.bind_connector_objects(bid, &ids);
+            }
+        }
+    }
+
+    pub fn update_particle_connector_laser_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.particle_connector_laser {
+                    if let Some(exp) = o.particle_connector_laser_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.particle_connector_laser = false;
             }
             self.mark_object_for_destruction(id, None);
         }
@@ -65402,7 +65504,63 @@ mod tests {
         );
     }
 
-    
+    #[test]
+    fn particle_cannon_spawns_connector_laser_objects() {
+        use crate::game_logic::special_power_strikes::{
+            PARTICLE_CONNECTOR_INTENSE_LASER, PARTICLE_CONNECTOR_MEDIUM_LASER,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut puc = crate::game_logic::ThingTemplate::new("AmericaParticleUplinkCannon");
+        puc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaParticleUplinkCannon".into(), puc);
+        let caster = logic
+            .create_object(
+                "AmericaParticleUplinkCannon",
+                Team::USA,
+                Vec3::new(10.0, 0.0, 10.0),
+            )
+            .unwrap();
+        let bid = logic.special_power_strikes.spawn_beam_field(
+            caster,
+            Team::USA,
+            Vec3::new(400.0, 0.0, 400.0),
+            logic.frame,
+            1,
+        );
+        logic.spawn_particle_connector_laser_objects_for_new_beams();
+        assert!(logic.special_power_strikes.honesty_connector_object_spawn_ok());
+        assert!(logic.special_power_strikes.connector_objects_spawned() >= 2);
+        let names: Vec<_> = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.particle_connector_laser)
+            .map(|o| o.template_name.clone())
+            .collect();
+        assert!(names.iter().any(|n| n == PARTICLE_CONNECTOR_MEDIUM_LASER));
+        assert!(names.iter().any(|n| n == PARTICLE_CONNECTOR_INTENSE_LASER));
+        let field = logic
+            .special_power_strikes
+            .beam_fields()
+            .iter()
+            .find(|f| f.id == bid)
+            .expect("beam");
+        assert_eq!(field.connector_object_ids.len(), 2);
+        let ids = field.connector_object_ids.clone();
+        let exp = field.expires_frame;
+        logic.frame = exp + 2;
+        logic.update_particle_connector_laser_objects();
+        for id in ids {
+            assert!(
+                logic
+                    .find_object(id)
+                    .map(|o| !o.is_alive() || o.status.destroyed)
+                    .unwrap_or(true)
+            );
+        }
+    }
+
     #[test]
     fn particle_cannon_spawns_orbital_laser_object() {
         use crate::game_logic::special_power_strikes::PARTICLE_ORBITAL_LASER_NAME;
