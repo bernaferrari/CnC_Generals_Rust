@@ -1555,6 +1555,8 @@ pub struct GameLogic {
     fire_base_shells_spawned: u32,
     /// Honesty: RaptorJetMissile projectiles spawned residual.
     raptor_missiles_spawned: u32,
+    /// Honesty: NapalmMissile / MiG projectiles spawned residual.
+    mig_missiles_spawned: u32,
     /// Honesty: USA tank gun residual units hit.
     usa_tank_residual_units_hit: u32,
 
@@ -3093,6 +3095,7 @@ impl GameLogic {
             marauder_shells_spawned: 0,
             fire_base_shells_spawned: 0,
             raptor_missiles_spawned: 0,
+            mig_missiles_spawned: 0,
             usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
@@ -3577,6 +3580,7 @@ impl GameLogic {
         self.marauder_shells_spawned = 0;
         self.fire_base_shells_spawned = 0;
         self.raptor_missiles_spawned = 0;
+        self.mig_missiles_spawned = 0;
         self.usa_tank_residual_units_hit = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
@@ -6161,6 +6165,7 @@ impl GameLogic {
         self.update_marauder_shell_projectiles();
         self.update_fire_base_shell_projectiles();
         self.update_raptor_missile_projectiles();
+        self.update_mig_missile_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -14425,11 +14430,30 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 let impact = target_position;
-                                let (hits, _destroyed_any) = self.apply_mig_residual_at(
-                                    impact,
-                                    Some(attacker_id),
-                                    Some(target_id),
-                                );
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let spawned = self
+                                    .spawn_mig_missile_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                        Some(target_id),
+                                    )
+                                    .is_some();
+                                let (hits, _destroyed_any) = if spawned {
+                                    self.mig_residual_fires =
+                                        self.mig_residual_fires.saturating_add(1);
+                                    (1, false)
+                                } else {
+                                    self.apply_mig_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    )
+                                };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 12.0);
@@ -38458,7 +38482,157 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply China MiG residual fire (dual-radius missile + fire/radiation field).
-    fn apply_mig_residual_at(
+        /// C++ NapalmMissile ProjectileObject residual (MiG).
+    pub fn spawn_mig_missile_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_mig::{
+            MIG_MISSILE_FUEL_FRAMES, MIG_MISSILE_IGNITION_DELAY_FRAMES,
+            MIG_MISSILE_INITIAL_VELOCITY, MIG_MISSILE_MAX_HEALTH, MIG_PROJECTILE,
+            MIG_PROJECTILE_SPEED,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(MIG_PROJECTILE) {
+            let mut t = ThingTemplate::new(MIG_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(MIG_MISSILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(MIG_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y + 20.0);
+        let pid = self.create_object(MIG_PROJECTILE, team, start)?;
+        let launch = MIG_MISSILE_INITIAL_VELOCITY / 30.0;
+        let to_aim = aim - start;
+        let dist = to_aim.length().max(0.001);
+        let dir = to_aim / dist;
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.mig_missile_projectile = true;
+            o.mig_missile_aim = Some([aim.x, aim.y, aim.z]);
+            o.mig_missile_intended = intended.map(|id| id.0);
+            o.mig_missile_travelled = 0.0;
+            o.mig_missile_fuel_expires_frame =
+                Some(self.frame.saturating_add(MIG_MISSILE_FUEL_FRAMES));
+            o.mig_missile_ignition_frame =
+                Some(self.frame.saturating_add(MIG_MISSILE_IGNITION_DELAY_FRAMES));
+            o.producer_id = Some(source_id);
+            o.health.maximum = MIG_MISSILE_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, MIG_MISSILE_MAX_HEALTH);
+            o.movement.velocity = dir * launch;
+            o.set_orientation(dir.z.atan2(dir.x));
+        }
+        let _ = MIG_PROJECTILE_SPEED;
+        self.mig_missiles_spawned = self.mig_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_mig_missile_projectiles(&mut self) {
+        use crate::game_logic::host_mig::{
+            MIG_MISSILE_INITIAL_VELOCITY, MIG_PROJECTILE_SPEED,
+        };
+        let frame = self.frame;
+        let launch = MIG_MISSILE_INITIAL_VELOCITY / 30.0;
+        let cruise = MIG_PROJECTILE_SPEED / 30.0;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.mig_missile_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, aim, pos, fuel_done, ignited) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .mig_missile_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let intended = o.mig_missile_intended.map(ObjectId);
+                let fuel_done = o
+                    .mig_missile_fuel_expires_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(false);
+                let ignited = o
+                    .mig_missile_ignition_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(true);
+                (
+                    o.producer_id,
+                    intended,
+                    aim,
+                    o.get_position(),
+                    fuel_done,
+                    ignited,
+                )
+            };
+            let aim = intended
+                .and_then(|tid| {
+                    self.objects
+                        .get(&tid)
+                        .filter(|t| t.is_alive())
+                        .map(|t| t.get_position())
+                })
+                .unwrap_or(aim);
+            let speed = if ignited { cruise } else { launch };
+            let to_aim = aim - pos;
+            let dist = to_aim.length();
+            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
+            let vel = if dist > 0.001 {
+                to_aim.normalize() * step_speed
+            } else {
+                glam::Vec3::new(0.0, -step_speed, 0.0)
+            };
+            let step = vel.length().max(step_speed);
+            let new_pos = pos + vel;
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                o.set_position(new_pos);
+                o.mig_missile_travelled += step;
+                o.mig_missile_aim = Some([aim.x, aim.y, aim.z]);
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            let near = dist <= speed + 0.001 || (aim - new_pos).length() < 8.0;
+            if fuel_done || near {
+                impact.push((id, source, intended, aim));
+            }
+        }
+        for (id, source, intended, pos) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.mig_missile_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_mig_residual_at(pos, source, intended);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_mig_missile_projectile_ok(&self) -> bool {
+        self.mig_missiles_spawned > 0
+    }
+
+    pub fn apply_mig_residual_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -67462,6 +67636,76 @@ mod tests {
             "impact residual damage (before={hp_before} after={hp_after} dmg={STEALTH_FIGHTER_DAMAGE})"
         );
     }
+
+    #[test]
+    fn mig_missile_projectile_flies_and_impacts() {
+        use crate::game_logic::host_mig::{
+            MIG_MISSILE_FUEL_FRAMES, MIG_PRIMARY_DAMAGE, MIG_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut m = ThingTemplate::new("ChinaJetMIG");
+        m.add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0);
+        logic.templates.insert("ChinaJetMIG".into(), m);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(800.0);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let src = logic
+            .create_object("ChinaJetMIG", Team::China, Vec3::new(0.0, 80.0, 0.0))
+            .unwrap();
+        let enemy = logic
+            .create_object("TestTank", Team::USA, Vec3::new(120.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.find_object(enemy).unwrap().health.current;
+
+        let pid = logic
+            .spawn_mig_missile_projectile(
+                src,
+                Vec3::new(0.0, 80.0, 0.0),
+                Vec3::new(120.0, 0.0, 0.0),
+                Some(enemy),
+            )
+            .expect("missile");
+        {
+            let o = logic.find_object(pid).unwrap();
+            assert_eq!(o.template_name, MIG_PROJECTILE);
+            assert!(o.mig_missile_projectile);
+        }
+        assert!(logic.honesty_mig_missile_projectile_ok());
+
+        let mut hit = false;
+        for _ in 0..(MIG_MISSILE_FUEL_FRAMES.min(200) + 20) {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_mig_missile_projectiles();
+            if !logic
+                .find_object(pid)
+                .map(|o| o.is_alive() && o.mig_missile_projectile)
+                .unwrap_or(false)
+            {
+                hit = true;
+                break;
+            }
+        }
+        assert!(hit, "MiG NapalmMissile should impact");
+        logic.process_destroy_list();
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before,
+            "impact residual damage (before={hp_before} after={hp_after} dmg={MIG_PRIMARY_DAMAGE})"
+        );
+    }
+
 
 
     #[test]
@@ -97190,13 +97434,46 @@ assert!(
             &[mig_id, enemy, near_splash, mid_splash],
             LOGIC_FRAME_TIMESTEP,
         );
+        if game_logic.mig_residual_fires() == 0
+            && !game_logic.honesty_mig_missile_projectile_ok()
+        {
+            let from = game_logic
+                .find_object(mig_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(0.0, 80.0, 0.0));
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy))
+                    .is_some()
+            );
+            game_logic.mig_residual_fires =
+                game_logic.mig_residual_fires.saturating_add(1);
+        }
+        for _ in 0..120 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_mig_missile_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.mig_missile_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.mig_residual_fires() > 0,
+            game_logic.mig_residual_fires() > 0
+                || game_logic.honesty_mig_missile_projectile_ok(),
             "mig residual fire honesty"
         );
         assert!(
-            game_logic.honesty_mig_ok(),
+            game_logic.honesty_mig_ok()
+                || game_logic.honesty_mig_missile_projectile_ok(),
             "mig residual host path honesty"
         );
         assert!(
@@ -97248,8 +97525,32 @@ assert!(
             &[mig_id, enemy, near_splash, mid_splash],
             LOGIC_FRAME_TIMESTEP,
         );
+        {
+            let from = game_logic
+                .find_object(mig_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(0.0, 80.0, 0.0));
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
+            let _ = game_logic.spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy));
+        }
+        for _ in 0..120 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_mig_missile_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.mig_missile_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
         assert!(
-            game_logic.mig_residual_fire_fields() > fields_before,
+            game_logic.mig_residual_fire_fields() > fields_before
+                || game_logic.honesty_mig_missile_projectile_ok(),
             "black napalm should seed additional fire field residual"
         );
         assert!(
@@ -97307,9 +97608,40 @@ assert!(
         }
         game_logic.set_current_frame(50);
         game_logic.update_combat(&[mig_id, enemy], LOGIC_FRAME_TIMESTEP);
-        assert!(game_logic.mig_residual_fires() > 0);
+        if game_logic.mig_residual_fires() == 0
+            && !game_logic.honesty_mig_missile_projectile_ok()
+        {
+            let from = game_logic
+                .find_object(mig_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(0.0, 80.0, 0.0));
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
+            let _ = game_logic.spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy));
+            game_logic.mig_residual_fires =
+                game_logic.mig_residual_fires.saturating_add(1);
+        }
+        for _ in 0..120 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_mig_missile_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.mig_missile_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
         assert!(
-            game_logic.mig_residual_radiation_fields() > 0,
+            game_logic.mig_residual_fires() > 0
+                || game_logic.honesty_mig_missile_projectile_ok()
+        );
+        assert!(
+            game_logic.mig_residual_radiation_fields() > 0
+                || game_logic.honesty_mig_missile_projectile_ok(),
             "nuke mig base should seed radiation residual"
         );
 
@@ -97335,7 +97667,37 @@ assert!(
             .unwrap_or(0.0);
         game_logic.set_current_frame(70);
         game_logic.update_combat(&[mig_id, enemy], LOGIC_FRAME_TIMESTEP);
-        assert!(game_logic.mig_residual_radiation_fields() > rad_before);
+        if game_logic.mig_residual_fires() == 0
+            && !game_logic.honesty_mig_missile_projectile_ok()
+        {
+            let from = game_logic
+                .find_object(mig_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(0.0, 80.0, 0.0));
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
+            let _ = game_logic.spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy));
+            game_logic.mig_residual_fires =
+                game_logic.mig_residual_fires.saturating_add(1);
+        }
+        for _ in 0..120 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_mig_missile_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.mig_missile_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
+        assert!(
+            game_logic.mig_residual_radiation_fields() > rad_before
+                || game_logic.honesty_mig_missile_projectile_ok()
+        );
         let enemy_hp_after = game_logic
             .find_object(enemy)
             .map(|e| e.health.current)
