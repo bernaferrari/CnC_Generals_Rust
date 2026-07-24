@@ -1230,6 +1230,21 @@ pub struct Object {
     /// C++ TunnelDefenderMissile / RPG projectile residual.
     #[serde(default)]
     pub rpg_trooper_missile_projectile: bool,
+    /// C++ TankHunterMissile projectile residual.
+    #[serde(default)]
+    pub tank_hunter_missile_projectile: bool,
+    /// Aim point for TankHunter missile residual.
+    #[serde(default)]
+    pub tank_hunter_missile_aim: Option<[f32; 3]>,
+    /// Intended target id residual.
+    #[serde(default)]
+    pub tank_hunter_missile_intended: Option<u32>,
+    /// Distance travelled this TankHunter missile flight residual.
+    #[serde(default)]
+    pub tank_hunter_missile_travelled: f32,
+    /// Absolute frame when TankHunter missile FuelLifetime residual expires.
+    #[serde(default)]
+    pub tank_hunter_missile_fuel_expires_frame: Option<u32>,
     /// Aim point for RPG missile residual.
     #[serde(default)]
     pub rpg_trooper_missile_aim: Option<[f32; 3]>,
@@ -2094,6 +2109,11 @@ impl Object {
             rpg_trooper_missile_intended: None,
             rpg_trooper_missile_travelled: 0.0,
             rpg_trooper_missile_fuel_expires_frame: None,
+            tank_hunter_missile_projectile: false,
+            tank_hunter_missile_aim: None,
+            tank_hunter_missile_intended: None,
+            tank_hunter_missile_travelled: 0.0,
+            tank_hunter_missile_fuel_expires_frame: None,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
@@ -2568,6 +2588,11 @@ impl Object {
             rpg_trooper_missile_intended: None,
             rpg_trooper_missile_travelled: 0.0,
             rpg_trooper_missile_fuel_expires_frame: None,
+            tank_hunter_missile_projectile: false,
+            tank_hunter_missile_aim: None,
+            tank_hunter_missile_intended: None,
+            tank_hunter_missile_travelled: 0.0,
+            tank_hunter_missile_fuel_expires_frame: None,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
