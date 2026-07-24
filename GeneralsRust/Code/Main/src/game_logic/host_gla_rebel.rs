@@ -23,7 +23,7 @@
 //!   SpecialAbilityBoobyTrap Reload **7500**ms → **225**f — host not full plant matrix).
 //!
 //! Fail-closed honesty:
-//! - Not full ClipSize=3 in-clip DelayBetweenShots 100ms + ClipReload 700ms volley
+//! - ClipSize=3 in-clip DelayBetweenShots 100ms + ClipReload 700ms volley residual closed
 //! - Not full CaptureBuilding BinaryDataStream attach / packing anim matrix
 //! - Not full BoobyTrap SpecialObject plant / MaxSpecialObjects list UI
 //! - Not full StealthUpdate forbidden-condition matrix (Camouflage closed elsewhere)
@@ -231,8 +231,8 @@ pub fn rebel_weapon(has_ap_bullets: bool) -> Weapon {
         reload_time: delay_frames_to_reload_secs(delay),
         last_fire_time: 0.0,
         ammo: Some(REBEL_CLIP_SIZE),
-        clip_size: 0,
-        clip_reload_time: 0.0,
+        clip_size: REBEL_CLIP_SIZE,
+        clip_reload_time: delay_frames_to_reload_secs(REBEL_CLIP_RELOAD_FRAMES),
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: 999_999.0,

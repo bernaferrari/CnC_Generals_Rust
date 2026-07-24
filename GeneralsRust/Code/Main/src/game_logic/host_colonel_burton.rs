@@ -24,7 +24,7 @@
 //!   BuildCost **1500**
 //!
 //! Fail-closed honesty:
-//! - Not full ClipSize=3 in-clip DelayBetweenShots + ClipReload 500ms volley matrix
+//! - ClipSize=3 in-clip DelayBetweenShots + ClipReload 500ms volley residual closed
 //! - Not full knife PreAttackDelay anim lock / PER_ATTACK state machine interleave
 //! - Not full StealthUpdate pulse / ChemicalSuits / AdvancedTraining residual matrix
 //! - RemoteC4Charge/TimedC4Charge SpecialObject + MaxSpecialObjects residual closed
@@ -243,8 +243,8 @@ pub fn burton_sniper_weapon() -> Weapon {
         reload_time: delay_frames_to_reload_secs(delay),
         last_fire_time: 0.0,
         ammo: Some(BURTON_CLIP_SIZE),
-        clip_size: 0,
-        clip_reload_time: 0.0,
+        clip_size: BURTON_CLIP_SIZE,
+        clip_reload_time: delay_frames_to_reload_secs(BURTON_CLIP_RELOAD_FRAMES),
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: 999_999.0,
@@ -262,8 +262,8 @@ pub fn burton_knife_weapon() -> Weapon {
         reload_time: delay_frames_to_reload_secs(BURTON_KNIFE_DELAY_FRAMES),
         last_fire_time: 0.0,
         ammo: Some(BURTON_KNIFE_CLIP_SIZE),
-        clip_size: 0,
-        clip_reload_time: 0.0,
+        clip_size: BURTON_KNIFE_CLIP_SIZE,
+        clip_reload_time: delay_frames_to_reload_secs(BURTON_KNIFE_DELAY_FRAMES),
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: 999_999.0,

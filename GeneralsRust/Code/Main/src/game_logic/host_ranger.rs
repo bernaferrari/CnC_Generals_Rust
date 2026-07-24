@@ -21,7 +21,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full SURRENDER DamageType infantry-surrender AI / garrison clear matrix
-//! - Not full ClipSize=3 in-clip DelayBetweenShots + ClipReload 700ms volley
+//! - ClipSize=3 in-clip DelayBetweenShots + ClipReload 700ms volley residual closed
 //! - Not full ScatterRadius projectile lob / PreAttackDelay flashbang anim lock
 //! - Not network flashbang / fire replication (network deferred)
 
@@ -193,8 +193,8 @@ pub fn ranger_rifle_weapon() -> Weapon {
         reload_time: delay_frames_to_reload_secs(RANGER_RIFLE_DELAY_FRAMES),
         last_fire_time: 0.0,
         ammo: Some(RANGER_RIFLE_CLIP_SIZE),
-        clip_size: 0,
-        clip_reload_time: 0.0,
+        clip_size: RANGER_RIFLE_CLIP_SIZE,
+        clip_reload_time: delay_frames_to_reload_secs(RANGER_RIFLE_CLIP_RELOAD_FRAMES),
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: 999_999.0,
@@ -211,9 +211,9 @@ pub fn ranger_flashbang_weapon() -> Weapon {
         min_range: FLASHBANG_MIN_RANGE,
         reload_time: delay_frames_to_reload_secs(FLASHBANG_RELOAD_FRAMES),
         last_fire_time: 0.0,
-        ammo: Some(1),
-        clip_size: 0,
-        clip_reload_time: 0.0,
+        ammo: Some(FLASHBANG_CLIP_SIZE),
+        clip_size: FLASHBANG_CLIP_SIZE,
+        clip_reload_time: delay_frames_to_reload_secs(FLASHBANG_RELOAD_FRAMES),
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: FLASHBANG_PROJECTILE_SPEED,
@@ -375,6 +375,8 @@ mod tests {
         assert!((w.range - 100.0).abs() < 0.01);
         assert!((w.reload_time - (3.0 / 30.0)).abs() < 0.01);
         assert_eq!(w.ammo, Some(3));
+        assert_eq!(w.clip_size, RANGER_RIFLE_CLIP_SIZE);
+        assert!((w.clip_reload_time - delay_frames_to_reload_secs(RANGER_RIFLE_CLIP_RELOAD_FRAMES)).abs() < 0.01);
         assert!(!w.can_target_air && w.can_target_ground);
     }
 
@@ -420,4 +422,27 @@ mod tests {
         assert!(FLASHBANG_ALLOW_ATTACK_GARRISONED);
         assert_eq!(RANGER_BUILD_TIME_FRAMES, 150);
     }
+
+    #[test]
+    fn ranger_rifle_clip_volley_cadence() {
+        use crate::game_logic::object::Object;
+        let mut w = ranger_rifle_weapon();
+        w.last_fire_time = -100.0;
+        let shot = delay_frames_to_reload_secs(RANGER_RIFLE_DELAY_FRAMES);
+        let clip = delay_frames_to_reload_secs(RANGER_RIFLE_CLIP_RELOAD_FRAMES);
+        let mut t = 0.0;
+        // 3 shots in clip at DelayBetweenShots.
+        for expected in [2u32, 1, 0] {
+            assert!(Object::weapon_ready(&w, t), "ready at t={t}");
+            Object::consume_ammo_on_fire(&mut w, t);
+            assert_eq!(w.ammo, Some(expected));
+            t += shot + 1e-4;
+        }
+        // Clip empty: must wait ClipReload 700ms, not just DelayBetweenShots.
+        assert!(!Object::weapon_ready(&w, t));
+        assert!(Object::weapon_ready(&w, t + clip - shot));
+        Object::consume_ammo_on_fire(&mut w, t + clip - shot);
+        assert_eq!(w.ammo, Some(2), "refilled clip then spent one");
+    }
+
 }
