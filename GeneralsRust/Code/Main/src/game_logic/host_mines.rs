@@ -37,7 +37,8 @@
 //! - Not full C++ MinefieldBehavior virtual-mine regen / scoot / immunity slots
 //! - Not full DemoTrapUpdate PreAttack scoop animation / weapon-lock UI matrix
 //! - Not full WEAPONSET_MINE_CLEARING_DETAIL / Weapon AntiMine targeting matrix
-//! - Not full StickyBombUpdate attach bones / geometry-based splash / live max-charge list
+//! - RemoteC4Charge / TimedC4Charge SpecialObject names + MaxSpecialObjects residual closed
+//! - Not full StickyBombUpdate attach bones / geometry-based splash / live max-charge list UI
 //! - Not full OCL ClusterMinesBomb aircraft path / GenerateMinefieldBehavior SmartBorder
 
 use super::ObjectId;
@@ -585,6 +586,41 @@ pub const BURTON_FLEE_RANGE_AFTER_CHARGE: f32 = 100.0;
 /// Retail SpecialObject remote / timed residual names.
 pub const BURTON_REMOTE_CHARGE_OBJECT: &str = "RemoteC4Charge";
 pub const BURTON_TIMED_CHARGE_OBJECT: &str = "TimedC4Charge";
+/// Retail Tank Hunter SpecialObject.
+pub const TANK_HUNTER_TNT_OBJECT: &str = "TNTStickyBomb";
+/// Retail TimedC4Charge LifetimeUpdate Min/MaxLifetime = 20000 ms → 600f @ 30 FPS.
+pub const TIMED_C4_LIFETIME_MS: u32 = 20_000;
+pub const TIMED_C4_LIFETIME_FRAMES: u32 = (TIMED_C4_LIFETIME_MS * 30 + 999) / 1000;
+/// Retail TNTStickyBomb LifetimeUpdate Min/MaxLifetime = 10000 ms → 300f @ 30 FPS.
+pub const TNT_STICKY_LIFETIME_MS: u32 = 10_000;
+pub const TNT_STICKY_LIFETIME_FRAMES: u32 = (TNT_STICKY_LIFETIME_MS * 30 + 999) / 1000;
+
+/// Retail timed SpecialObject name for producer template residual.
+pub fn retail_timed_charge_template(producer_template: Option<&str>) -> &'static str {
+    if producer_template
+        .map(|n| {
+            let l = n.to_ascii_lowercase();
+            l.contains("tankhunter") || l.contains("tank_hunter")
+        })
+        .unwrap_or(false)
+    {
+        TANK_HUNTER_TNT_OBJECT
+    } else {
+        // Burton TimedC4 default (also generic timed demo residual).
+        BURTON_TIMED_CHARGE_OBJECT
+    }
+}
+
+/// Retail default lifetime frames for timed charge template.
+pub fn retail_timed_charge_lifetime_frames(template_name: &str) -> u32 {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("timedc4") {
+        TIMED_C4_LIFETIME_FRAMES
+    } else {
+        // TNTStickyBomb / TestTimedDemoCharge residual default 10s.
+        TNT_STICKY_LIFETIME_FRAMES
+    }
+}
 
 /// Whether residual unit can clear mines (C++ KINDOF_DOZER / Worker + DISARM weapon residual).
 /// Fail-closed: not full weapon-set / AntiMine bit matrix.
@@ -632,7 +668,9 @@ pub fn is_timed_demo_charge_template(name: &str) -> bool {
     n.contains("stickybomb")
         || n.contains("democharge")
         || n.contains("tntsticky")
+        || n.contains("timedc4")
         || n == "testtimeddemocharge"
+        || n == "timedc4charge"
 }
 
 /// Template names recognized as residual remote demo charges.
@@ -642,6 +680,7 @@ pub fn is_remote_demo_charge_template(name: &str) -> bool {
         || n.contains("remotecharge")
         || n.contains("remotec4")
         || n == "testremotedemocharge"
+        || n == "remotec4charge"
 }
 
 /// Infer residual mine kind from template name, if any.
@@ -788,6 +827,9 @@ pub fn honesty_burton_charge_max_residual_ok() -> bool {
         && (BURTON_FLEE_RANGE_AFTER_CHARGE - 100.0).abs() < 0.01
         && BURTON_REMOTE_CHARGE_OBJECT == "RemoteC4Charge"
         && BURTON_TIMED_CHARGE_OBJECT == "TimedC4Charge"
+        && TIMED_C4_LIFETIME_FRAMES == 600
+        && TNT_STICKY_LIFETIME_FRAMES == 300
+        && TANK_HUNTER_TNT_OBJECT == "TNTStickyBomb"
         && can_place_remote_charge(0)
         && can_place_remote_charge(7)
         && !can_place_remote_charge(8)

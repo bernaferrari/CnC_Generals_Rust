@@ -27,7 +27,8 @@
 //! - Not full ClipSize=3 in-clip DelayBetweenShots + ClipReload 500ms volley matrix
 //! - Not full knife PreAttackDelay anim lock / PER_ATTACK state machine interleave
 //! - Not full StealthUpdate pulse / ChemicalSuits / AdvancedTraining residual matrix
-//! - Not full StickyBombUpdate attach bones / live max-charge list UI
+//! - RemoteC4Charge/TimedC4Charge SpecialObject + MaxSpecialObjects residual closed
+//! - Not full StickyBombUpdate attach bone matrix / live max-charge list UI
 //! - Not network sniper / knife / charge replication (network deferred)
 
 use super::Weapon;

@@ -48747,6 +48747,7 @@ fn update_scud_poison_zones(&mut self) {
         }
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.mine_data = Some(data);
+            obj.producer_id = producer;
             obj.record_host_demo_mine_cheer();
             obj.movement.max_speed = 0.0;
             obj.weapon = None;
@@ -48771,14 +48772,24 @@ fn update_scud_poison_zones(&mut self) {
         attach_to: Option<ObjectId>,
         delay_frames: Option<u32>,
     ) -> Option<ObjectId> {
+        use crate::game_logic::host_mines::{
+            retail_timed_charge_lifetime_frames, retail_timed_charge_template,
+        };
+        let producer_template = producer.and_then(|pid| {
+            self.objects
+                .get(&pid)
+                .map(|o| o.template_name.clone())
+        });
+        let template_name = retail_timed_charge_template(producer_template.as_deref());
+        let delay = delay_frames.or_else(|| Some(retail_timed_charge_lifetime_frames(template_name)));
         self.place_mine_kind(
             crate::game_logic::host_mines::HostMineKind::TimedDemoCharge,
-            "TestTimedDemoCharge",
+            template_name,
             team,
             position,
             producer,
             attach_to,
-            delay_frames,
+            delay,
         )
     }
 
@@ -48791,9 +48802,10 @@ fn update_scud_poison_zones(&mut self) {
         producer: Option<ObjectId>,
         attach_to: Option<ObjectId>,
     ) -> Option<ObjectId> {
+        use crate::game_logic::host_mines::BURTON_REMOTE_CHARGE_OBJECT;
         self.place_mine_kind(
             crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge,
-            "TestRemoteDemoCharge",
+            BURTON_REMOTE_CHARGE_OBJECT,
             team,
             position,
             producer,
@@ -48910,7 +48922,73 @@ fn update_scud_poison_zones(&mut self) {
         attach_to: Option<ObjectId>,
         delay_frames: Option<u32>,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_mines::HostMineData;
+        use crate::game_logic::host_mines::{
+            can_place_remote_charge, can_place_timed_charge, HostMineData, HostMineKind,
+            BURTON_UNIQUE_CHARGE_TARGETS,
+        };
+
+        // C++ MaxSpecialObjects + UniqueSpecialObjectTargets residual (Burton C4).
+        if matches!(
+            kind,
+            HostMineKind::TimedDemoCharge | HostMineKind::RemoteDemoCharge
+        ) {
+            if let Some(pid) = producer {
+                let mut timed_n = 0u32;
+                let mut remote_n = 0u32;
+                for o in self.objects.values() {
+                    if !o.is_alive() {
+                        continue;
+                    }
+                    let Some(md) = o.mine_data.as_ref() else {
+                        continue;
+                    };
+                    if md.detonated {
+                        continue;
+                    }
+                    let owned = md.producer_id == Some(pid) || o.producer_id == Some(pid);
+                    if !owned {
+                        continue;
+                    }
+                    match md.kind {
+                        HostMineKind::TimedDemoCharge => timed_n = timed_n.saturating_add(1),
+                        HostMineKind::RemoteDemoCharge => remote_n = remote_n.saturating_add(1),
+                        _ => {}
+                    }
+                }
+                match kind {
+                    HostMineKind::TimedDemoCharge if !can_place_timed_charge(timed_n) => {
+                        return None;
+                    }
+                    HostMineKind::RemoteDemoCharge if !can_place_remote_charge(remote_n) => {
+                        return None;
+                    }
+                    _ => {}
+                }
+            }
+            if BURTON_UNIQUE_CHARGE_TARGETS {
+                if let Some(tid) = attach_to {
+                    let dup = self.objects.values().any(|o| {
+                        o.is_alive()
+                            && o
+                                .mine_data
+                                .as_ref()
+                                .map(|m| {
+                                    !m.detonated
+                                        && matches!(
+                                            m.kind,
+                                            HostMineKind::TimedDemoCharge
+                                                | HostMineKind::RemoteDemoCharge
+                                        )
+                                        && m.attached_to == Some(tid)
+                                })
+                                .unwrap_or(false)
+                    });
+                    if dup {
+                        return None;
+                    }
+                }
+            }
+        }
 
         self.ensure_residual_mine_template(template_name, kind);
         let id = self.create_object(template_name, team, position)?;
@@ -48938,6 +49016,7 @@ fn update_scud_poison_zones(&mut self) {
 
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.mine_data = Some(data);
+            obj.producer_id = producer;
             obj.record_host_demo_mine_cheer();
             // Mines/charges are not combat movers.
             obj.movement.max_speed = 0.0;
@@ -49036,6 +49115,47 @@ fn update_scud_poison_zones(&mut self) {
         }
     }
 
+    /// C++ RemoteC4Charge SpecialObjectsPersistWhenOwnerDies = No residual.
+    /// TimedC4Charge persists (BURTON_TIMED_PERSIST_WHEN_OWNER_DIES = true).
+    pub fn cleanup_remote_charges_when_owner_dies(&mut self) {
+        use crate::game_logic::host_mines::HostMineKind;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                let md = obj.mine_data.as_ref()?;
+                if md.detonated || !obj.is_alive() {
+                    return None;
+                }
+                if md.kind != HostMineKind::RemoteDemoCharge {
+                    return None;
+                }
+                let pid = md.producer_id.or(obj.producer_id)?;
+                let owner_dead = self
+                    .objects
+                    .get(&pid)
+                    .map(|p| !p.is_alive() || p.status.destroyed || p.status.effectively_dead)
+                    .unwrap_or(true);
+                if owner_dead {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                if let Some(md) = o.mine_data.as_mut() {
+                    md.detonated = true;
+                }
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn update_mines_and_demo_traps(&mut self) {
         use crate::game_logic::host_mines::{
             can_clear_mine_kind, is_mine_clearer, HostMineDetonateReason, HostMineKind,
@@ -49045,6 +49165,8 @@ fn update_scud_poison_zones(&mut self) {
         let frame = self.frame;
         // C++ StickyBombUpdate::update residual — stick to target / die with target.
         self.update_sticky_bomb_attachments();
+        // C++ SpecialObjectsPersistWhenOwnerDies = No for RemoteC4Charge residual.
+        self.cleanup_remote_charges_when_owner_dies();
         let mut due: Vec<(ObjectId, HostMineDetonateReason)> = Vec::new();
         let mut clear_due: Vec<(ObjectId, ObjectId)> = Vec::new(); // (mine_id, clearer_id)
         let mut approach: Vec<(ObjectId, Vec3)> = Vec::new(); // clearer moves toward mine
@@ -62815,6 +62937,155 @@ mod tests {
     }
 
     #[test]
+    fn burton_charges_use_retail_c4_special_objects() {
+        use crate::game_logic::host_mines::{
+            BURTON_MAX_REMOTE_CHARGES, BURTON_MAX_TIMED_CHARGES, BURTON_REMOTE_CHARGE_OBJECT,
+            BURTON_TIMED_CHARGE_OBJECT, TANK_HUNTER_TNT_OBJECT, TIMED_C4_LIFETIME_FRAMES,
+            TNT_STICKY_LIFETIME_FRAMES,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+        burton.add_kind_of(KindOf::Infantry).set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaInfantryColonelBurton".into(), burton);
+        let mut th = ThingTemplate::new("ChinaInfantryTankHunter");
+        th.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("ChinaInfantryTankHunter".into(), th);
+        let mut bld = ThingTemplate::new("GLATunnelNetwork");
+        bld.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("GLATunnelNetwork".into(), bld);
+
+        let hero = logic
+            .create_object(
+                "AmericaInfantryColonelBurton",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let hunter = logic
+            .create_object(
+                "ChinaInfantryTankHunter",
+                Team::China,
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let targets: Vec<_> = (0..3)
+            .map(|i| {
+                logic
+                    .create_object(
+                        "GLATunnelNetwork",
+                        Team::GLA,
+                        Vec3::new(50.0 + i as f32 * 20.0, 0.0, 0.0),
+                    )
+                    .unwrap()
+            })
+            .collect();
+
+        let timed = logic
+            .place_timed_demo_charge(
+                Team::USA,
+                Vec3::new(50.0, 0.0, 0.0),
+                Some(hero),
+                Some(targets[0]),
+                None,
+            )
+            .expect("TimedC4");
+        {
+            let c = logic.find_object(timed).unwrap();
+            assert_eq!(c.template_name, BURTON_TIMED_CHARGE_OBJECT);
+            let md = c.mine_data.as_ref().unwrap();
+            assert_eq!(md.attached_to, Some(targets[0]));
+            let exp = md.detonate_at_frame.unwrap();
+            assert_eq!(exp, logic.frame + TIMED_C4_LIFETIME_FRAMES);
+        }
+
+        let remote = logic
+            .place_remote_demo_charge(
+                Team::USA,
+                Vec3::new(70.0, 0.0, 0.0),
+                Some(hero),
+                Some(targets[1]),
+            )
+            .expect("RemoteC4");
+        assert_eq!(
+            logic.find_object(remote).unwrap().template_name,
+            BURTON_REMOTE_CHARGE_OBJECT
+        );
+
+        // UniqueSpecialObjectTargets: second charge on same target fails.
+        assert!(logic
+            .place_remote_demo_charge(
+                Team::USA,
+                Vec3::new(70.0, 0.0, 0.0),
+                Some(hero),
+                Some(targets[1]),
+            )
+            .is_none());
+
+        let tnt = logic
+            .place_timed_demo_charge(
+                Team::China,
+                Vec3::new(90.0, 0.0, 0.0),
+                Some(hunter),
+                Some(targets[2]),
+                None,
+            )
+            .expect("TNT");
+        {
+            let c = logic.find_object(tnt).unwrap();
+            assert_eq!(c.template_name, TANK_HUNTER_TNT_OBJECT);
+            let md = c.mine_data.as_ref().unwrap();
+            assert_eq!(
+                md.detonate_at_frame.unwrap(),
+                logic.frame + TNT_STICKY_LIFETIME_FRAMES
+            );
+        }
+
+        // MaxSpecialObjects remote = 8.
+        let mut planted = 1u32; // already one remote
+        for i in 0..20 {
+            let tid = logic
+                .create_object(
+                    "GLATunnelNetwork",
+                    Team::GLA,
+                    Vec3::new(200.0 + i as f32, 0.0, 0.0),
+                )
+                .unwrap();
+            if logic
+                .place_remote_demo_charge(
+                    Team::USA,
+                    Vec3::new(200.0 + i as f32, 0.0, 0.0),
+                    Some(hero),
+                    Some(tid),
+                )
+                .is_some()
+            {
+                planted += 1;
+            }
+        }
+        assert_eq!(planted, BURTON_MAX_REMOTE_CHARGES);
+
+        // Owner dies → remote charges cleaned; timed persists.
+        if let Some(o) = logic.objects.get_mut(&hero) {
+            o.status.destroyed = true;
+            o.status.effectively_dead = true;
+            o.health.current = 0.0;
+        }
+        logic.cleanup_remote_charges_when_owner_dies();
+        assert!(
+            logic
+                .find_object(remote)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+        assert!(logic.find_object(timed).unwrap().is_alive());
+        let _ = BURTON_MAX_TIMED_CHARGES;
+    }
+
+#[test]
     fn sticky_bomb_destroyed_when_target_dies() {
         use crate::game_logic::{KindOf, Team, ThingTemplate};
         let mut logic = GameLogic::new();
