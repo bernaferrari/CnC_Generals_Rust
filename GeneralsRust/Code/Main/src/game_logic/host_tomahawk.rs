@@ -24,12 +24,14 @@
 //!
 //! Fail-closed honesty:
 //! - TomahawkMissile projectile lob residual closed (MissileAI peels + impact splash)
+//! - ScatterRadiusVsInfantry **20** residual miss cone closed (deterministic aim offset)
 //! - Not full CapableOfFollowingWaypoints multi-leg path matrix
 //! - Not full PreAttackDelay PER_SHOT anim / hide-show missile bone matrix
 //! - Not Scout/Battle/Hellfire drone payload residual (see host_slave_drones)
 //! - Not network tomahawk replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const TOMAHAWK_LOGIC_FPS: f32 = 30.0;
@@ -329,15 +331,66 @@ pub fn honesty_tomahawk_launcher_residual_ok() -> bool {
 }
 
 /// Combined Wave 58 Tomahawk residual honesty pack.
+
+/// Apply TomahawkMissileWeapon ScatterRadiusVsInfantry residual to aim.
+pub fn tomahawk_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let mut scatter =
+        host_effective_scatter_radius(TOMAHAWK_MISSILE_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = TOMAHAWK_SCATTER_VS_INFANTRY;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Wave residual honesty: Tomahawk ScatterRadiusVsInfantry peels (**20**).
+pub fn honesty_tomahawk_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    let vs = host_effective_scatter_radius(TOMAHAWK_MISSILE_WEAPON, true);
+    let ground = host_effective_scatter_radius(TOMAHAWK_MISSILE_WEAPON, false);
+    (TOMAHAWK_SCATTER_VS_INFANTRY - 20.0).abs() < 0.01
+        && (vs - 20.0).abs() < 0.01
+        && ground.abs() < 0.01
+        && {
+            let (sc, applied) =
+                tomahawk_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            applied && sc.length() <= TOMAHAWK_SCATTER_VS_INFANTRY + 0.01
+        }
+}
+
 pub fn honesty_tomahawk_residual_pack_ok() -> bool {
     honesty_tomahawk_weapon_residual_ok()
         && honesty_tomahawk_loft_residual_ok()
         && honesty_tomahawk_launcher_residual_ok()
+        && honesty_tomahawk_scatter_vs_infantry_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tomahawk_scatter_vs_infantry_peels() {
+        assert!(honesty_tomahawk_scatter_vs_infantry_ok());
+        let aim = Vec3::new(200.0, 0.0, 18.0);
+        let (no_sc, applied) = tomahawk_scatter_aim(aim, false, 31);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = tomahawk_scatter_aim(aim, true, 31);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= TOMAHAWK_SCATTER_VS_INFANTRY + 0.01);
+    }
 
     #[test]
     fn tomahawk_name_matrix() {
@@ -370,6 +423,7 @@ mod tests {
 
     #[test]
     fn tomahawk_residual_pack_honesty_wave58() {
+        assert!(honesty_tomahawk_scatter_vs_infantry_ok());
         assert!(honesty_tomahawk_residual_pack_ok());
         assert_eq!(tomahawk_ms_to_frames(7_000), 210);
         assert_eq!(tomahawk_ms_to_frames(250), 8);
