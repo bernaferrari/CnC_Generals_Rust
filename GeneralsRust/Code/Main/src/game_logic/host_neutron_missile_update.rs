@@ -34,6 +34,8 @@ pub const NEUTRON_GROUND_EPSILON: f32 = 2.0;
 pub const NEUTRON_DELIVERY_DECAL_RADIUS: f32 = 210.0;
 pub const NEUTRON_LAUNCH_FX: &str = "FX_NeutronMissileLaunch";
 pub const NEUTRON_IGNITION_FX: &str = "FX_NeutronMissileIgnition";
+/// Retail SpecialJitterDistance residual.
+pub const NEUTRON_SPECIAL_JITTER_DISTANCE: f32 = 0.4;
 /// Host residual speed units per frame at RelativeSpeed=1.
 pub const NEUTRON_BASE_SPEED_PER_FRAME: f32 = 12.0;
 
@@ -58,6 +60,8 @@ pub struct HostNeutronMissileUpdateData {
     pub launch_frame: u32,
     pub special_frames_left: u32,
     pub is_cruise: bool,
+    pub launch_fx_played: bool,
+    pub ignition_fx_played: bool,
 }
 
 impl HostNeutronMissileUpdateData {
@@ -82,6 +86,8 @@ impl HostNeutronMissileUpdateData {
             launch_frame: now,
             special_frames_left: NEUTRON_SPECIAL_SPEED_TIME_FRAMES,
             is_cruise,
+            launch_fx_played: false,
+            ignition_fx_played: false,
         }
     }
 
@@ -108,6 +114,8 @@ impl HostNeutronMissileUpdateData {
                 vel: Vec3::ZERO,
                 grounded: false,
                 phase: self.phase,
+                launch_fx: false,
+                ignition_fx: false,
             };
         }
 
@@ -117,17 +125,39 @@ impl HostNeutronMissileUpdateData {
 
         match self.phase {
             NeutronMissileFlightPhase::Launch => {
+                let mut launch_fx = false;
+                let mut ignition_fx = false;
+                if !self.launch_fx_played {
+                    self.launch_fx_played = true;
+                    launch_fx = true;
+                }
                 // Special loft: climb SpecialSpeedHeight over SpecialSpeedTime.
                 if self.special_frames_left > 0 {
                     let step = NEUTRON_SPECIAL_SPEED_HEIGHT
                         / NEUTRON_SPECIAL_SPEED_TIME_FRAMES as f32;
                     new_pos.y += step;
                     vel.y = step;
+                    // SpecialJitterDistance residual (small lateral wobble).
+                    let j = NEUTRON_SPECIAL_JITTER_DISTANCE;
+                    let salt = self.special_frames_left;
+                    new_pos.x += (((salt * 3) % 7) as f32 - 3.0) * j * 0.15;
+                    new_pos.z += (((salt * 5) % 7) as f32 - 3.0) * j * 0.15;
                     self.special_frames_left -= 1;
-                    // horizontal hold during special loft residual
                 } else {
+                    if !self.ignition_fx_played {
+                        self.ignition_fx_played = true;
+                        ignition_fx = true;
+                    }
                     self.phase = NeutronMissileFlightPhase::AttackClimb;
                 }
+                return NeutronMissileTick {
+                    pos: new_pos,
+                    vel,
+                    grounded: false,
+                    phase: self.phase,
+                    launch_fx,
+                    ignition_fx,
+                };
             }
             NeutronMissileFlightPhase::AttackClimb => {
                 let dest = if self.reached_intermediate {
@@ -185,6 +215,8 @@ impl HostNeutronMissileUpdateData {
                         vel: Vec3::ZERO,
                         grounded: true,
                         phase: self.phase,
+                        launch_fx: false,
+                        ignition_fx: false,
                     };
                 }
                 let _ = delta;
@@ -197,6 +229,8 @@ impl HostNeutronMissileUpdateData {
             vel,
             grounded: false,
             phase: self.phase,
+            launch_fx: false,
+            ignition_fx: false,
         }
     }
 }
@@ -207,6 +241,10 @@ pub struct NeutronMissileTick {
     pub vel: Vec3,
     pub grounded: bool,
     pub phase: NeutronMissileFlightPhase,
+    /// Play LaunchFX this frame.
+    pub launch_fx: bool,
+    /// Play IgnitionFX this frame (end of special loft).
+    pub ignition_fx: bool,
 }
 
 pub fn is_neutron_missile_flight_template(name: &str) -> bool {
@@ -252,6 +290,7 @@ pub fn honesty_neutron_missile_update_residual_ok() -> bool {
         && (NEUTRON_NO_TURN_DIST - 300.0).abs() < 0.1
         && (NEUTRON_DELIVERY_DECAL_RADIUS - 210.0).abs() < 0.1
         && NEUTRON_LAUNCH_FX == "FX_NeutronMissileLaunch"
+        && (NEUTRON_SPECIAL_JITTER_DISTANCE - 0.4).abs() < 1e-5
         && is_neutron_missile_flight_template("NeutronMissile")
         && is_neutron_missile_flight_template("CruiseMissile")
         && !is_neutron_missile_flight_template("AmericaTankCrusader")
