@@ -1349,6 +1349,19 @@ pub struct Object {
     pub raptor_missile_fuel_expires_frame: Option<u32>,
     #[serde(default)]
     pub raptor_missile_ignition_frame: Option<u32>,
+    /// C++ NapalmMissile / MiG projectile residual.
+    #[serde(default)]
+    pub mig_missile_projectile: bool,
+    #[serde(default)]
+    pub mig_missile_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub mig_missile_intended: Option<u32>,
+    #[serde(default)]
+    pub mig_missile_travelled: f32,
+    #[serde(default)]
+    pub mig_missile_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub mig_missile_ignition_frame: Option<u32>,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2347,6 +2360,12 @@ impl Object {
             raptor_missile_travelled: 0.0,
             raptor_missile_fuel_expires_frame: None,
             raptor_missile_ignition_frame: None,
+            mig_missile_projectile: false,
+            mig_missile_aim: None,
+            mig_missile_intended: None,
+            mig_missile_travelled: 0.0,
+            mig_missile_fuel_expires_frame: None,
+            mig_missile_ignition_frame: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -2899,6 +2918,12 @@ impl Object {
             raptor_missile_travelled: 0.0,
             raptor_missile_fuel_expires_frame: None,
             raptor_missile_ignition_frame: None,
+            mig_missile_projectile: false,
+            mig_missile_aim: None,
+            mig_missile_intended: None,
+            mig_missile_travelled: 0.0,
+            mig_missile_fuel_expires_frame: None,
+            mig_missile_ignition_frame: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,

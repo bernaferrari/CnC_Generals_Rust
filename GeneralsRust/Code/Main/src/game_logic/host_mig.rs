@@ -30,6 +30,7 @@
 //!
 //! Fail-closed honesty:
 //! - JetAIUpdate RETURN_TO_BASE ClipReload airfield rearm residual (8000ms/2000ms Black)
+//! - NapalmMissile MissileAI flight residual closed (InitialVelocity 75, Fuel 10000ms)
 //! - Not full HistoricBonus FirestormSmallCreationWeapon multi-missile matrix
 //! - Not full MediumRadiationField for Nuke_NukeMissileWeapon residual
 //! - Not network MiG / BlackNapalm / TacticalNuke replication (network deferred)
@@ -93,6 +94,16 @@ pub const MIG_BLACK_DAMAGE_TYPE: &str = "EXPLOSION";
 pub const MIG_BLACK_DEATH_TYPE: &str = "EXPLODED";
 /// Retail ProjectileObject residual.
 pub const MIG_PROJECTILE: &str = "NapalmMissile";
+/// Retail NapalmMissile MaxHealth residual.
+pub const MIG_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// MissileAI FuelLifetime 10000ms → 300 frames @ 30 FPS.
+pub const MIG_MISSILE_FUEL_MS: u32 = 10_000;
+pub const MIG_MISSILE_FUEL_FRAMES: u32 = 300;
+/// MissileAI InitialVelocity residual (dist/sec).
+pub const MIG_MISSILE_INITIAL_VELOCITY: f32 = 75.0;
+/// MissileAI IgnitionDelay 30ms → 1 frame @ 30 FPS.
+pub const MIG_MISSILE_IGNITION_DELAY_MS: u32 = 30;
+pub const MIG_MISSILE_IGNITION_DELAY_FRAMES: u32 = 1;
 /// Retail FireFX residual.
 pub const MIG_FIRE_FX: &str = "WeaponFX_NapalmMissile";
 /// Retail AutoReloadsClip residual.
@@ -409,6 +420,8 @@ pub fn honesty_mig_weapon_residual_ok() -> bool {
         && MIG_BLACK_DAMAGE_TYPE == "EXPLOSION"
         && MIG_BLACK_DEATH_TYPE == "EXPLODED"
         && MIG_PROJECTILE == "NapalmMissile"
+        && MIG_MISSILE_FUEL_FRAMES == 300
+        && (MIG_MISSILE_INITIAL_VELOCITY - 75.0).abs() < 0.01
         && MIG_FIRE_FX == "WeaponFX_NapalmMissile"
         && MIG_AUTO_RELOADS_CLIP == "RETURN_TO_BASE"
         && MIG_FIRE_AUDIO == "MigJetNapalmWeapon"
