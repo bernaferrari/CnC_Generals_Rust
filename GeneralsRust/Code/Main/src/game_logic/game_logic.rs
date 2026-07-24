@@ -49996,6 +49996,17 @@ fn update_scud_poison_zones(&mut self) {
     pub fn update_ambushes(&mut self) {
         self.host_ambushes.clear_frame_events();
 
+        // C++ FadeIn residual: clear STEALTHED after FadeTime frames.
+        let fade_due = self.host_ambushes.take_due_fade_clears(self.frame);
+        for id in fade_due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                if o.ambush_fade_in {
+                    o.set_status_stealthed(false);
+                    o.ambush_fade_in = false;
+                }
+            }
+        }
+
         let plans = self.host_ambushes.plan_due_spawns(self.frame);
         for plan in plans {
             if !self.templates.contains_key(&plan.unit_template) {
@@ -50010,6 +50021,14 @@ fn update_scud_poison_zones(&mut self) {
             let mut spawned: Vec<ObjectId> = Vec::with_capacity(plan.spawn_positions.len());
             for pos in &plan.spawn_positions {
                 if let Some(id) = self.create_object(&template_name, plan.source_team, *pos) {
+                    // C++ CreateObject FadeIn residual: STEALTHED until FadeTime.
+                    if crate::game_logic::host_ambush::AMBUSH_FADE_IN {
+                        if let Some(o) = self.objects.get_mut(&id) {
+                            o.set_status_stealthed(true);
+                            o.ambush_fade_in = true;
+                        }
+                        self.host_ambushes.schedule_fade_in(id, self.frame);
+                    }
                     spawned.push(id);
                 }
             }
@@ -69178,6 +69197,65 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn ambush_fade_in_stealths_rebels() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_ambush::{AMBUSH_FADE_TIME_FRAMES, GLA_AMBUSH1_UNIT_COUNT};
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        if let Some(p) = logic.get_player_mut(2) {
+            p.unlock_science("SCIENCE_RebelAmbush1");
+        }
+        let mut cc = crate::game_logic::ThingTemplate::new("GLACommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("GLACommandCenter".into(), cc);
+        let mut rebel_t = crate::game_logic::ThingTemplate::new("GLAInfantryRebel");
+        rebel_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), rebel_t);
+        let cc_id = logic
+            .create_object("GLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let id = logic
+            .queue_ambush(
+                &SpecialPowerType::Ambush,
+                cc_id,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("ambush");
+        assert!(id >= 1);
+        // Advance through fade delay to spawn.
+        for f in 0..=200 {
+            logic.frame = f;
+            logic.update_ambushes();
+            if logic.host_ambushes.fade_in_grants >= 1 {
+                break;
+            }
+        }
+        assert!(logic.host_ambushes.fade_in_grants >= GLA_AMBUSH1_UNIT_COUNT as u32 || logic.host_ambushes.fade_in_grants >= 1);
+        let stealthed = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.ambush_fade_in && o.status.stealthed)
+            .count();
+        assert!(stealthed >= 1, "FadeIn rebels should be stealthed");
+        // Advance past FadeTime residual.
+        let start = logic.frame;
+        for f in start..=(start + AMBUSH_FADE_TIME_FRAMES + 5) {
+            logic.frame = f;
+            logic.update_ambushes();
+        }
+        assert!(logic.host_ambushes.fade_in_clears >= 1);
+        let still_fading = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.ambush_fade_in)
+            .count();
+        assert_eq!(still_fading, 0, "FadeIn should clear after FadeTime");
+        assert!(logic.host_ambushes.honesty_fade_in_ok());
+    }
 
     #[test]
     fn frenzy_spawns_invisible_marker() {

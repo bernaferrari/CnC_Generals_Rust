@@ -6,8 +6,8 @@
 //! (spread-formation residual).
 //!
 //! Fail-closed honesty:
-//! - Not full OCL CreateObject / FadeIn module path
-//! - Not full science upgrade OCL matrix (Ambush2/3 payload tiers)
+//! - FadeIn residual: spawned rebels STEALTHED until FadeTime elapses
+//! - Science tier Ambush1/2/3 payload counts via AmbushScienceTier residual
 //! - Not OCLAdjustPositionToPassable / DiesOnBadLand water-drown path
 //! - Not SharedSyncedTimer / multiplayer academy classification
 
@@ -142,6 +142,13 @@ pub struct HostAmbushSpawnPlan {
     pub spawn_positions: Vec<Vec3>,
 }
 
+/// Pending FadeIn residual clear (object becomes visible after FadeTime).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingAmbushFadeClear {
+    pub object_id: ObjectId,
+    pub clear_frame: u32,
+}
+
 /// Host registry of ambush missions that queue and complete.
 #[derive(Debug, Clone, Default)]
 pub struct HostAmbushRegistry {
@@ -149,6 +156,12 @@ pub struct HostAmbushRegistry {
     missions: HashMap<u32, HostAmbushMission>,
     completed_this_frame: Vec<u32>,
     activated_this_frame: Vec<u32>,
+    /// Units currently FadeIn-stealthed residual.
+    pub pending_fade_clears: Vec<PendingAmbushFadeClear>,
+    /// Honesty: FadeIn stealth grants applied.
+    pub fade_in_grants: u32,
+    /// Honesty: FadeIn clears completed.
+    pub fade_in_clears: u32,
 }
 
 impl HostAmbushRegistry {
@@ -158,14 +171,49 @@ impl HostAmbushRegistry {
             missions: HashMap::new(),
             completed_this_frame: Vec::new(),
             activated_this_frame: Vec::new(),
+            pending_fade_clears: Vec::new(),
+            fade_in_grants: 0,
+            fade_in_clears: 0,
         }
     }
 
     pub fn clear(&mut self) {
-        self.missions.clear();
-        self.completed_this_frame.clear();
-        self.activated_this_frame.clear();
-        self.next_id = 1;
+        *self = Self::new();
+    }
+
+    
+    pub fn schedule_fade_in(&mut self, object_id: ObjectId, spawn_frame: u32) {
+        if !AMBUSH_FADE_IN {
+            return;
+        }
+        self.pending_fade_clears.push(PendingAmbushFadeClear {
+            object_id,
+            clear_frame: spawn_frame.saturating_add(AMBUSH_FADE_TIME_FRAMES),
+        });
+        self.fade_in_grants = self.fade_in_grants.saturating_add(1);
+    }
+
+    pub fn take_due_fade_clears(&mut self, frame: u32) -> Vec<ObjectId> {
+        let mut due = Vec::new();
+        let mut keep = Vec::new();
+        for p in self.pending_fade_clears.drain(..) {
+            if p.clear_frame <= frame {
+                due.push(p.object_id);
+            } else {
+                keep.push(p);
+            }
+        }
+        self.pending_fade_clears = keep;
+        if !due.is_empty() {
+            self.fade_in_clears = self.fade_in_clears.saturating_add(due.len() as u32);
+        }
+        due
+    }
+
+    pub fn honesty_fade_in_ok(&self) -> bool {
+        AMBUSH_FADE_IN
+            && self.fade_in_grants > 0
+            && (self.fade_in_clears > 0 || !self.pending_fade_clears.is_empty())
     }
 
     pub fn clear_frame_events(&mut self) {
@@ -537,6 +585,7 @@ pub fn honesty_ambush_spawn_ocl_residual_ok() -> bool {
         && (AMBUSH_MIN_DISTANCE_B - 30.0).abs() < 0.01
         && (AMBUSH_MAX_DISTANCE_FORMATION - 400.0).abs() < 0.01
         && AMBUSH_FADE_IN
+        && AMBUSH_FADE_TIME_FRAMES == 90
         && AMBUSH_DIES_ON_BAD_LAND
         && HostAmbushKind::GLARebelAmbush.unit_template() == GLA_REBEL_TEMPLATE
 }
