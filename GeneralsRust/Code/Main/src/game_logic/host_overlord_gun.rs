@@ -26,12 +26,14 @@
 //!
 //! Fail-closed honesty:
 //! - Not full ClipSize=2 DelayBetweenShots 300ms dual-volley cadence matrix
-//! - Not full ScatterRadiusVsInfantry / projectile shell lob / W3D bone matrix
+//! - OverlordTankShell DumbProjectile Bezier flight residual closed
+//! - Not full ScatterRadiusVsInfantry random miss / W3D bone matrix
 //! - Not full Nuclear Tanks death weapon residual
 //! - HelixMinigun residual closed 2026-07-13 (host_helix_minigun path; not re-opened here)
 //! - Not network uranium / dual-radius replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 use crate::game_logic::host_overlord_addons::{is_emperor_template, is_overlord_tank_template};
 use std::collections::HashSet;
 
@@ -80,6 +82,16 @@ pub const OVERLORD_DAMAGE_TYPE: &str = "ARMOR_PIERCING";
 pub const OVERLORD_DEATH_TYPE: &str = "NORMAL";
 /// Retail ProjectileObject residual.
 pub const OVERLORD_PROJECTILE: &str = "OverlordTankShell";
+/// Retail OverlordTankShell MaxHealth residual.
+pub const OVERLORD_SHELL_MAX_HEALTH: f32 = 100.0;
+/// DumbProjectileBehavior FirstHeight residual.
+pub const OVERLORD_SHELL_FIRST_HEIGHT: f32 = 10.0;
+/// DumbProjectileBehavior SecondHeight residual.
+pub const OVERLORD_SHELL_SECOND_HEIGHT: f32 = 10.0;
+/// FirstPercentIndent residual (50%).
+pub const OVERLORD_SHELL_FIRST_PERCENT_INDENT: f32 = 0.50;
+/// SecondPercentIndent residual (90%).
+pub const OVERLORD_SHELL_SECOND_PERCENT_INDENT: f32 = 0.90;
 /// Retail FireFX residual.
 pub const OVERLORD_FIRE_FX: &str = "WeaponFX_GenericTankGunNoTracer";
 /// Retail ProjectileDetonationFX residual.
@@ -161,6 +173,37 @@ pub fn is_overlord_gun_chassis(template_name: &str) -> bool {
 /// Whether residual fire should apply Overlord dual-radius gun residual.
 ///
 /// Callers should skip when portable gattling exclusive residual is active.
+
+
+/// Cubic Bezier residual sample for OverlordTankShell DumbProjectileBehavior.
+pub fn overlord_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * OVERLORD_SHELL_FIRST_PERCENT_INDENT
+        + Vec3::Y * OVERLORD_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * OVERLORD_SHELL_SECOND_PERCENT_INDENT
+        + Vec3::Y * OVERLORD_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    p0 * uuu + p1 * (3.0 * uu * t) + p2 * (3.0 * u * tt) + p3 * ttt
+}
+
+/// Flight frame residual from ground distance @ WeaponSpeed 300.
+pub fn overlord_shell_flight_frames(from: Vec3, to: Vec3) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let frames = (dist / (OVERLORD_PROJECTILE_SPEED / OVERLORD_LOGIC_FPS)).ceil() as u32;
+    frames.clamp(4, 180)
+}
+
 pub fn should_apply_overlord_gun_residual(is_chassis: bool, has_gattling_addon: bool) -> bool {
     is_chassis && !has_gattling_addon
 }
@@ -269,6 +312,8 @@ pub fn honesty_overlord_gun_weapon_residual_ok() -> bool {
         && OVERLORD_DAMAGE_TYPE == "ARMOR_PIERCING"
         && OVERLORD_DEATH_TYPE == "NORMAL"
         && OVERLORD_PROJECTILE == "OverlordTankShell"
+        && (OVERLORD_SHELL_FIRST_HEIGHT - 10.0).abs() < 0.01
+        && (OVERLORD_SHELL_SECOND_PERCENT_INDENT - 0.90).abs() < 0.001
         && OVERLORD_FIRE_FX == "WeaponFX_GenericTankGunNoTracer"
         && OVERLORD_DETONATION_FX == "WeaponFX_GenericTankShellDetonation"
         && OVERLORD_FIRE_AUDIO == "OverlordTankWeapon"
