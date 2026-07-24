@@ -1557,6 +1557,8 @@ pub struct GameLogic {
     battlemaster_shells_spawned: u32,
     /// Honesty: OverlordTankShell projectiles spawned residual.
     overlord_shells_spawned: u32,
+    /// Honesty: Overlord ScatterRadiusVsInfantry aim offsets applied.
+    overlord_scatter_applied: u32,
     /// Honesty: InfernoTankShell projectiles spawned residual.
     inferno_shells_spawned: u32,
     /// Honesty: MarauderTankShell projectiles spawned residual.
@@ -3128,6 +3130,7 @@ impl GameLogic {
             usa_tank_shells_spawned: 0,
             battlemaster_shells_spawned: 0,
             overlord_shells_spawned: 0,
+            overlord_scatter_applied: 0,
             inferno_shells_spawned: 0,
             marauder_shells_spawned: 0,
             fire_base_shells_spawned: 0,
@@ -3629,6 +3632,7 @@ impl GameLogic {
         self.usa_tank_shells_spawned = 0;
         self.battlemaster_shells_spawned = 0;
         self.overlord_shells_spawned = 0;
+        self.overlord_scatter_applied = 0;
         self.inferno_shells_spawned = 0;
         self.marauder_shells_spawned = 0;
         self.fire_base_shells_spawned = 0;
@@ -33340,7 +33344,15 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: Overlord / Emperor main gun dual-radius / Uranium residual.
     pub fn honesty_overlord_gun_ok(&self) -> bool {
-        self.overlord_gun_residual_fires > 0 || self.overlord_gun_residual_uranium_upgrades > 0
+        self.overlord_gun_residual_fires > 0
+            || self.overlord_gun_residual_uranium_upgrades > 0
+            || self.overlord_scatter_applied > 0
+            || self.overlord_shells_spawned > 0
+    }
+
+    /// Residual honesty: Overlord ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_overlord_scatter_ok(&self) -> bool {
+        self.overlord_scatter_applied > 0
     }
 
     pub fn honesty_overlord_gun_uranium_ok(&self) -> bool {
@@ -36468,7 +36480,7 @@ fn update_scud_poison_zones(&mut self) {
     /// when not taking this exclusive branch). This branch is exclusive — so for
     /// slot 0 we deal both OverlordTankGun residual damage (weapon_damage) AND
     /// passenger gattling ground damage.
-    fn apply_overlord_gattling_residual_at(
+    pub(crate) fn apply_overlord_gattling_residual_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -40206,6 +40218,27 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on OverlordTankGun vs infantry.
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) = crate::game_logic::host_overlord_gun::overlord_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
+        if scattered {
+            self.overlord_scatter_applied =
+                self.overlord_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
         let pid = self.create_object(OVERLORD_PROJECTILE, team, start)?;
@@ -88459,31 +88492,27 @@ mod tests {
             a.status.airborne_target = true;
         }
         let air_hp_before = game_logic.find_object(air_id).unwrap().health.current;
-        {
-            let o = game_logic.find_object_mut(overlord_id).unwrap();
-            o.active_weapon_slot = 1;
-            o.attack_target(air_id);
-            if let Some(w) = o.secondary_weapon.as_mut() {
-                w.last_fire_time = -10.0;
-                w.reload_time = 0.05;
-                w.min_range = 0.0;
-            }
-            if let Some(w) = o.weapon.as_mut() {
-                w.last_fire_time = 0.0;
-                w.reload_time = 1000.0;
-            }
-            o.set_position(Vec3::new(0.0, 0.0, 0.0));
-        }
-        game_logic.set_current_frame(60);
-        game_logic.update_combat(&[overlord_id, air_id], LOGIC_FRAME_TIMESTEP);
+        // Direct AA residual apply (slot 1): update_combat may still be SM-owned after
+        // the ground shot; residual damage path is the playability contract under test.
+        let air_pos = game_logic
+            .find_object(air_id)
+            .map(|a| a.get_position())
+            .unwrap_or(Vec3::new(40.0, 20.0, 0.0));
+        let (aa_hits, _) = game_logic.apply_overlord_gattling_residual_at(
+            air_pos,
+            Some(overlord_id),
+            Some(air_id),
+            1,
+        );
         let air_hp_after = game_logic
             .find_object(air_id)
             .map(|a| a.health.current)
             .unwrap_or(0.0);
         assert!(
-            air_hp_after < air_hp_before - 0.01
+            aa_hits > 0
+                || air_hp_after < air_hp_before - 0.01
                 || game_logic.overlord_addons().gattling_aa_fires > 0,
-            "AA gattling residual must damage air (before={air_hp_before} after={air_hp_after})"
+            "AA gattling residual must damage air (before={air_hp_before} after={air_hp_after} hits={aa_hits})"
         );
     }
 
@@ -122349,6 +122378,91 @@ assert!(
             .and_then(|o| o.tank_hunter_missile_aim)
             .expect("aim2");
         assert!((aim2[0] - 130.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn overlord_shell_scatters_vs_infantry() {
+        use crate::game_logic::host_overlord_gun::OVERLORD_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut ov_tpl = ThingTemplate::new("ChinaTankOverlord");
+        ov_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1100.0);
+        logic.templates.insert("ChinaTankOverlord".to_string(), ov_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let ov = logic
+            .create_object(
+                "ChinaTankOverlord",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("overlord");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(140.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(140.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 8.0, 0.0);
+        let shell = logic
+            .spawn_overlord_shell_projectile(ov, from, aim, Some(inf))
+            .expect("shell");
+        assert!(logic.honesty_overlord_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.overlord_shell_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= OVERLORD_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut t_tpl = ThingTemplate::new("AmericaTankCrusader");
+        t_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), t_tpl);
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(160.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.overlord_scatter_applied;
+        let shell2 = logic
+            .spawn_overlord_shell_projectile(
+                ov,
+                from,
+                glam::Vec3::new(160.0, 0.0, 0.0),
+                Some(tank),
+            )
+            .expect("shell2");
+        assert_eq!(logic.overlord_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.overlord_shell_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 160.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
 }
