@@ -22,6 +22,7 @@ pub mod host_scud_storm_missile_flight;
 pub mod host_carpet_bomb_flight;
 pub mod host_artillery_barrage_flight;
 pub mod host_a10_strike_flight;
+pub mod host_daisy_cutter_flight;
 pub mod host_float_update;
 pub mod host_ai_decision_log;
 pub mod host_ai_mood_log;

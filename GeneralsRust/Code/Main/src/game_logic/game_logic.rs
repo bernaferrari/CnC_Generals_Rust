@@ -1170,6 +1170,9 @@ pub struct GameLogic {
     /// C++ A10Thunderbolt DeliverPayload residual counters.
     a10_strike_flight_reg:
         crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightRegistry,
+    /// C++ DaisyCutter DeliverPayload residual counters.
+    daisy_cutter_flight_reg:
+        crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2866,6 +2869,8 @@ impl GameLogic {
                 crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightRegistry::new(),
             a10_strike_flight_reg:
                 crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightRegistry::new(),
+            daisy_cutter_flight_reg:
+                crate::game_logic::host_daisy_cutter_flight::HostDaisyCutterFlightRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3338,6 +3343,7 @@ impl GameLogic {
         self.carpet_bomb_flight_reg.clear();
         self.artillery_barrage_flight_reg.clear();
         self.a10_strike_flight_reg.clear();
+        self.daisy_cutter_flight_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -6067,6 +6073,7 @@ impl GameLogic {
         self.update_carpet_bomb_flights();
         self.update_artillery_barrage_flights();
         self.update_a10_strike_flights();
+        self.update_daisy_cutter_flights();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -28396,6 +28403,158 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ SUPERWEAPON_DaisyCutter AmericaJetB52 + DaisyCutterBomb residual.
+    pub fn spawn_daisy_cutter_flight(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_daisy_cutter_flight::{
+            HostDaisyCutterFlightData, DAISY_BOMB_OBJECT, DAISY_TRANSPORT,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let source_pos = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        let dx = target.x - source_pos.x;
+        let dz = target.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+        let edge = Vec3::new(
+            source_pos.x - dx / dist * 360.0,
+            160.0,
+            source_pos.z - dz / dist * 360.0,
+        );
+        if !self.templates.contains_key(DAISY_TRANSPORT) {
+            let mut t = ThingTemplate::new(DAISY_TRANSPORT);
+            t.set_health(500.0)
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle);
+            self.templates.insert(DAISY_TRANSPORT.to_string(), t);
+        }
+        if !self.templates.contains_key(DAISY_BOMB_OBJECT) {
+            let mut t = ThingTemplate::new(DAISY_BOMB_OBJECT);
+            t.set_health(100.0).add_kind_of(KindOf::Projectile);
+            self.templates.insert(DAISY_BOMB_OBJECT.to_string(), t);
+        }
+        let tid = self.create_object(DAISY_TRANSPORT, team, edge)?;
+        if let Some(o) = self.objects.get_mut(&tid) {
+            o.producer_id = Some(source_id);
+            o.daisy_cutter_transport =
+                Some(HostDaisyCutterFlightData::start(edge, target));
+            o.set_orientation(dz.atan2(dx));
+        }
+        self.daisy_cutter_flight_reg.record_transport();
+        Some(tid)
+    }
+
+    pub fn update_daisy_cutter_flights(&mut self) {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_daisy_cutter_flight::{
+            DAISY_BOMB_OBJECT, DAISY_DELIVERY_DISTANCE,
+        };
+        use crate::game_logic::special_power_strikes::{
+            DAISY_CUTTER_PRIMARY_DAMAGE, DAISY_CUTTER_PRIMARY_RADIUS,
+        };
+
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.daisy_cutter_transport.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut drops: Vec<(Team, Vec3, ObjectId)> = Vec::new();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let pos = o.get_position();
+            let Some(data) = o.daisy_cutter_transport.as_mut() else {
+                continue;
+            };
+            let (new_pos, vel, over) = data.tick_transport(pos);
+            let target = data.target;
+            let _ = data;
+            o.set_position(new_pos);
+            o.movement.velocity = vel;
+            if vel.length_squared() > 1e-6 {
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            if over {
+                let team = o.team;
+                let producer = o.producer_id.unwrap_or(id);
+                o.daisy_cutter_transport = None;
+                drops.push((team, target, producer));
+            }
+        }
+        for (team, target, producer) in drops {
+            let drop_pos = Vec3::new(target.x, 90.0, target.z);
+            if let Some(bid) = self.create_object(DAISY_BOMB_OBJECT, team, drop_pos) {
+                if let Some(o) = self.objects.get_mut(&bid) {
+                    o.producer_id = Some(producer);
+                    o.daisy_cutter_bomb = true;
+                    o.movement.velocity = Vec3::new(0.0, -16.0, 0.0);
+                    let _ = o.set_smart_bomb_target(target);
+                }
+                self.daisy_cutter_flight_reg.record_drop();
+            }
+        }
+
+        let bombs: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.daisy_cutter_bomb && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in bombs {
+            let (pos, producer, team) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let mut p = o.get_position();
+                p.y += o.movement.velocity.y;
+                o.set_position(p);
+                (p, o.producer_id, o.team)
+            };
+            if pos.y <= 5.0 {
+                // Primary DaisyCutterDetonationWeapon residual.
+                self.apply_fuel_air_radius_damage(
+                    id,
+                    producer,
+                    team,
+                    Vec3::new(pos.x, 0.0, pos.z),
+                    DAISY_CUTTER_PRIMARY_DAMAGE,
+                    DAISY_CUTTER_PRIMARY_RADIUS,
+                    DamageType::Explosive,
+                );
+                // Fuel-air gas SlowDeath residual install path.
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.ensure_fuel_air_gas_slow_death(self.frame);
+                    if o.fuel_air_gas_slow_death.is_some() {
+                        self.fuel_air_gas_reg.record_install();
+                    }
+                }
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    pos,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                self.daisy_cutter_flight_reg.record_detonation();
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+        let _ = DAISY_DELIVERY_DISTANCE;
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -28426,6 +28585,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_a10_strike_flight_ok(&self) -> bool {
         crate::game_logic::host_a10_strike_flight::honesty_a10_strike_flight_residual_ok()
+    }
+
+    pub fn honesty_daisy_cutter_flight_ok(&self) -> bool {
+        crate::game_logic::host_daisy_cutter_flight::honesty_daisy_cutter_flight_residual_ok()
     }
 
     pub fn honesty_scud_storm_missile_flight_ok(&self) -> bool {
@@ -48113,6 +48276,10 @@ fn update_scud_poison_zones(&mut self) {
                 target_position,
                 a10_tier,
             );
+        }
+        // C++ DaisyCutter DeliverPayload residual (B52 + DaisyCutterBomb).
+        if kind == HostSuperweaponKind::DaisyCutter {
+            let _ = self.spawn_daisy_cutter_flight(source_object, target_position);
         }
         // C++ OCL FireWeaponNugget / AttackNugget residual (Neutron / Cruise / ScudStorm).
         if let Some(nugget) =
@@ -78196,6 +78363,48 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn daisy_cutter_flight_drops_bomb() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut foe_t = crate::game_logic::ThingTemplate::new("GLATankScorpion");
+        foe_t.add_kind_of(KindOf::Vehicle).set_health(800.0);
+        logic.templates.insert("GLATankScorpion".into(), foe_t);
+        let cc_id = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let foe = logic
+            .create_object("GLATankScorpion", Team::GLA, Vec3::new(160.0, 0.0, 0.0))
+            .unwrap();
+        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let jet = logic
+            .spawn_daisy_cutter_flight(cc_id, Vec3::new(160.0, 0.0, 0.0))
+            .expect("b52");
+        assert!(logic.find_object(jet).unwrap().daisy_cutter_transport.is_some());
+        assert!(logic.daisy_cutter_flight_reg.transports_spawned >= 1);
+        for f in 0..400 {
+            logic.frame = f;
+            logic.update_daisy_cutter_flights();
+            if logic.daisy_cutter_flight_reg.detonations >= 1 {
+                break;
+            }
+        }
+        assert!(logic.daisy_cutter_flight_reg.bombs_dropped >= 1);
+        assert!(logic.daisy_cutter_flight_reg.detonations >= 1);
+        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        assert!(
+            hp1 < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            "daisy detonation should damage nearby units"
+        );
+        assert!(logic.honesty_daisy_cutter_flight_ok());
+    }
 
     #[test]
     fn paradrop_cargo_plane_drops_parachute() {
