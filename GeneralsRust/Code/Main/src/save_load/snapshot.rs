@@ -132,6 +132,8 @@ pub struct SpecialPowerStrikeRegistrySnapshot {
     /// Lifetime radiation fields spawned (honesty after prune).
     #[serde(default)]
     pub radiation_fields_spawned_total: u32,
+    #[serde(default)]
+    pub radiation_objects_spawned: u32,
     /// Lifetime radiation damage applications (honesty after prune).
     #[serde(default)]
     pub radiation_damage_applications_total: u32,
@@ -216,6 +218,7 @@ impl Default for SpecialPowerStrikeRegistrySnapshot {
             next_radiation_id: 1,
             radiation_fields: Vec::new(),
             radiation_fields_spawned_total: 0,
+            radiation_objects_spawned: 0,
             radiation_damage_applications_total: 0,
             next_toxin_id: 1,
             toxin_fields: Vec::new(),
@@ -2787,6 +2790,8 @@ impl XferData for crate::game_logic::special_power_strikes::HostRadiationField {
         self.source_object.xfer(xfer)?;
         xfer.xfer_marker_label("SourceTeam")?;
         self.source_team.xfer(xfer)?;
+        xfer.xfer_marker_label("ObjectId")?;
+        xfer_option(xfer, &mut self.object_id, ObjectId(0))?;
         xfer.xfer_marker_label("Position")?;
         self.position.xfer(xfer)?;
         xfer.xfer_marker_label("SpawnFrame")?;
@@ -3377,6 +3382,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 id: 0,
                 source_object: ObjectId(0),
                 source_team: Team::Neutral,
+                object_id: None,
                 position: Vec3::ZERO,
                 spawn_frame: 0,
                 expires_frame: 0,
@@ -3392,6 +3398,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
         )?;
         xfer.xfer_marker_label("RadiationFieldsSpawnedTotal")?;
         xfer.xfer_u32(&mut self.radiation_fields_spawned_total)?;
+        xfer.xfer_marker_label("RadiationObjectsSpawned")?;
+        xfer.xfer_u32(&mut self.radiation_objects_spawned)?;
         xfer.xfer_marker_label("RadiationDamageApplicationsTotal")?;
         xfer.xfer_u32(&mut self.radiation_damage_applications_total)?;
         // AnthraxBomb residual toxin fields (appended after radiation).
@@ -5331,6 +5339,7 @@ impl SnapshotBuilder {
             next_radiation_id: reg.next_radiation_id(),
             radiation_fields: reg.radiation_fields().to_vec(),
             radiation_fields_spawned_total: reg.radiation_fields_spawned_total(),
+            radiation_objects_spawned: reg.radiation_objects_spawned(),
             radiation_damage_applications_total: reg.radiation_damage_applications_total(),
             next_toxin_id: reg.next_toxin_id(),
             toxin_fields: reg.toxin_fields().to_vec(),
@@ -5365,6 +5374,7 @@ impl SnapshotBuilder {
                 snapshot.next_radiation_id,
                 snapshot.radiation_fields.clone(),
                 snapshot.radiation_fields_spawned_total,
+                snapshot.radiation_objects_spawned,
                 snapshot.radiation_damage_applications_total,
                 snapshot.next_toxin_id,
                 snapshot.toxin_fields.clone(),
