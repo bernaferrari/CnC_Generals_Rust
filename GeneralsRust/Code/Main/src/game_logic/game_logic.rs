@@ -50268,6 +50268,7 @@ fn update_scud_poison_zones(&mut self) {
         use crate::game_logic::special_power_strikes::{
             ANTHRAX_TOXIN_FIELD_MAX_HEALTH, ANTHRAX_TOXIN_OBJECT_NAME,
             SCUD_POISON_FIELD_MAX_HEALTH, SCUD_POISON_OBJECT_NAME,
+            SCUD_POISON_UPGRADED_FIELD_MAX_HEALTH, SCUD_POISON_UPGRADED_OBJECT_NAME,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -50296,9 +50297,11 @@ fn update_scud_poison_zones(&mut self) {
             return;
         }
         for (tid, source, team, pos, lifetime, template) in pending {
-            let max_hp = if template == SCUD_POISON_OBJECT_NAME
+            let max_hp = if template == SCUD_POISON_UPGRADED_OBJECT_NAME
                 || template == "PoisonFieldUpgradedLarge"
             {
+                SCUD_POISON_UPGRADED_FIELD_MAX_HEALTH
+            } else if template == SCUD_POISON_OBJECT_NAME {
                 SCUD_POISON_FIELD_MAX_HEALTH
             } else {
                 ANTHRAX_TOXIN_FIELD_MAX_HEALTH
@@ -65120,7 +65123,55 @@ mod tests {
         );
     }
 
-    
+    #[test]
+    fn scud_storm_anthrax_beta_spawns_poison_field_upgraded_large() {
+        use crate::game_logic::special_power_strikes::{
+            ScudStormAnthraxTier, SCUD_POISON_UPGRADED_OBJECT_NAME,
+            SCUD_STORM_POISON_DURATION_FRAMES,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut scud = crate::game_logic::ThingTemplate::new("GLAScudStorm");
+        scud.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("GLAScudStorm".into(), scud);
+        let caster = logic
+            .create_object("GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let tid = logic.special_power_strikes.spawn_scud_poison_field_with_tier(
+            caster,
+            Team::GLA,
+            Vec3::new(160.0, 0.0, 160.0),
+            logic.frame,
+            1,
+            ScudStormAnthraxTier::AnthraxBeta,
+        );
+        logic.spawn_anthrax_toxin_field_objects_for_new_fields();
+        let field = logic
+            .special_power_strikes
+            .toxin_fields()
+            .iter()
+            .find(|f| f.id == tid)
+            .expect("toxin field");
+        assert_eq!(field.object_template, SCUD_POISON_UPGRADED_OBJECT_NAME);
+        assert!(ScudStormAnthraxTier::AnthraxBeta.is_upgraded());
+        let obj = logic
+            .get_objects()
+            .values()
+            .find(|o| o.anthrax_toxin_field && o.template_name == SCUD_POISON_UPGRADED_OBJECT_NAME)
+            .expect("PoisonFieldUpgradedLarge");
+        assert!((obj.health.maximum - 120.0).abs() < 0.01);
+        let oid = obj.id;
+        logic.frame = SCUD_STORM_POISON_DURATION_FRAMES + 5;
+        logic.update_anthrax_toxin_field_objects();
+        assert!(
+            logic
+                .find_object(oid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
     #[test]
     fn scud_storm_spawns_poison_field_large_object() {
         use crate::game_logic::special_power_strikes::{
