@@ -1674,6 +1674,10 @@ pub struct GameLogic {
     comanche_cannon_residual_units_hit: u32,
     comanche_antitank_residual_fires: u32,
     comanche_antitank_residual_units_hit: u32,
+    /// Honesty: Comanche AT ScatterRadiusVsInfantry peels applied.
+    comanche_at_scatter_applied: u32,
+    /// Honesty: Comanche AT ScatterRadiusVsInfantry residual misses vs infantry.
+    comanche_at_scatter_misses: u32,
 
     /// Host Helix PRIMARY minigun residual honesty.
     /// Fail-closed: not full ChinookAIUpdate / COMANCHE_VULCAN Stinger matrix.
@@ -3271,6 +3275,8 @@ impl GameLogic {
             comanche_cannon_residual_units_hit: 0,
             comanche_antitank_residual_fires: 0,
             comanche_antitank_residual_units_hit: 0,
+            comanche_at_scatter_applied: 0,
+            comanche_at_scatter_misses: 0,
             helix_minigun_residual_fires: 0,
             helix_minigun_residual_units_hit: 0,
             inferno_black_napalm_residual_upgrades: 0,
@@ -3802,6 +3808,8 @@ impl GameLogic {
         self.comanche_cannon_residual_units_hit = 0;
         self.comanche_antitank_residual_fires = 0;
         self.comanche_antitank_residual_units_hit = 0;
+        self.comanche_at_scatter_applied = 0;
+        self.comanche_at_scatter_misses = 0;
         self.helix_minigun_residual_fires = 0;
         self.helix_minigun_residual_units_hit = 0;
         self.inferno_black_napalm_residual_upgrades = 0;
@@ -33552,6 +33560,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_comanche_antitank_ok(&self) -> bool {
         self.comanche_antitank_residual_fires > 0
+            || self.comanche_at_scatter_applied > 0
+            || self.comanche_at_scatter_misses > 0
+    }
+
+    /// Residual honesty: Comanche AT ScatterRadiusVsInfantry peels applied.
+    pub fn honesty_comanche_at_scatter_ok(&self) -> bool {
+        self.comanche_at_scatter_applied > 0 || self.comanche_at_scatter_misses > 0
     }
 
     /// Residual honesty: Helix PRIMARY minigun residual fired.
@@ -41198,13 +41213,61 @@ fn update_scud_poison_zones(&mut self) {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_comanche_rocket_pods::{
-            comanche_antitank_damage_at, is_comanche_template, is_legal_comanche_target,
-            COMANCHE_AT_FIRE_AUDIO, COMANCHE_AT_SECONDARY_RADIUS,
+            comanche_antitank_damage_at, comanche_antitank_scatter_aim,
+            comanche_antitank_scatter_misses_infantry, is_comanche_template,
+            is_legal_comanche_target, COMANCHE_AT_FIRE_AUDIO, COMANCHE_AT_PRIMARY_RADIUS,
+            COMANCHE_AT_SECONDARY_RADIUS,
         };
 
         let source_team = source
             .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
             .unwrap_or(Team::Neutral);
+
+        // C++ ComancheAntiTankMissileWeapon ScatterRadiusVsInfantry residual.
+        let mut impact = impact;
+        let intended_is_infantry = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let mut intended_scatter_miss = false;
+        if intended_is_infantry {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source.map(|s| s.0).unwrap_or(0),
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = comanche_antitank_scatter_aim(impact, true, seed);
+            if scattered {
+                self.comanche_at_scatter_applied =
+                    self.comanche_at_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if comanche_antitank_scatter_misses_infantry(true, seed, hit_r) {
+                let intended_pos = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position());
+                if let Some(pos) = intended_pos {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > COMANCHE_AT_PRIMARY_RADIUS {
+                        self.comanche_at_scatter_misses =
+                            self.comanche_at_scatter_misses.saturating_add(1);
+                        intended_scatter_miss = true;
+                    }
+                }
+            }
+        }
 
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
@@ -41238,6 +41301,14 @@ fn update_scud_poison_zones(&mut self) {
                     (dx * dx + dz * dz).sqrt()
                 };
                 let is_intended = intended_target == Some(*id);
+                // Scatter miss residual: intended infantry outside primary is not force-hit
+                // (secondary splash-by-distance may still apply).
+                if is_intended && intended_scatter_miss {
+                    if dist > COMANCHE_AT_SECONDARY_RADIUS {
+                        return None;
+                    }
+                    return Some((*id, dist, false));
+                }
                 if is_intended || dist <= COMANCHE_AT_SECONDARY_RADIUS {
                     Some((*id, dist, is_intended))
                 } else {
@@ -127732,6 +127803,76 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
     }
+
+    #[test]
+    fn comanche_at_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_comanche_rocket_pods::{
+            COMANCHE_ANTITANK_WEAPON, COMANCHE_AT_SCATTER_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut tpl = ThingTemplate::new("AmericaJetComanche");
+        tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(COMANCHE_ANTITANK_WEAPON);
+        logic.templates.insert("AmericaJetComanche".to_string(), tpl);
+
+        let helo = logic
+            .create_object(
+                "AmericaJetComanche",
+                Team::USA,
+                glam::Vec3::new(0.0, 40.0, 0.0),
+            )
+            .expect("comanche");
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let impact = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
+        let _ = logic.apply_comanche_antitank_residual_at(impact, Some(helo), Some(inf));
+        assert!(
+            logic.comanche_at_scatter_applied > 0
+                || logic.comanche_at_scatter_misses > 0
+                || logic.honesty_comanche_at_scatter_ok(),
+            "comanche AT scatter residual must peel vs infantry"
+        );
+        assert!((COMANCHE_AT_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(48.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
+        let (hits, _) =
+            logic.apply_comanche_antitank_residual_at(impact, Some(helo), Some(tank));
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
+    }
+
 
 
 

@@ -61,6 +61,8 @@ pub const COMANCHE_CANNON_FIRE_AUDIO: &str = "Comanche20mmCannonWeapon";
 pub const COMANCHE_AT_PRIMARY_DAMAGE: f32 = 50.0;
 /// Retail PrimaryDamageRadius.
 pub const COMANCHE_AT_PRIMARY_RADIUS: f32 = 5.0;
+/// Retail ComancheAntiTankMissileWeapon ScatterRadiusVsInfantry residual.
+pub const COMANCHE_AT_SCATTER_VS_INFANTRY: f32 = 10.0;
 /// Retail SecondaryDamage.
 pub const COMANCHE_AT_SECONDARY_DAMAGE: f32 = 30.0;
 /// Retail SecondaryDamageRadius.
@@ -335,6 +337,44 @@ pub fn comanche_antitank_damage_at(distance_from_impact: f32) -> f32 {
     }
 }
 
+/// C++ ScatterRadiusVsInfantry residual on ComancheAntiTankMissileWeapon.
+pub fn comanche_antitank_scatter_aim(
+    aim: glam::Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (glam::Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let mut scatter =
+        host_effective_scatter_radius(COMANCHE_ANTITANK_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = COMANCHE_AT_SCATTER_VS_INFANTRY;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (
+        glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z),
+        true,
+    )
+}
+
+/// Whether Comanche AT residual misses intended infantry via ScatterRadiusVsInfantry.
+pub fn comanche_antitank_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(COMANCHE_AT_SCATTER_VS_INFANTRY, seed, target_hit_radius)
+}
+
+
 /// Legal residual splash target (enemy/neutral combat kinds; allies residual-hit per
 /// RadiusDamageAffects = ALLIES ENEMIES NEUTRALS — host residual hits non-self all teams).
 pub fn is_legal_rocket_pod_splash_target(
@@ -480,4 +520,23 @@ mod tests {
         assert_eq!(ROCKET_POD_CLIP_RELOAD_FRAMES, 900);
         assert_eq!(ROCKET_POD_SCATTER_TARGETS.len(), 20);
     }
+
+    #[test]
+    fn comanche_antitank_scatter_vs_infantry_peels() {
+        assert!((COMANCHE_AT_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+        let aim = glam::Vec3::new(10.0, 0.0, 20.0);
+        let (sc, applied) = comanche_antitank_scatter_aim(aim, true, 31);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= COMANCHE_AT_SCATTER_VS_INFANTRY + 0.01);
+        let (sc2, _) = comanche_antitank_scatter_aim(aim, true, 31);
+        assert_eq!(sc, sc2);
+        let (nosc, applied2) = comanche_antitank_scatter_aim(aim, false, 31);
+        assert!(!applied2);
+        assert_eq!(nosc, aim);
+        assert!(comanche_antitank_scatter_misses_infantry(true, 67, 0.5));
+        assert!(!comanche_antitank_scatter_misses_infantry(true, 67, 100.0));
+        assert!(!comanche_antitank_scatter_misses_infantry(false, 67, 0.5));
+    }
+
 }
