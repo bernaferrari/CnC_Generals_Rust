@@ -1547,6 +1547,8 @@ pub struct GameLogic {
     missile_defender_scatter_applied: u32,
     /// Honesty: ScorpionTankShell projectiles spawned residual.
     scorpion_shells_spawned: u32,
+    /// Honesty: Scorpion ScatterRadiusVsInfantry aim offsets applied.
+    scorpion_scatter_applied: u32,
     /// Honesty: ScorpionMissile projectiles spawned residual.
     scorpion_missiles_spawned: u32,
     /// Honesty: NukeCannonShell projectiles spawned residual.
@@ -3129,6 +3131,7 @@ impl GameLogic {
             missile_defender_missiles_spawned: 0,
             missile_defender_scatter_applied: 0,
             scorpion_shells_spawned: 0,
+            scorpion_scatter_applied: 0,
             scorpion_missiles_spawned: 0,
             nuke_cannon_shells_spawned: 0,
             nuke_cannon_scatter_applied: 0,
@@ -3633,6 +3636,7 @@ impl GameLogic {
         self.missile_defender_missiles_spawned = 0;
         self.missile_defender_scatter_applied = 0;
         self.scorpion_shells_spawned = 0;
+        self.scorpion_scatter_applied = 0;
         self.scorpion_missiles_spawned = 0;
         self.nuke_cannon_shells_spawned = 0;
         self.nuke_cannon_scatter_applied = 0;
@@ -14434,6 +14438,7 @@ impl GameLogic {
                                         attacker_id,
                                         from,
                                         impact,
+                                        Some(target_id),
                                         slot,
                                     )
                                     .is_some()
@@ -33127,6 +33132,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         self.scorpion_residual_fires > 0
             || self.scorpion_residual_rocket_upgrades > 0
             || self.scorpion_residual_salvage_upgrades > 0
+            || self.scorpion_scatter_applied > 0
+            || self.scorpion_shells_spawned > 0
+    }
+
+    /// Residual honesty: Scorpion ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_scorpion_scatter_ok(&self) -> bool {
+        self.scorpion_scatter_applied > 0
     }
 
     pub fn honesty_scorpion_rocket_ok(&self) -> bool {
@@ -37811,6 +37823,7 @@ fn update_scud_poison_zones(&mut self) {
         source_id: ObjectId,
         from: glam::Vec3,
         aim: glam::Vec3,
+        intended: Option<ObjectId>,
         slot: u8,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_scorpion::{
@@ -37830,6 +37843,26 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on ScorpionTankGun vs infantry.
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) = crate::game_logic::host_scorpion::scorpion_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
+        if scattered {
+            self.scorpion_scatter_applied = self.scorpion_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
         let pid = self.create_object(SCORPION_TANK_SHELL, team, start)?;
@@ -97600,7 +97633,7 @@ assert!(
         let frames = scorpion_shell_flight_frames(from, aim);
 
         let pid = logic
-            .spawn_scorpion_shell_projectile(src, from, aim, 0)
+            .spawn_scorpion_shell_projectile(src, from, aim, None, 0)
             .expect("shell");
         {
             let m = logic.find_object(pid).unwrap();
@@ -100729,7 +100762,7 @@ assert!(
                 .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
             assert!(
                 game_logic
-                    .spawn_scorpion_shell_projectile(scorp_id, from, aim, 0)
+                    .spawn_scorpion_shell_projectile(scorp_id, from, aim, None, 0)
                     .is_some()
             );
             game_logic.scorpion_residual_fires =
@@ -122722,6 +122755,92 @@ assert!(
             .objects
             .get(&shell2)
             .and_then(|o| o.battlemaster_shell_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn scorpion_shell_scatters_vs_infantry() {
+        use crate::game_logic::host_scorpion::SCORPION_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut s_tpl = ThingTemplate::new("GLATankScorpion");
+        s_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0);
+        logic.templates.insert("GLATankScorpion".to_string(), s_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let scorp = logic
+            .create_object(
+                "GLATankScorpion",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("scorp");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(120.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(120.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 6.0, 0.0);
+        let shell = logic
+            .spawn_scorpion_shell_projectile(scorp, from, aim, Some(inf), 0)
+            .expect("shell");
+        assert!(logic.honesty_scorpion_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.scorpion_shell_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= SCORPION_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut t_tpl = ThingTemplate::new("AmericaTankCrusader");
+        t_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), t_tpl);
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.scorpion_scatter_applied;
+        let shell2 = logic
+            .spawn_scorpion_shell_projectile(
+                scorp,
+                from,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+                Some(tank),
+                0,
+            )
+            .expect("shell2");
+        assert_eq!(logic.scorpion_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.scorpion_shell_aim)
             .expect("aim2");
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
