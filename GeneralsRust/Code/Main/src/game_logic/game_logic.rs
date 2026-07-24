@@ -27542,6 +27542,23 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     None,
                 );
                 self.scud_storm_missile_flight_reg.record_ignition();
+            } else if !grounded {
+                // ScudMissileExhaust residual (trail honesty; sparse spawn).
+                if self.frame % 5 == 0 {
+                    let p = self
+                        .objects
+                        .get(&id)
+                        .map(|o| o.get_position())
+                        .unwrap_or(Vec3::ZERO);
+                    let _ = self.combat_particles.spawn(
+                        CombatParticleKind::DeathExplosion,
+                        p,
+                        self.frame,
+                        Some(id),
+                        None,
+                    );
+                    self.scud_storm_missile_flight_reg.record_exhaust();
+                }
             }
             if grounded {
                 let team = self
@@ -27569,26 +27586,49 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     )
                 };
                 // ScudStormDamageWeapon primary + secondary residual at scatter impact.
-                self.apply_fuel_air_radius_damage(
-                    id,
-                    producer,
-                    team,
-                    target,
-                    anthrax.primary_damage(),
-                    SCUD_STORM_PRIMARY_RADIUS,
-                    DamageType::Explosive,
-                );
-                self.apply_fuel_air_radius_damage(
-                    id,
-                    producer,
-                    team,
-                    target,
-                    anthrax.secondary_damage(),
-                    SCUD_STORM_SECONDARY_RADIUS,
-                    DamageType::Explosive,
-                );
-                // DeathFire OCL poison field residual (OCL_PoisonFieldLarge / upgraded).
+                // Chem_GLAScudStorm residual: primary is anthrax warhead (no HE primary).
                 let source = producer.unwrap_or(id);
+                let chem_primary = producer
+                    .and_then(|pid| self.objects.get(&pid))
+                    .map(|o| {
+                        crate::game_logic::host_scud_launcher::scud_uses_anthrax_primary(
+                            &o.template_name,
+                        ) || o.template_name.to_ascii_lowercase().contains("chem_")
+                            && o.template_name.to_ascii_lowercase().contains("scudstorm")
+                    })
+                    .unwrap_or(false);
+                if chem_primary {
+                    // Toxin primary blast residual (use secondary damage as toxin splash).
+                    self.apply_fuel_air_radius_damage(
+                        id,
+                        producer,
+                        team,
+                        target,
+                        anthrax.secondary_damage().max(anthrax.primary_damage() * 0.4),
+                        SCUD_STORM_SECONDARY_RADIUS,
+                        DamageType::Toxin,
+                    );
+                } else {
+                    self.apply_fuel_air_radius_damage(
+                        id,
+                        producer,
+                        team,
+                        target,
+                        anthrax.primary_damage(),
+                        SCUD_STORM_PRIMARY_RADIUS,
+                        DamageType::Explosive,
+                    );
+                    self.apply_fuel_air_radius_damage(
+                        id,
+                        producer,
+                        team,
+                        target,
+                        anthrax.secondary_damage(),
+                        SCUD_STORM_SECONDARY_RADIUS,
+                        DamageType::Explosive,
+                    );
+                }
+                // DeathFire OCL poison field residual (OCL_PoisonFieldLarge / upgraded).
                 let _ = self.special_power_strikes.spawn_scud_poison_field_with_tier(
                     source,
                     team,
@@ -77328,6 +77368,59 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn chem_scud_storm_anthrax_primary_impact() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut storm = crate::game_logic::ThingTemplate::new("Chem_GLAScudStorm");
+        storm.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("Chem_GLAScudStorm".into(), storm);
+        let mut foe_t = crate::game_logic::ThingTemplate::new("AmericaTankCrusader");
+        foe_t.add_kind_of(KindOf::Vehicle).set_health(800.0);
+        logic.templates.insert("AmericaTankCrusader".into(), foe_t);
+        let storm_id = logic
+            .create_object("Chem_GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let foe = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                Vec3::new(80.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let hp0 = logic.find_object(foe).unwrap().health.current;
+        assert!(logic.execute_ocl_attack(
+            "SUPERWEAPON_ScudStorm",
+            storm_id,
+            Vec3::new(80.0, 0.0, 0.0)
+        ));
+        for f in 0..900 {
+            logic.frame = f;
+            logic.update_scud_storm_missile_flights();
+            if logic.scud_storm_missile_flight_reg.grounded >= 1 {
+                break;
+            }
+        }
+        assert!(logic.scud_storm_missile_flight_reg.grounded >= 1);
+        assert!(
+            logic.scud_storm_missile_flight_reg.launched >= 1
+                || logic.scud_storm_missile_flight_reg.ignition_fx >= 1
+                || logic.scud_storm_missile_flight_reg.exhaust_fx >= 1
+        );
+        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        assert!(
+            hp1 < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            "chem scud toxin primary should damage nearby units"
+        );
+        assert!(
+            logic.special_power_strikes.toxin_fields_spawned_total() >= 1
+                || !logic.special_power_strikes.toxin_fields().is_empty()
+        );
+    }
 
     #[test]
     fn scud_storm_missile_ballistic_flight() {

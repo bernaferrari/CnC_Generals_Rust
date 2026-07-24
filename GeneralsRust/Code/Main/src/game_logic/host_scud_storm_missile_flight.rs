@@ -178,6 +178,7 @@ pub struct HostScudStormMissileFlightRegistry {
     pub launched: u32,
     pub grounded: u32,
     pub ignition_fx: u32,
+    pub exhaust_fx: u32,
     pub pending: Vec<PendingScudMissileSpawn>,
     pub scheduled: u32,
 }
@@ -239,6 +240,9 @@ impl HostScudStormMissileFlightRegistry {
     pub fn record_ignition(&mut self) {
         self.ignition_fx = self.ignition_fx.saturating_add(1);
     }
+    pub fn record_exhaust(&mut self) {
+        self.exhaust_fx = self.exhaust_fx.saturating_add(1);
+    }
     pub fn honesty_host_path_ok(&self) -> bool {
         self.launched > 0 || self.grounded > 0
     }
@@ -248,6 +252,8 @@ pub fn honesty_scud_storm_missile_flight_residual_ok() -> bool {
     SCUD_STORM_MISSILE_COUNT == 9
         && SCUD_STORM_MISSILE_OBJECT == "ScudStormMissile"
         && SCUD_STORM_MISSILE_IGNITION_FX == "FX_ScudStormIgnition"
+        && crate::game_logic::special_power_strikes::SCUD_STORM_MISSILE_EXHAUST
+            == "ScudMissileExhaust"
         && scud_storm_points(Vec3::ZERO).len() == 9
         && {
             let mut reg = HostScudStormMissileFlightRegistry::new();
