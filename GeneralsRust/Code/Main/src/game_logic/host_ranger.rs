@@ -23,7 +23,8 @@
 //! - Not full SURRENDER DamageType infantry-surrender AI / garrison clear matrix
 //! - ClipSize=3 in-clip DelayBetweenShots + ClipReload 700ms volley residual closed
 //! - RangerFlashBangGrenade DumbProjectile Bezier lob residual closed (50/150, 30%/70%)
-//! - Not full ScatterRadius random miss / PreAttackDelay flashbang anim lock
+//! - ScatterRadius **4** residual miss cone closed (deterministic aim offset, all targets)
+//! - Not full PreAttackDelay flashbang anim lock
 //! - Not network flashbang / fire replication (network deferred)
 
 use super::Weapon;
@@ -383,15 +384,61 @@ pub fn honesty_ranger_body_residual_ok() -> bool {
 }
 
 /// Combined Wave 66 Ranger residual honesty pack.
+
+/// Apply RangerFlashBangGrenadeWeapon ScatterRadius residual to aim.
+///
+/// Retail uses ScatterRadius **4** (not ScatterRadiusVsInfantry) — applies vs any target.
+pub fn ranger_flashbang_scatter_aim(aim: Vec3, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_scatter_radius_for_weapon_name, scatter_aim_offset,
+    };
+    let mut scatter = host_scatter_radius_for_weapon_name(RANGER_FLASHBANG_WEAPON);
+    if scatter <= 0.0 {
+        scatter = FLASHBANG_SCATTER_RADIUS;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Wave residual honesty: Ranger flashbang ScatterRadius peels (**4**).
+pub fn honesty_ranger_flashbang_scatter_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_scatter_radius_for_weapon_name;
+    let base = host_scatter_radius_for_weapon_name(RANGER_FLASHBANG_WEAPON);
+    (FLASHBANG_SCATTER_RADIUS - 4.0).abs() < 0.01
+        && (base - 4.0).abs() < 0.01
+        && {
+            let (sc, applied) =
+                ranger_flashbang_scatter_aim(Vec3::new(0.0, 0.0, 0.0), 3);
+            applied && sc.length() <= FLASHBANG_SCATTER_RADIUS + 0.01
+        }
+}
+
 pub fn honesty_ranger_residual_pack_ok() -> bool {
     honesty_ranger_rifle_residual_ok()
         && honesty_ranger_flashbang_residual_ok()
         && honesty_ranger_body_residual_ok()
+        && honesty_ranger_flashbang_scatter_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ranger_flashbang_scatter_peels() {
+        assert!(honesty_ranger_flashbang_scatter_ok());
+        let aim = Vec3::new(120.0, 0.0, 18.0);
+        let (sc, applied) = ranger_flashbang_scatter_aim(aim, 31);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= FLASHBANG_SCATTER_RADIUS + 0.01);
+        // Same seed is deterministic.
+        let (sc2, _) = ranger_flashbang_scatter_aim(aim, 31);
+        assert_eq!(sc, sc2);
+    }
     use std::collections::HashSet;
 
     #[test]
@@ -465,6 +512,7 @@ mod tests {
         assert!(honesty_ranger_rifle_residual_ok());
         assert!(honesty_ranger_flashbang_residual_ok());
         assert!(honesty_ranger_body_residual_ok());
+        assert!(honesty_ranger_flashbang_scatter_ok());
         assert!(honesty_ranger_residual_pack_ok());
         assert_eq!(FLASHBANG_DAMAGE_TYPE, "SURRENDER");
         assert!(FLASHBANG_ALLOW_ATTACK_GARRISONED);
