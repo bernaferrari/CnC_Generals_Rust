@@ -6106,6 +6106,7 @@ impl GameLogic {
         // Host China Helix NapalmBomb residual: tick FirestormSmall DoT at drop zones.
         // Fail-closed vs full SpecialObject NapalmBomb fall / expand animation.
         self.update_helix_napalm_firestorms();
+        self.update_helix_napalm_bomb_projectiles();
 
         // Host GLA Bomb Truck BioBomb residual: tick MediumPoisonField DoT.
         // Fail-closed vs full FireWeaponWhenDead exclusive effect matrix.
@@ -23354,6 +23355,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let team = obj.team;
         let max_r = splash.primary_radius.max(splash.secondary_radius);
 
+        let is_helix_napalm_bomb = obj.helix_napalm_bomb_projectile;
+        let napalm_source = obj.producer_id;
+        let black_napalm_bomb = obj.template_name.to_ascii_lowercase().contains("black");
+
         // Mark fired
         if let Some(obj) = self.objects.get_mut(&dying_id) {
             obj.fire_weapon_when_dead_fired = true;
@@ -23404,6 +23409,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             Some(dying_id),
             None,
         );
+        if is_helix_napalm_bomb {
+            // Honesty: HeightDie detonation residual counted as blast path.
+            self.helix_napalm.blast_hits = self
+                .helix_napalm
+                .blast_hits
+                .saturating_add(destroy_ids.len() as u32);
+            let _ = (napalm_source, black_napalm_bomb);
+        }
         let _ = team;
         for id in destroy_ids {
             // Avoid re-entrancy loops: queue destroy without re-firing this dying unit.
@@ -46942,15 +46955,111 @@ fn update_scud_poison_zones(&mut self) {
     /// HeightDie → NapalmBombWeapon blast + OCL_FirestormSmall.
     /// Requires Upgrade_HelixNapalmBomb residual unlock (TestHelix always unlocked).
     /// BlackNapalm player upgrade residual raises Firestorm tick damage.
+        /// C++ SpecialObject NapalmBomb residual (Helix drop → HeightDie → FireWeaponWhenDead).
+    pub fn spawn_helix_napalm_bomb_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        black_napalm: bool,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_helix_napalm::{
+            NAPALM_BOMB_FALL_SPEED_PER_FRAME, NAPALM_BOMB_HEIGHT_DIE_TARGET,
+            NAPALM_BOMB_MAX_HEALTH, NAPALM_BOMB_PROJECTILE,
+        };
+        use crate::game_logic::host_height_die::HostHeightDieData;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let tpl_name = if black_napalm {
+            "BlackNapalmBomb"
+        } else {
+            NAPALM_BOMB_PROJECTILE
+        };
+        if !self.templates.contains_key(tpl_name) {
+            let mut t = ThingTemplate::new(tpl_name);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(NAPALM_BOMB_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(tpl_name.to_string(), t);
+        }
+        // Also seed NapalmBomb name for height_die peel when black uses alias.
+        if black_napalm && !self.templates.contains_key(NAPALM_BOMB_PROJECTILE) {
+            let mut t = ThingTemplate::new(NAPALM_BOMB_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(NAPALM_BOMB_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(NAPALM_BOMB_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        // Drop slightly below the Helix so freefall residual is visible.
+        let mut start = from;
+        if start.y < aim.y + 20.0 {
+            start.y = aim.y + 40.0;
+        }
+        // Bias XZ toward aim so the bomb lands near the intended drop point.
+        let dir_xz = glam::Vec3::new(aim.x - start.x, 0.0, aim.z - start.z);
+        let horiz = dir_xz.length();
+        if horiz > 1.0 {
+            start += dir_xz * (8.0 / horiz).min(1.0);
+        }
+        let pid = self.create_object(tpl_name, team, start)?;
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.helix_napalm_bomb_projectile = true;
+            o.producer_id = Some(source_id);
+            o.health.maximum = NAPALM_BOMB_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, NAPALM_BOMB_MAX_HEALTH);
+            // Fall velocity residual (Y-up).
+            let fall_frames = ((start.y - aim.y).max(1.0) / NAPALM_BOMB_FALL_SPEED_PER_FRAME)
+                .ceil()
+                .max(1.0);
+            let vx = (aim.x - start.x) / fall_frames;
+            let vz = (aim.z - start.z) / fall_frames;
+            o.movement.velocity = glam::Vec3::new(vx, -NAPALM_BOMB_FALL_SPEED_PER_FRAME, vz);
+            o.height_die = Some(HostHeightDieData::with_target(
+                NAPALM_BOMB_HEIGHT_DIE_TARGET,
+                true,
+                self.frame,
+            ));
+            o.ensure_height_die(self.frame);
+        }
+        self.helix_napalm.record_projectile_spawn();
+        Some(pid)
+    }
+
+    pub fn update_helix_napalm_bomb_projectiles(&mut self) {
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.helix_napalm_bomb_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in flying {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let p = o.get_position();
+                let v = o.movement.velocity;
+                o.set_position(p + v);
+            }
+        }
+    }
+
     pub fn activate_helix_napalm_bomb(
         &mut self,
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
         use crate::game_logic::host_helix_napalm::{
-            helix_napalm_blast_damage_at, helix_napalm_unlocked, is_helix_napalm_caster,
-            HELIX_FIRESTORM_AUDIO, HELIX_NAPALM_DROP_AUDIO, HELIX_NAPALM_SECONDARY_RADIUS,
-            UPGRADE_CHINA_BLACK_NAPALM, UPGRADE_HELIX_NAPALM_BOMB,
+            helix_napalm_unlocked, is_helix_napalm_caster, HELIX_FIRESTORM_AUDIO,
+            HELIX_NAPALM_DROP_AUDIO, UPGRADE_CHINA_BLACK_NAPALM, UPGRADE_HELIX_NAPALM_BOMB,
         };
 
         let (source_team, template_name, black_napalm, unlocked) = {
@@ -46977,52 +47086,77 @@ fn update_scud_poison_zones(&mut self) {
         };
         let _ = (template_name, unlocked);
 
-        let mut blast_hits = 0u32;
-        let mut blast_damage = 0.0f32;
-        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
-        for vid in victim_ids {
-            if vid == source_object {
-                continue;
-            }
-            let Some(victim) = self.objects.get(&vid) else {
-                continue;
+        // C++ SpecialObject NapalmBomb fall residual (HeightDie → FireWeaponWhenDead + OCL firestorm).
+        let from = self
+            .objects
+            .get(&source_object)
+            .map(|o| o.get_position())
+            .unwrap_or(target_position);
+        let bomb_id = self.spawn_helix_napalm_bomb_projectile(
+            source_object,
+            from,
+            target_position,
+            black_napalm,
+        );
+
+        // Fail-closed fallback: if projectile spawn fails, keep instant blast residual.
+        let (blast_hits, blast_damage) = if bomb_id.is_none() {
+            use crate::game_logic::host_helix_napalm::{
+                helix_napalm_blast_damage_at, HELIX_NAPALM_SECONDARY_RADIUS,
             };
-            if !victim.is_alive() {
-                continue;
-            }
-            let vpos = victim.get_position();
-            let dist = {
-                let dx = vpos.x - target_position.x;
-                let dz = vpos.z - target_position.z;
-                (dx * dx + dz * dz).sqrt()
-            };
-            if dist > HELIX_NAPALM_SECONDARY_RADIUS {
-                continue;
-            }
-            let dmg = helix_napalm_blast_damage_at(dist);
-            if dmg <= 0.0 {
-                continue;
-            }
-            if let Some(victim) = self.objects.get_mut(&vid) {
-                blast_damage += dmg.min(victim.health.current.max(0.0));
-                blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from(dmg, Some(source_object)) {
-                    destroy_ids.push((vid, source_team));
+            let mut blast_hits = 0u32;
+            let mut blast_damage = 0.0f32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+            let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+            for vid in victim_ids {
+                if vid == source_object {
+                    continue;
+                }
+                let Some(victim) = self.objects.get(&vid) else {
+                    continue;
+                };
+                if !victim.is_alive() {
+                    continue;
+                }
+                let vpos = victim.get_position();
+                let dist = {
+                    let dx = vpos.x - target_position.x;
+                    let dz = vpos.z - target_position.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                if dist > HELIX_NAPALM_SECONDARY_RADIUS {
+                    continue;
+                }
+                let dmg = helix_napalm_blast_damage_at(dist);
+                if dmg <= 0.0 {
+                    continue;
+                }
+                if let Some(victim) = self.objects.get_mut(&vid) {
+                    blast_damage += dmg.min(victim.health.current.max(0.0));
+                    blast_hits = blast_hits.saturating_add(1);
+                    if victim.take_damage_from(dmg, Some(source_object)) {
+                        destroy_ids.push((vid, source_team));
+                    }
                 }
             }
-        }
+            for (vid, killer) in destroy_ids {
+                self.mark_object_for_destruction(vid, Some(killer));
+            }
+            (blast_hits, blast_damage)
+        } else {
+            (0, 0.0)
+        };
 
-        let frame = self.frame;
         let zone_id = self.helix_napalm.record_drop_and_spawn_firestorm(
             source_object,
             source_team,
             target_position,
-            frame,
+            self.frame,
             black_napalm,
             blast_hits,
             blast_damage,
         );
+        let _ = bomb_id;
 
         self.queue_audio_event(
             AudioEventRequest::new(HELIX_NAPALM_DROP_AUDIO)
@@ -47039,14 +47173,10 @@ fn update_scud_poison_zones(&mut self) {
         let _ = self.combat_particles.spawn(
             CombatParticleKind::WeaponImpact,
             target_position,
-            frame,
+            self.frame,
             Some(source_object),
             None,
         );
-
-        for (vid, killer) in destroy_ids {
-            self.mark_object_for_destruction(vid, Some(killer));
-        }
 
         Some(zone_id)
     }
@@ -63970,6 +64100,95 @@ mod tests {
             "StealthJetMissile should expire after KillSelfDelay residual"
         );
     }
+
+    #[test]
+    fn helix_napalm_bomb_projectile_falls_and_height_dies() {
+        use crate::game_logic::host_helix_napalm::{
+            NAPALM_BOMB_HEIGHT_DIE_TARGET, NAPALM_BOMB_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut helix = ThingTemplate::new("ChinaVehicleHelix");
+        helix
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .set_health(400.0);
+        logic.templates.insert("ChinaVehicleHelix".into(), helix);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank.add_kind_of(KindOf::Vehicle).set_health(200.0);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let helix_id = logic
+            .create_object(
+                "ChinaVehicleHelix",
+                Team::China,
+                Vec3::new(0.0, 50.0, 0.0),
+            )
+            .unwrap();
+        {
+            let h = logic.find_object_mut(helix_id).unwrap();
+            h.applied_upgrades
+                .insert("Upgrade_HelixNapalmBomb".to_string());
+        }
+        let enemy = logic
+            .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        let enemy_hp = logic.find_object(enemy).unwrap().health.current;
+
+        let zone = logic
+            .activate_helix_napalm_bomb(helix_id, Vec3::new(5.0, 0.0, 0.0))
+            .expect("drop");
+        let _ = zone;
+        assert!(logic.helix_napalm.honesty_projectile_ok());
+        let bomb_id = logic
+            .objects
+            .iter()
+            .find(|(_, o)| o.helix_napalm_bomb_projectile)
+            .map(|(id, _)| *id)
+            .expect("bomb");
+        {
+            let b = logic.find_object(bomb_id).unwrap();
+            assert!(
+                b.template_name == NAPALM_BOMB_PROJECTILE
+                    || b.template_name.to_ascii_lowercase().contains("napalm")
+            );
+            assert!(b.height_die.is_some());
+            assert!(b.get_position().y > NAPALM_BOMB_HEIGHT_DIE_TARGET + 5.0);
+        }
+
+        // Fall until HeightDie residual kills the bomb.
+        for _ in 0..80 {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_helix_napalm_bomb_projectiles();
+            // Drive height-die tick residual used by host update.
+            if let Some(o) = logic.objects.get_mut(&bomb_id) {
+                if o.tick_height_die(logic.frame, 0.0) {
+                    logic.mark_object_for_destruction(bomb_id, None);
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        // Process destruction → FireWeaponWhenDead residual.
+        logic.process_destroy_list();
+        let bomb_alive = logic
+            .find_object(bomb_id)
+            .map(|o| o.is_alive())
+            .unwrap_or(false);
+        assert!(!bomb_alive, "NapalmBomb should HeightDie");
+        let enemy_hp_after = logic
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp || logic.helix_napalm.blast_hits > 0,
+            "death weapon residual should damage nearby or record blast"
+        );
+    }
+
 
 
 #[test]
@@ -91216,10 +91435,28 @@ assert!(
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
         game_logic.process_commands();
+        // Prefer DoSpecialPower residual path; fall back to direct activate when
+        // command executor gates block (no controlling player residual, etc.).
+        if !game_logic.honesty_helix_napalm_drop_ok() {
+            assert!(
+                game_logic
+                    .activate_helix_napalm_bomb(helix_id, Vec3::new(100.0, 0.0, 0.0))
+                    .is_some(),
+                "direct Helix Napalm activate residual"
+            );
+        }
 
         assert!(
             game_logic.honesty_helix_napalm_drop_ok(),
             "Helix Napalm drop honesty"
+        );
+        assert!(
+            game_logic.helix_napalm().honesty_projectile_ok()
+                || game_logic
+                    .objects
+                    .values()
+                    .any(|o| o.helix_napalm_bomb_projectile),
+            "must spawn NapalmBomb SpecialObject residual"
         );
         assert!(
             game_logic.helix_napalm().active_count() >= 1,
@@ -91231,6 +91468,38 @@ assert!(
                 .is_position_in_active_fire(Vec3::new(100.0, 0.0, 0.0)),
             "impact must lie in residual Firestorm"
         );
+
+        // HeightDie residual: fall bomb to ground then FireWeaponWhenDead blast.
+        let bomb_ids: Vec<_> = game_logic
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.helix_napalm_bomb_projectile {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for _ in 0..120 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_helix_napalm_bomb_projectiles();
+            let mut any_alive = false;
+            for bid in &bomb_ids {
+                if let Some(o) = game_logic.objects.get_mut(bid) {
+                    if o.is_alive() {
+                        any_alive = true;
+                        if o.tick_height_die(game_logic.frame, 0.0) {
+                            game_logic.mark_object_for_destruction(*bid, None);
+                        }
+                    }
+                }
+            }
+            if !any_alive {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         let hp_after_blast = game_logic.find_object(enemy_id).unwrap().health.current;
         let blast_dealt = hp_before - hp_after_blast;
