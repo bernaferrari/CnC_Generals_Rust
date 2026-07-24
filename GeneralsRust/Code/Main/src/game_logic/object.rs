@@ -1176,6 +1176,12 @@ pub struct Object {
     /// Absolute frame when MD LaserBeam residual expires (prep window).
     #[serde(default)]
     pub missile_defender_laser_beam_expires_frame: Option<u32>,
+    /// C++ BoobyTrap SpecialObject residual (GLA Rebel plant).
+    #[serde(default)]
+    pub booby_trap_special: bool,
+    /// Structure this BoobyTrap SpecialObject is stuck to.
+    #[serde(default)]
+    pub booby_trap_attached_to: Option<ObjectId>,
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
@@ -1931,6 +1937,8 @@ impl Object {
             point_defense_laser_beam_expires_frame: None,
             missile_defender_laser_beam: false,
             missile_defender_laser_beam_expires_frame: None,
+            booby_trap_special: false,
+            booby_trap_attached_to: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -2364,6 +2372,8 @@ impl Object {
             point_defense_laser_beam_expires_frame: None,
             missile_defender_laser_beam: false,
             missile_defender_laser_beam_expires_frame: None,
+            booby_trap_special: false,
+            booby_trap_attached_to: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,

@@ -1412,6 +1412,8 @@ pub struct GameLogic {
     /// Host GLA Rebel BoobyTrap residual (plant + capture/death detonate).
     /// Fail-closed: not full StickyBombUpdate SpecialObject / MaxSpecialObjects matrix.
     booby_trap: crate::game_logic::host_booby_trap::HostBoobyTrapRegistry,
+    /// Honesty: BoobyTrap SpecialObject Things spawned.
+    booby_trap_objects_spawned: u32,
 
     /// Host China Helix NapalmBomb special ability residual (blast + FirestormSmall).
     /// Fail-closed: not full SpecialObject NapalmBomb fall / expand animation.
@@ -2974,6 +2976,7 @@ impl GameLogic {
                 crate::game_logic::host_bomb_truck_detonate::HostBombTruckDetonateRegistry::new(),
             nuclear_tanks: crate::game_logic::host_nuclear_tanks::HostNuclearTanksRegistry::new(),
             booby_trap: crate::game_logic::host_booby_trap::HostBoobyTrapRegistry::new(),
+            booby_trap_objects_spawned: 0,
             helix_napalm: crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             inferno_fire_zones:
@@ -3439,6 +3442,7 @@ impl GameLogic {
         self.bomb_truck_detonate.clear();
         self.nuclear_tanks.clear();
         self.booby_trap.clear();
+        self.booby_trap_objects_spawned = 0;
         self.helix_napalm.clear();
         self.fire_walls.clear();
         self.inferno_fire_zones.clear();
@@ -18057,19 +18061,33 @@ impl GameLogic {
                                     (planter_ok, ready)
                                 })
                                 .unwrap_or((false, false));
-                            if can_plant && ready {
+                            if can_plant && ready && self.booby_trap.can_place_special_object(object_id) {
                                 let geom = self
                                     .objects
                                     .get(&special_target_id)
                                     .map(|t| t.selection_radius.max(8.0))
                                     .unwrap_or(8.0);
-                                self.booby_trap.install(
+                                let prev = self.booby_trap.install(
                                     special_target_id,
                                     object_id,
                                     team,
                                     self.frame,
                                     geom,
+                                    None,
                                 );
+                                if let Some(prev_plant) = prev {
+                                    if let Some(cid) = prev_plant.charge_object_id {
+                                        self.destroy_booby_trap_special_object(cid);
+                                    }
+                                }
+                                if let Some(cid) = self.spawn_booby_trap_special_object(
+                                    object_id,
+                                    team,
+                                    special_target_id,
+                                ) {
+                                    self.booby_trap
+                                        .set_charge_object(special_target_id, cid);
+                                }
                                 if let Some(target) = self.objects.get_mut(&special_target_id) {
                                     target.set_status_booby_trapped(true);
                                 }
@@ -46236,6 +46254,106 @@ fn update_scud_poison_zones(&mut self) {
         self.booby_trap.honesty_host_path_ok()
     }
 
+    /// C++ SpecialObject BoobyTrap ThingFactory residual.
+    pub fn spawn_booby_trap_special_object(
+        &mut self,
+        planter_id: ObjectId,
+        team: Team,
+        structure_id: ObjectId,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_booby_trap::{
+            BOOBY_TRAP_MAX_HEALTH, BOOBY_TRAP_OBJECT,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(BOOBY_TRAP_OBJECT) {
+            let mut t = ThingTemplate::new(BOOBY_TRAP_OBJECT);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(BOOBY_TRAP_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(BOOBY_TRAP_OBJECT.to_string(), t);
+        }
+        let pos = self
+            .objects
+            .get(&structure_id)
+            .map(|o| {
+                let p = o.get_position();
+                glam::Vec3::new(p.x, p.y + 8.0, p.z)
+            })
+            .unwrap_or(glam::Vec3::ZERO);
+        let bid = self.create_object(BOOBY_TRAP_OBJECT, team, pos)?;
+        if let Some(o) = self.objects.get_mut(&bid) {
+            o.booby_trap_special = true;
+            o.booby_trap_attached_to = Some(structure_id);
+            o.producer_id = Some(planter_id);
+            o.health.maximum = BOOBY_TRAP_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, BOOBY_TRAP_MAX_HEALTH);
+            o.movement.max_speed = 0.0;
+            o.weapon = None;
+            o.secondary_weapon = None;
+        }
+        self.booby_trap_objects_spawned =
+            self.booby_trap_objects_spawned.saturating_add(1);
+        Some(bid)
+    }
+
+    pub fn destroy_booby_trap_special_object(&mut self, charge_id: ObjectId) {
+        if let Some(o) = self.objects.get_mut(&charge_id) {
+            if !o.booby_trap_special {
+                return;
+            }
+            o.status.destroyed = true;
+            o.status.effectively_dead = true;
+            o.health.current = 0.0;
+            o.booby_trap_special = false;
+            o.booby_trap_attached_to = None;
+        }
+        self.mark_object_for_destruction(charge_id, None);
+    }
+
+    /// C++ StickyBombUpdate residual for BoobyTrap SpecialObject.
+    pub fn update_booby_trap_special_attachments(&mut self) {
+        const STICKY_OFFSET_Y: f32 = 8.0;
+        let pairs: Vec<(ObjectId, ObjectId)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.booby_trap_special {
+                    o.booby_trap_attached_to.map(|s| (*id, s))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut destroy = Vec::new();
+        let mut moves = Vec::new();
+        for (cid, sid) in pairs {
+            let Some(structure) = self.objects.get(&sid) else {
+                destroy.push(cid);
+                continue;
+            };
+            if !structure.is_alive() || structure.status.destroyed {
+                // Death detonate path handles registry; just drop orphan special object.
+                destroy.push(cid);
+                continue;
+            }
+            let p = structure.get_position();
+            moves.push((cid, glam::Vec3::new(p.x, p.y + STICKY_OFFSET_Y, p.z)));
+        }
+        for (cid, pos) in moves {
+            if let Some(o) = self.objects.get_mut(&cid) {
+                o.set_position(pos);
+            }
+        }
+        for cid in destroy {
+            self.destroy_booby_trap_special_object(cid);
+        }
+    }
+
+    pub fn honesty_booby_trap_special_object_ok(&self) -> bool {
+        self.booby_trap_objects_spawned > 0
+    }
+
     /// Detonate residual BoobyTrap on structure (capture / death / special trigger).
     ///
     /// Returns units hit. Clears BOOBY_TRAPPED status and registry plant.
@@ -46271,6 +46389,7 @@ fn update_scud_poison_zones(&mut self) {
                         plant.planter_team,
                         plant.plant_frame,
                         plant.geometry_radius,
+                        plant.charge_object_id,
                     );
                     return 0;
                 }
@@ -46279,6 +46398,9 @@ fn update_scud_poison_zones(&mut self) {
 
         if let Some(obj) = self.objects.get_mut(&structure_id) {
             obj.set_status_booby_trapped(false);
+        }
+        if let Some(cid) = plant.charge_object_id {
+            self.destroy_booby_trap_special_object(cid);
         }
 
         let max_r = booby_trap_splash_radius(plant.geometry_radius);
@@ -49165,6 +49287,7 @@ fn update_scud_poison_zones(&mut self) {
         let frame = self.frame;
         // C++ StickyBombUpdate::update residual — stick to target / die with target.
         self.update_sticky_bomb_attachments();
+        self.update_booby_trap_special_attachments();
         // C++ SpecialObjectsPersistWhenOwnerDies = No for RemoteC4Charge residual.
         self.cleanup_remote_charges_when_owner_dies();
         let mut due: Vec<(ObjectId, HostMineDetonateReason)> = Vec::new();
@@ -62903,6 +63026,86 @@ mod tests {
     }
 
     /// Residual: Burton PlantTimedDemoCharge walks to target then plants sticky timed C4.
+
+    #[test]
+    fn booby_trap_plant_spawns_special_object() {
+        use crate::game_logic::host_booby_trap::{
+            BOOBY_MAX_SPECIAL_OBJECTS, BOOBY_TRAP_OBJECT, UPGRADE_GLA_REBEL_BOOBY_TRAP,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        let mut rebel = ThingTemplate::new("GLAInfantryRebel");
+        rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), rebel);
+        let mut bld = ThingTemplate::new("AmericaWarFactory");
+        bld.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("AmericaWarFactory".into(), bld);
+
+        let planter = logic
+            .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let o = logic.find_object_mut(planter).unwrap();
+            o.applied_upgrades
+                .insert(UPGRADE_GLA_REBEL_BOOBY_TRAP.to_string());
+        }
+        let structure = logic
+            .create_object("AmericaWarFactory", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+
+        // Direct plant residual (special ability completion path).
+        let geom = 10.0;
+        assert!(logic.booby_trap.can_place_special_object(planter));
+        logic.booby_trap.install(
+            structure,
+            planter,
+            Team::GLA,
+            logic.frame,
+            geom,
+            None,
+        );
+        let cid = logic
+            .spawn_booby_trap_special_object(planter, Team::GLA, structure)
+            .expect("BoobyTrap object");
+        logic.booby_trap.set_charge_object(structure, cid);
+        if let Some(t) = logic.objects.get_mut(&structure) {
+            t.set_status_booby_trapped(true);
+        }
+
+        assert!(logic.honesty_booby_trap_special_object_ok());
+        let charge = logic.find_object(cid).unwrap();
+        assert_eq!(charge.template_name, BOOBY_TRAP_OBJECT);
+        assert!(charge.booby_trap_special);
+        assert_eq!(charge.booby_trap_attached_to, Some(structure));
+        assert_eq!(charge.producer_id, Some(planter));
+
+        // Follow sticky attachment.
+        if let Some(s) = logic.objects.get_mut(&structure) {
+            s.set_position(Vec3::new(40.0, 0.0, 20.0));
+        }
+        logic.update_booby_trap_special_attachments();
+        let cpos = logic.find_object(cid).unwrap().get_position();
+        assert!((cpos.x - 40.0).abs() < 0.1 && (cpos.z - 20.0).abs() < 0.1);
+
+        // Detonate destroys special object.
+        let hits = logic.detonate_booby_trap_at(
+            structure,
+            Vec3::new(40.0, 0.0, 20.0),
+            None,
+            false,
+            true,
+        );
+        let _ = hits;
+        assert!(
+            logic
+                .find_object(cid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+        assert!(!logic.booby_trap.is_booby_trapped(structure));
+        let _ = BOOBY_MAX_SPECIAL_OBJECTS;
+    }
 
     #[test]
     fn sticky_bomb_follows_moving_vehicle() {
@@ -95913,7 +96116,7 @@ mod tests {
                 .unwrap_or(8.0);
             game_logic
                 .booby_trap
-                .install(building_id, rebel_id, Team::GLA, game_logic.frame, geom);
+                .install(building_id, rebel_id, Team::GLA, game_logic.frame, geom, None);
             if let Some(b) = game_logic.find_object_mut(building_id) {
                 b.set_status_booby_trapped(true);
             }
@@ -110663,3 +110866,6 @@ mod skirmish_starting_unit_residual_tests {
         assert!(o.is_worker() || o.can_construct(), "dozer should construct");
     }
 }
+
+
+
