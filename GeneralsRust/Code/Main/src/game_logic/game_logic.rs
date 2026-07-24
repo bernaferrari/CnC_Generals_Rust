@@ -31092,13 +31092,27 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             tpl.set_health(100.0);
             self.templates.insert(deliver.payload.clone(), tpl);
         }
-        let mission_id = self.host_deliver_payloads.queue(
-            crate::game_logic::host_deliver_payload::HostDeliverPayloadKind::SuperweaponOclBomb,
+        // Align DeliverPayload drop with host superweapon impact_delay residual.
+        let impact_delay = {
+            use crate::game_logic::special_power_strikes::{
+                A10_STRIKE_IMPACT_DELAY_FRAMES, DAISY_CUTTER_IMPACT_DELAY_FRAMES,
+            };
+            let n = power_template.to_ascii_lowercase();
+            if n.contains("a10") {
+                A10_STRIKE_IMPACT_DELAY_FRAMES
+            } else if n.contains("daisy") || n.contains("moab") || n.contains("fuelair") {
+                DAISY_CUTTER_IMPACT_DELAY_FRAMES
+            } else {
+                DAISY_CUTTER_IMPACT_DELAY_FRAMES
+            }
+        };
+        let mission_id = self.host_deliver_payloads.queue_superweapon_ocl_bomb(
             caster_id,
             team,
             plan.target_coord,
             self.frame,
             deliver.payload.clone(),
+            impact_delay,
         );
         // Bind live transport object to cargo flight residual for approach motion.
         if let Some(m) = self.host_deliver_payloads.get_mut(mission_id) {
@@ -76150,8 +76164,8 @@ mod tests {
             logic.ocl_special_power_reg.payloads_spawned, 0,
             "payload delayed until DeliverPayload approach completes"
         );
-        // Advance through SuperweaponOclBomb approach + door residual.
-        for _ in 0..80 {
+        // Advance through SuperweaponOclBomb approach + door residual (Daisy 90f).
+        for _ in 0..95 {
             logic.frame = logic.frame.saturating_add(1);
             logic.update_deliver_payloads();
         }

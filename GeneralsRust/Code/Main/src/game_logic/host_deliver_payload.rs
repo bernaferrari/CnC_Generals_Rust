@@ -72,7 +72,7 @@ pub const DELIVER_PAYLOAD_LOGIC_FPS: f32 = 30.0;
 pub const CARGO_PLANE_APPROACH_DELAY_FRAMES: u32 = 90;
 /// OCL superweapon bomb approach residual (Daisy/MOAB/A10 DeliverPayload).
 /// Shorter than supply cargo; FuelAirBombPower impact delay is separate host path.
-pub const SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES: u32 = 60;
+pub const SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES: u32 = 85; // +door 5 → 90 Daisy residual
 pub const SUPERWEAPON_OCL_BOMB_DOOR_DELAY_FRAMES: u32 = 5;
 
 
@@ -1418,6 +1418,10 @@ pub struct HostDeliverPayloadMission {
     pub payload_count: u32,
     /// Number of payload items already spawned under DropDelay stagger.
     pub items_dropped: u32,
+    /// Optional approach delay override (frames). None = kind default.
+    pub approach_delay_override: Option<u32>,
+    /// Optional door delay override (frames). None = kind default.
+    pub door_delay_override: Option<u32>,
     /// Object ids of payload units successfully created.
     pub spawned_payload_ids: Vec<ObjectId>,
     /// BuildingPickup residual cash credited on complete (supply crates).
@@ -1444,6 +1448,35 @@ pub struct HostDeliverPayloadItemPlan {
     pub spawn_position: Vec3,
     /// True when this item is the last residual payload for the mission.
     pub is_final_item: bool,
+}
+
+
+impl HostDeliverPayloadMission {
+    pub fn effective_approach_delay(&self) -> u32 {
+        self.approach_delay_override
+            .unwrap_or_else(|| self.kind.approach_delay_frames())
+    }
+    pub fn effective_door_delay(&self) -> u32 {
+        self.door_delay_override
+            .unwrap_or_else(|| self.kind.door_delay_frames())
+    }
+    pub fn item_drop_frame_for(&self, item_index: u32) -> u32 {
+        let first = self
+            .activate_frame
+            .saturating_add(self.effective_approach_delay())
+            .saturating_add(self.effective_door_delay());
+        first.saturating_add(
+            self.kind
+                .drop_delay_frames()
+                .saturating_mul(item_index),
+        )
+    }
+    /// Recompute drop_frame/complete_frame from overrides.
+    pub fn recompute_schedule(&mut self) {
+        self.drop_frame = self.item_drop_frame_for(0);
+        let last = self.payload_count.saturating_sub(1);
+        self.complete_frame = self.item_drop_frame_for(last);
+    }
 }
 
 /// Legacy multi-position plan alias (formation snapshot at first drop).
@@ -1698,6 +1731,35 @@ impl HostDeliverPayloadRegistry {
     }
 
     /// Queue a DeliverPayload cargo mission. Returns host mission id.
+    /// Queue SuperweaponOclBomb with approach/door delays matching special-power impact.
+    pub fn queue_superweapon_ocl_bomb(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        target_position: Vec3,
+        activate_frame: u32,
+        payload_template: impl Into<String>,
+        impact_delay_frames: u32,
+    ) -> u32 {
+        let id = self.queue(
+            HostDeliverPayloadKind::SuperweaponOclBomb,
+            source_object,
+            source_team,
+            target_position,
+            activate_frame,
+            payload_template,
+        );
+        if let Some(m) = self.missions.get_mut(&id) {
+            // Door residual 5f; approach absorbs the rest of impact delay.
+            let door = SUPERWEAPON_OCL_BOMB_DOOR_DELAY_FRAMES.min(impact_delay_frames);
+            let approach = impact_delay_frames.saturating_sub(door);
+            m.approach_delay_override = Some(approach);
+            m.door_delay_override = Some(door);
+            m.recompute_schedule();
+        }
+        id
+    }
+
     pub fn queue(
         &mut self,
         kind: HostDeliverPayloadKind,
@@ -1727,6 +1789,8 @@ impl HostDeliverPayloadRegistry {
             activate_frame,
             drop_frame,
             complete_frame,
+            approach_delay_override: None,
+            door_delay_override: None,
             phase: HostDeliverPayloadPhase::Queued,
             transport_template: kind.transport_template().to_string(),
             put_in_container: kind.put_in_container().to_string(),
@@ -1862,9 +1926,7 @@ impl HostDeliverPayloadRegistry {
             if next_index >= mission.payload_count {
                 continue;
             }
-            let due = mission
-                .kind
-                .item_drop_frame(mission.activate_frame, next_index);
+            let due = mission.item_drop_frame_for(next_index);
             if current_frame < due {
                 continue;
             }
@@ -2305,12 +2367,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn queue_superweapon_ocl_bomb_matches_impact_delay() {
+        use crate::game_logic::ObjectId;
+        use crate::game_logic::Team;
+        let mut reg = HostDeliverPayloadRegistry::new();
+        let id = reg.queue_superweapon_ocl_bomb(
+            ObjectId(1),
+            Team::USA,
+            glam::Vec3::new(100.0, 0.0, 100.0),
+            0,
+            "DaisyCutterBomb",
+            90,
+        );
+        let m = reg.get(id).expect("mission");
+        assert_eq!(m.drop_frame, 90);
+        assert_eq!(m.approach_delay_override, Some(85));
+        assert_eq!(m.door_delay_override, Some(5));
+        let id2 = reg.queue_superweapon_ocl_bomb(
+            ObjectId(2),
+            Team::USA,
+            glam::Vec3::new(50.0, 0.0, 50.0),
+            10,
+            "A10ThunderboltMissile",
+            60,
+        );
+        let m2 = reg.get(id2).unwrap();
+        assert_eq!(m2.drop_frame, 70); // 10 + 60
+    }
+
+    #[test]
     fn superweapon_ocl_bomb_spawns_single_payload() {
         assert!(HostDeliverPayloadKind::SuperweaponOclBomb.spawns_payload_objects());
         assert_eq!(HostDeliverPayloadKind::SuperweaponOclBomb.payload_count(), 1);
         assert_eq!(
             HostDeliverPayloadKind::SuperweaponOclBomb.approach_delay_frames(),
             SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES
+        );
+        assert_eq!(
+            SUPERWEAPON_OCL_BOMB_APPROACH_DELAY_FRAMES
+                + SUPERWEAPON_OCL_BOMB_DOOR_DELAY_FRAMES,
+            90,
+            "default SuperweaponOclBomb total matches Daisy impact delay"
         );
     }
 
