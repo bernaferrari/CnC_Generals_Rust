@@ -1046,6 +1046,10 @@ pub struct Object {
     /// C++ HeightDieUpdate residual.
     #[serde(default)]
     pub height_die: Option<crate::game_logic::host_height_die::HostHeightDieData>,
+    /// C++ SlowDeathBehavior residual on FuelAir gas clouds.
+    #[serde(default)]
+    pub fuel_air_gas_slow_death:
+        Option<crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasSlowDeathData>,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1731,6 +1735,7 @@ impl Object {
             lifetime_update: None,
             slow_death: None,
             height_die: None,
+            fuel_air_gas_slow_death: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2114,6 +2119,7 @@ impl Object {
             lifetime_update: None,
             slow_death: None,
             height_die: None,
+            fuel_air_gas_slow_death: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2890,6 +2896,32 @@ impl Object {
     }
 
     /// C++ HeightDieUpdate residual. True when should die from altitude.
+    /// C++ FuelAir gas SlowDeathBehavior residual install.
+    pub fn ensure_fuel_air_gas_slow_death(&mut self, current_frame: u32) {
+        if self.fuel_air_gas_slow_death.is_some() {
+            return;
+        }
+        if let Some(data) =
+            crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasSlowDeathData::for_template(
+                &self.template_name,
+                current_frame,
+            )
+        {
+            self.fuel_air_gas_slow_death = Some(data);
+            // Retail HeightDie TargetHeight 15 on gas.
+            if self.height_die.is_none() {
+                self.height_die = Some(
+                    crate::game_logic::host_height_die::HostHeightDieData::with_target(
+                        crate::game_logic::host_fuel_air_gas_slow_death::FUEL_AIR_GAS_HEIGHT_DIE,
+                        false,
+                        current_frame,
+                    ),
+                );
+            }
+        }
+    }
+
+
     pub fn tick_height_die(&mut self, current_frame: u32, terrain_height: f32) -> bool {
         self.ensure_height_die(current_frame);
         let pos = self.get_position();

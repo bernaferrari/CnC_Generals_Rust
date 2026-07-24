@@ -70,6 +70,13 @@ impl HostHeightDieData {
 /// Common peels (target height, only_descending, initial delay msec).
 pub fn height_die_config_for_template(name: &str) -> Option<(f32, bool, u32)> {
     let n = name.to_ascii_lowercase();
+    // FuelAir gas cloud before bomb/projectile peels.
+    if (n.contains("fuelair") && n.contains("gas"))
+        || n.contains("aurorabombgas")
+        || (n.contains("aurora") && n.contains("gas"))
+    {
+        return Some((15.0, false, 0));
+    }
     if n.contains("aurorabomb") || n.contains("daisy") && n.contains("cutter") {
         return Some((10.0, true, 0));
     }

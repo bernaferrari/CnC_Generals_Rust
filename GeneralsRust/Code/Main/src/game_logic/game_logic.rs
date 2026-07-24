@@ -1150,6 +1150,8 @@ pub struct GameLogic {
     /// C++ OCL FireWeaponNugget + AttackNugget residual.
     ocl_fire_weapon_attack_reg:
         crate::game_logic::host_ocl_fire_weapon_attack::HostOclFireWeaponAttackRegistry,
+    /// C++ FuelAir gas SlowDeathBehavior residual.
+    fuel_air_gas_reg: crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2833,6 +2835,7 @@ impl GameLogic {
             ocl_create_debris_reg: crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisRegistry::new(),
             ocl_fire_weapon_attack_reg:
                 crate::game_logic::host_ocl_fire_weapon_attack::HostOclFireWeaponAttackRegistry::new(),
+            fuel_air_gas_reg: crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3298,6 +3301,7 @@ impl GameLogic {
         self.ocl_special_power_reg.clear();
         self.ocl_create_debris_reg.clear();
         self.ocl_fire_weapon_attack_reg.clear();
+        self.fuel_air_gas_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -6019,6 +6023,7 @@ impl GameLogic {
         self.update_radius_decal_update();
         self.update_checkpoint_update();
         self.update_smart_bomb_target_homing();
+        self.update_fuel_air_gas_slow_death();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -23477,6 +23482,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     n.producer_id = Some(dying_id);
                 }
             }
+            // FuelAir gas SlowDeath + HeightDie residual.
+            if let Some(n) = self.objects.get_mut(&new_id) {
+                n.ensure_fuel_air_gas_slow_death(self.frame);
+                if n.fuel_air_gas_slow_death.is_some() {
+                    self.fuel_air_gas_reg.record_install();
+                }
+            }
             if transfer && transfer_dmg > 0.0 {
                 if let Some(n) = self.objects.get_mut(&new_id) {
                     let _ = n.take_damage_from_typed(
@@ -27321,6 +27333,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     pub fn honesty_smart_bomb_target_homing_ok(&self) -> bool {
         self.smart_bomb_target_homing_reg.honesty_host_path_ok()
             && crate::game_logic::host_smart_bomb_target_homing::honesty_smart_bomb_target_homing_residual_ok()
+    }
+
+    pub fn honesty_fuel_air_gas_slow_death_ok(&self) -> bool {
+        crate::game_logic::host_fuel_air_gas_slow_death::honesty_fuel_air_gas_slow_death_residual_ok()
     }
 
     pub fn honesty_ocl_fire_weapon_attack_ok(&self) -> bool {
@@ -31380,7 +31396,112 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ SmartBombTargetHomingUpdate::update residual.
-    fn update_smart_bomb_target_homing(&mut self) {
+        /// C++ SlowDeathBehavior on FuelAir gas: midpoint flame + final detonation.
+    pub fn update_fuel_air_gas_slow_death(&mut self) {
+        use crate::game_logic::host_fuel_air_gas_slow_death::FuelAirGasTickEvent;
+        use crate::game_logic::combat::DamageType;
+
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.fuel_air_gas_slow_death.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+
+        let mut destroy: Vec<ObjectId> = Vec::new();
+        for id in ids {
+            let pos = self.objects.get(&id).map(|o| o.get_position()).unwrap_or(Vec3::ZERO);
+            let producer = self.objects.get(&id).and_then(|o| o.producer_id);
+            let team = self.objects.get(&id).map(|o| o.team).unwrap_or(Team::Neutral);
+            let ev = {
+                let Some(o) = self.objects.get_mut(&id) else { continue };
+                let Some(data) = o.fuel_air_gas_slow_death.as_mut() else { continue };
+                data.tick(self.frame)
+            };
+            match ev {
+                FuelAirGasTickEvent::None => {}
+                FuelAirGasTickEvent::InitialFx => {
+                    let _ = self.combat_particles.spawn(
+                        CombatParticleKind::DeathExplosion,
+                        pos,
+                        self.frame,
+                        Some(id),
+                        None,
+                    );
+                }
+                FuelAirGasTickEvent::MidpointFlame { damage, radius, weapon: _ } => {
+                    self.fuel_air_gas_reg.record_midpoint();
+                    self.apply_fuel_air_radius_damage(id, producer, team, pos, damage, radius, DamageType::Flame);
+                }
+                FuelAirGasTickEvent::FinalDetonation { damage, radius, weapon: _, fx: _ } => {
+                    self.fuel_air_gas_reg.record_final();
+                    self.apply_fuel_air_radius_damage(
+                        id,
+                        producer,
+                        team,
+                        pos,
+                        damage,
+                        radius,
+                        DamageType::Explosive,
+                    );
+                    let _ = self.combat_particles.spawn(
+                        CombatParticleKind::DeathExplosion,
+                        pos,
+                        self.frame,
+                        Some(id),
+                        None,
+                    );
+                    destroy.push(id);
+                }
+            }
+        }
+        for id in destroy {
+            self.fuel_air_gas_reg.record_destroy();
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    fn apply_fuel_air_radius_damage(
+        &mut self,
+        source_id: ObjectId,
+        producer: Option<ObjectId>,
+        _source_team: Team,
+        epicenter: Vec3,
+        damage: f32,
+        radius: f32,
+        damage_type: crate::game_logic::combat::DamageType,
+    ) {
+        let r2 = radius * radius;
+        let killer = producer.or(Some(source_id));
+        let victims: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(oid, o)| {
+                **oid != source_id
+                    && o.is_alive()
+                    && {
+                        let p = o.get_position();
+                        let dx = p.x - epicenter.x;
+                        let dz = p.z - epicenter.z;
+                        dx * dx + dz * dz <= r2
+                    }
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy_ids = Vec::new();
+        for vid in victims {
+            if let Some(t) = self.objects.get_mut(&vid) {
+                if t.take_damage_from_typed(damage, killer, damage_type) {
+                    destroy_ids.push(vid);
+                }
+            }
+        }
+        for vid in destroy_ids {
+            self.mark_object_for_destruction(vid, None);
+        }
+    }
+
+fn update_smart_bomb_target_homing(&mut self) {
         use crate::game_logic::host_smart_bomb_target_homing::SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN;
         let ids: Vec<ObjectId> = self
             .objects
@@ -76694,6 +76815,46 @@ mod tests {
         assert!(crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok());
     }
 
+
+
+    #[test]
+    fn fuel_air_gas_slow_death_detonates() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        let mut gas_tpl = crate::game_logic::ThingTemplate::new("SupW_AuroraFuelAirGas");
+        gas_tpl.set_health(1.0);
+        logic.templates.insert("SupW_AuroraFuelAirGas".into(), gas_tpl);
+        let mut enemy = crate::game_logic::ThingTemplate::new("GLATankScorpion");
+        enemy.add_kind_of(KindOf::Vehicle).set_health(500.0);
+        logic.templates.insert("GLATankScorpion".into(), enemy);
+        let gas = logic
+            .create_object("SupW_AuroraFuelAirGas", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let o = logic.objects.get_mut(&gas).unwrap();
+            o.ensure_fuel_air_gas_slow_death(0);
+            logic.fuel_air_gas_reg.record_install();
+        }
+        let foe = logic
+            .create_object("GLATankScorpion", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let hp0 = logic.find_object(foe).unwrap().health.current;
+        for f in 0..=35 {
+            logic.frame = f;
+            logic.update_fuel_air_gas_slow_death();
+        }
+        assert!(logic.fuel_air_gas_reg.final_detonations >= 1);
+        assert!(logic.fuel_air_gas_reg.midpoint_flames >= 1);
+        let foe_alive = logic.find_object(foe).map(|o| o.is_alive()).unwrap_or(false);
+        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        assert!(
+            !foe_alive || hp1 < hp0,
+            "detonation should damage nearby enemy (hp0={hp0} hp1={hp1})"
+        );
+        assert!(logic.honesty_fuel_air_gas_slow_death_ok());
+    }
 
     #[test]
     fn daisy_bomb_create_object_die_spawns_gas() {
