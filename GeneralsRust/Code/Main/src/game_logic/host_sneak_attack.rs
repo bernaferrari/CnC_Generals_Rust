@@ -234,6 +234,8 @@ pub struct HostSneakAttackMission {
     pub phase: HostSneakAttackPhase,
     /// Template used (or intended) for the tunnel structure.
     pub tunnel_template: String,
+    /// Object id of GLASneakAttackTunnelNetworkStart residual (if any).
+    pub tunnel_start_object: Option<ObjectId>,
     /// Object id of tunnel successfully created at spawn (if any).
     pub spawned_tunnel_id: Option<ObjectId>,
     /// Units hit by residual shockwave at spawn.
@@ -302,6 +304,8 @@ pub struct HostSneakAttackRegistry {
     pub pending_shockwaves: Vec<PendingSneakShockwave>,
     /// Honesty: multi-pulse applies executed.
     pub multi_pulse_applies: u32,
+    /// Honesty: TunnelStart objects spawned.
+    pub tunnel_starts_spawned: u32,
 }
 
 impl HostSneakAttackRegistry {
@@ -316,6 +320,7 @@ impl HostSneakAttackRegistry {
             shockwave_hit_count: 0,
             pending_shockwaves: Vec::new(),
             multi_pulse_applies: 0,
+            tunnel_starts_spawned: 0,
         }
     }
 
@@ -394,6 +399,7 @@ impl HostSneakAttackRegistry {
             spawn_frame,
             phase: HostSneakAttackPhase::Queued,
             tunnel_template: tunnel_template.into(),
+            tunnel_start_object: None,
             spawned_tunnel_id: None,
             shockwave_hits: 0,
             shockwave_damage_total: 0.0,
@@ -454,6 +460,17 @@ impl HostSneakAttackRegistry {
     pub fn record_multi_pulse_apply(&mut self, hits: u32) {
         self.multi_pulse_applies = self.multi_pulse_applies.saturating_add(1);
         self.shockwave_hit_count = self.shockwave_hit_count.saturating_add(hits);
+    }
+
+    pub fn record_tunnel_start(&mut self, mission_id: u32, start_id: ObjectId) {
+        self.tunnel_starts_spawned = self.tunnel_starts_spawned.saturating_add(1);
+        if let Some(m) = self.missions.get_mut(&mission_id) {
+            m.tunnel_start_object = Some(start_id);
+        }
+    }
+
+    pub fn honesty_tunnel_start_ok(&self) -> bool {
+        self.tunnel_starts_spawned > 0
     }
 
     /// Build spawn plans for all missions whose spawn frame has arrived.
@@ -567,6 +584,7 @@ pub fn honesty_sneak_attack_special_power_residual_ok() -> bool {
 pub fn honesty_sneak_attack_tunnel_residual_ok() -> bool {
     GLA_SNEAK_TUNNEL_TEMPLATE == "GLASneakAttackTunnelNetwork"
         && SNEAK_ATTACK_TUNNEL_START_TEMPLATE == "GLASneakAttackTunnelNetworkStart"
+        && SNEAK_ATTACK_OCL_START == "OCL_CreateSneakAttackTunnelStart"
         && SNEAK_ATTACK_OCL_START == "OCL_CreateSneakAttackTunnelStart"
         && SNEAK_ATTACK_OCL_TUNNEL == "OCL_CreateSneakAttackTunnel"
         && (SNEAK_ATTACK_TUNNEL_MAX_HEALTH - 1000.0).abs() < 0.01

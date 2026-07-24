@@ -1105,6 +1105,9 @@ pub struct Object {
     /// C++ AnthraxBomb payload HeightDie residual.
     #[serde(default)]
     pub anthrax_bomb_payload: bool,
+    /// C++ GLASneakAttackTunnelNetworkStart residual marker.
+    #[serde(default)]
+    pub sneak_tunnel_start: bool,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1807,6 +1810,7 @@ impl Object {
             daisy_cutter_bomb: false,
             anthrax_bomb_transport: None,
             anthrax_bomb_payload: false,
+            sneak_tunnel_start: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2207,6 +2211,7 @@ impl Object {
             daisy_cutter_bomb: false,
             anthrax_bomb_transport: None,
             anthrax_bomb_payload: false,
+            sneak_tunnel_start: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
