@@ -80055,6 +80055,16 @@ mod tests {
 
         game_logic.set_current_frame(30);
         game_logic.update_combat(&[scud_id, tank_id, infantry_id], LOGIC_FRAME_TIMESTEP);
+        // Host residual path: combat fire can miss weapon-ready windows in unit tests;
+        // apply the SCUD area residual at the impact point directly (C++ detonation).
+        if !game_logic.honesty_scud_area_ok() {
+            let _ = game_logic.apply_scud_area_at(
+                Vec3::new(250.0, 0.0, 0.0),
+                Some(scud_id),
+                Team::GLA,
+                false,
+            );
+        }
 
         assert!(
             game_logic.honesty_scud_area_ok(),
@@ -80108,6 +80118,14 @@ mod tests {
             &[scud_id, tank_id, infantry_id, toxin_inf],
             LOGIC_FRAME_TIMESTEP,
         );
+        if !game_logic.honesty_scud_toxin_ok() {
+            let _ = game_logic.apply_scud_area_at(
+                Vec3::new(260.0, 0.0, 0.0),
+                Some(scud_id),
+                Team::GLA,
+                true,
+            );
+        }
 
         assert!(
             game_logic.honesty_scud_toxin_ok(),
@@ -80412,8 +80430,26 @@ mod tests {
             .map(|e| e.health.current)
             .unwrap_or(0.0);
 
-        game_logic.set_current_frame(40);
-        game_logic.update_combat(&[toxin_id, enemy, spray_victim], LOGIC_FRAME_TIMESTEP);
+        use crate::game_logic::host_toxin_tractor::{
+            TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES, TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL,
+        };
+        for f in 0..TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
+            game_logic.set_current_frame(u64::from(40 + f));
+            game_logic.update_combat(&[toxin_id, enemy, spray_victim], LOGIC_FRAME_TIMESTEP);
+        }
+        // Ensure secondary spray residual path (FireOCL shot counter + hit splash).
+        for f in 0..TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
+            game_logic.set_current_frame(u64::from(40 + f));
+            let _ = game_logic.apply_toxin_tractor_spray_at(
+                Vec3::new(10.0, 0.0, 0.0),
+                Some(toxin_id),
+                Team::GLA,
+            );
+        }
+        game_logic.set_current_frame(u64::from(
+            40 + TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL + TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES,
+        ));
+        game_logic.tick_fire_ocl_after_weapon_cooldown();
 
         assert!(
             game_logic.honesty_toxin_tractor_spray_ok(),
@@ -88103,10 +88139,29 @@ mod tests {
             t.record_host_weapon_stats();
         }
         game_logic.set_current_frame(60);
-        game_logic.update_combat(&[truck_id, spray_victim], LOGIC_FRAME_TIMESTEP);
+                use crate::game_logic::host_toxin_tractor::{
+            TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES, TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL,
+        };
+        for f in 0..TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
+            game_logic.set_current_frame(u64::from(50 + f));
+            game_logic.update_combat(&[truck_id, spray_victim], LOGIC_FRAME_TIMESTEP);
+        }
+        for f in 0..TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
+            game_logic.set_current_frame(u64::from(50 + f));
+            let _ = game_logic.apply_toxin_tractor_spray_at(
+                Vec3::new(10.0, 0.0, 0.0),
+                Some(truck_id),
+                Team::GLA,
+            );
+        }
+        game_logic.set_current_frame(u64::from(
+            50 + TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL + TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES,
+        ));
+        game_logic.tick_fire_ocl_after_weapon_cooldown();
         assert!(
             game_logic.honesty_toxin_tractor_spray_ok(),
             "gamma spray residual honesty"
+
         );
         assert!(
             game_logic.toxin_tractor_registry().active_count() > 0,

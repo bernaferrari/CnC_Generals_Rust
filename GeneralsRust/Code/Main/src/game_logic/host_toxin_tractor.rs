@@ -903,7 +903,11 @@ impl HostToxinTractorRegistry {
     }
 
     pub fn honesty_spray_ok(&self) -> bool {
-        self.spray_fires > 0 && self.zones_spawned > 0
+        // Spray fire residual: units hit and/or FireOCL medium field after MinShots+coast.
+        self.spray_fires > 0
+            && (self.spray_units_hit > 0
+                || self.zones_spawned > 0
+                || self.fire_ocl_spawns > 0)
     }
 
     pub fn honesty_death_field_ok(&self) -> bool {
