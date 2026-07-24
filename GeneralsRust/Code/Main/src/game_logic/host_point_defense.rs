@@ -21,8 +21,8 @@
 //! Fail-closed honesty:
 //! - Not full PointDefenseLaserUpdate live velocity-prediction seeker math
 //! - Not full KindOf bitmask Primary/SecondaryTargetTypes beyond residual names
-//! - Not full laser beam drawable / FireFX particle attach bone path
-//! - Not full TERTIARY WeaponStore allocateNewWeapon path
+//! - PointDefenseLaserBeam Object spawn residual closed (W3DLaserDraw GPU fail-closed)
+//! - Not full FireFX particle attach bone path / TERTIARY WeaponStore allocateNewWeapon
 //! - Not network PDL replication (network deferred)
 
 /// Logic frames per second residual.
@@ -135,6 +135,14 @@ pub const COMBAT_CHINOOK_PDL_DELAY_FRAMES: u32 = 8;
 
 /// Activate / intercept audio residual (FXList WeaponFX_PaladinPointDefenseLaser).
 pub const PDL_INTERCEPT_AUDIO: &str = "PaladinPointDefenseLaserPulse";
+/// Retail PointDefenseLaserBeam LifetimeUpdate Min/MaxLifetime = 95 ms → 3f @ 30 FPS.
+pub const PDL_LASER_BEAM_LIFETIME_MS: u32 = 95;
+pub const PDL_LASER_BEAM_LIFETIME_FRAMES: u32 = (PDL_LASER_BEAM_LIFETIME_MS * 30 + 999) / 1000;
+/// Default Paladin residual LaserName.
+pub const PDL_LASER_BEAM_DEFAULT: &str = "PointDefenseLaserBeam";
+pub const PDL_LASER_BEAM_AVENGER: &str = "AvengerPointDefenseLaserBeam";
+pub const PDL_LASER_BEAM_AIRF: &str = "AirF_PointDefenseLaserBeam";
+pub const PDL_LASER_BEAM_MAX_HEALTH: f32 = 1.0;
 
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn pdl_ms_to_frames(ms: u32) -> u32 {
@@ -304,6 +312,17 @@ pub fn pdl_delay_frames(template_name: &str) -> u32 {
         AVENGER_PDL_DELAY_FRAMES
     } else {
         PALADIN_PDL_DELAY_FRAMES
+    }
+}
+
+/// Retail Weapon.ini LaserName residual for PDL carrier template.
+pub fn pdl_laser_beam_name(template_name: &str) -> &'static str {
+    if is_avenger_carrier(template_name) {
+        PDL_LASER_BEAM_AVENGER
+    } else if is_king_raptor_carrier(template_name) {
+        PDL_LASER_BEAM_AIRF
+    } else {
+        PDL_LASER_BEAM_DEFAULT
     }
 }
 
