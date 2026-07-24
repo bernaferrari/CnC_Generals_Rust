@@ -39,7 +39,8 @@
 //!
 //! Fail-closed honesty:
 //! - Not full SpecialAbilityUpdate preparation timers / packing / flee-after-plant
-//! - Not full StickyBombUpdate attach bones / geometry splash / max-charge list UI
+//! - RemoteC4Charge/TimedC4Charge SpecialObject + MaxSpecialObjects residual closed
+//! - Not full StickyBombUpdate attach bone matrix / geometry splash / max-charge list UI
 //! - Not full CashHackSpecialPower victim money clamp / floating text path
 //! - Not combat-bike rider-eject / academy sniped-vehicle stats
 //! - Not full laser attach / disable FX particle interleave / VoiceDisableVehicleComplete
