@@ -1377,6 +1377,10 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
     if n.contains("laser") || n.contains("machinegun") || n.contains("minigun") {
         return 0.0;
     }
+    // Fire Base howitzer residual ScatterRadiusVsInfantry **15**.
+    if n.contains("firebase") || (n.contains("howitzer") && !n.contains("neutron")) {
+        return 15.0;
+    }
     // Common ZH residual: tank/missile shells vs infantry inaccuracy ~10.
     if n.contains("tankgun")
         || n.contains("tankshell")
@@ -1391,8 +1395,6 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
         || n.contains("rpg")
         || n.contains("tankhunter")
         || n.contains("tomahawk")
-        || n.contains("firebase")
-        || n.contains("howitzer")
     {
         return 10.0;
     }
@@ -5602,6 +5604,14 @@ mod tests {
         assert_eq!(
             seed_scatter_radius_vs_infantry_for("PaladinPointDefenseLaser"),
             0.0
+        );
+        assert_eq!(
+            seed_scatter_radius_vs_infantry_for("FireBaseHowitzerGun"),
+            15.0
+        );
+        assert_eq!(
+            host_effective_scatter_radius("FireBaseHowitzerGun", true),
+            15.0
         );
         let o = scatter_aim_offset(42, 10.0);
         assert!(o.length() <= 10.0 + 1e-3);
