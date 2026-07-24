@@ -405,13 +405,29 @@ pub fn missile_defender_scatter_aim(
     use crate::game_logic::weapon_bootstrap::{
         host_effective_scatter_radius, scatter_aim_offset,
     };
-    let scatter =
+    let mut scatter =
         host_effective_scatter_radius(MISSILE_DEFENDER_MISSILE_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = MISSILE_DEFENDER_SCATTER_VS_INFANTRY;
+    }
     if scatter <= 0.0 {
         return (aim, false);
     }
     let off = scatter_aim_offset(seed, scatter);
     (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Whether MissileDefenderMissileWeapon residual misses intended infantry via ScatterRadiusVsInfantry.
+pub fn missile_defender_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(MISSILE_DEFENDER_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
 
 /// Wave residual honesty: Missile Defender ScatterRadiusVsInfantry peels.
@@ -446,7 +462,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= MISSILE_DEFENDER_SCATTER_VS_INFANTRY + 0.01);
-    }
+    
+        assert!(missile_defender_scatter_misses_infantry(true, 13, 0.5));
+        assert!(!missile_defender_scatter_misses_infantry(true, 13, 100.0));
+        assert!(!missile_defender_scatter_misses_infantry(false, 13, 0.5));
+}
 
     #[test]
     fn missile_defender_name_matrix() {
