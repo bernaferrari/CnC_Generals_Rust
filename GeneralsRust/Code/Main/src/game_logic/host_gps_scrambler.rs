@@ -20,8 +20,8 @@
 //! - OCL SUPERWEAPON_GPSScrambler → GPSScrambler_InvisibleMarker
 //!
 //! Fail-closed honesty:
-//! - Not full OCL GPSScrambler_InvisibleMarker particle (GPSMicrowaveScambler /
-//!   GPSRotisserie / gpsScrambleCloud) GPU path
+//! - GPSScrambler_InvisibleMarker spawn residual closed (particle GPU still fail-closed)
+//! - GrantStealthBehavior grow-radius pulse residual closed (Start 20 → Final 100)
 //! - Not full StealthUpdate module matrix (only units with getStealth in C++; host residual
 //!   grants to VEHICLE|INFANTRY KindOf, skips bomb-truck disguise residual by name)
 //! - Not full ally relationship filter (uses same-team residual)
@@ -234,6 +234,12 @@ pub struct HostGpsScrambler {
     pub caster_id: Option<ObjectId>,
     /// Ally units that received STEALTHED residual this activation.
     pub grants: u32,
+    /// GrantStealthBehavior grow pulse index residual (0..GROW_UPDATES).
+    pub grow_index: u32,
+    /// Grow pulse still expanding.
+    pub growing: bool,
+    /// OCL GPSScrambler_InvisibleMarker object residual.
+    pub marker_id: Option<ObjectId>,
 }
 
 /// Host residual registry for GPS Scrambler special power activations.
@@ -246,6 +252,10 @@ pub struct HostGpsScramblerRegistry {
     pub activation_count: u32,
     /// Total stealth grants applied.
     pub grant_count: u32,
+    /// Honesty: grow pulses applied.
+    pub grow_pulses: u32,
+    /// Honesty: invisible markers spawned.
+    pub markers_spawned: u32,
 }
 
 impl HostGpsScramblerRegistry {
@@ -263,6 +273,27 @@ impl HostGpsScramblerRegistry {
 
     pub fn grant_count(&self) -> u32 {
         self.grant_count
+    }
+
+    pub fn record_grow_pulse(&mut self) {
+        self.grow_pulses = self.grow_pulses.saturating_add(1);
+    }
+
+    pub fn record_marker_spawn(&mut self) {
+        self.markers_spawned = self.markers_spawned.saturating_add(1);
+    }
+
+    pub fn honesty_grow_ok(&self) -> bool {
+        self.grow_pulses > 0
+    }
+
+    pub fn honesty_marker_ok(&self) -> bool {
+        self.markers_spawned > 0
+    }
+
+    /// Active grow missions still expanding.
+    pub fn growing_missions_mut(&mut self) -> impl Iterator<Item = &mut HostGpsScrambler> {
+        self.activations.iter_mut().filter(|a| a.growing)
     }
 
     pub fn activations(&self) -> &[HostGpsScrambler] {
@@ -367,6 +398,9 @@ mod tests {
             activate_frame: 0,
             caster_id: None,
             grants: 3,
+            grow_index: 0,
+            growing: false,
+            marker_id: None,
         });
         assert!(reg.honesty_activate_ok());
         assert!(reg.honesty_grant_ok());
