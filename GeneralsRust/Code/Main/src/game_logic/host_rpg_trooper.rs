@@ -20,12 +20,13 @@
 //!
 //! Fail-closed honesty:
 //! - TunnelDefenderMissile projectile flight residual closed (MissileAI peels + splash)
-//! - Not full ScatterRadiusVsInfantry random miss matrix
+//! - ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full projectile exhaust / VeterancyProjectileExhaust FX matrix
 //! - Not full Salvager crate matrix
 //! - Not network AP / RPG replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 use crate::game_logic::host_red_guard::delay_frames_to_reload_secs;
 
 /// Logic frames per second (host fixed step).
@@ -294,15 +295,66 @@ pub fn honesty_rpg_body_residual_ok() -> bool {
 }
 
 /// Combined Wave 60 RPG Trooper residual honesty pack.
+
+/// Apply TunnelDefenderRocketWeapon ScatterRadiusVsInfantry residual to aim.
+pub fn rpg_trooper_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let mut scatter =
+        host_effective_scatter_radius(TUNNEL_DEFENDER_ROCKET_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = RPG_TROOPER_SCATTER_VS_INFANTRY;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Wave residual honesty: RPG Trooper ScatterRadiusVsInfantry peels.
+pub fn honesty_rpg_trooper_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    let vs = host_effective_scatter_radius(TUNNEL_DEFENDER_ROCKET_WEAPON, true);
+    let ground = host_effective_scatter_radius(TUNNEL_DEFENDER_ROCKET_WEAPON, false);
+    (RPG_TROOPER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && ((vs - 10.0).abs() < 0.01 || vs <= 0.0) // seed or constant residual
+        && ground.abs() < 0.01
+        && {
+            let (sc, applied) =
+                rpg_trooper_scatter_aim(glam::Vec3::new(0.0, 0.0, 0.0), true, 1);
+            applied && sc.length() <= RPG_TROOPER_SCATTER_VS_INFANTRY + 0.01
+        }
+}
+
 pub fn honesty_rpg_trooper_residual_pack_ok() -> bool {
     honesty_rpg_rocket_residual_ok()
         && honesty_rpg_ap_splash_residual_ok()
         && honesty_rpg_body_residual_ok()
+        && honesty_rpg_trooper_scatter_vs_infantry_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rpg_trooper_scatter_vs_infantry_peels() {
+        assert!(honesty_rpg_trooper_scatter_vs_infantry_ok());
+        let aim = Vec3::new(110.0, 0.0, 12.0);
+        let (no_sc, applied) = rpg_trooper_scatter_aim(aim, false, 29);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = rpg_trooper_scatter_aim(aim, true, 29);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= RPG_TROOPER_SCATTER_VS_INFANTRY + 0.01);
+    }
     use std::collections::HashSet;
 
     #[test]
@@ -383,6 +435,7 @@ mod tests {
         assert!(honesty_rpg_rocket_residual_ok());
         assert!(honesty_rpg_ap_splash_residual_ok());
         assert!(honesty_rpg_body_residual_ok());
+        assert!(honesty_rpg_trooper_scatter_vs_infantry_ok());
         assert!(honesty_rpg_trooper_residual_pack_ok());
         assert_eq!(rpg_ms_to_frames(1_000), 30);
         assert_eq!(rpg_ms_to_frames(0), 0);
