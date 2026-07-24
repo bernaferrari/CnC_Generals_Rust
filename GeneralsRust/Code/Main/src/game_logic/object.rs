@@ -1227,6 +1227,21 @@ pub struct Object {
     /// C++ NeutronCannonShell DumbProjectile residual.
     #[serde(default)]
     pub neutron_cannon_shell_projectile: bool,
+    /// C++ NukeCannonShell DumbProjectile residual.
+    #[serde(default)]
+    pub nuke_cannon_shell_projectile: bool,
+    /// Nuke shell launch origin residual.
+    #[serde(default)]
+    pub nuke_shell_from: Option<[f32; 3]>,
+    /// Nuke shell aim residual.
+    #[serde(default)]
+    pub nuke_shell_aim: Option<[f32; 3]>,
+    /// Nuke shell launch frame residual.
+    #[serde(default)]
+    pub nuke_shell_launch_frame: Option<u32>,
+    /// Nuke shell flight frames residual.
+    #[serde(default)]
+    pub nuke_shell_flight_frames: u32,
     /// C++ TunnelDefenderMissile / RPG projectile residual.
     #[serde(default)]
     pub rpg_trooper_missile_projectile: bool,
@@ -2158,6 +2173,11 @@ impl Object {
             neutron_shell_aim: None,
             neutron_shell_launch_frame: None,
             neutron_shell_flight_frames: 0,
+            nuke_cannon_shell_projectile: false,
+            nuke_shell_from: None,
+            nuke_shell_aim: None,
+            nuke_shell_launch_frame: None,
+            nuke_shell_flight_frames: 0,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -2655,6 +2675,11 @@ impl Object {
             neutron_shell_aim: None,
             neutron_shell_launch_frame: None,
             neutron_shell_flight_frames: 0,
+            nuke_cannon_shell_projectile: false,
+            nuke_shell_from: None,
+            nuke_shell_aim: None,
+            nuke_shell_launch_frame: None,
+            nuke_shell_flight_frames: 0,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,

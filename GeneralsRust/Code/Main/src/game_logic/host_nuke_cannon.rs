@@ -22,7 +22,7 @@
 //! - Radiation residual: tick **750**ms → **23**f, lifetime **30000**ms → **900**f.
 //!
 //! Fail-closed honesty:
-//! - Not full NukeCannonShell DumbProjectileBehavior lob path
+//! - NukeCannonShell DumbProjectile Bezier flight residual closed (First/SecondHeight 50/150)
 //! - Not full DeployStyleAIUpdate unpack / pack animation matrix
 //! - Not full ScatterRadiusVsInfantry random miss matrix
 //! - Not network nuke-cannon / radiation replication (network deferred)
@@ -66,6 +66,16 @@ pub const NUKE_CANNON_DEATH_TYPE: &str = "EXPLODED";
 pub const NUKE_CANNON_WEAPON_SPEED: f32 = 200.0;
 /// Retail ProjectileObject residual.
 pub const NUKE_CANNON_PROJECTILE: &str = "NukeCannonShell";
+/// Retail NukeCannonShell MaxHealth residual.
+pub const NUKE_SHELL_MAX_HEALTH: f32 = 100.0;
+/// DumbProjectileBehavior FirstHeight residual (matches NeutronCannonShell).
+pub const NUKE_SHELL_FIRST_HEIGHT: f32 = 50.0;
+/// DumbProjectileBehavior SecondHeight residual.
+pub const NUKE_SHELL_SECOND_HEIGHT: f32 = 150.0;
+/// FirstPercentIndent residual (30%).
+pub const NUKE_SHELL_FIRST_PERCENT_INDENT: f32 = 0.30;
+/// SecondPercentIndent residual (70%).
+pub const NUKE_SHELL_SECOND_PERCENT_INDENT: f32 = 0.70;
 /// Retail FireFX residual.
 pub const NUKE_CANNON_FIRE_FX: &str = "WeaponFX_NukeCannonMuzzleFlash";
 /// Retail ProjectileDetonationFX residual.
@@ -135,6 +145,36 @@ pub fn nuke_cannon_ms_to_frames(ms: u32) -> u32 {
 /// Whether residual primary fire should apply Nuke Cannon area + radiation.
 ///
 /// Slot 0 = primary shell residual (not neutron secondary).
+
+/// Cubic Bezier residual sample for NukeCannonShell DumbProjectileBehavior.
+pub fn nuke_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * NUKE_SHELL_FIRST_PERCENT_INDENT
+        + Vec3::Y * NUKE_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * NUKE_SHELL_SECOND_PERCENT_INDENT
+        + Vec3::Y * NUKE_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    p0 * uuu + p1 * (3.0 * uu * t) + p2 * (3.0 * u * tt) + p3 * ttt
+}
+
+/// Flight frame residual from ground distance @ WeaponSpeed 200.
+pub fn nuke_shell_flight_frames(from: Vec3, to: Vec3) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let frames = (dist / (NUKE_CANNON_WEAPON_SPEED / NUKE_CANNON_LOGIC_FPS)).ceil() as u32;
+    frames.clamp(8, 180)
+}
+
 pub fn should_apply_nuke_cannon_primary(is_nuke_cannon: bool, fired_slot: u8) -> bool {
     is_nuke_cannon && fired_slot == 0
 }
@@ -383,6 +423,9 @@ pub fn honesty_nuke_cannon_weapon_residual_ok() -> bool {
         && NUKE_CANNON_DEATH_TYPE == "EXPLODED"
         && (NUKE_CANNON_WEAPON_SPEED - 200.0).abs() < 0.01
         && NUKE_CANNON_PROJECTILE == "NukeCannonShell"
+        && (NUKE_SHELL_FIRST_HEIGHT - 50.0).abs() < 0.01
+        && (NUKE_SHELL_SECOND_HEIGHT - 150.0).abs() < 0.01
+        && (NUKE_SHELL_FIRST_PERCENT_INDENT - 0.30).abs() < 0.001
         && NUKE_CANNON_FIRE_FX == "WeaponFX_NukeCannonMuzzleFlash"
         && NUKE_CANNON_DETONATION_FX == "WeaponFX_NukeCannon"
         && NUKE_CANNON_DETONATION_OCL == "OCL_RadiationFieldMedium"
