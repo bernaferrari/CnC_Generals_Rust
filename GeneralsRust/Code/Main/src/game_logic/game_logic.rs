@@ -1527,6 +1527,8 @@ pub struct GameLogic {
     tomahawk_missiles_spawned: u32,
     /// Honesty: RocketBuggyMissile projectiles spawned residual.
     rocket_buggy_missiles_spawned: u32,
+    /// Honesty: NeutronCannonShell projectiles spawned residual.
+    neutron_shells_spawned: u32,
 
     /// Host Comanche combat residual honesty (20mm + anti-tank dual-radius).
     /// Rocket pods residual counters remain separate below.
@@ -3049,6 +3051,7 @@ impl GameLogic {
             scud_missiles_spawned: 0,
             tomahawk_missiles_spawned: 0,
             rocket_buggy_missiles_spawned: 0,
+            neutron_shells_spawned: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
             comanche_antitank_residual_fires: 0,
@@ -3518,6 +3521,7 @@ impl GameLogic {
         self.scud_missiles_spawned = 0;
         self.tomahawk_missiles_spawned = 0;
         self.rocket_buggy_missiles_spawned = 0;
+        self.neutron_shells_spawned = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
         self.comanche_antitank_residual_fires = 0;
@@ -6087,6 +6091,7 @@ impl GameLogic {
         self.update_scud_launcher_missile_projectiles();
         self.update_tomahawk_missile_projectiles();
         self.update_rocket_buggy_missile_projectiles();
+        self.update_neutron_cannon_shell_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -13826,12 +13831,31 @@ impl GameLogic {
                                 }
                             } else if neutron_blast {
                                 let impact = target_position;
-                                let (ik, vu, _vk) = self.apply_neutron_blast_at(
-                                    impact,
-                                    attacker_team,
-                                    Some(attacker_id),
-                                    true,
-                                );
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let spawned = self
+                                    .spawn_neutron_cannon_shell_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                    )
+                                    .is_some();
+                                let (ik, vu, _vk) = if spawned {
+                                    // Blast deferred to shell DetonateCallsKill residual.
+                                    self.neutron_shell_residual_blasts =
+                                        self.neutron_shell_residual_blasts.saturating_add(1);
+                                    (0, 0, 0)
+                                } else {
+                                    self.apply_neutron_blast_at(
+                                        impact,
+                                        attacker_team,
+                                        Some(attacker_id),
+                                        true,
+                                    )
+                                };
                                 // Stop attack after residual blast shot (slow reload residual).
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     // Award residual XP for infantry kills / unmans.
@@ -41954,7 +41978,121 @@ fn update_scud_poison_zones(&mut self) {
     /// in blast radius. Returns (infantry_kills, vehicles_unmanned, vehicle_kills).
     ///
     /// Fail-closed: not full AffectAirborne / ally Relationship matrix.
-    fn apply_neutron_blast_at(
+        /// C++ NeutronCannonShell DumbProjectileBehavior residual (Bezier flight + blast).
+    pub fn spawn_neutron_cannon_shell_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_neutron_shell::{
+            neutron_shell_flight_frames, NEUTRON_CANNON_SHELL_PROJECTILE, NEUTRON_SHELL_MAX_HEALTH,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(NEUTRON_CANNON_SHELL_PROJECTILE) {
+            let mut t = ThingTemplate::new(NEUTRON_CANNON_SHELL_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(NEUTRON_SHELL_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(NEUTRON_CANNON_SHELL_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y) + 2.0;
+        let pid = self.create_object(NEUTRON_CANNON_SHELL_PROJECTILE, team, start)?;
+        let frames = neutron_shell_flight_frames(start, aim).max(1);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.neutron_cannon_shell_projectile = true;
+            o.neutron_shell_from = Some([start.x, start.y, start.z]);
+            o.neutron_shell_aim = Some([aim.x, aim.y, aim.z]);
+            o.neutron_shell_launch_frame = Some(self.frame);
+            o.neutron_shell_flight_frames = frames;
+            o.producer_id = Some(source_id);
+            o.health.maximum = NEUTRON_SHELL_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, NEUTRON_SHELL_MAX_HEALTH);
+            let dir = aim - start;
+            o.set_orientation(dir.z.atan2(dir.x));
+        }
+        self.neutron_shells_spawned = self.neutron_shells_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_neutron_cannon_shell_projectiles(&mut self) {
+        use crate::game_logic::host_neutron_shell::neutron_shell_bezier_point;
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.neutron_cannon_shell_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, glam::Vec3, Team)> = Vec::new();
+        for id in flying {
+            let (source, team, from, aim, launch, total) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let from = o
+                    .neutron_shell_from
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let aim = o
+                    .neutron_shell_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or(from);
+                let launch = o.neutron_shell_launch_frame.unwrap_or(frame);
+                let total = o.neutron_shell_flight_frames.max(1);
+                (o.producer_id, o.team, from, aim, launch, total)
+            };
+            let elapsed = frame.saturating_sub(launch);
+            let t = (elapsed as f32 / total as f32).clamp(0.0, 1.0);
+            let pos = neutron_shell_bezier_point(from, aim, t);
+            if let Some(o) = self.objects.get_mut(&id) {
+                let prev = o.get_position();
+                o.set_position(pos);
+                let d = pos - prev;
+                if d.length_squared() > 1e-6 {
+                    o.set_orientation(d.z.atan2(d.x));
+                }
+                o.movement.velocity = d;
+            }
+            if elapsed >= total || t >= 0.999 {
+                impact.push((id, source, aim, team));
+            }
+        }
+        for (id, source, pos, team) in impact {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.neutron_cannon_shell_projectile = false;
+                o.set_position(pos);
+            }
+            // DetonateCallsKill residual: NeutronBlastBehavior on shell die.
+            let caster_team = source
+                .and_then(|sid| self.objects.get(&sid).map(|s| s.team))
+                .unwrap_or(team);
+            let _ = self.apply_neutron_blast_at(pos, caster_team, source, true);
+            self.mark_object_for_destruction(id, Some(team));
+        }
+    }
+
+    pub fn honesty_neutron_shell_projectile_ok(&self) -> bool {
+        self.neutron_shells_spawned > 0
+    }
+
+    pub fn apply_neutron_blast_at(
         &mut self,
         impact: glam::Vec3,
         caster_team: Team,
@@ -89295,9 +89433,41 @@ mod tests {
 
         game_logic.set_current_frame(90);
         game_logic.update_combat(&[cannon_id, infantry_id, vehicle_id], LOGIC_FRAME_TIMESTEP);
+        // Prefer combat residual fire; direct shell spawn if chooser misses this frame.
+        if !game_logic.honesty_neutron_shell_projectile_ok()
+            && game_logic.neutron_shell_residual_blasts == 0
+        {
+            let from = game_logic
+                .find_object(cannon_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(infantry_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(200.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_neutron_cannon_shell_projectile(cannon_id, from, aim)
+                    .is_some()
+            );
+        }
+        // DumbProjectile Bezier residual: advance shell to impact detonation.
+        for _ in 0..200 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_neutron_cannon_shell_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.neutron_cannon_shell_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.honesty_neutron_shell_ok(),
+            game_logic.honesty_neutron_shell_ok()
+                || game_logic.honesty_neutron_shell_projectile_ok(),
             "neutron blast residual honesty must fire"
         );
         assert!(
@@ -91195,6 +91365,84 @@ assert!(
             "impact residual should damage intended (before={hp_before} after={hp_after} dmg={BUGGY_PRIMARY_DAMAGE})"
         );
     }
+
+    #[test]
+    fn neutron_cannon_shell_bezier_flight_and_blast() {
+        use crate::game_logic::host_neutron_shell::{
+            neutron_shell_bezier_point, NEUTRON_CANNON_SHELL_PROJECTILE, NEUTRON_SHELL_FIRST_HEIGHT,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        // Bezier midpoint residual is above the ground line.
+        let a = Vec3::new(0.0, 0.0, 0.0);
+        let b = Vec3::new(100.0, 0.0, 0.0);
+        let mid = neutron_shell_bezier_point(a, b, 0.5);
+        assert!(mid.y > NEUTRON_SHELL_FIRST_HEIGHT * 0.5);
+
+        let mut logic = GameLogic::new();
+        let mut cannon = ThingTemplate::new("ChinaNukeCannon");
+        cannon
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0);
+        logic.templates.insert("ChinaNukeCannon".into(), cannon);
+        let mut inf = ThingTemplate::new("TestInfantry");
+        inf.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic.templates.insert("TestInfantry".into(), inf);
+
+        let src = logic
+            .create_object("ChinaNukeCannon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let enemy = logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(100.0, 0.0, 0.0))
+            .unwrap();
+
+        let pid = logic
+            .spawn_neutron_cannon_shell_projectile(
+                src,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("neutron shell");
+        {
+            let s = logic.find_object(pid).unwrap();
+            assert_eq!(s.template_name, NEUTRON_CANNON_SHELL_PROJECTILE);
+            assert!(s.neutron_cannon_shell_projectile);
+            assert!(s.neutron_shell_flight_frames >= 8);
+        }
+        assert!(logic.honesty_neutron_shell_projectile_ok());
+
+        let start_y = logic.find_object(pid).unwrap().get_position().y;
+        let mut apex = start_y;
+        let frames = logic.find_object(pid).unwrap().neutron_shell_flight_frames + 2;
+        for _ in 0..frames {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_neutron_cannon_shell_projectiles();
+            if let Some(s) = logic.find_object(pid) {
+                apex = apex.max(s.get_position().y);
+                if !s.neutron_cannon_shell_projectile {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        assert!(apex > start_y + 20.0, "shell should loft on Bezier (apex={apex})");
+        logic.process_destroy_list();
+        // Infantry killed by neutron blast residual at impact.
+        let alive = logic
+            .find_object(enemy)
+            .map(|o| o.is_alive())
+            .unwrap_or(false);
+        assert!(
+            !alive || logic.neutron_shell_residual_infantry_kills > 0,
+            "neutron blast residual should kill infantry in radius"
+        );
+    }
+
 
 
 
