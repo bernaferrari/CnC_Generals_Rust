@@ -24,7 +24,9 @@
 //! Fail-closed honesty:
 //! - Not full SalvageCrate collate / W3D gunner subobject swap matrix
 //! - Not PassengersAllowedToFire (retail Technical passengers do not fire)
+//! - TechnicalRPGMissile MissileAI flight residual (Tier Two RPG: seek, Fuel 1000ms, InitialVelocity 150)
 //! - Not full chassis reskin (ChassisOne/Two/Three) visual matrix
+//! - Not full GenericTankShell lob for Tier One cannon residual
 //! - Not network salvage / transport replication (network deferred)
 
 use super::Weapon;
@@ -84,6 +86,25 @@ pub const TECH_RPG_DELAY_MS: u32 = 1000;
 pub const TECH_RPG_DELAY_FRAMES: u32 = 30;
 /// Retail RPG FireSound residual.
 pub const TECH_RPG_FIRE_AUDIO: &str = "TunnelRocketWeapon";
+/// Retail ProjectileObject residual (Tier Two RPG).
+pub const TECHNICAL_RPG_MISSILE: &str = "TechnicalRPGMissile";
+/// MissileAI MaxHealth residual.
+pub const TECH_RPG_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// MissileAI FuelLifetime 1000ms residual.
+pub const TECH_RPG_MISSILE_FUEL_MS: u32 = 1_000;
+/// Fuel 1000ms → 30 frames @ 30 FPS.
+pub const TECH_RPG_MISSILE_FUEL_FRAMES: u32 = 30;
+/// MissileAI InitialVelocity residual (dist/sec).
+pub const TECH_RPG_MISSILE_INITIAL_VELOCITY: f32 = 150.0;
+/// DistanceToTravelBeforeTurning residual.
+pub const TECH_RPG_MISSILE_TURN_DISTANCE: f32 = 20.0;
+/// TryToFollowTarget residual.
+pub const TECH_RPG_MISSILE_SEEK: bool = true;
+/// IgnitionDelay residual frames.
+pub const TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES: u32 = 0;
+/// Cruise WeaponSpeed residual (projectile weapons list ignored; host cruise 600).
+pub const TECH_RPG_MISSILE_CRUISE_SPEED: f32 = 600.0;
+
 
 /// AP bullets WeaponBonus DAMAGE 125%.
 pub const TECH_AP_DAMAGE_MULT: f32 = 1.25;
@@ -285,6 +306,27 @@ pub fn is_legal_technical_splash_target(
 }
 
 /// Whether residual fire should apply Technical splash path (cannon/RPG tiers).
+
+/// Whether residual combat should spawn TechnicalRPGMissile (Tier Two only).
+pub fn should_apply_technical_rpg_missile(is_technical: bool, tier: TechnicalWeaponTier) -> bool {
+    is_technical && matches!(tier, TechnicalWeaponTier::Two)
+}
+
+/// Per-frame Technical RPG missile step speed.
+pub fn technical_rpg_missile_step_speed(ignited_and_steering: bool) -> f32 {
+    if ignited_and_steering {
+        TECH_RPG_MISSILE_CRUISE_SPEED / TECHNICAL_LOGIC_FPS
+    } else {
+        TECH_RPG_MISSILE_INITIAL_VELOCITY / TECHNICAL_LOGIC_FPS
+    }
+}
+
+/// Estimated straight-line flight frames at cruise speed.
+pub fn technical_rpg_flight_frames(distance: f32) -> u32 {
+    let step = technical_rpg_missile_step_speed(true).max(0.001);
+    (distance / step).ceil() as u32
+}
+
 pub fn should_apply_technical_splash(is_technical: bool, tier: TechnicalWeaponTier) -> bool {
     is_technical && !matches!(tier, TechnicalWeaponTier::Base)
 }
@@ -356,11 +398,25 @@ pub fn honesty_technical_training_residual_ok() -> bool {
 }
 
 /// Combined Wave 64 Technical residual honesty pack.
+/// Wave residual honesty: TechnicalRPGMissile MissileAI peels.
+pub fn honesty_technical_rpg_missile_ok() -> bool {
+    TECHNICAL_RPG_MISSILE == "TechnicalRPGMissile"
+        && (TECH_RPG_MISSILE_INITIAL_VELOCITY - 150.0).abs() < 0.01
+        && TECH_RPG_MISSILE_FUEL_MS == 1_000
+        && TECH_RPG_MISSILE_FUEL_FRAMES == technical_ms_to_frames(TECH_RPG_MISSILE_FUEL_MS)
+        && (TECH_RPG_MISSILE_TURN_DISTANCE - 20.0).abs() < 0.01
+        && TECH_RPG_MISSILE_SEEK
+        && (TECH_RPG_MISSILE_CRUISE_SPEED - 600.0).abs() < 0.01
+        && (TECH_RPG_DAMAGE - 50.0).abs() < 0.01
+        && (TECH_RPG_RADIUS - 5.0).abs() < 0.01
+}
+
 pub fn honesty_technical_residual_pack_ok() -> bool {
     honesty_technical_weapon_residual_ok()
         && honesty_technical_transport_residual_ok()
         && honesty_technical_body_residual_ok()
         && honesty_technical_training_residual_ok()
+        && honesty_technical_rpg_missile_ok()
 }
 
 #[cfg(test)]
@@ -433,6 +489,16 @@ mod tests {
     #[test]
     fn transport_slots() {
         assert_eq!(TECHNICAL_TRANSPORT_SLOTS, 5);
+    }
+
+    #[test]
+    fn rpg_missile_projectile_peels() {
+        assert!(honesty_technical_rpg_missile_ok());
+        assert_eq!(technical_ms_to_frames(1_000), 30);
+        assert!(should_apply_technical_rpg_missile(true, TechnicalWeaponTier::Two));
+        assert!(!should_apply_technical_rpg_missile(true, TechnicalWeaponTier::One));
+        assert!(!should_apply_technical_rpg_missile(true, TechnicalWeaponTier::Base));
+        assert!(technical_rpg_flight_frames(150.0) >= 1);
     }
 
     #[test]

@@ -1422,6 +1422,19 @@ pub struct Object {
     pub toxin_stream_ignition_frame: Option<u32>,
     #[serde(default)]
     pub toxin_stream_shooter: Option<u32>,
+    /// Host residual: TechnicalRPGMissile in flight.
+    #[serde(default)]
+    pub technical_rpg_missile_projectile: bool,
+    #[serde(default)]
+    pub technical_rpg_missile_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub technical_rpg_missile_intended: Option<u32>,
+    #[serde(default)]
+    pub technical_rpg_missile_travelled: f32,
+    #[serde(default)]
+    pub technical_rpg_missile_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub technical_rpg_missile_ignition_frame: Option<u32>,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2453,6 +2466,12 @@ impl Object {
             toxin_stream_fuel_expires_frame: None,
             toxin_stream_ignition_frame: None,
             toxin_stream_shooter: None,
+            technical_rpg_missile_projectile: false,
+            technical_rpg_missile_aim: None,
+            technical_rpg_missile_intended: None,
+            technical_rpg_missile_travelled: 0.0,
+            technical_rpg_missile_fuel_expires_frame: None,
+            technical_rpg_missile_ignition_frame: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -3038,6 +3057,12 @@ impl Object {
             toxin_stream_fuel_expires_frame: None,
             toxin_stream_ignition_frame: None,
             toxin_stream_shooter: None,
+            technical_rpg_missile_projectile: false,
+            technical_rpg_missile_aim: None,
+            technical_rpg_missile_intended: None,
+            technical_rpg_missile_travelled: 0.0,
+            technical_rpg_missile_fuel_expires_frame: None,
+            technical_rpg_missile_ignition_frame: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
