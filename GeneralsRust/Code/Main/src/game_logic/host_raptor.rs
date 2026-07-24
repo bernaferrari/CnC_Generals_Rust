@@ -27,11 +27,13 @@
 //! Fail-closed honesty:
 //! - JetAIUpdate RETURN_TO_BASE ClipReload airfield rearm residual (8000ms/2000ms King)
 //! - RaptorJetMissile MissileAI flight residual closed (InitialVelocity 75, Fuel 10000ms)
-//! - Not full ScatterRadiusVsInfantry / projectile exhaust FX matrix
+//! - ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
+//! - Not full projectile exhaust FX matrix
 //! - Not full CountermeasuresBehavior flare volley residual
 //! - Not network laser-missiles / raptor fire replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 use std::collections::HashSet;
 
 /// Logic frames per second (host fixed step).
@@ -409,8 +411,38 @@ pub fn honesty_raptor_body_residual_ok() -> bool {
 }
 
 /// Combined Wave 67 Raptor residual honesty pack.
+
+/// Apply RaptorJetMissileWeapon ScatterRadiusVsInfantry residual to aim point.
+pub fn raptor_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let scatter = host_effective_scatter_radius(RAPTOR_JET_MISSILE_WEAPON, target_is_infantry);
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Wave residual honesty: Raptor ScatterRadiusVsInfantry peels.
+pub fn honesty_raptor_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    (RAPTOR_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && (host_effective_scatter_radius(RAPTOR_JET_MISSILE_WEAPON, true) - 10.0).abs() < 0.01
+        && host_effective_scatter_radius(RAPTOR_JET_MISSILE_WEAPON, false).abs() < 0.01
+        && (host_effective_scatter_radius(AIRF_RAPTOR_JET_MISSILE_WEAPON, true) - 10.0).abs()
+            < 0.01
+}
+
 pub fn honesty_raptor_residual_pack_ok() -> bool {
-    honesty_raptor_weapon_residual_ok() && honesty_raptor_body_residual_ok()
+    honesty_raptor_weapon_residual_ok()
+        && honesty_raptor_body_residual_ok()
+        && honesty_raptor_scatter_vs_infantry_ok()
 }
 
 #[cfg(test)]
@@ -470,10 +502,26 @@ mod tests {
         assert!(has_laser_missiles_upgrade(&tags));
     }
 
+    
+    #[test]
+    fn raptor_scatter_vs_infantry_peels() {
+        assert!(honesty_raptor_scatter_vs_infantry_ok());
+        let aim = Vec3::new(200.0, 50.0, 10.0);
+        let (no_sc, applied) = raptor_scatter_aim(aim, false, 11);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = raptor_scatter_aim(aim, true, 11);
+        assert!(applied);
+        assert!((sc.x - aim.x).abs() > 0.01 || (sc.z - aim.z).abs() > 0.01);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d <= RAPTOR_SCATTER_VS_INFANTRY + 0.01);
+    }
+
     #[test]
     fn raptor_residual_pack_honesty_wave67() {
         assert!(honesty_raptor_weapon_residual_ok());
         assert!(honesty_raptor_body_residual_ok());
+        assert!(honesty_raptor_scatter_vs_infantry_ok());
         assert!(honesty_raptor_residual_pack_ok());
         assert_eq!(raptor_ms_to_frames(150), 5);
         assert_eq!(raptor_ms_to_frames(8_000), 240);
