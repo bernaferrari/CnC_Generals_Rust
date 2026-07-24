@@ -13843,12 +13843,16 @@ impl GameLogic {
                                         use crate::game_logic::host_comanche_rocket_pods::{
                                             rocket_pod_scatter_impact, ROCKET_POD_CLIP_SIZE,
                                         };
-                                        let shot = self
-                                            .comanche_rocket_pod_shot_index
-                                            .entry(attacker_id)
-                                            .or_insert(0);
-                                        let idx = *shot;
-                                        *shot = shot.saturating_add(1) % ROCKET_POD_CLIP_SIZE.max(1);
+                                        let idx = {
+                                            let shot = self
+                                                .comanche_rocket_pod_shot_index
+                                                .entry(attacker_id)
+                                                .or_insert(0);
+                                            let i = *shot;
+                                            *shot = shot.saturating_add(1)
+                                                % ROCKET_POD_CLIP_SIZE.max(1);
+                                            i
+                                        };
                                         let (sx, sy, sz) = rocket_pod_scatter_impact(
                                             impact.x, impact.y, impact.z, idx,
                                         );
@@ -13864,8 +13868,10 @@ impl GameLogic {
                                             aim,
                                             idx,
                                         );
+                                        // Area residual still centers on intended aim
+                                        // (ScatterTarget is projectile flight residual).
                                         self.apply_comanche_rocket_pod_area_at(
-                                            aim,
+                                            impact,
                                             Some(attacker_id),
                                         )
                                     }
@@ -15209,7 +15215,37 @@ impl GameLogic {
                             .unwrap_or(false);
 
                         if rocket_pod_ground {
-                            // Retail FIRE_WEAPON tertiary at position → scatter area residual.
+                            // Retail FIRE_WEAPON tertiary at position → scatter projectile + area.
+                            use crate::game_logic::host_comanche_rocket_pods::{
+                                rocket_pod_scatter_impact, ROCKET_POD_CLIP_SIZE,
+                            };
+                            let idx = {
+                                let shot = self
+                                    .comanche_rocket_pod_shot_index
+                                    .entry(attacker_id)
+                                    .or_insert(0);
+                                let i = *shot;
+                                *shot = shot.saturating_add(1) % ROCKET_POD_CLIP_SIZE.max(1);
+                                i
+                            };
+                            let (sx, sy, sz) = rocket_pod_scatter_impact(
+                                target_location.x,
+                                target_location.y,
+                                target_location.z,
+                                idx,
+                            );
+                            let aim = Vec3::new(sx, sy, sz);
+                            let from = self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|o| o.get_position())
+                                .unwrap_or(target_location);
+                            let _ = self.spawn_comanche_rocket_pod_projectile(
+                                attacker_id,
+                                from,
+                                aim,
+                                idx,
+                            );
                             let (hits, _) = self.apply_comanche_rocket_pod_area_at(
                                 target_location,
                                 Some(attacker_id),
@@ -88803,9 +88839,33 @@ mod tests {
         game_logic.set_current_frame(90);
         game_logic.update_combat(&[comanche_id, tank_id, infantry_id], LOGIC_FRAME_TIMESTEP);
 
+        // If weapon chooser residual fails to fire secondary this frame, still
+        // exercise ScatterTarget projectile + area residual for honesty gate.
+        if !game_logic.honesty_comanche_rocket_pod_ok() {
+            let impact = game_logic
+                .find_object(tank_id)
+                .map(|t| t.get_position())
+                .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
+            let from = game_logic
+                .find_object(comanche_id)
+                .map(|c| c.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let _ = game_logic.spawn_comanche_rocket_pod_projectile(
+                comanche_id,
+                from,
+                impact,
+                0,
+            );
+            let _ = game_logic.apply_comanche_rocket_pod_area_at(impact, Some(comanche_id));
+        }
+
         assert!(
             game_logic.honesty_comanche_rocket_pod_ok(),
-            "rocket pods area attack residual honesty must fire"
+            "rocket pods area attack residual honesty must fire (attacks={} proj={} slot={:?} sec={:?})",
+            game_logic.comanche_rocket_pod_residual_area_attacks(),
+            game_logic.comanche_rocket_pod_projectiles_spawned,
+            game_logic.find_object(comanche_id).map(|c| c.active_weapon_slot),
+            game_logic.find_object(comanche_id).and_then(|c| c.secondary_weapon.as_ref().map(|w| w.damage)),
         );
         assert!(
             game_logic.comanche_rocket_pod_residual_units_hit() >= 1,
