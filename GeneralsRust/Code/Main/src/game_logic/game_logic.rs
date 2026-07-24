@@ -1799,6 +1799,10 @@ pub struct GameLogic {
     /// Host residual: USA Patriot ground/AA dual-slot honesty.
     patriot_residual_ground_fires: u32,
     patriot_residual_aa_fires: u32,
+    /// Honesty: Patriot ScatterRadiusVsInfantry offsets / miss peels applied.
+    patriot_scatter_applied: u32,
+    /// Honesty: Patriot ScatterRadiusVsInfantry residual misses vs infantry.
+    patriot_scatter_misses: u32,
     /// Superweapon General EMP Patriot residual: DISABLED_EMP grants applied.
     supw_patriot_emp_residual_grants: u32,
     /// AssistedTargetingUpdate residual: RequestAssistRange requests issued.
@@ -3286,6 +3290,8 @@ impl GameLogic {
             stinger_slave_order_attack_count: 0,
             patriot_residual_ground_fires: 0,
             patriot_residual_aa_fires: 0,
+            patriot_scatter_applied: 0,
+            patriot_scatter_misses: 0,
             supw_patriot_emp_residual_grants: 0,
             patriot_assist_residual_requests: 0,
             patriot_assist_residual_fires: 0,
@@ -3792,6 +3798,8 @@ impl GameLogic {
         self.stinger_slave_order_attack_count = 0;
         self.patriot_residual_ground_fires = 0;
         self.patriot_residual_aa_fires = 0;
+        self.patriot_scatter_applied = 0;
+        self.patriot_scatter_misses = 0;
         self.supw_patriot_emp_residual_grants = 0;
         self.patriot_assist_residual_requests = 0;
         self.patriot_assist_residual_fires = 0;
@@ -31933,16 +31941,58 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     a.weapon.clone()
                 }
             });
-            let (d, xp) = self.residual_auto_fire_apply_damage(
-                defense_id,
-                target_id,
-                damage,
-                fire_pos,
-                weapon_snap.as_ref(),
-                slot,
-            );
-            destroyed = d;
-            kill_xp = xp;
+            // C++ Patriot ScatterRadiusVsInfantry residual: ground fire vs infantry may miss.
+            let mut skip_damage = false;
+            if is_patriot && !target_is_air {
+                let target_is_infantry = self
+                    .objects
+                    .get(&target_id)
+                    .map(|o| o.is_kind_of(KindOf::Infantry))
+                    .unwrap_or(false);
+                if target_is_infantry {
+                    let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                        defense_id.0,
+                        target_id.0,
+                        self.frame,
+                    );
+                    let hit_r = self
+                        .objects
+                        .get(&target_id)
+                        .map(|o| {
+                            if o.selection_radius > 0.0 {
+                                o.selection_radius
+                            } else {
+                                crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                            }
+                        })
+                        .unwrap_or(
+                            crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS,
+                        );
+                    self.patriot_scatter_applied =
+                        self.patriot_scatter_applied.saturating_add(1);
+                    if crate::game_logic::host_base_defense::patriot_scatter_misses_infantry(
+                        true,
+                        seed,
+                        hit_r,
+                    ) {
+                        self.patriot_scatter_misses =
+                            self.patriot_scatter_misses.saturating_add(1);
+                        skip_damage = true;
+                    }
+                }
+            }
+            if !skip_damage {
+                let (d, xp) = self.residual_auto_fire_apply_damage(
+                    defense_id,
+                    target_id,
+                    damage,
+                    fire_pos,
+                    weapon_snap.as_ref(),
+                    slot,
+                );
+                destroyed = d;
+                kill_xp = xp;
+            }
         }
 
         if let Some(attacker) = self.objects.get_mut(&defense_id) {
@@ -34051,7 +34101,15 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: USA Patriot dual ground/AA residual exercised.
     pub fn honesty_patriot_ok(&self) -> bool {
-        self.patriot_residual_ground_fires > 0 || self.patriot_residual_aa_fires > 0
+        self.patriot_residual_ground_fires > 0
+            || self.patriot_residual_aa_fires > 0
+            || self.patriot_scatter_applied > 0
+            || self.patriot_scatter_misses > 0
+    }
+
+    /// Residual honesty: Patriot ScatterRadiusVsInfantry peels applied.
+    pub fn honesty_patriot_scatter_ok(&self) -> bool {
+        self.patriot_scatter_applied > 0
     }
 
     /// Residual honesty: Patriot AA secondary residual fire.
@@ -124191,6 +124249,72 @@ assert!(
             .and_then(|o| o.neutron_shell_aim)
             .expect("aim2");
         assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn patriot_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_base_defense::PATRIOT_SCATTER_RADIUS_VS_INFANTRY;
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        let mut patriot_tpl = ThingTemplate::new("USA_Patriot");
+        patriot_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(crate::game_logic::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON);
+        logic.templates.insert("USA_Patriot".to_string(), patriot_tpl);
+        ensure_test_infantry_template(&mut logic);
+
+        let patriot = logic
+            .create_object("USA_Patriot", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("patriot");
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("inf");
+        // Tiny geometry so scatter miss cone is active.
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+        if let Some(p) = logic.objects.get_mut(&patriot) {
+            if let Some(w) = p.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        let hp_before = logic.find_object(inf).unwrap().health.current;
+        let mut saw_scatter = false;
+        for f in 0..120u32 {
+            logic.frame = f;
+            logic.update_combat(&[patriot, inf], LOGIC_FRAME_TIMESTEP);
+            if logic.patriot_scatter_applied > 0 {
+                saw_scatter = true;
+            }
+            if logic.patriot_scatter_misses > 0 {
+                break;
+            }
+        }
+        assert!(saw_scatter, "expected patriot scatter peel vs infantry");
+        assert!(
+            (PATRIOT_SCATTER_RADIUS_VS_INFANTRY - 10.0).abs() < 0.01
+        );
+        // Either miss was recorded, or a hit still damaged (deterministic seed dependent).
+        let hp_after = logic
+            .find_object(inf)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            logic.patriot_scatter_misses > 0 || hp_after < hp_before,
+            "scatter residual must miss or damage infantry (misses={} hp {}->{})",
+            logic.patriot_scatter_misses,
+            hp_before,
+            hp_after
+        );
+        assert!(logic.honesty_patriot_scatter_ok());
     }
 
 }
