@@ -1624,6 +1624,8 @@ pub struct GameLogic {
     missile_defender_residual_units_hit: u32,
     missile_defender_residual_laser_specials: u32,
     missile_defender_residual_laser_fires: u32,
+    /// Honesty: LaserBeam SpecialObject spawned on MD laser-guided activate.
+    missile_defender_laser_beams_spawned: u32,
 
     /// Host residual: GLA Combat Cycle rider weapon switch honesty.
     /// Fail-closed: not full RiderChangeContain STATUS_RIDER death OCL matrix.
@@ -3082,6 +3084,7 @@ impl GameLogic {
             missile_defender_residual_units_hit: 0,
             missile_defender_residual_laser_specials: 0,
             missile_defender_residual_laser_fires: 0,
+            missile_defender_laser_beams_spawned: 0,
             combat_cycle_residual_fires: 0,
             combat_cycle_residual_units_hit: 0,
             combat_cycle_residual_rider_switches: 0,
@@ -3541,6 +3544,7 @@ impl GameLogic {
         self.missile_defender_residual_units_hit = 0;
         self.missile_defender_residual_laser_specials = 0;
         self.missile_defender_residual_laser_fires = 0;
+        self.missile_defender_laser_beams_spawned = 0;
         self.combat_cycle_residual_fires = 0;
         self.combat_cycle_residual_units_hit = 0;
         self.combat_cycle_residual_rider_switches = 0;
@@ -6044,6 +6048,7 @@ impl GameLogic {
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
         self.update_point_defense_intercept();
         self.update_point_defense_laser_beam_objects();
+        self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
         // Activation is event-driven via DoSpecialPower (no continuous field).
@@ -32472,6 +32477,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_missile_defender_laser_ok(&self) -> bool {
         self.missile_defender_residual_laser_specials > 0
+            || self.missile_defender_laser_beams_spawned > 0
             || self.missile_defender_residual_laser_fires > 0
     }
 
@@ -39163,6 +39169,126 @@ fn update_scud_poison_zones(&mut self) {
         self.tank_hunter_tnt_last_frame.get(&object_id).copied()
     }
 
+    /// C++ SpecialAbilityUpdate SpecialObject = LaserBeam residual for MD laser lock.
+    pub fn spawn_missile_defender_laser_beam(
+        &mut self,
+        shooter_id: ObjectId,
+        target_id: ObjectId,
+        from: glam::Vec3,
+        to: glam::Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_missile_defender::{
+            LASER_GUIDED_ATTACH_BONE, LASER_GUIDED_BEAM_LIFETIME_FRAMES,
+            LASER_GUIDED_BEAM_MAX_HEALTH, LASER_GUIDED_SPECIAL_OBJECT,
+        };
+        use crate::game_logic::host_weapon_laser::ResidualWeaponLaser;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        // One active LaserBeam special object per shooter residual.
+        let stale: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.missile_defender_laser_beam && o.producer_id == Some(shooter_id) {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for sid in stale {
+            if let Some(o) = self.objects.get_mut(&sid) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.missile_defender_laser_beam = false;
+            }
+            self.mark_object_for_destruction(sid, None);
+        }
+
+        let beam_name = LASER_GUIDED_SPECIAL_OBJECT;
+        if !self.templates.contains_key(beam_name) {
+            let mut t = ThingTemplate::new(beam_name);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(LASER_GUIDED_BEAM_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(beam_name.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&shooter_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        // Place near muzzle / shooter; presentation freezes full segment via weapon_lasers.
+        let place = glam::Vec3::new(from.x, from.y + 8.0, from.z);
+        let bid = self.create_object(beam_name, team, place)?;
+        let expires = self
+            .frame
+            .saturating_add(LASER_GUIDED_BEAM_LIFETIME_FRAMES.max(1));
+        if let Some(o) = self.objects.get_mut(&bid) {
+            o.missile_defender_laser_beam = true;
+            o.producer_id = Some(shooter_id);
+            o.missile_defender_laser_beam_expires_frame = Some(expires);
+            o.health.maximum = LASER_GUIDED_BEAM_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, LASER_GUIDED_BEAM_MAX_HEALTH);
+        }
+        self.weapon_lasers.push(ResidualWeaponLaser::with_bone(
+            beam_name,
+            LASER_GUIDED_ATTACH_BONE,
+            shooter_id,
+            Some(target_id),
+            (from.x, from.y, from.z),
+            (to.x, to.y, to.z),
+            self.frame,
+        ));
+        self.missile_defender_laser_beams_spawned =
+            self.missile_defender_laser_beams_spawned.saturating_add(1);
+        Some(bid)
+    }
+
+    pub fn update_missile_defender_laser_beam_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.missile_defender_laser_beam {
+                    return None;
+                }
+                // Expire on prep window end or dead producer.
+                if let Some(exp) = o.missile_defender_laser_beam_expires_frame {
+                    if exp <= frame {
+                        return Some(*id);
+                    }
+                }
+                if let Some(pid) = o.producer_id {
+                    let producer_dead = self
+                        .objects
+                        .get(&pid)
+                        .map(|p| !p.is_alive() || p.status.destroyed)
+                        .unwrap_or(true);
+                    if producer_dead {
+                        return Some(*id);
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.missile_defender_laser_beam = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    pub fn honesty_missile_defender_laser_beam_ok(&self) -> bool {
+        self.missile_defender_laser_beams_spawned > 0
+    }
+
     pub fn activate_missile_defender_laser_guided(
         &mut self,
         object_id: ObjectId,
@@ -39213,6 +39339,13 @@ fn update_scud_poison_zones(&mut self) {
         self.missile_defender_residual_laser_specials = self
             .missile_defender_residual_laser_specials
             .saturating_add(1);
+        // C++ SpecialAbilityUpdate SpecialObject = LaserBeam (Muzzle01 attach residual).
+        let _ = self.spawn_missile_defender_laser_beam(
+            object_id,
+            target_id,
+            src_pos,
+            tgt_pos,
+        );
         self.queue_audio_event(
             AudioEventRequest::new(LASER_GUIDED_INITIATE_AUDIO)
                 .with_object(object_id)
@@ -101117,6 +101250,69 @@ mod tests {
     }
 
     #[test]
+    fn missile_defender_laser_guided_spawns_laser_beam_object() {
+        use crate::game_logic::host_missile_defender::{
+            missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
+            LASER_GUIDED_ATTACH_BONE, LASER_GUIDED_BEAM_LIFETIME_FRAMES,
+            LASER_GUIDED_SPECIAL_OBJECT,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+        md.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryMissileDefender".into(), md);
+        let mut tgt_t = ThingTemplate::new("AmericaTankCrusader");
+        tgt_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("AmericaTankCrusader".into(), tgt_t);
+
+        let shooter = logic
+            .create_object(
+                "AmericaInfantryMissileDefender",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        {
+            let o = logic.find_object_mut(shooter).unwrap();
+            o.weapon = Some(missile_defender_primary_weapon());
+            o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+        }
+        let target = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::GLA,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .unwrap();
+
+        assert!(logic.activate_missile_defender_laser_guided(shooter, target));
+        assert!(logic.honesty_missile_defender_laser_beam_ok());
+        assert!(logic.missile_defender_laser_beams_spawned >= 1);
+        let beam = logic
+            .get_objects()
+            .values()
+            .find(|o| o.missile_defender_laser_beam)
+            .expect("LaserBeam special object");
+        assert_eq!(beam.template_name, LASER_GUIDED_SPECIAL_OBJECT);
+        assert_eq!(beam.producer_id, Some(shooter));
+        let bid = beam.id;
+        // Prep window expiry destroys residual LaserBeam.
+        logic.frame = logic
+            .frame
+            .saturating_add(LASER_GUIDED_BEAM_LIFETIME_FRAMES + 2);
+        logic.update_missile_defender_laser_beam_objects();
+        assert!(
+            logic
+                .find_object(bid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+        let _ = LASER_GUIDED_ATTACH_BONE;
+    }
+
     fn missile_defender_laser_guided_special_locks_secondary() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_missile_defender::{
