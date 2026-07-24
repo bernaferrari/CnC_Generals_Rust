@@ -1395,6 +1395,10 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
     {
         return 30.0;
     }
+    // Inferno Cannon residual ScatterRadiusVsInfantry **30**.
+    if n.contains("infernocannon") || n.contains("inferno_cannon") || n.contains("infernotank") {
+        return 30.0;
+    }
     // Tomahawk residual ScatterRadiusVsInfantry **20** (not the common 10).
     if n.contains("tomahawk") {
         return 20.0;

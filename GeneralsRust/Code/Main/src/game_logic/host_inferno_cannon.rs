@@ -24,6 +24,7 @@
 //!
 //! Fail-closed honesty:
 //! - InfernoTankShell DumbProjectile Bezier flight residual closed (50/150, 20%/90%)
+//! - ScatterRadiusVsInfantry **30** residual miss cone closed (deterministic aim offset)
 //! - OCL_FireFieldSmall / FireFieldSmall object spawn residual (DeletionUpdate 2500ms)
 //! - Not full FireWeaponWhenDeadBehavior multi-shell HistoricBonus matrix
 //! - Not HistoricBonus FirestormSmallCreationWeapon multi-shell matrix
@@ -69,6 +70,8 @@ pub const INFERNO_CANNON_DAMAGE_TYPE: &str = "EXPLOSION";
 /// Retail InfernoCannonGun DeathType residual.
 pub const INFERNO_CANNON_DEATH_TYPE: &str = "EXPLODED";
 /// Retail InfernoCannonGun ProjectileObject residual.
+pub const INFERNO_CANNON_GUN: &str = "InfernoCannonGun";
+pub const INFERNO_CANNON_GUN_UPGRADED: &str = "InfernoCannonGunUpgraded";
 pub const INFERNO_CANNON_PROJECTILE: &str = "InfernoTankShell";
 /// Retail InfernoTankShell MaxHealth residual.
 pub const INFERNO_SHELL_MAX_HEALTH: f32 = 100.0;
@@ -552,16 +555,70 @@ pub fn honesty_inferno_cannon_body_residual_ok() -> bool {
 }
 
 /// Combined Wave 70 Inferno Cannon residual honesty pack.
+
+/// Apply InfernoCannonGun ScatterRadiusVsInfantry residual to aim.
+pub fn inferno_cannon_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let mut scatter =
+        host_effective_scatter_radius(INFERNO_CANNON_GUN, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = INFERNO_CANNON_SCATTER_VS_INFANTRY;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Wave residual honesty: Inferno Cannon ScatterRadiusVsInfantry peels (**30**).
+pub fn honesty_inferno_cannon_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    let vs = host_effective_scatter_radius(INFERNO_CANNON_GUN, true);
+    let vs_up = host_effective_scatter_radius(INFERNO_CANNON_GUN_UPGRADED, true);
+    let ground = host_effective_scatter_radius(INFERNO_CANNON_GUN, false);
+    (INFERNO_CANNON_SCATTER_VS_INFANTRY - 30.0).abs() < 0.01
+        && (vs - 30.0).abs() < 0.01
+        && (vs_up - 30.0).abs() < 0.01
+        && ground.abs() < 0.01
+        && {
+            let (sc, applied) =
+                inferno_cannon_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            applied && sc.length() <= INFERNO_CANNON_SCATTER_VS_INFANTRY + 0.01
+        }
+}
+
+
 pub fn honesty_inferno_cannon_residual_pack_ok() -> bool {
     honesty_inferno_cannon_weapon_residual_ok()
         && honesty_inferno_cannon_fire_field_residual_ok()
         && honesty_inferno_cannon_body_residual_ok()
         && honesty_inferno_fire_field_object_ok()
+        && honesty_inferno_cannon_scatter_vs_infantry_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inferno_cannon_scatter_vs_infantry_peels() {
+        assert!(honesty_inferno_cannon_scatter_vs_infantry_ok());
+        let aim = Vec3::new(200.0, 0.0, 18.0);
+        let (no_sc, applied) = inferno_cannon_scatter_aim(aim, false, 31);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = inferno_cannon_scatter_aim(aim, true, 31);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= INFERNO_CANNON_SCATTER_VS_INFANTRY + 0.01);
+    }
     use crate::game_logic::Team;
 
     #[test]
@@ -669,6 +726,7 @@ mod tests {
         assert!(honesty_inferno_cannon_weapon_residual_ok());
         assert!(honesty_inferno_cannon_fire_field_residual_ok());
         assert!(honesty_inferno_cannon_body_residual_ok());
+        assert!(honesty_inferno_cannon_scatter_vs_infantry_ok());
         assert!(honesty_inferno_cannon_residual_pack_ok());
         assert_eq!(inferno_ms_to_frames(4_000), 120);
         assert_eq!(inferno_ms_to_frames(250), 8);
