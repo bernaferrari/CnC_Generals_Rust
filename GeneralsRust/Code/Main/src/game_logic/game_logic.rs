@@ -1145,6 +1145,8 @@ pub struct GameLogic {
     smart_bomb_target_homing_reg: crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry,
     /// C++ OCLSpecialPower residual counters.
     ocl_special_power_reg: crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry,
+    /// C++ ObjectCreationList CreateDebris disposition residual.
+    ocl_create_debris_reg: crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2825,6 +2827,7 @@ impl GameLogic {
             spectre_gunship_deployment_reg: crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry::new(),
             smart_bomb_target_homing_reg: crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry::new(),
             ocl_special_power_reg: crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry::new(),
+            ocl_create_debris_reg: crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3288,6 +3291,7 @@ impl GameLogic {
         self.spectre_gunship_deployment_reg.clear();
         self.smart_bomb_target_homing_reg.clear();
         self.ocl_special_power_reg.clear();
+        self.ocl_create_debris_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -23415,6 +23419,33 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             return;
         }
         for tmpl in spawns {
+            // CreateDebris disposition residual for GenericDebris peels.
+            let tl = tmpl.to_ascii_lowercase();
+            if tl.contains("debris") || tl.contains("barrel") {
+                use crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisPlan;
+                let plan = if tl.contains("barrel") {
+                    HostOclCreateDebrisPlan::damaged_barrel()
+                } else {
+                    let mut p = HostOclCreateDebrisPlan::generic_tank_debris();
+                    p.model_or_template = tmpl.clone();
+                    p.count = 1;
+                    p
+                };
+                let inherit = self
+                    .objects
+                    .get(&dying_id)
+                    .map(|o| o.movement.velocity)
+                    .unwrap_or(Vec3::ZERO);
+                let ids = self.spawn_ocl_create_debris(&plan, team, pos, inherit);
+                if transfer && transfer_dmg > 0.0 {
+                    for id in ids {
+                        if let Some(n) = self.objects.get_mut(&id) {
+                            let _ = n.take_damage(transfer_dmg);
+                        }
+                    }
+                }
+                continue;
+            }
             // Ensure template name exists for residual peels.
             if !self.templates.contains_key(&tmpl) {
                 let mut t = ThingTemplate::new(&tmpl);
@@ -27275,6 +27306,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_smart_bomb_target_homing::honesty_smart_bomb_target_homing_residual_ok()
     }
 
+    pub fn honesty_ocl_create_debris_ok(&self) -> bool {
+        crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok()
+            && (self.ocl_create_debris_reg.plans > 0 || self.ocl_create_debris_reg.debris_spawned == 0)
+    }
+
     pub fn honesty_ocl_special_power_ok(&self) -> bool {
         self.ocl_special_power_reg.honesty_host_path_ok()
             && crate::game_logic::host_ocl_special_power::honesty_ocl_special_power_residual_ok()
@@ -31003,7 +31039,62 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ OCLSpecialPower::doSpecialPowerAtLocation residual plan.
-        /// C++ ObjectCreationList::create residual after OCLSpecialPower plan.
+        /// C++ ObjectCreationList CreateDebris residual with disposition force.
+    pub fn spawn_ocl_create_debris(
+        &mut self,
+        plan: &crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisPlan,
+        team: Team,
+        origin: Vec3,
+        inherit_vel: Vec3,
+    ) -> Vec<ObjectId> {
+        use crate::game_logic::host_ocl_create_debris::{
+            debris_initial_velocity, spin_rate_rad_per_frame,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        self.ocl_create_debris_reg.record_plan(plan.disposition);
+        let mut out = Vec::new();
+        let name = if plan.model_or_template.is_empty() {
+            "GenericDebris".to_string()
+        } else {
+            plan.model_or_template.clone()
+        };
+        if !self.templates.contains_key(&name) {
+            let mut t = ThingTemplate::new(&name);
+            t.set_health(plan.mass.max(1.0) * 10.0)
+                .add_kind_of(KindOf::Projectile);
+            self.templates.insert(name.clone(), t);
+        }
+        for i in 0..plan.count.max(1) {
+            let mut pos = origin + plan.offset;
+            // slight index scatter residual
+            pos.x += (i as f32) * 0.5;
+            pos.z += (i as f32) * 0.35;
+            let Some(id) = self.create_object(&name, team, pos) else {
+                continue;
+            };
+            let vel = debris_initial_velocity(
+                plan.disposition,
+                inherit_vel,
+                i,
+                plan.min_force,
+                plan.max_force,
+                plan.min_pitch_deg,
+                plan.max_pitch_deg,
+            );
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                // spin residual into orientation rate if field exists — use orientation nudge
+                let spin = spin_rate_rad_per_frame(plan.spin_rate_deg);
+                o.set_orientation(o.get_orientation() + spin * (i as f32 + 1.0));
+            }
+            self.ocl_create_debris_reg.record_spawn(plan.disposition);
+            out.push(id);
+        }
+        out
+    }
+
+    /// C++ ObjectCreationList::create residual after OCLSpecialPower plan.
     ///
     /// Spawns transport at creation_coord (DeliverPayload) or CreateObject names
     /// at target (SpyDrone). Payload object is tagged at target for drop residual
@@ -76455,6 +76546,29 @@ mod tests {
             .unwrap_or(0.0);
         assert!(yaw.abs() > 0.0 || logic.float_update_reg.sway_ticks > 0);
         assert!(logic.honesty_float_update_ok());
+    }
+
+    #[test]
+    fn ocl_create_debris_disposition_spawn() {
+        use crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisPlan;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let ids = logic.spawn_ocl_create_debris(
+            &HostOclCreateDebrisPlan::generic_tank_debris(),
+            Team::USA,
+            Vec3::new(10.0, 5.0, 10.0),
+            Vec3::new(2.0, 0.0, 0.0),
+        );
+        assert_eq!(ids.len(), 3);
+        let o = logic.find_object(ids[0]).unwrap();
+        assert!(
+            o.movement.velocity.length() > 0.5,
+            "debris should receive disposition force"
+        );
+        assert!(logic.ocl_create_debris_reg.debris_spawned >= 3);
+        assert!(logic.ocl_create_debris_reg.flying_forces >= 1);
+        assert!(crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok());
     }
 
     #[test]
