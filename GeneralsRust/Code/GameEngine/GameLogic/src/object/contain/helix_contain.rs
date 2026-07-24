@@ -1292,8 +1292,9 @@ mod tests {
         let mut contain =
             HelixContain::new(Arc::downgrade(&owner), &data).expect("helix contain constructs");
 
+        let passenger_id = passenger.read().expect("passenger read").get_id();
         contain
-            .add_to_contain(passenger.clone())
+            .add_to_contain(passenger_id)
             .expect("passenger enters helix");
 
         assert_eq!(
