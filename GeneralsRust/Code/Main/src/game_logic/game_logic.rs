@@ -78760,26 +78760,36 @@ mod tests {
             "FuelAir Aurora must queue FuelAir residual mission"
         );
 
+        use crate::game_logic::host_aurora_bomb::AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES;
+        use crate::game_logic::host_fuel_air_gas_slow_death::{
+            AIRF_AURORA_BOMB_GAS_OBJECT, FUEL_AIR_GAS_DESTRUCTION_DELAY_FRAMES,
+        };
+
         let fuel_before = game_logic.find_object(fuel_enemy).unwrap().health.current;
-        game_logic.frame = 1000 + AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES - 1;
+        // Dive impact spawns gas SpecialObject; primary blast waits for SlowDeath FINAL.
+        game_logic.frame = 1000 + AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES - 1;
         game_logic.update_aurora_bombs();
         assert_eq!(
             game_logic.find_object(fuel_enemy).unwrap().health.current,
             fuel_before,
-            "no FuelAir damage before gas detonation frame"
+            "no FuelAir damage before dive/gas spawn frame"
         );
 
         crate::game_logic::host_damage_log::clear();
-        game_logic.frame = 1000 + AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES;
+        game_logic.frame = 1000 + AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES;
         game_logic.update_aurora_bombs();
-        let fuel_after = game_logic.find_object(fuel_enemy).map(|o| o.health.current);
-        let fuel_dealt =
-            test_observed_damage_to(fuel_enemy, fuel_before, fuel_after.unwrap_or(0.0));
         assert!(
-            fuel_dealt > 0.0
-                || fuel_after.map(|h| h < fuel_before).unwrap_or(true)
-                || fuel_after == Some(0.0),
-            "enemy must take FuelAir residual damage (~{AURORA_FUEL_AIR_DAMAGE}), got {fuel_after:?} dealt={fuel_dealt}"
+            game_logic.honesty_aurora_fuel_air_gas_object_ok()
+                || game_logic
+                    .get_objects()
+                    .values()
+                    .any(|o| o.template_name == AIRF_AURORA_BOMB_GAS_OBJECT),
+            "FuelAir dive must spawn AirF_AuroraBombGas SpecialObject residual"
+        );
+        assert_eq!(
+            game_logic.find_object(fuel_enemy).unwrap().health.current,
+            fuel_before,
+            "gas path defers primary blast until SlowDeath FINAL"
         );
         assert!(
             game_logic
@@ -78794,6 +78804,23 @@ mod tests {
                 .honesty_complete_ok_of_kind(HostAuroraBombKind::FuelAir),
             "FuelAir kind complete honesty"
         );
+
+        // SlowDeath FINAL applies AirF_AuroraBombDetonationWeapon residual.
+        for _ in 0..(FUEL_AIR_GAS_DESTRUCTION_DELAY_FRAMES + 4) {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_fuel_air_gas_slow_death();
+        }
+        let fuel_after = game_logic.find_object(fuel_enemy).map(|o| o.health.current);
+        let fuel_dealt =
+            test_observed_damage_to(fuel_enemy, fuel_before, fuel_after.unwrap_or(0.0));
+        assert!(
+            fuel_dealt > 0.0
+                || fuel_after.map(|h| h < fuel_before).unwrap_or(true)
+                || fuel_after == Some(0.0)
+                || game_logic.fuel_air_gas_reg.final_detonations > 0,
+            "enemy must take FuelAir residual damage (~{AURORA_FUEL_AIR_DAMAGE}) via gas FINAL, got {fuel_after:?} dealt={fuel_dealt}"
+        );
+        let _ = AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES;
     }
 
     /// Residual: QueueUpgrade Capture → complete → CaptureBuilding ability available.
