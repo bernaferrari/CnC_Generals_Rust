@@ -21,12 +21,14 @@
 //! - Locomotor residual: Speed **40** / Damaged **30**.
 //!
 //! Fail-closed honesty:
+//! - MarauderTankShell DumbProjectile Bezier flight residual closed (10/10, 50%/90%)
 //! - Not full SalvageCrate collate / W3D turret subobject (Turret / TurretUp01/02) swap
 //! - Not full ClipReloadTime 100ms dual-shot cadence matrix (tier 2 uses faster reload)
 //! - Not Min/MaxTargetPitch matrix
 //! - Not network salvage / weapon-set replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const MARAUDER_LOGIC_FPS: f32 = 30.0;
@@ -39,6 +41,16 @@ pub const MARAUDER_TANK_GUN_UPGRADE_ONE: &str = "MarauderTankGunUpgradeOne";
 pub const MARAUDER_TANK_GUN_UPGRADE_TWO: &str = "MarauderTankGunUpgradeTwo";
 /// Retail projectile shell residual.
 pub const MARAUDER_TANK_SHELL: &str = "MarauderTankShell";
+/// Retail MarauderTankShell MaxHealth residual.
+pub const MARAUDER_SHELL_MAX_HEALTH: f32 = 100.0;
+/// DumbProjectileBehavior FirstHeight residual.
+pub const MARAUDER_SHELL_FIRST_HEIGHT: f32 = 10.0;
+/// DumbProjectileBehavior SecondHeight residual.
+pub const MARAUDER_SHELL_SECOND_HEIGHT: f32 = 10.0;
+/// FirstPercentIndent residual (50%).
+pub const MARAUDER_SHELL_FIRST_PERCENT_INDENT: f32 = 0.50;
+/// SecondPercentIndent residual (90%).
+pub const MARAUDER_SHELL_SECOND_PERCENT_INDENT: f32 = 0.90;
 /// Retail science gate residual.
 pub const SCIENCE_MARAUDER_TANK: &str = "SCIENCE_MarauderTank";
 
@@ -256,6 +268,38 @@ pub fn is_legal_marauder_splash_target(
 }
 
 /// Whether residual fire should apply Marauder residual path.
+
+
+/// Cubic Bezier residual sample for MarauderTankShell DumbProjectileBehavior.
+pub fn marauder_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * MARAUDER_SHELL_FIRST_PERCENT_INDENT
+        + Vec3::Y * MARAUDER_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * MARAUDER_SHELL_SECOND_PERCENT_INDENT
+        + Vec3::Y * MARAUDER_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    p0 * uuu + p1 * (3.0 * uu * t) + p2 * (3.0 * u * tt) + p3 * ttt
+}
+
+/// Flight frame residual from ground distance @ tier weapon speed.
+pub fn marauder_shell_flight_frames(from: Vec3, to: Vec3, weapon_speed: f32) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let speed = weapon_speed.max(1.0);
+    let frames = (dist / (speed / MARAUDER_LOGIC_FPS)).ceil() as u32;
+    frames.clamp(4, 180)
+}
+
 pub fn should_apply_marauder_residual(is_marauder: bool) -> bool {
     is_marauder
 }
@@ -268,6 +312,8 @@ pub fn honesty_marauder_weapon_residual_ok() -> bool {
         && MARAUDER_TANK_GUN_UPGRADE_ONE == "MarauderTankGunUpgradeOne"
         && MARAUDER_TANK_GUN_UPGRADE_TWO == "MarauderTankGunUpgradeTwo"
         && MARAUDER_TANK_SHELL == "MarauderTankShell"
+        && (MARAUDER_SHELL_FIRST_HEIGHT - 10.0).abs() < 0.01
+        && (MARAUDER_SHELL_SECOND_PERCENT_INDENT - 0.90).abs() < 0.001
         && (MARAUDER_DAMAGE - 60.0).abs() < 0.01
         && (MARAUDER_SPLASH_RADIUS - 5.0).abs() < 0.01
         && (MARAUDER_RANGE - 170.0).abs() < 0.01
