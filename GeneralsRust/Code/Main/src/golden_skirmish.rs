@@ -2571,14 +2571,14 @@ mod tests {
         // succeed (PowerPlant + Barracks + Ranger). Soft residual if it does not.
         if !result.retail_production_chain_ok {
             eprintln!(
-                "WARNING: retail USA production chain did not complete; golden fallback kept playable_claim: {}",
+                "WARNING: retail USA production chain did not complete; golden fallback kept slice green (playable_claim stays false): {}",
                 format_golden_report(&result)
             );
         }
         // Map SupplyDock / seeded retail dock should gather; soft residual if golden.
         if !result.retail_gather_ok {
             eprintln!(
-                "WARNING: retail/map gather did not complete; GoldenSupply fallback kept slice green: {}",
+                "WARNING: retail/map gather did not complete; GoldenSupply fallback kept slice green (playable_claim stays false): {}",
                 format_golden_report(&result)
             );
         } else {
@@ -2592,19 +2592,19 @@ mod tests {
         // pull was required. playable_claim stays true when victory still works.
         if !result.combat_no_teleport_ok {
             eprintln!(
-                "WARNING: combat used set_position range pull residual (pathfinding incomplete); playable_claim kept: {}",
+                "WARNING: combat used set_position range pull residual (pathfinding incomplete); honesty residual only (playable_claim stays false): {}",
                 format_golden_report(&result)
             );
         }
         if !result.combat_realistic_speed_ok {
             eprintln!(
-                "WARNING: combat_realistic_speed_ok=false (slice speed assist > retail infantry); playable_claim kept: {}",
+                "WARNING: combat_realistic_speed_ok=false (slice speed assist > retail infantry); honesty residual only (playable_claim stays false): {}",
                 format_golden_report(&result)
             );
         }
         if !result.combat_store_damage_ok {
             eprintln!(
-                "WARNING: combat_store_damage_ok=false (slice damage floor used); playable_claim kept: {}",
+                "WARNING: combat_store_damage_ok=false (slice damage floor used); honesty residual only (playable_claim stays false): {}",
                 format_golden_report(&result)
             );
         }
