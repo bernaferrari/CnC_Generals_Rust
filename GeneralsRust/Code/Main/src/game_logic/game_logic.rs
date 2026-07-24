@@ -68011,6 +68011,12 @@ mod tests {
         ensure_test_tank_template(&mut game_logic);
         ensure_test_infantry_template(&mut game_logic);
         ensure_test_barracks_template(&mut game_logic);
+        // Science + player residual required by is_special_power_ready_for.
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_LeafletDrop");
+        }
 
         // player_id 0 → Team::USA residual ownership for command path.
         let caster_id = game_logic
