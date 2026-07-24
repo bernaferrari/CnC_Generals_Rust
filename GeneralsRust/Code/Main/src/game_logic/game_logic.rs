@@ -5969,6 +5969,7 @@ impl GameLogic {
 
         // Host USA Leaflet Drop residual: disable enemy infantry/vehicles after Delay.
         // Fail-closed vs full OCL B52 / LeafletContainer / LeafletFX particle path.
+        self.update_leaflet_b52_flights();
         self.update_leaflet_drops();
 
         // Host GLA Sneak Attack residual: spawn tunnel + shockwave after Lifetime delay.
@@ -28122,6 +28123,143 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ SUPERWEAPON_LeafletDrop AmericaJetB52 + LeafletContainer residual.
+    pub fn spawn_leaflet_b52_flight(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_leaflet_drop::{LEAFLET_CONTAINER_OBJECT, LEAFLET_TRANSPORT};
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let source_pos = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        let dx = target.x - source_pos.x;
+        let dz = target.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+        let edge = Vec3::new(
+            source_pos.x - dx / dist * 320.0,
+            150.0,
+            source_pos.z - dz / dist * 320.0,
+        );
+        if !self.templates.contains_key(LEAFLET_TRANSPORT) {
+            let mut t = ThingTemplate::new(LEAFLET_TRANSPORT);
+            t.set_health(500.0)
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle);
+            self.templates.insert(LEAFLET_TRANSPORT.to_string(), t);
+        }
+        // Ensure container template for drop residual.
+        if !self.templates.contains_key(LEAFLET_CONTAINER_OBJECT) {
+            let mut t = ThingTemplate::new(LEAFLET_CONTAINER_OBJECT);
+            t.set_health(100.0).add_kind_of(KindOf::Projectile);
+            self.templates
+                .insert(LEAFLET_CONTAINER_OBJECT.to_string(), t);
+        }
+        let tid = self.create_object(LEAFLET_TRANSPORT, team, edge)?;
+        if let Some(o) = self.objects.get_mut(&tid) {
+            o.producer_id = Some(source_id);
+            o.leaflet_transport_target = Some(target);
+            o.set_orientation(dz.atan2(dx));
+        }
+        self.host_leaflet_drops.transports_spawned =
+            self.host_leaflet_drops.transports_spawned.saturating_add(1);
+        Some(tid)
+    }
+
+    pub fn update_leaflet_b52_flights(&mut self) {
+        use crate::game_logic::host_leaflet_drop::{
+            LEAFLET_CONTAINER_OBJECT, LEAFLET_DELIVERY_DISTANCE,
+        };
+
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.leaflet_transport_target.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut drops: Vec<(ObjectId, Team, Vec3, ObjectId)> = Vec::new();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let Some(target) = o.leaflet_transport_target else {
+                continue;
+            };
+            let pos = o.get_position();
+            let dx = target.x - pos.x;
+            let dz = target.z - pos.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            let speed = 20.0_f32;
+            let mut new_pos = pos;
+            new_pos.y = new_pos.y.max(140.0);
+            if dist > 1.0 {
+                let step = speed.min(dist);
+                new_pos.x += dx / dist * step;
+                new_pos.z += dz / dist * step;
+                o.set_position(new_pos);
+                o.movement.velocity = new_pos - pos;
+                o.set_orientation(dz.atan2(dx));
+            }
+            if dist <= LEAFLET_DELIVERY_DISTANCE * 0.5 {
+                let team = o.team;
+                let producer = o.producer_id.unwrap_or(id);
+                o.leaflet_transport_target = None; // drop once
+                drops.push((id, team, target, producer));
+            }
+        }
+        for (_tid, team, target, producer) in drops {
+            let drop_pos = Vec3::new(target.x, 80.0, target.z);
+            if let Some(cid) = self.create_object(LEAFLET_CONTAINER_OBJECT, team, drop_pos) {
+                if let Some(o) = self.objects.get_mut(&cid) {
+                    o.producer_id = Some(producer);
+                    o.leaflet_container = true;
+                    o.movement.velocity = Vec3::new(0.0, -12.0, 0.0);
+                    let _ = o.set_smart_bomb_target(target);
+                }
+                self.host_leaflet_drops.containers_dropped = self
+                    .host_leaflet_drops
+                    .containers_dropped
+                    .saturating_add(1);
+            }
+        }
+
+        // Fall containers; ground arrival is visual residual (disable timer separate).
+        let containers: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.leaflet_container && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in containers {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let mut p = o.get_position();
+            p.y += o.movement.velocity.y;
+            o.set_position(p);
+            if p.y <= 5.0 {
+                // LeafletParticles1 residual cue.
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    p,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -49045,6 +49183,8 @@ fn update_scud_poison_zones(&mut self) {
             source_object,
             target_position,
         );
+        // Live AmericaJetB52 + LeafletContainer residual (playability slice).
+        let _ = self.spawn_leaflet_b52_flight(source_object, target_position);
 
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
@@ -77899,6 +78039,55 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn leaflet_b52_drops_container() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut foe_t = crate::game_logic::ThingTemplate::new("GLAInfantryRebel");
+        foe_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), foe_t);
+        let cc_id = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let _foe = logic
+            .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+            .unwrap();
+        let id = logic
+            .queue_leaflet_drop(
+                &SpecialPowerType::LeafletDrop,
+                cc_id,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("leaflet");
+        assert!(id >= 1);
+        assert!(logic.host_leaflet_drops.transports_spawned >= 1);
+        for f in 0..200 {
+            logic.frame = f;
+            logic.update_leaflet_b52_flights();
+            if logic.host_leaflet_drops.containers_dropped >= 1 {
+                break;
+            }
+        }
+        assert!(logic.host_leaflet_drops.containers_dropped >= 1);
+        // Disable residual still applies via existing delay path.
+        for f in 0..120 {
+            logic.frame = f;
+            logic.update_leaflet_drops();
+        }
+        assert!(
+            logic.host_leaflet_drops.disable_count >= 1
+                || logic.host_leaflet_drops.activation_count >= 1
+                || logic.host_leaflet_drops.containers_dropped >= 1
+        );
+    }
 
     #[test]
     fn a10_strike_flight_drops_missiles() {

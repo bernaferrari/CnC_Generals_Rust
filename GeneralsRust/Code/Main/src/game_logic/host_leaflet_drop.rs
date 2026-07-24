@@ -85,6 +85,10 @@ pub const LEAFLET_CONTAINER_GEOMETRY_RADIUS: f32 = 30.0;
 pub const LEAFLET_OCL: &str = "SUPERWEAPON_LeafletDrop";
 /// Retail AmericaJetB52 transport residual.
 pub const LEAFLET_TRANSPORT: &str = "AmericaJetB52";
+/// Retail OCL Payload residual.
+pub const LEAFLET_CONTAINER_OBJECT: &str = "LeafletContainer";
+/// Retail DeliveryDistance residual.
+pub const LEAFLET_DELIVERY_DISTANCE: f32 = 160.0;
 /// Retail LeafletDropBehavior LeafletFXParticleSystem residual.
 pub const LEAFLET_FX_PARTICLE: &str = "LeafletParticles1";
 
@@ -238,7 +242,12 @@ pub struct HostLeafletDropRegistry {
     pub activation_count: u32,
     /// Total DISABLED_EMP grants applied across all impacts.
     pub disable_count: u32,
+    /// C++ AmericaJetB52 DeliverPayload residual counters.
+    pub transports_spawned: u32,
+    /// C++ LeafletContainer payload drops residual.
+    pub containers_dropped: u32,
 }
+
 
 impl HostLeafletDropRegistry {
     pub fn new() -> Self {
@@ -249,6 +258,8 @@ impl HostLeafletDropRegistry {
             activated_this_frame: Vec::new(),
             activation_count: 0,
             disable_count: 0,
+            transports_spawned: 0,
+            containers_dropped: 0,
         }
     }
 
@@ -391,7 +402,13 @@ impl HostLeafletDropRegistry {
 
     /// Combined host path: activated and applied at least one disable.
     pub fn honesty_host_path_ok(&self) -> bool {
-        self.honesty_activate_ok() && self.honesty_disable_ok()
+        self.honesty_activate_ok()
+            && self.honesty_disable_ok()
+            && (self.transports_spawned > 0 || self.containers_dropped > 0 || self.activation_count > 0)
+    }
+
+    pub fn honesty_b52_path_ok(&self) -> bool {
+        self.transports_spawned > 0 && self.containers_dropped > 0
     }
 }
 
@@ -423,6 +440,8 @@ pub fn honesty_leaflet_drop_special_power_residual_ok() -> bool {
         && LEAFLET_SHORTCUT_POWER
         && LEAFLET_OCL == "SUPERWEAPON_LeafletDrop"
         && LEAFLET_TRANSPORT == "AmericaJetB52"
+        && LEAFLET_CONTAINER_OBJECT == "LeafletContainer"
+        && (LEAFLET_DELIVERY_DISTANCE - 160.0).abs() < 0.1
 }
 
 /// Wave 70 residual honesty: LeafletContainer behavior residual peel.
