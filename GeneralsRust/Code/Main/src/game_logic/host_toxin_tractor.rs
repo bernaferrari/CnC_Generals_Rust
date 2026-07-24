@@ -26,7 +26,9 @@
 //!
 //! Fail-closed honesty:
 //! - FireOCLAfterWeaponCooldown: MinShots=4 + coast spawn residual (primary stream still live)
-//! - Not full stream projectile drawing / spigot bone / turret pitch matrix
+//! - ToxinTruckStreamProjectile MissileAI flight residual (Fuel 500ms, InitialVelocity 120,
+//!   stream points via ProjectileStreamRegistry / ToxinStream)
+//! - Not full spigot bone / turret pitch matrix / gamma particle bones
 //! - Not full gamma particle bones / HazardousMaterialArmor damage stack
 //! - Not network toxin replication (network deferred)
 
@@ -156,6 +158,29 @@ pub const TOXIN_STREAM_CLIP_RELOAD_FRAMES: u32 = 2;
 pub const TOXIN_STREAM_DELAY_MS: u32 = 40;
 /// WeaponSpeed residual (dist/sec).
 pub const TOXIN_STREAM_WEAPON_SPEED: f32 = 600.0;
+/// Retail ProjectileObject residual (primary stream).
+pub const TOXIN_STREAM_PROJECTILE: &str = "ToxinTruckStreamProjectile";
+/// Retail upgraded stream projectile.
+pub const TOXIN_STREAM_PROJECTILE_UPGRADED: &str = "ToxinTruckStreamProjectileUpgraded";
+/// Retail Chem gamma stream projectile.
+pub const TOXIN_STREAM_PROJECTILE_GAMMA: &str = "GC_Chem_ToxinStreamProjectile";
+/// Retail ProjectileStreamName residual.
+pub const TOXIN_STREAM_NAME: &str = "ToxinStream";
+/// MissileAI InitialVelocity residual (dist/sec).
+pub const TOXIN_STREAM_MISSILE_INITIAL_VELOCITY: f32 = 120.0;
+/// MissileAI FuelLifetime 500ms residual.
+pub const TOXIN_STREAM_MISSILE_FUEL_MS: u32 = 500;
+/// Fuel 500ms → 15 frames @ 30 FPS (ceil).
+pub const TOXIN_STREAM_MISSILE_FUEL_FRAMES: u32 = 15;
+/// DistanceToTravelBeforeTurning residual.
+pub const TOXIN_STREAM_MISSILE_TURN_DISTANCE: f32 = 2.0;
+/// MaxHealth residual.
+pub const TOXIN_STREAM_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// TryToFollowTarget residual.
+pub const TOXIN_STREAM_MISSILE_SEEK: bool = false;
+/// IgnitionDelay residual frames.
+pub const TOXIN_STREAM_MISSILE_IGNITION_DELAY_FRAMES: u32 = 0;
+
 /// FireSoundLoopTime 80ms residual.
 pub const TOXIN_STREAM_FIRE_SOUND_LOOP_MS: u32 = 80;
 /// AllowAttackGarrisonedBldgs residual.
@@ -513,6 +538,31 @@ pub fn should_apply_toxin_spray(is_toxin_tractor: bool, fired_slot: u8) -> bool 
 }
 
 /// Whether residual primary stream should apply small splash radius residual.
+
+/// Per-frame toxin stream projectile step speed (dist/frame).
+pub fn toxin_stream_missile_step_speed(ignited_and_steering: bool) -> f32 {
+    if ignited_and_steering {
+        TOXIN_STREAM_WEAPON_SPEED / TOXIN_LOGIC_FPS
+    } else {
+        TOXIN_STREAM_MISSILE_INITIAL_VELOCITY / TOXIN_LOGIC_FPS
+    }
+}
+
+/// Estimated straight-line flight frames at cruise speed.
+pub fn toxin_stream_flight_frames(distance: f32) -> u32 {
+    let step = toxin_stream_missile_step_speed(true).max(0.001);
+    (distance / step).ceil() as u32
+}
+
+/// Projectile template name for residual anthrax tier.
+pub fn toxin_stream_projectile_name(anthrax: AnthraxResidualTier) -> &'static str {
+    match anthrax {
+        AnthraxResidualTier::None => TOXIN_STREAM_PROJECTILE,
+        AnthraxResidualTier::Beta => TOXIN_STREAM_PROJECTILE_UPGRADED,
+        AnthraxResidualTier::Gamma => TOXIN_STREAM_PROJECTILE_GAMMA,
+    }
+}
+
 pub fn should_apply_toxin_stream(is_toxin_tractor: bool, fired_slot: u8) -> bool {
     is_toxin_tractor && fired_slot == 0
 }
@@ -1062,11 +1112,26 @@ pub fn honesty_toxin_cleanup_interaction_residual_ok() -> bool {
 }
 
 /// Combined Wave 55 toxin residual honesty pack.
+/// Wave residual honesty: ToxinTruckStreamProjectile MissileAI peels.
+pub fn honesty_toxin_stream_projectile_ok() -> bool {
+    TOXIN_STREAM_PROJECTILE == "ToxinTruckStreamProjectile"
+        && TOXIN_STREAM_PROJECTILE_UPGRADED == "ToxinTruckStreamProjectileUpgraded"
+        && TOXIN_STREAM_PROJECTILE_GAMMA == "GC_Chem_ToxinStreamProjectile"
+        && TOXIN_STREAM_NAME == "ToxinStream"
+        && (TOXIN_STREAM_MISSILE_INITIAL_VELOCITY - 120.0).abs() < 0.01
+        && TOXIN_STREAM_MISSILE_FUEL_MS == 500
+        && TOXIN_STREAM_MISSILE_FUEL_FRAMES == toxin_ms_to_frames(TOXIN_STREAM_MISSILE_FUEL_MS)
+        && (TOXIN_STREAM_MISSILE_TURN_DISTANCE - 2.0).abs() < 0.01
+        && !TOXIN_STREAM_MISSILE_SEEK
+        && (TOXIN_STREAM_WEAPON_SPEED - 600.0).abs() < 0.01
+}
+
 pub fn honesty_toxin_tractor_residual_pack_ok() -> bool {
     honesty_toxin_contaminate_puddle_residual_ok()
         && honesty_toxin_spray_weapon_residual_ok()
         && honesty_toxin_anthrax_upgrade_residual_ok()
         && honesty_toxin_cleanup_interaction_residual_ok()
+        && honesty_toxin_stream_projectile_ok()
 }
 
 #[cfg(test)]
@@ -1194,6 +1259,27 @@ mod tests {
         assert!(reg.honesty_host_path_ok());
         // gamma medium + base medium + death field
         assert_eq!(reg.active_count(), 3);
+    }
+
+    #[test]
+    fn stream_projectile_peels() {
+        assert!(honesty_toxin_stream_projectile_ok());
+        assert_eq!(toxin_ms_to_frames(500), 15);
+        assert!(toxin_stream_flight_frames(100.0) >= 1);
+        assert!(should_apply_toxin_stream(true, 0));
+        assert!(!should_apply_toxin_stream(true, 1));
+        assert_eq!(
+            toxin_stream_projectile_name(AnthraxResidualTier::None),
+            TOXIN_STREAM_PROJECTILE
+        );
+        assert_eq!(
+            toxin_stream_projectile_name(AnthraxResidualTier::Beta),
+            TOXIN_STREAM_PROJECTILE_UPGRADED
+        );
+        assert_eq!(
+            toxin_stream_projectile_name(AnthraxResidualTier::Gamma),
+            TOXIN_STREAM_PROJECTILE_GAMMA
+        );
     }
 
     #[test]
