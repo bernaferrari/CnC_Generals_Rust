@@ -2323,27 +2323,79 @@ impl CnCGameEngine {
 
             "open_options" | "options" => {
                 self.set_runtime_host_ui_screen_override(None);
+                let mut wnd_ok = false;
                 if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.ui_manager.transition_to_screen(Screen::Options);
                     if self.current_state == GameState::InGame {
                         self.request_state_change(GameState::Paused);
                     }
                 } else {
+                    #[cfg(feature = "game_client")]
+                    {
+                        wnd_ok =
+                            game_client::gui::simulate_main_menu_options_button_gadget_selected();
+                    }
                     self.enter_shell_options_from_runtime_host();
                 }
-                self.runtime_host_last_gameplay_cmd = "options_ok".into();
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_options_ok_wnd".into()
+                } else {
+                    "options_ok".into()
+                };
             }
             "open_credits" => {
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::simulate_main_menu_credits_button_gadget_selected();
+                }
                 self.enter_shell_screen_from_runtime_host(Some("Credits"), "Menus/CreditsMenu.wnd");
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_credits_ok_wnd".into()
+                } else {
+                    "open_credits_ok".into()
+                };
             }
             "open_single_player_menu" => {
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok =
+                        game_client::gui::simulate_main_menu_single_player_button_gadget_selected();
+                }
                 self.enter_shell_menu_from_runtime_host(Some("SinglePlayer"));
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_single_player_menu_ok_wnd".into()
+                } else {
+                    "open_single_player_menu_ok".into()
+                };
             }
             "open_multiplayer_menu" => {
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok =
+                        game_client::gui::simulate_main_menu_multiplayer_button_gadget_selected();
+                }
                 self.enter_shell_menu_from_runtime_host(Some("Multiplayer"));
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_multiplayer_menu_ok_wnd".into()
+                } else {
+                    "open_multiplayer_menu_ok".into()
+                };
             }
             "open_load_replay_menu" => {
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::simulate_main_menu_replay_button_gadget_selected();
+                }
                 self.enter_shell_menu_from_runtime_host(Some("LoadReplay"));
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_load_replay_menu_ok_wnd".into()
+                } else {
+                    "open_load_replay_menu_ok".into()
+                };
             }
             "open_difficulty_menu" => {
                 let campaign = args
@@ -2587,7 +2639,18 @@ impl CnCGameEngine {
                 }
             }
             "open_load_game" => {
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok =
+                        game_client::gui::simulate_main_menu_load_game_button_gadget_selected();
+                }
                 self.enter_shell_menu_from_runtime_host(Some("LoadGame"));
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_load_game_ok_wnd".into()
+                } else {
+                    "open_load_game_ok".into()
+                };
             }
             "open_online" => {
                 self.enter_shell_menu_from_runtime_host(Some("Online"));
@@ -2602,10 +2665,21 @@ impl CnCGameEngine {
                 self.enter_shell_screen_from_runtime_host(Some("Replay"), "Menus/ReplayMenu.wnd");
             }
             "open_challenge_menu" => {
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok =
+                        game_client::gui::simulate_main_menu_challenge_button_gadget_selected();
+                }
                 self.enter_shell_screen_from_runtime_host(
                     Some("Challenge"),
                     "Menus/ChallengeMenu.wnd",
                 );
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_challenge_menu_ok_wnd".into()
+                } else {
+                    "open_challenge_menu_ok".into()
+                };
             }
             "start_game" => {
                 let mode = Self::parse_runtime_host_mode(args.get("mode").map(String::as_str));

@@ -2205,6 +2205,148 @@ pub fn simulate_main_menu_skirmish_button_gadget_selected() -> bool {
     state.button_pushed && state.campaign_selected
 }
 
+/// Residual helper: apply MainMenu button residual **state latches only**.
+/// Does not call shell/window-manager transitions (those can block headless peels).
+/// Mirrors the C++ GBM_SELECTED latch outcomes used by runtime-host honesty.
+fn simulate_main_menu_button_gadget_selected(
+    cold_name_key: &str,
+    resolve_id: impl Fn(&WindowIds) -> u32,
+    bind_id: impl Fn(&mut WindowIds, u32),
+    apply: impl Fn(&mut MainMenuState),
+    success: impl Fn(&MainMenuState) -> bool,
+) -> bool {
+    let ids = build_window_ids();
+    let mut control_id = resolve_id(&ids);
+    if control_id == 0 {
+        control_id = NameKeyGenerator::name_to_key(cold_name_key);
+    }
+    let _ = control_id;
+
+    let menu = get_main_menu();
+    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+    state.button_pushed = false;
+    state.campaign_selected = false;
+    state.dont_allow_transitions = false;
+    state.launch_challenge_menu = false;
+    state.drop_down = DropdownType::Main;
+    state.pending_actions.clear();
+    state.window_ids = ids.clone();
+    let bound_id = resolve_id(&state.window_ids).max(control_id);
+    bind_id(&mut state.window_ids, bound_id);
+    apply(&mut state);
+    success(&state)
+}
+
+/// Residual: fire retail `MainMenu.wnd:ButtonOptions` via `GBM_SELECTED`.
+/// C++ path queues options layout + ShellMainMenuOptionsSelected hook.
+pub fn simulate_main_menu_options_button_gadget_selected() -> bool {
+    simulate_main_menu_button_gadget_selected(
+        "MainMenu.wnd:ButtonOptions",
+        |ids| ids.options_id,
+        |ids, v| ids.options_id = v,
+        |state| {
+            // Options sets dont_allow_transitions; does not latch button_pushed.
+            state.dont_allow_transitions = true;
+        },
+        |state| state.dont_allow_transitions,
+    )
+}
+
+/// Residual: fire retail `MainMenu.wnd:ButtonCredits` via `GBM_SELECTED`.
+/// C++ path: PushShellScreen(`Menus/CreditsMenu.wnd`).
+pub fn simulate_main_menu_credits_button_gadget_selected() -> bool {
+    simulate_main_menu_button_gadget_selected(
+        "MainMenu.wnd:ButtonCredits",
+        |ids| ids.button_credits_id,
+        |ids, v| ids.button_credits_id = v,
+        |state| {
+            state.dont_allow_transitions = true;
+            state.button_pushed = true;
+        },
+        |state| state.button_pushed,
+    )
+}
+
+/// Residual: fire retail `MainMenu.wnd:ButtonLoadGame` via `GBM_SELECTED`.
+/// C++ path: PushShellScreen(`Menus/SaveLoad.wnd`).
+pub fn simulate_main_menu_load_game_button_gadget_selected() -> bool {
+    simulate_main_menu_button_gadget_selected(
+        "MainMenu.wnd:ButtonLoadGame",
+        |ids| ids.button_load_id,
+        |ids, v| ids.button_load_id = v,
+        |state| {
+            state.dont_allow_transitions = true;
+            state.button_pushed = true;
+            state.drop_down = DropdownType::LoadReplay;
+        },
+        |state| state.button_pushed,
+    )
+}
+
+/// Residual: fire retail `MainMenu.wnd:ButtonSinglePlayer` via `GBM_SELECTED`.
+/// C++ path: opens single-player dropdown (does not push a layout immediately).
+pub fn simulate_main_menu_single_player_button_gadget_selected() -> bool {
+    simulate_main_menu_button_gadget_selected(
+        "MainMenu.wnd:ButtonSinglePlayer",
+        |ids| ids.button_single_player_id,
+        |ids, v| ids.button_single_player_id = v,
+        |state| {
+            state.dont_allow_transitions = true;
+            state.button_pushed = false;
+            state.drop_down = DropdownType::Single;
+        },
+        |state| state.drop_down == DropdownType::Single && state.dont_allow_transitions,
+    )
+}
+
+/// Residual: fire retail `MainMenu.wnd:ButtonMultiplayer` via `GBM_SELECTED`.
+pub fn simulate_main_menu_multiplayer_button_gadget_selected() -> bool {
+    simulate_main_menu_button_gadget_selected(
+        "MainMenu.wnd:ButtonMultiplayer",
+        |ids| ids.button_multi_player_id,
+        |ids, v| ids.button_multi_player_id = v,
+        |state| {
+            state.dont_allow_transitions = true;
+            state.button_pushed = false;
+            state.drop_down = DropdownType::Multiplayer;
+        },
+        |state| state.drop_down == DropdownType::Multiplayer && state.dont_allow_transitions,
+    )
+}
+
+/// Residual: fire retail `MainMenu.wnd:ButtonChallenge` via `GBM_SELECTED`.
+/// C++ path: difficulty/training faction residual (launch_challenge_menu).
+pub fn simulate_main_menu_challenge_button_gadget_selected() -> bool {
+    simulate_main_menu_button_gadget_selected(
+        "MainMenu.wnd:ButtonChallenge",
+        |ids| ids.button_challenge_id,
+        |ids, v| ids.button_challenge_id = v,
+        |state| {
+            state.drop_down = DropdownType::Difficulty;
+            state.campaign_selected = true;
+            state.launch_challenge_menu = true;
+            state.show_logo = false;
+            state.show_side = ShowSide::Training;
+        },
+        |state| state.launch_challenge_menu && state.campaign_selected,
+    )
+}
+
+/// Residual: fire retail `MainMenu.wnd:ButtonReplay` via `GBM_SELECTED`.
+/// C++ path: PushShellScreen(`Menus/ReplayMenu.wnd`).
+pub fn simulate_main_menu_replay_button_gadget_selected() -> bool {
+    simulate_main_menu_button_gadget_selected(
+        "MainMenu.wnd:ButtonReplay",
+        |ids| ids.button_replay_id,
+        |ids, v| ids.button_replay_id = v,
+        |state| {
+            state.dont_allow_transitions = true;
+            state.button_pushed = true;
+        },
+        |state| state.button_pushed,
+    )
+}
+
 // Global main menu instance
 static MAIN_MENU: OnceLock<Mutex<MainMenu>> = OnceLock::new();
 
