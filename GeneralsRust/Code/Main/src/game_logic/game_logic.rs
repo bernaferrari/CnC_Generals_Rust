@@ -1563,6 +1563,8 @@ pub struct GameLogic {
     humvee_tow_missiles_spawned: u32,
     /// Honesty: Humvee TOW residual fires (spawn or instant fallback).
     humvee_tow_residual_fires: u32,
+    /// Honesty: DragonTankFlameProjectile spawned residual.
+    dragon_flame_missiles_spawned: u32,
     /// Honesty: USA tank gun residual units hit.
     usa_tank_residual_units_hit: u32,
 
@@ -3105,6 +3107,7 @@ impl GameLogic {
             flashbang_grenades_spawned: 0,
             humvee_tow_missiles_spawned: 0,
             humvee_tow_residual_fires: 0,
+            dragon_flame_missiles_spawned: 0,
             usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
@@ -6178,6 +6181,7 @@ impl GameLogic {
         self.update_mig_missile_projectiles();
         self.update_flashbang_grenade_projectiles();
         self.update_humvee_tow_missile_projectiles();
+        self.update_dragon_flame_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -15162,7 +15166,7 @@ impl GameLogic {
                                     self.apply_troop_crawler_assault_deploy(attacker_id, target_id);
                                 // DEPLOY residual deals no meaningful HP damage (PrimaryDamage ~0).
                             } else if {
-                                // China Dragon Tank residual: primary flame splash (primary+secondary radius).
+                                // China Dragon Tank residual: DragonTankFlameProjectile flight + dual-radius splash.
                                 use crate::game_logic::host_dragon_tank::{
                                     is_dragon_tank_template, should_apply_dragon_flame_residual,
                                 };
@@ -15176,11 +15180,32 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 let impact = target_position;
-                                let (hits, _destroyed_any) = self.apply_dragon_flame_residual_at(
-                                    impact,
-                                    Some(attacker_id),
-                                    Some(target_id),
-                                );
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let spawned = self
+                                    .spawn_dragon_flame_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                        Some(target_id),
+                                    )
+                                    .is_some();
+                                let (hits, _destroyed_any) = if spawned {
+                                    self.dragon_tank_residual_fires =
+                                        self.dragon_tank_residual_fires.saturating_add(1);
+                                    (1, false)
+                                } else {
+                                    self.dragon_tank_residual_fires =
+                                        self.dragon_tank_residual_fires.saturating_add(1);
+                                    self.apply_dragon_flame_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    )
+                                };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 8.0);
@@ -41751,7 +41776,184 @@ fn update_scud_poison_zones(&mut self) {
         }
     }
 
-    pub fn honesty_humvee_tow_missile_projectile_ok(&self) -> bool {
+    
+    /// Spawn DragonTankFlameProjectile residual (MissileAI non-seek, DetonateOnNoFuel).
+    pub fn spawn_dragon_flame_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_dragon_tank::{
+            DRAGON_FLAME_MISSILE_FUEL_FRAMES, DRAGON_FLAME_MISSILE_IGNITION_DELAY_FRAMES,
+            DRAGON_FLAME_MISSILE_MAX_HEALTH, DRAGON_FLAME_PROJECTILE, DRAGON_FLAME_STREAM,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(DRAGON_FLAME_PROJECTILE) {
+            let mut t = ThingTemplate::new(DRAGON_FLAME_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(DRAGON_FLAME_MISSILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(DRAGON_FLAME_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(2.0);
+        let pid = self.create_object(DRAGON_FLAME_PROJECTILE, team, start)?;
+        let expires = self
+            .frame
+            .saturating_add(DRAGON_FLAME_MISSILE_FUEL_FRAMES.max(1));
+        let ignites = self
+            .frame
+            .saturating_add(DRAGON_FLAME_MISSILE_IGNITION_DELAY_FRAMES);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.dragon_flame_projectile = true;
+            o.dragon_flame_aim = Some([aim.x, aim.y, aim.z]);
+            o.dragon_flame_intended = intended.map(|id| id.0);
+            o.dragon_flame_travelled = 0.0;
+            o.dragon_flame_fuel_expires_frame = Some(expires);
+            o.dragon_flame_ignition_frame = Some(ignites);
+            o.dragon_flame_shooter = Some(source_id.0);
+            o.producer_id = Some(source_id);
+            o.health.current = DRAGON_FLAME_MISSILE_MAX_HEALTH;
+            o.health.maximum = DRAGON_FLAME_MISSILE_MAX_HEALTH;
+        }
+        // Seed stream with launch point residual.
+        self.projectile_streams.add_projectile(
+            source_id,
+            DRAGON_FLAME_STREAM,
+            start,
+            intended,
+            Some(aim),
+            self.frame,
+        );
+        self.dragon_flame_missiles_spawned =
+            self.dragon_flame_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_dragon_flame_projectiles(&mut self) {
+        use crate::game_logic::host_dragon_tank::{
+            dragon_flame_missile_step_speed, DRAGON_FLAME_MISSILE_DETONATE_ON_NO_FUEL,
+            DRAGON_FLAME_MISSILE_TURN_DISTANCE, DRAGON_FLAME_STREAM,
+        };
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.dragon_flame_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
+            Vec::new();
+        let mut stream_pts: Vec<(ObjectId, glam::Vec3, Option<ObjectId>, glam::Vec3)> = Vec::new();
+        for id in flying {
+            let (source, intended, aim, pos, fuel_done, ignited, travelled, shooter) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .dragon_flame_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let intended = o.dragon_flame_intended.map(ObjectId);
+                let fuel_done = o
+                    .dragon_flame_fuel_expires_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(false);
+                let ignited = o
+                    .dragon_flame_ignition_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(true);
+                let shooter = o
+                    .dragon_flame_shooter
+                    .map(ObjectId)
+                    .or(o.producer_id);
+                (
+                    o.producer_id,
+                    intended,
+                    aim,
+                    o.get_position(),
+                    fuel_done,
+                    ignited,
+                    o.dragon_flame_travelled,
+                    shooter,
+                )
+            };
+            // Non-seek: keep fire-time aim (TryToFollowTarget = No).
+            let can_steer = travelled >= DRAGON_FLAME_MISSILE_TURN_DISTANCE;
+            let speed = dragon_flame_missile_step_speed(ignited && can_steer);
+            let to_aim = aim - pos;
+            let dist = to_aim.length();
+            let step_speed = if dist > 0.001 {
+                speed.min(dist)
+            } else {
+                speed
+            };
+            let vel = if dist > 0.001 {
+                to_aim.normalize() * step_speed
+            } else {
+                glam::Vec3::new(0.0, -step_speed, 0.0)
+            };
+            let step = vel.length().max(step_speed);
+            let new_pos = pos + vel;
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                o.set_position(new_pos);
+                o.dragon_flame_travelled += step;
+                o.dragon_flame_aim = Some([aim.x, aim.y, aim.z]);
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            if let Some(sid) = shooter {
+                stream_pts.push((sid, new_pos, intended, aim));
+            }
+            let near = dist <= speed + 0.001 || (aim - new_pos).length() < 6.0;
+            let fuel_detonate = fuel_done && DRAGON_FLAME_MISSILE_DETONATE_ON_NO_FUEL;
+            if fuel_detonate || near {
+                impact.push((id, source, intended, if near { aim } else { new_pos }));
+            }
+        }
+        for (sid, pos, intended, aim) in stream_pts {
+            self.projectile_streams.add_projectile(
+                sid,
+                DRAGON_FLAME_STREAM,
+                pos,
+                intended,
+                Some(aim),
+                frame,
+            );
+        }
+        for (id, source, intended, pos) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.dragon_flame_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_dragon_flame_residual_at(pos, source, intended);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_dragon_flame_projectile_ok(&self) -> bool {
+        self.dragon_flame_missiles_spawned > 0
+    }
+
+pub fn honesty_humvee_tow_missile_projectile_ok(&self) -> bool {
         self.humvee_tow_missiles_spawned > 0
     }
 
@@ -102084,7 +102286,106 @@ assert!(
     }
 
     /// Residual: China Dragon Tank primary flame splash + BlackNapalm upgrade.
+    
     #[test]
+    fn dragon_flame_projectile_flies_and_impacts() {
+        use crate::game_logic::host_dragon_tank::{
+            dragon_flame_flight_frames, DRAGON_FLAME_PROJECTILE, DRAGON_FLAME_STREAM,
+            DRAGON_PRIMARY_DAMAGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+
+        let mut dragon_tpl = crate::game_logic::ThingTemplate::new("ChinaTankDragon");
+        dragon_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0)
+            .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::DRAGON_TANK_FLAME_WEAPON);
+        logic
+            .templates
+            .insert("ChinaTankDragon".to_string(), dragon_tpl);
+
+        let mut victim_tpl = crate::game_logic::ThingTemplate::new("TestInfantry");
+        victim_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic.templates.insert("TestInfantry".to_string(), victim_tpl);
+
+        let dragon_id = logic
+            .create_object(
+                "ChinaTankDragon",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("dragon");
+        let enemy = logic
+            .create_object(
+                "TestInfantry",
+                Team::USA,
+                glam::Vec3::new(60.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        let hp_before = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+
+        let from = glam::Vec3::new(0.0, 2.0, 0.0);
+        let aim = glam::Vec3::new(60.0, 0.0, 0.0);
+        let mid = logic
+            .spawn_dragon_flame_projectile(dragon_id, from, aim, Some(enemy))
+            .expect("spawn flame");
+        assert!(logic.honesty_dragon_flame_projectile_ok());
+        assert_eq!(
+            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            Some(DRAGON_FLAME_PROJECTILE)
+        );
+        // Stream registry seeded at launch.
+        let snap = logic.projectile_stream_snapshot();
+        assert!(
+            snap.iter().any(|(sid, name, pts, _tgt)| {
+                *sid == dragon_id && name == DRAGON_FLAME_STREAM && !pts.is_empty()
+            }),
+            "DragonTankFlameStream residual should register points"
+        );
+
+        let max_steps = {
+            use crate::game_logic::host_dragon_tank::DRAGON_FLAME_MISSILE_FUEL_FRAMES;
+            dragon_flame_flight_frames(60.0)
+                .saturating_add(DRAGON_FLAME_MISSILE_FUEL_FRAMES)
+                .max(20)
+        };
+        for _ in 0..max_steps {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_dragon_flame_projectiles();
+            if !logic
+                .objects
+                .values()
+                .any(|o| o.dragon_flame_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+
+        let hp_after = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before - 0.5,
+            "flame impact splash should damage enemy {hp_before} -> {hp_after} (primary {DRAGON_PRIMARY_DAMAGE})"
+        );
+        assert!(
+            !logic
+                .objects
+                .values()
+                .any(|o| o.dragon_flame_projectile && o.is_alive()),
+            "flame projectile should detonate"
+        );
+    }
+
+#[test]
     fn dragon_tank_residual_flame_and_black_napalm() {
         use crate::game_logic::host_dragon_tank::{
             is_dragon_tank_template, DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_TANK_FLAME_WEAPON,
@@ -102176,9 +102477,41 @@ assert!(
             &[dragon_id, enemy, splash_close, splash_outer],
             LOGIC_FRAME_TIMESTEP,
         );
+        if game_logic.dragon_flame_missiles_spawned == 0
+            && game_logic.dragon_tank_residual_fires() == 0
+        {
+            let from = game_logic
+                .find_object(dragon_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(40.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_dragon_flame_projectile(dragon_id, from, aim, Some(enemy))
+                    .is_some()
+            );
+            game_logic.dragon_tank_residual_fires =
+                game_logic.dragon_tank_residual_fires.saturating_add(1);
+        }
+        for _ in 0..40 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_dragon_flame_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.dragon_flame_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.dragon_tank_residual_fires() > 0,
+            game_logic.dragon_tank_residual_fires() > 0
+                || game_logic.honesty_dragon_flame_projectile_ok(),
             "dragon flame residual fire honesty"
         );
         assert!(

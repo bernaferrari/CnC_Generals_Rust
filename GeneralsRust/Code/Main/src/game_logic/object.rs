@@ -1391,6 +1391,22 @@ pub struct Object {
     pub humvee_tow_fuel_expires_frame: Option<u32>,
     #[serde(default)]
     pub humvee_tow_ignition_frame: Option<u32>,
+    /// Host residual: DragonTankFlameProjectile in flight.
+    #[serde(default)]
+    pub dragon_flame_projectile: bool,
+    #[serde(default)]
+    pub dragon_flame_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub dragon_flame_intended: Option<u32>,
+    #[serde(default)]
+    pub dragon_flame_travelled: f32,
+    #[serde(default)]
+    pub dragon_flame_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub dragon_flame_ignition_frame: Option<u32>,
+    /// Shooter id for projectile stream residual (u32 ObjectId).
+    #[serde(default)]
+    pub dragon_flame_shooter: Option<u32>,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2408,6 +2424,13 @@ impl Object {
             humvee_tow_travelled: 0.0,
             humvee_tow_fuel_expires_frame: None,
             humvee_tow_ignition_frame: None,
+            dragon_flame_projectile: false,
+            dragon_flame_aim: None,
+            dragon_flame_intended: None,
+            dragon_flame_travelled: 0.0,
+            dragon_flame_fuel_expires_frame: None,
+            dragon_flame_ignition_frame: None,
+            dragon_flame_shooter: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -2979,6 +3002,13 @@ impl Object {
             humvee_tow_travelled: 0.0,
             humvee_tow_fuel_expires_frame: None,
             humvee_tow_ignition_frame: None,
+            dragon_flame_projectile: false,
+            dragon_flame_aim: None,
+            dragon_flame_intended: None,
+            dragon_flame_travelled: 0.0,
+            dragon_flame_fuel_expires_frame: None,
+            dragon_flame_ignition_frame: None,
+            dragon_flame_shooter: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
