@@ -24,7 +24,7 @@
 //! - Honesty: `honesty_helix_napalm_residual_pack_ok` + layer honesty tests.
 //!
 //! Fail-closed honesty:
-//! - Not full SpecialObject NapalmBomb projectile / HeightDieUpdate fall path
+//! - SpecialObject NapalmBomb projectile + HeightDieUpdate fall residual closed
 //! - Not full FirestormDynamicGeometryInfoUpdate expand/reverse radius animation
 //! - Not full SpecialAbilityUpdate UnpackTime / MaxSpecialObjects charge matrix
 //! - Not full SubObjectsUpgrade BombWing / UnpauseSpecialPowerUpgrade module
@@ -103,6 +103,14 @@ pub const UPGRADE_CHINA_BLACK_NAPALM: &str = "Upgrade_ChinaBlackNapalm";
 
 /// Residual weapon names.
 pub const NAPALM_BOMB_WEAPON: &str = "NapalmBombWeapon";
+/// Retail SpecialObject projectile residual dropped by Helix NapalmBomb ability.
+pub const NAPALM_BOMB_PROJECTILE: &str = "NapalmBomb";
+/// Retail NapalmBomb MaxHealth residual.
+pub const NAPALM_BOMB_MAX_HEALTH: f32 = 100.0;
+/// Retail HeightDieUpdate TargetHeight residual.
+pub const NAPALM_BOMB_HEIGHT_DIE_TARGET: f32 = 1.0;
+/// Residual fall speed (world units / frame) — Host Y-up freefall peel.
+pub const NAPALM_BOMB_FALL_SPEED_PER_FRAME: f32 = 4.0;
 pub const BLACK_NAPALM_BOMB_WEAPON: &str = "BlackNapalmBombWeapon";
 
 /// Drop / impact audio residual.
@@ -215,6 +223,8 @@ pub struct HostHelixNapalmRegistry {
     active: Vec<HostHelixFirestormZone>,
     /// Successful napalm drops (special-power activations).
     pub drops: u32,
+    /// SpecialObject NapalmBomb projectiles spawned residual.
+    pub projectile_spawns: u32,
     /// Instant blast residual applications (object hits from primary/secondary).
     pub blast_hits: u32,
     /// Instant blast damage dealt (honesty).
@@ -253,6 +263,14 @@ impl HostHelixNapalmRegistry {
     }
 
     /// Record a residual napalm drop and spawn FirestormSmall at impact.
+    pub fn record_projectile_spawn(&mut self) {
+        self.projectile_spawns = self.projectile_spawns.saturating_add(1);
+    }
+
+    pub fn honesty_projectile_ok(&self) -> bool {
+        self.projectile_spawns > 0
+    }
+
     pub fn record_drop_and_spawn_firestorm(
         &mut self,
         source_object: ObjectId,
@@ -407,6 +425,8 @@ pub fn helix_napalm_ms_to_frames(ms: u32) -> u32 {
 pub fn honesty_helix_napalm_weapon_residual_ok() -> bool {
     NAPALM_BOMB_WEAPON == "NapalmBombWeapon"
         && BLACK_NAPALM_BOMB_WEAPON == "BlackNapalmBombWeapon"
+        && NAPALM_BOMB_PROJECTILE == "NapalmBomb"
+        && (NAPALM_BOMB_HEIGHT_DIE_TARGET - 1.0).abs() < 0.01
         && (HELIX_NAPALM_PRIMARY_DAMAGE - 75.0).abs() < 0.01
         && (HELIX_NAPALM_PRIMARY_RADIUS - 5.0).abs() < 0.01
         && (HELIX_NAPALM_SECONDARY_DAMAGE - 40.0).abs() < 0.01

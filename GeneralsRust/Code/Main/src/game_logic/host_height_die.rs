@@ -77,6 +77,10 @@ pub fn height_die_config_for_template(name: &str) -> Option<(f32, bool, u32)> {
     {
         return Some((15.0, false, 0));
     }
+    // Retail NapalmBomb HeightDieUpdate TargetHeight = 1.0
+    if n.contains("napalmbomb") || (n.contains("napalm") && n.contains("bomb")) {
+        return Some((1.0, true, 0));
+    }
     if n.contains("aurorabomb") || n.contains("daisy") && n.contains("cutter") {
         return Some((10.0, true, 0));
     }
