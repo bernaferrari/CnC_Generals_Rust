@@ -28,7 +28,8 @@
 //!   ReturnToBaseIdleTime **10000**ms → **300**f, SneakyOffsetWhenAttacking **-20**
 //!
 //! Fail-closed honesty:
-//! - Not full AuroraBombLocomotor flight path / MissileAIUpdate DistanceToTargetBeforeDiving
+//! - AuroraBombLocomotor flight path residual closed (guided drop + dive to aim)
+//! - Not full MissileAIUpdate DistanceToTargetBeforeDiving seeker matrix
 //! - FuelAir CreateObjectDie OCL gas object residual closed (AirF_AuroraBombGas /
 //!   SupW_AuroraFuelAirGas SlowDeath via host_fuel_air_gas_slow_death)
 //! - Not full HeightDieUpdate / debris CreateDebris matrix
@@ -142,6 +143,8 @@ pub const AURORA_BOMB_PROJECTILE_COM_OFFSET: f32 = 2.0;
 pub const AURORA_BOMB_PROJECTILE_GEOMETRY_RADIUS: f32 = 2.0;
 /// Retail AuroraBombLocomotor Speed residual.
 pub const AURORA_BOMB_LOCO_SPEED: f32 = 480.0;
+/// Residual HeightDie peel for bomb impact (DaisyCutter-family TargetHeight residual).
+pub const AURORA_BOMB_HEIGHT_DIE_TARGET: f32 = 5.0;
 /// Retail AuroraBombLocomotor MinSpeed residual.
 pub const AURORA_BOMB_LOCO_MIN_SPEED: f32 = 240.0;
 /// Retail AuroraBombLocomotor Acceleration residual.
@@ -215,6 +218,15 @@ impl HostAuroraBombKind {
             HostAuroraBombKind::Standard => "AuroraBomb",
             HostAuroraBombKind::FuelAir => "AuroraFuelAir",
             HostAuroraBombKind::FuelAirSupW => "AuroraFuelAirSupW",
+        }
+    }
+
+    /// Retail projectile object residual for this Aurora bomb kind.
+    pub fn projectile_object_name(self) -> &'static str {
+        match self {
+            HostAuroraBombKind::Standard => AURORA_BOMB_PROJECTILE,
+            HostAuroraBombKind::FuelAir => AIRF_AURORA_BOMB_PROJECTILE,
+            HostAuroraBombKind::FuelAirSupW => SUPW_AURORA_FUEL_AIR_BOMB_PROJECTILE,
         }
     }
 
@@ -442,6 +454,8 @@ pub struct HostAuroraBombRegistry {
     activated_this_frame: Vec<u32>,
     /// Total activations / queued dive bombs (honesty).
     pub activation_count: u32,
+    /// AuroraBomb SpecialObject projectiles spawned residual.
+    pub projectile_spawns: u32,
     /// Total completed detonations (honesty).
     pub completion_count: u32,
     /// Total residual HP damage dealt across all impacts (honesty).
@@ -458,6 +472,7 @@ impl HostAuroraBombRegistry {
             completed_this_frame: Vec::new(),
             activated_this_frame: Vec::new(),
             activation_count: 0,
+            projectile_spawns: 0,
             completion_count: 0,
             damage_dealt: 0.0,
             objects_destroyed: 0,
@@ -521,6 +536,18 @@ impl HostAuroraBombRegistry {
     }
 
     /// Queue a delayed Aurora dive bomb. Returns host mission id.
+    pub fn has_mission(&self, id: u32) -> bool {
+        self.missions.contains_key(&id)
+    }
+
+    pub fn record_projectile_spawn(&mut self) {
+        self.projectile_spawns = self.projectile_spawns.saturating_add(1);
+    }
+
+    pub fn honesty_projectile_ok(&self) -> bool {
+        self.projectile_spawns > 0
+    }
+
     pub fn queue(
         &mut self,
         kind: HostAuroraBombKind,
@@ -765,6 +792,8 @@ pub fn honesty_aurora_projectile_residual_ok() -> bool {
         && (AURORA_BOMB_PROJECTILE_COM_OFFSET - 2.0).abs() < 0.01
         && (AURORA_BOMB_PROJECTILE_GEOMETRY_RADIUS - 2.0).abs() < 0.01
         && (AURORA_BOMB_LOCO_SPEED - 480.0).abs() < 0.01
+        && (AURORA_BOMB_HEIGHT_DIE_TARGET - 5.0).abs() < 0.01
+        && AURORA_BOMB_PROJECTILE == "AuroraBomb"
         && (AURORA_BOMB_LOCO_MIN_SPEED - 240.0).abs() < 0.01
         && (AURORA_BOMB_LOCO_ACCEL - 960.0).abs() < 0.01
         && (AURORA_BOMB_LOCO_TURN_RATE - 960.0).abs() < 0.01
