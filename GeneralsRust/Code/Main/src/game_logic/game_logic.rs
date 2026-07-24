@@ -1535,6 +1535,8 @@ pub struct GameLogic {
     rocket_buggy_missiles_spawned: u32,
     /// Honesty: Rocket Buggy ScatterRadiusVsInfantry aim offsets applied.
     rocket_buggy_scatter_applied: u32,
+    /// Honesty: SCUD Launcher ScatterRadiusVsInfantry aim offsets applied.
+    scud_launcher_scatter_applied: u32,
     /// Honesty: NeutronCannonShell projectiles spawned residual.
     neutron_shells_spawned: u32,
     /// Honesty: TunnelDefenderMissile / RPG projectiles spawned residual.
@@ -3135,6 +3137,7 @@ impl GameLogic {
             tomahawk_scatter_applied: 0,
             rocket_buggy_missiles_spawned: 0,
             rocket_buggy_scatter_applied: 0,
+            scud_launcher_scatter_applied: 0,
             neutron_shells_spawned: 0,
             rpg_trooper_missiles_spawned: 0,
             rpg_trooper_scatter_applied: 0,
@@ -3645,6 +3648,7 @@ impl GameLogic {
         self.tomahawk_scatter_applied = 0;
         self.rocket_buggy_missiles_spawned = 0;
         self.rocket_buggy_scatter_applied = 0;
+        self.scud_launcher_scatter_applied = 0;
         self.neutron_shells_spawned = 0;
         self.rpg_trooper_missiles_spawned = 0;
         self.rpg_trooper_scatter_applied = 0;
@@ -14260,6 +14264,7 @@ impl GameLogic {
                                         attacker_id,
                                         from,
                                         impact,
+                                        Some(target_id),
                                         toxin,
                                     )
                                     .is_some();
@@ -16167,6 +16172,7 @@ impl GameLogic {
                                     attacker_id,
                                     from,
                                     target_location,
+                                    None,
                                     toxin,
                                 )
                                 .is_some();
@@ -33061,6 +33067,12 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: SCUD area blast residual.
     pub fn honesty_scud_launcher_ok(&self) -> bool {
         self.scud_poison_zones.honesty_host_path_ok()
+            || self.scud_launcher_scatter_applied > 0
+    }
+
+    /// Residual honesty: SCUD Launcher ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_scud_launcher_scatter_ok(&self) -> bool {
+        self.scud_launcher_scatter_applied > 0
     }
 
     pub fn honesty_scud_area_ok(&self) -> bool {
@@ -34525,6 +34537,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         source_id: ObjectId,
         from: glam::Vec3,
         aim: glam::Vec3,
+        intended: Option<ObjectId>,
         toxin_warhead: bool,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_height_die::HostHeightDieData;
@@ -34547,6 +34560,28 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on SCUDLauncherGun vs infantry (**30**).
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) =
+            crate::game_logic::host_scud_launcher::scud_launcher_scatter_aim(
+                aim,
+                target_is_infantry,
+                seed,
+            );
+        if scattered {
+            self.scud_launcher_scatter_applied =
+                self.scud_launcher_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + SCUD_MISSILE_LOFT_HEIGHT * 0.25;
         let pid = self.create_object(SCUD_PROJECTILE, team, start)?;
@@ -97227,7 +97262,7 @@ assert!(
         let aim = Vec3::new(250.0, 0.0, 0.0);
         let from = Vec3::new(0.0, 0.0, 0.0);
         let pid = logic
-            .spawn_scud_launcher_missile_projectile(launcher, from, aim, false)
+            .spawn_scud_launcher_missile_projectile(launcher, from, aim, None, false)
             .expect("scud missile");
         {
             let m = logic.find_object(pid).unwrap();
@@ -123447,6 +123482,94 @@ assert!(
             .and_then(|o| o.rocket_buggy_missile_aim)
             .expect("aim2");
         assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn scud_launcher_missile_scatters_vs_infantry() {
+        use crate::game_logic::host_scud_launcher::SCUD_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut s_tpl = ThingTemplate::new("GLAVehicleSCUDLauncher");
+        s_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(180.0);
+        logic
+            .templates
+            .insert("GLAVehicleSCUDLauncher".to_string(), s_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let launcher = logic
+            .create_object(
+                "GLAVehicleSCUDLauncher",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("scud");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(250.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(250.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 6.0, 0.0);
+        let shell = logic
+            .spawn_scud_launcher_missile_projectile(launcher, from, aim, Some(inf), false)
+            .expect("missile");
+        assert!(logic.honesty_scud_launcher_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.scud_launcher_missile_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= SCUD_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut v_tpl = ThingTemplate::new("AmericaTankCrusader");
+        v_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), v_tpl);
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(300.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.scud_launcher_scatter_applied;
+        let shell2 = logic
+            .spawn_scud_launcher_missile_projectile(
+                launcher,
+                from,
+                glam::Vec3::new(300.0, 0.0, 0.0),
+                Some(tank),
+                false,
+            )
+            .expect("missile2");
+        assert_eq!(logic.scud_launcher_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.scud_launcher_missile_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 300.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
 }
