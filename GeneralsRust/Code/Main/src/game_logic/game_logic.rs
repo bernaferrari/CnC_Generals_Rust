@@ -49628,6 +49628,8 @@ fn update_scud_poison_zones(&mut self) {
         self.update_spectre_howitzer_shell_objects();
         // ParticleCannon residual continuous beam pulses (after charge residual).
         self.update_particle_beam_fields();
+        self.spawn_particle_orbital_laser_objects_for_new_beams();
+        self.update_particle_orbital_laser_objects();
         // Particle Uplink DamagePulseRemnant trail residual ticks.
         self.spawn_particle_trail_remnant_objects_for_new_fields();
         self.update_particle_trail_remnant_objects();
@@ -50427,6 +50429,88 @@ fn update_scud_poison_zones(&mut self) {
                 o.status.effectively_dead = true;
                 o.health.current = 0.0;
                 o.nuke_radiation_field = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    /// C++ ParticleUplinkCannon_OrbitalLaser ThingFactory Object residual.
+    pub fn spawn_particle_orbital_laser_objects_for_new_beams(&mut self) {
+        use crate::game_logic::special_power_strikes::{
+            PARTICLE_ORBITAL_LASER_MAX_HEALTH, PARTICLE_ORBITAL_LASER_NAME,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let pending: Vec<(u32, ObjectId, Team, Vec3, u32)> = self
+            .special_power_strikes
+            .beam_spawned_this_frame()
+            .iter()
+            .filter_map(|bid| {
+                self.special_power_strikes
+                    .beam_fields()
+                    .iter()
+                    .find(|f| f.id == *bid && f.object_id.is_none())
+                    .map(|f| {
+                        (
+                            f.id,
+                            f.source_object,
+                            f.source_team,
+                            f.position,
+                            f.expires_frame.saturating_sub(f.spawn_frame),
+                        )
+                    })
+            })
+            .collect();
+        if pending.is_empty() {
+            return;
+        }
+        if !self.templates.contains_key(PARTICLE_ORBITAL_LASER_NAME) {
+            let mut t = ThingTemplate::new(PARTICLE_ORBITAL_LASER_NAME);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(PARTICLE_ORBITAL_LASER_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(PARTICLE_ORBITAL_LASER_NAME.to_string(), t);
+        }
+        for (bid, source, team, pos, lifetime) in pending {
+            let expires = self.frame.saturating_add(lifetime.max(1));
+            // Place orbital laser residual above target (retail laser origin altitude).
+            let laser_pos = Vec3::new(pos.x, pos.y + 500.0, pos.z);
+            if let Some(oid) = self.create_object(PARTICLE_ORBITAL_LASER_NAME, team, laser_pos) {
+                if let Some(o) = self.objects.get_mut(&oid) {
+                    o.particle_orbital_laser = true;
+                    o.producer_id = Some(source);
+                    o.particle_orbital_laser_expires_frame = Some(expires);
+                    o.health.maximum = PARTICLE_ORBITAL_LASER_MAX_HEALTH;
+                    Self::write_object_health_authority_aware(o, PARTICLE_ORBITAL_LASER_MAX_HEALTH);
+                }
+                let _ = self.special_power_strikes.bind_beam_object(bid, oid);
+            }
+        }
+    }
+
+    pub fn update_particle_orbital_laser_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.particle_orbital_laser {
+                    if let Some(exp) = o.particle_orbital_laser_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.particle_orbital_laser = false;
             }
             self.mark_object_for_destruction(id, None);
         }
@@ -65313,6 +65397,65 @@ mod tests {
         assert!(
             logic
                 .find_object(oid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
+    
+    #[test]
+    fn particle_cannon_spawns_orbital_laser_object() {
+        use crate::game_logic::special_power_strikes::PARTICLE_ORBITAL_LASER_NAME;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut puc = crate::game_logic::ThingTemplate::new("AmericaParticleUplinkCannon");
+        puc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaParticleUplinkCannon".into(), puc);
+        let caster = logic
+            .create_object(
+                "AmericaParticleUplinkCannon",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let bid = logic.special_power_strikes.spawn_beam_field(
+            caster,
+            Team::USA,
+            Vec3::new(300.0, 0.0, 300.0),
+            logic.frame,
+            1,
+        );
+        logic.spawn_particle_orbital_laser_objects_for_new_beams();
+        assert!(logic.special_power_strikes.honesty_beam_object_spawn_ok());
+        assert!(logic.special_power_strikes.beam_objects_spawned() >= 1);
+        let laser = logic
+            .get_objects()
+            .values()
+            .find(|o| o.particle_orbital_laser)
+            .expect("OrbitalLaser");
+        assert_eq!(laser.template_name, PARTICLE_ORBITAL_LASER_NAME);
+        assert!((laser.get_position().y - 500.0).abs() < 0.01);
+        let lid = laser.id;
+        let bound = logic
+            .special_power_strikes
+            .beam_fields()
+            .iter()
+            .find(|f| f.id == bid)
+            .and_then(|f| f.object_id);
+        assert_eq!(bound, Some(lid));
+        let exp = logic
+            .special_power_strikes
+            .beam_fields()
+            .iter()
+            .find(|f| f.id == bid)
+            .map(|f| f.expires_frame)
+            .unwrap();
+        logic.frame = exp + 2;
+        logic.update_particle_orbital_laser_objects();
+        assert!(
+            logic
+                .find_object(lid)
                 .map(|o| !o.is_alive() || o.status.destroyed)
                 .unwrap_or(true)
         );

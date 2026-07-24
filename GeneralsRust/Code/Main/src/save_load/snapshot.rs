@@ -172,6 +172,8 @@ pub struct SpecialPowerStrikeRegistrySnapshot {
     /// Lifetime beam fields spawned (honesty after prune).
     #[serde(default)]
     pub beam_fields_spawned_total: u32,
+    #[serde(default)]
+    pub beam_objects_spawned: u32,
     /// Lifetime beam damage applications (honesty after prune).
     #[serde(default)]
     pub beam_damage_applications_total: u32,
@@ -234,6 +236,7 @@ impl Default for SpecialPowerStrikeRegistrySnapshot {
             next_beam_id: 1,
             beam_fields: Vec::new(),
             beam_fields_spawned_total: 0,
+            beam_objects_spawned: 0,
             beam_damage_applications_total: 0,
             next_remnant_id: 1,
             remnant_fields: Vec::new(),
@@ -3012,6 +3015,8 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         self.source_object.xfer(xfer)?;
         xfer.xfer_marker_label("SourceTeam")?;
         self.source_team.xfer(xfer)?;
+        xfer.xfer_marker_label("ObjectId")?;
+        xfer_option(xfer, &mut self.object_id, ObjectId(0))?;
         xfer.xfer_marker_label("Position")?;
         self.position.xfer(xfer)?;
         xfer.xfer_marker_label("SpawnFrame")?;
@@ -3528,6 +3533,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 id: 0,
                 source_object: ObjectId(0),
                 source_team: Team::Neutral,
+                object_id: None,
                 position: Vec3::ZERO,
                 spawn_frame: 0,
                 expires_frame: 0,
@@ -3639,6 +3645,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;
         xfer.xfer_u32(&mut self.beam_fields_spawned_total)?;
+        xfer.xfer_marker_label("BeamObjectsSpawned")?;
+        xfer.xfer_u32(&mut self.beam_objects_spawned)?;
         xfer.xfer_marker_label("BeamDamageApplicationsTotal")?;
         xfer.xfer_u32(&mut self.beam_damage_applications_total)?;
         // Particle Uplink DamagePulseRemnant trail residual (appended after beam).
@@ -5364,6 +5372,7 @@ impl SnapshotBuilder {
             next_beam_id: reg.next_beam_id(),
             beam_fields: reg.beam_fields().to_vec(),
             beam_fields_spawned_total: reg.beam_fields_spawned_total(),
+            beam_objects_spawned: reg.beam_objects_spawned(),
             beam_damage_applications_total: reg.beam_damage_applications_total(),
             next_remnant_id: reg.next_remnant_id(),
             remnant_fields: reg.remnant_fields().to_vec(),
@@ -5400,6 +5409,7 @@ impl SnapshotBuilder {
                 snapshot.next_beam_id,
                 snapshot.beam_fields.clone(),
                 snapshot.beam_fields_spawned_total,
+                snapshot.beam_objects_spawned,
                 snapshot.beam_damage_applications_total,
                 snapshot.next_remnant_id,
                 snapshot.remnant_fields.clone(),
