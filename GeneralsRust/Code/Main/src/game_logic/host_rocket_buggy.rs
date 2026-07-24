@@ -175,6 +175,20 @@ pub fn should_apply_rocket_buggy_residual(is_buggy: bool) -> bool {
 /// Retail ScatterRadiusVsInfantry aims at a random offset; host residual uses
 /// (frame ^ target_id) parity so tests can force miss/hit by frame choice.
 /// Fail-closed: not full continuous random circle sample.
+/// Whether BuggyRocketWeapon residual misses intended infantry via ScatterRadiusVsInfantry (**20**).
+pub fn rocket_buggy_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(BUGGY_SCATTER_VS_INFANTRY, seed, target_hit_radius)
+}
+
+/// Back-compat wrapper: deterministic seed from frame+id into standard scatter miss.
 pub fn rocket_buggy_infantry_scatter_miss(
     target_is_infantry: bool,
     frame: u32,
@@ -183,8 +197,12 @@ pub fn rocket_buggy_infantry_scatter_miss(
     if !target_is_infantry {
         return false;
     }
-    // ~50% residual miss rate (fail-closed vs continuous scatter distribution).
-    ((frame ^ target_id_raw).wrapping_mul(2654435761)) & 1 == 1
+    let seed = frame.wrapping_mul(2654435761) ^ target_id_raw.wrapping_mul(1597334677);
+    rocket_buggy_scatter_misses_infantry(
+        true,
+        seed,
+        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS,
+    )
 }
 
 /// Residual damage for one object relative to impact.
@@ -368,7 +386,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= BUGGY_SCATTER_VS_INFANTRY + 0.01);
-    }
+    
+        assert!(rocket_buggy_scatter_misses_infantry(true, 67, 0.5));
+        assert!(!rocket_buggy_scatter_misses_infantry(true, 67, 100.0));
+        assert!(!rocket_buggy_scatter_misses_infantry(false, 67, 0.5));
+}
 
     #[test]
     fn rocket_buggy_name_matrix() {
