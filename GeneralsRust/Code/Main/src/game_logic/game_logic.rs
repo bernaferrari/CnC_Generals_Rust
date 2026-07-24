@@ -1336,7 +1336,7 @@ pub struct GameLogic {
     hellfire_drone_residual_attaches: u32,
 
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
-    /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
+    /// RadarVanPing object residual closed; fail-closed vs grid decal GPU path.
     radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
 
     /// Host SpySatellite FOW temporary-reveal residual.
@@ -6043,7 +6043,8 @@ impl GameLogic {
         // Activation is event-driven via DoSpecialPower (no continuous generator field).
 
         // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
-        // Fail-closed vs full OCL RadarVanPing lifetime modules.
+        // RadarVanPing DeletionUpdate residual + FOW undo.
+        self.update_radar_van_pings();
         self.update_radar_scans();
 
         // Host SpySatellite residual: expire temporary FOW reveals (undo lookers).
@@ -29256,6 +29257,64 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         Some(mid)
     }
 
+    /// C++ OCL SUPERWEAPON_RadarVanScan CreateObject RadarVanPing residual.
+    pub fn spawn_radar_van_ping(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_radar_scan::{
+            RADAR_SCAN_DURATION_FRAMES, RADAR_VAN_PING_TEMPLATE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(RADAR_VAN_PING_TEMPLATE) {
+            let mut t = ThingTemplate::new(RADAR_VAN_PING_TEMPLATE);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(RADAR_VAN_PING_TEMPLATE.to_string(), t);
+        }
+        let pid = self.create_object(RADAR_VAN_PING_TEMPLATE, team, position)?;
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.radar_van_ping = true;
+            o.producer_id = caster_id;
+            o.radar_van_ping_expires_frame =
+                Some(self.frame.saturating_add(RADAR_SCAN_DURATION_FRAMES));
+        }
+        self.radar_scans.record_ping_spawn();
+        Some(pid)
+    }
+
+    pub fn update_radar_van_pings(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.radar_van_ping {
+                    if let Some(exp) = o.radar_van_ping_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.radar_van_ping = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     /// C++ OCL SUPERWEAPON_SpySatellite CreateObject SpySatellitePing residual.
     pub fn spawn_spy_satellite_ping(
         &mut self,
@@ -46294,6 +46353,9 @@ fn update_scud_poison_zones(&mut self) {
                 .with_position(location)
                 .with_priority(150),
         );
+
+        // C++ OCL SUPERWEAPON_RadarVanScan → RadarVanPing residual.
+        let _ = self.spawn_radar_van_ping(team, location, caster_id);
 
         // Also enable radar UI residual if scripts had disabled it — scan is
         // a radar power; observability via radar_enabled honesty path.
@@ -69461,6 +69523,45 @@ mod tests {
 
 
 
+
+    #[test]
+    fn radar_scan_spawns_radar_van_ping_object() {
+        use crate::game_logic::host_radar_scan::{
+            RADAR_SCAN_DURATION_FRAMES, RADAR_VAN_PING_TEMPLATE,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        let mut van = crate::game_logic::ThingTemplate::new("GLAVehicleRadarVan");
+        van.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("GLAVehicleRadarVan".into(), van);
+        let van_id = logic
+            .create_object("GLAVehicleRadarVan", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.activate_radar_scan(
+            0,
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            Some(van_id),
+        ));
+        assert!(logic.radar_scans.pings_spawned >= 1);
+        assert!(logic.radar_scans.honesty_ping_ok());
+        let ping = logic
+            .get_objects()
+            .values()
+            .find(|o| o.radar_van_ping)
+            .expect("RadarVanPing");
+        assert_eq!(ping.template_name, RADAR_VAN_PING_TEMPLATE);
+        let pid = ping.id;
+        logic.frame = RADAR_SCAN_DURATION_FRAMES + 5;
+        logic.update_radar_van_pings();
+        assert!(
+            logic
+                .find_object(pid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
     #[test]
     fn spy_satellite_spawns_ping_object() {
         use crate::game_logic::host_spy_satellite::{

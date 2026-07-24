@@ -13,7 +13,7 @@
 //! - Honesty counters/flags for residual gates and tests.
 //!
 //! Fail-closed honesty:
-//! - Not full OCL RadarVanPing Object spawn / grid decal GPU path
+//! - RadarVanPing object spawn residual closed (grid decal GPU fail-closed)
 //! - Not multiplayer shared-synced timer / academy / shortcut UI parity
 //! - Not Common `Radar` minimap-cell scan list Xfer tables
 
@@ -185,6 +185,8 @@ pub struct HostRadarScanRegistry {
     pub dynamic_shroud_applications: u32,
     /// StealthDetector residual applications on activate (honesty).
     pub stealth_detector_applications: u32,
+    /// Honesty: RadarVanPing objects spawned.
+    pub pings_spawned: u32,
 }
 
 impl HostRadarScanRegistry {
@@ -264,6 +266,14 @@ impl HostRadarScanRegistry {
     /// Residual honesty: at least one scan activated.
     pub fn honesty_activate_ok(&self) -> bool {
         self.activations > 0
+    }
+
+    pub fn record_ping_spawn(&mut self) {
+        self.pings_spawned = self.pings_spawned.saturating_add(1);
+    }
+
+    pub fn honesty_ping_ok(&self) -> bool {
+        self.pings_spawned > 0
     }
 
     /// Residual honesty: FOW reveal was observed at least once.
