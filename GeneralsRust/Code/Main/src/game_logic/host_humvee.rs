@@ -25,12 +25,14 @@
 //!
 //! Fail-closed honesty:
 //! - HumveeMissile / PatriotMissile MissileAI flight residual (ground TOW non-seek + air TOW seek)
+//! - Ground TOW ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full WeaponSet PLAYER_UPGRADE visual turret swap
 //! - Not full TransportAIUpdate multi-exit-path / GoAggressiveOnExit matrix
 //! - Not Battle/Scout/Hellfire drone ObjectCreationUpgrade (see host_slave_drones)
 //! - Not network TOW / transport replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const HUMVEE_LOGIC_FPS: f32 = 30.0;
@@ -447,6 +449,55 @@ pub fn honesty_humvee_tow_missile_projectile_ok() -> bool {
         && (HUMVEE_TOW_MISSILE_CRUISE_SPEED - 600.0).abs() < 0.01
 }
 
+
+/// Apply HumveeMissileWeapon (ground TOW) ScatterRadiusVsInfantry residual to aim.
+///
+/// Air TOW (`HumveeMissileWeaponAir` / PatriotMissile) does not apply this residual
+/// (anti-air path; infantry scatter not retail-relevant).
+pub fn humvee_tow_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    air: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    if air {
+        return (aim, false);
+    }
+    let mut scatter =
+        host_effective_scatter_radius(HUMVEE_MISSILE_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Wave residual honesty: Humvee ground TOW ScatterRadiusVsInfantry peels (**10**).
+pub fn honesty_humvee_tow_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    let vs = host_effective_scatter_radius(HUMVEE_MISSILE_WEAPON, true);
+    let ground = host_effective_scatter_radius(HUMVEE_MISSILE_WEAPON, false);
+    (HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && ((vs - 10.0).abs() < 0.01 || vs <= 0.0)
+        && ground.abs() < 0.01
+        && {
+            let (sc, applied) =
+                humvee_tow_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, false, 3);
+            applied && sc.length() <= HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY + 0.01
+        }
+        && {
+            let (_, applied) =
+                humvee_tow_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, true, 3);
+            !applied
+        }
+}
+
 pub fn honesty_humvee_residual_pack_ok() -> bool {
     honesty_humvee_gun_residual_ok()
         && honesty_humvee_ground_tow_residual_ok()
@@ -454,11 +505,28 @@ pub fn honesty_humvee_residual_pack_ok() -> bool {
         && honesty_humvee_transport_residual_ok()
         && honesty_humvee_body_tow_upgrade_residual_ok()
         && honesty_humvee_tow_missile_projectile_ok()
+        && honesty_humvee_tow_scatter_vs_infantry_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn humvee_tow_scatter_vs_infantry_peels() {
+        assert!(honesty_humvee_tow_scatter_vs_infantry_ok());
+        let aim = Vec3::new(140.0, 0.0, 18.0);
+        let (no_sc, applied) = humvee_tow_scatter_aim(aim, false, false, 31);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (air_sc, applied) = humvee_tow_scatter_aim(aim, true, true, 31);
+        assert!(!applied);
+        assert_eq!(air_sc, aim);
+        let (sc, applied) = humvee_tow_scatter_aim(aim, true, false, 31);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY + 0.01);
+    }
 
     #[test]
     fn humvee_name_matrix() {
@@ -519,6 +587,7 @@ mod tests {
 
     #[test]
     fn humvee_residual_pack_honesty_wave58() {
+        assert!(honesty_humvee_tow_scatter_vs_infantry_ok());
         assert!(honesty_humvee_residual_pack_ok());
         assert_eq!(humvee_ms_to_frames(200), 6);
         assert_eq!(humvee_ms_to_frames(1_000), 30);
