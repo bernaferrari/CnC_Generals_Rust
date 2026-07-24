@@ -1121,6 +1121,8 @@ pub struct GameLogic {
     status_bits_upgrade_reg: crate::game_logic::host_status_bits_upgrade::HostStatusBitsUpgradeRegistry,
     /// C++ FireSpreadUpdate residual counters.
     fire_spread_reg: crate::game_logic::host_fire_spread::HostFireSpreadRegistry,
+    /// C++ BaseRegenerateUpdate residual counters.
+    base_regenerate_reg: crate::game_logic::host_base_regenerate::HostBaseRegenerateRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2789,6 +2791,7 @@ impl GameLogic {
             tensile_formation_reg: crate::game_logic::host_tensile_formation::HostTensileFormationRegistry::new(),
             status_bits_upgrade_reg: crate::game_logic::host_status_bits_upgrade::HostStatusBitsUpgradeRegistry::new(),
             fire_spread_reg: crate::game_logic::host_fire_spread::HostFireSpreadRegistry::new(),
+            base_regenerate_reg: crate::game_logic::host_base_regenerate::HostBaseRegenerateRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3240,6 +3243,7 @@ impl GameLogic {
         self.tensile_formation_reg.clear();
         self.status_bits_upgrade_reg.clear();
         self.fire_spread_reg.clear();
+        self.base_regenerate_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -5953,6 +5957,7 @@ impl GameLogic {
         self.update_scud_poison_zones();
         self.update_tensile_formations();
         self.update_fire_spread();
+        self.update_base_regenerate();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -22054,6 +22059,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             if object.has_fire_spread() {
                 self.fire_spread_reg.record_install();
             }
+            object.install_base_regenerate_if_needed();
+            if object.base_regenerate.is_some() {
+                self.base_regenerate_reg.record_install();
+            }
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -27011,6 +27020,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_fire_spread::honesty_fire_spread_residual_ok()
     }
 
+    pub fn honesty_base_regenerate_ok(&self) -> bool {
+        self.base_regenerate_reg.honesty_host_path_ok()
+            && crate::game_logic::host_base_regenerate::honesty_base_regenerate_residual_ok()
+    }
+
     pub fn tensile_formation_registry(
         &self,
     ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
@@ -30569,7 +30583,56 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
         /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
-    fn update_fire_spread(&mut self) {
+        /// C++ BaseRegenerateUpdate residual (structure auto-heal after delay).
+    fn update_base_regenerate(&mut self) {
+        let frame = self.frame as u32;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.base_regenerate.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let max_h = obj.health.maximum.max(obj.max_health).max(1.0);
+            let cur = obj.health.current;
+            let under = obj.status.under_construction;
+            let sold = obj.status.sold;
+            let amount = {
+                let Some(br) = obj.base_regenerate.as_mut() else {
+                    continue;
+                };
+                let had_pending = br.pending_damage;
+                let amt = br.tick_heal_amount(frame, cur, max_h, under, sold);
+                if had_pending && !br.pending_damage {
+                    self.base_regenerate_reg.record_damage_delay();
+                }
+                amt
+            };
+            if amount > 0.0 {
+                let new_h = (cur + amount).min(max_h);
+                obj.health.current = new_h;
+                self.base_regenerate_reg.record_heal(amount);
+            }
+        }
+    }
+
+    /// Notify BaseRegenerateUpdate residual after non-heal damage.
+    pub fn notify_base_regenerate_damage(&mut self, id: ObjectId, is_healing: bool) {
+        let frame = self.frame as u32;
+        if let Some(obj) = self.objects.get_mut(&id) {
+            if obj.base_regenerate.is_some() {
+                obj.notify_base_regenerate_damage(frame, is_healing);
+                if !is_healing {
+                    self.base_regenerate_reg.record_damage_delay();
+                }
+            }
+        }
+    }
+
+fn update_fire_spread(&mut self) {
         use crate::game_logic::host_fire_spread::TREE_OCL_EMBERS;
 
         let frame = self.frame as u32;
@@ -75095,7 +75158,60 @@ mod tests {
     #[test]
 
     #[test]
-    fn fire_spread_tree_ignites_neighbor() {
+
+    #[test]
+    fn base_regenerate_structure_heals_after_delay() {
+        use crate::game_logic::host_base_regenerate::{
+            honesty_base_regenerate_residual_ok, BASE_REGEN_DELAY_FRAMES,
+            BASE_REGEN_HEAL_RATE_FRAMES,
+        };
+        use crate::game_logic::KindOf;
+        assert!(honesty_base_regenerate_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        tpl.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic
+            .templates
+            .insert("AmericaCommandCenter".to_string(), tpl);
+        let id = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cc");
+        assert!(logic.find_object(id).unwrap().base_regenerate.is_some());
+        assert!(logic.base_regenerate_reg.installed >= 1);
+
+        {
+            let o = logic.find_object_mut(id).unwrap();
+            o.health.current = 500.0;
+            o.status.under_construction = false;
+        }
+        logic.set_current_frame(0);
+        logic.notify_base_regenerate_damage(id, false);
+        // Immediately after damage: still delayed.
+        logic.update_base_regenerate();
+        let mid = logic.find_object(id).unwrap().health.current;
+        assert!((mid - 500.0).abs() < 0.01, "no heal during delay, got {mid}");
+
+        // After delay, heal ticks.
+        let wake = BASE_REGEN_DELAY_FRAMES;
+        logic.set_current_frame(u64::from(wake));
+        logic.update_base_regenerate();
+        let after = logic.find_object(id).unwrap().health.current;
+        assert!(
+            after > 500.0,
+            "must heal after delay (after={after})"
+        );
+        assert!(logic.base_regenerate_reg.heal_ticks >= 1);
+        assert!(logic.honesty_base_regenerate_ok());
+        let _ = BASE_REGEN_HEAL_RATE_FRAMES;
+    }
+
+
+        fn fire_spread_tree_ignites_neighbor() {
         use crate::game_logic::host_fire_spread::{
             honesty_fire_spread_residual_ok, TREE_SPREAD_TRY_RANGE,
         };

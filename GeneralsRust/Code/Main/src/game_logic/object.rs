@@ -1052,6 +1052,9 @@ pub struct Object {
     /// C++ FireSpreadUpdate + FlammableUpdate residual.
     #[serde(default)]
     pub fire_spread: Option<crate::game_logic::host_fire_spread::HostFireSpreadData>,
+    /// C++ BaseRegenerateUpdate residual (structure auto-heal).
+    #[serde(default)]
+    pub base_regenerate: Option<crate::game_logic::host_base_regenerate::HostBaseRegenerateData>,
     /// C++ HelicopterSlowDeathBehavior residual.
     #[serde(default)]
     pub helicopter_slow_death:
@@ -1701,6 +1704,7 @@ impl Object {
             height_die: None,
             tensile_formation: None,
             fire_spread: None,
+            base_regenerate: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -2074,6 +2078,7 @@ impl Object {
             height_die: None,
             tensile_formation: None,
             fire_spread: None,
+            base_regenerate: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -3654,6 +3659,27 @@ impl Object {
             crate::game_logic::host_fire_spread::HostFireSpreadData::for_template(&self.template_name)
         {
             self.fire_spread = Some(data);
+        }
+    }
+
+    pub fn install_base_regenerate_if_needed(&mut self) {
+        if self.base_regenerate.is_some() {
+            return;
+        }
+        let is_structure = self.is_kind_of(crate::game_logic::KindOf::Structure);
+        if let Some(data) =
+            crate::game_logic::host_base_regenerate::HostBaseRegenerateData::for_structure_template(
+                &self.template_name,
+                is_structure,
+            )
+        {
+            self.base_regenerate = Some(data);
+        }
+    }
+
+    pub fn notify_base_regenerate_damage(&mut self, current_frame: u32, is_healing: bool) {
+        if let Some(br) = self.base_regenerate.as_mut() {
+            br.on_damage(current_frame, is_healing);
         }
     }
 
@@ -7483,6 +7509,13 @@ impl Object {
         // OCL InvulnerableTime residual (post-eject pilot shield).
         if self.status.eject_invulnerable {
             return false;
+        }
+
+        // C++ BaseRegenerateUpdate::onDamage residual (delay before auto-heal).
+        if damage > 0.0 {
+            if let Some(br) = self.base_regenerate.as_mut() {
+                br.mark_damaged();
+            }
         }
 
         // C++ StealthForbiddenConditions TAKING_DAMAGE residual (CamoNetting structures).
