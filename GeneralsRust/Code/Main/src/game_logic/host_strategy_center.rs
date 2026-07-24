@@ -148,6 +148,9 @@ pub const STRATEGY_CENTER_GUN_WEAPON: &str = "StrategyCenterGun";
 pub const STRATEGY_CENTER_GUN_DAMAGE: f32 = 200.0;
 /// Retail StrategyCenterGun PrimaryDamageRadius.
 pub const STRATEGY_CENTER_GUN_PRIMARY_RADIUS: f32 = 25.0;
+/// Retail StrategyCenterGun ScatterRadius / ScatterRadiusVsInfantry residual.
+pub const STRATEGY_CENTER_GUN_SCATTER: f32 = 15.0;
+pub const STRATEGY_CENTER_GUN_SCATTER_VS_INFANTRY: f32 = 15.0;
 /// Retail StrategyCenterGun AttackRange.
 pub const STRATEGY_CENTER_GUN_RANGE: f32 = 400.0;
 /// Retail StrategyCenterGun MinimumAttackRange.
@@ -779,6 +782,50 @@ pub fn strategy_center_gun_damage_at(distance_from_impact: f32) -> f32 {
         0.0
     }
 }
+
+/// C++ StrategyCenterGun ScatterRadius (**15**) + ScatterRadiusVsInfantry (**15**).
+pub fn strategy_center_gun_scatter_aim(
+    aim: glam::Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (glam::Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let mut scatter =
+        host_effective_scatter_radius(STRATEGY_CENTER_GUN_WEAPON, target_is_infantry);
+    if scatter <= 0.0 {
+        scatter = if target_is_infantry {
+            STRATEGY_CENTER_GUN_SCATTER + STRATEGY_CENTER_GUN_SCATTER_VS_INFANTRY
+        } else {
+            STRATEGY_CENTER_GUN_SCATTER
+        };
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (
+        glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z),
+        true,
+    )
+}
+
+/// Whether StrategyCenterGun residual misses intended via scatter (all targets).
+pub fn strategy_center_gun_scatter_misses(
+    seed: u32,
+    target_hit_radius: f32,
+    target_is_infantry: bool,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    let scatter = if target_is_infantry {
+        STRATEGY_CENTER_GUN_SCATTER + STRATEGY_CENTER_GUN_SCATTER_VS_INFANTRY
+    } else {
+        STRATEGY_CENTER_GUN_SCATTER
+    };
+    scatter_misses_intended_target(scatter, seed, target_hit_radius)
+}
+
 
 /// Whether residual target is in StrategyCenterGun range band (min..=max).
 pub fn strategy_center_gun_in_range(distance: f32) -> bool {
@@ -2453,4 +2500,22 @@ mod tests {
         assert_eq!(BATTLE_PLAN_PARALYZE_FRAMES, 150);
         assert!((BOMBARDMENT_DAMAGE_MULT - 1.20).abs() < 0.001);
     }
+
+    #[test]
+    fn strategy_center_gun_scatter_peels() {
+        assert!((STRATEGY_CENTER_GUN_SCATTER - 15.0).abs() < 0.01);
+        assert!((STRATEGY_CENTER_GUN_SCATTER_VS_INFANTRY - 15.0).abs() < 0.01);
+        let aim = glam::Vec3::new(10.0, 0.0, 20.0);
+        let (sc, applied) = strategy_center_gun_scatter_aim(aim, false, 31);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= STRATEGY_CENTER_GUN_SCATTER + 0.01);
+        let (sci, _) = strategy_center_gun_scatter_aim(aim, true, 31);
+        let di = ((sci.x - aim.x).powi(2) + (sci.z - aim.z).powi(2)).sqrt();
+        assert!(di > 0.01 && di <= STRATEGY_CENTER_GUN_SCATTER + STRATEGY_CENTER_GUN_SCATTER_VS_INFANTRY + 0.01);
+        assert!(strategy_center_gun_scatter_misses(67, 0.5, true));
+        assert!(!strategy_center_gun_scatter_misses(67, 100.0, true));
+        assert!(strategy_center_gun_scatter_misses(67, 0.5, false));
+    }
+
 }

@@ -1373,6 +1373,10 @@ fn seed_scatter_radius_for(name: &str) -> f32 {
     if n.contains("flashbang") || n.contains("flash_bang") {
         return 4.0;
     }
+    // Strategy Center artillery residual ScatterRadius **15**.
+    if n.contains("strategycenter") || n.contains("strategy_center") {
+        return 15.0;
+    }
     0.0
 }
 
@@ -1383,6 +1387,10 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
     }
     // Fire Base howitzer residual ScatterRadiusVsInfantry **15**.
     if n.contains("firebase") || (n.contains("howitzer") && !n.contains("neutron")) {
+        return 15.0;
+    }
+    // Strategy Center gun residual ScatterRadiusVsInfantry **15**.
+    if n.contains("strategycenter") || n.contains("strategy_center") {
         return 15.0;
     }
     // Neutron shell residual ScatterRadiusVsInfantry **10** (before NukeCannon primary 30).

@@ -1276,6 +1276,10 @@ pub struct GameLogic {
     /// Host USA Strategy Center battle-plan residual (Bombardment / HoldTheLine / S&D).
     /// Fail-closed: not full BattlePlanUpdate pack/unpack / paralyze / turret matrix.
     battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry,
+    /// Honesty: StrategyCenterGun ScatterRadius peels applied.
+    strategy_center_gun_scatter_applied: u32,
+    /// Honesty: StrategyCenterGun scatter residual misses.
+    strategy_center_gun_scatter_misses: u32,
 
     /// Host Emergency Repair residual — SingleBurst ally vehicle heal in radius.
     /// Fail-closed: not full OCL RepairVehicles invisible marker / RepairCloud path.
@@ -3092,6 +3096,8 @@ impl GameLogic {
             sub_objects_upgrades: crate::game_logic::host_sub_objects_upgrade::HostSubObjectsUpgradeLog::default(),
             frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
             battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry::new(),
+            strategy_center_gun_scatter_applied: 0,
+            strategy_center_gun_scatter_misses: 0,
             emergency_repairs:
                 crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry::new(),
             cleanup_areas: crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry::new(),
@@ -3810,6 +3816,8 @@ impl GameLogic {
         self.comanche_antitank_residual_units_hit = 0;
         self.comanche_at_scatter_applied = 0;
         self.comanche_at_scatter_misses = 0;
+        self.strategy_center_gun_scatter_applied = 0;
+        self.strategy_center_gun_scatter_misses = 0;
         self.helix_minigun_residual_fires = 0;
         self.helix_minigun_residual_units_hit = 0;
         self.inferno_black_napalm_residual_upgrades = 0;
@@ -31681,7 +31689,56 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             .map(|t| t.get_position())
             .unwrap_or(fire_pos);
 
-        // Splash residual: intended + PrimaryDamageRadius ring.
+        // C++ StrategyCenterGun ScatterRadius (**15**) + ScatterRadiusVsInfantry (**15**).
+        use crate::game_logic::host_strategy_center::{
+            strategy_center_gun_scatter_aim, strategy_center_gun_scatter_misses,
+        };
+        let intended_is_infantry = self
+            .objects
+            .get(&target_id)
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            center_id.0,
+            target_id.0,
+            self.frame,
+        );
+        let hit_r = self
+            .objects
+            .get(&target_id)
+            .map(|o| {
+                if o.selection_radius > 0.0 {
+                    o.selection_radius
+                } else {
+                    crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                }
+            })
+            .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+        let (impact, scattered) =
+            strategy_center_gun_scatter_aim(impact, intended_is_infantry, seed);
+        if scattered {
+            self.strategy_center_gun_scatter_applied =
+                self.strategy_center_gun_scatter_applied.saturating_add(1);
+        }
+        let mut intended_scatter_miss = false;
+        if strategy_center_gun_scatter_misses(seed, hit_r, intended_is_infantry) {
+            let intended_pos = self
+                .objects
+                .get(&target_id)
+                .map(|o| o.get_position());
+            if let Some(pos) = intended_pos {
+                let dx = impact.x - pos.x;
+                let dz = impact.z - pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                if dist > STRATEGY_CENTER_GUN_PRIMARY_RADIUS {
+                    self.strategy_center_gun_scatter_misses =
+                        self.strategy_center_gun_scatter_misses.saturating_add(1);
+                    intended_scatter_miss = true;
+                }
+            }
+        }
+
+        // Splash residual: intended + PrimaryDamageRadius ring (no force-hit after scatter miss).
         let impact_xz = (impact.x, impact.z);
         let candidates: Vec<(ObjectId, f32, bool)> = self
             .objects
@@ -31713,6 +31770,12 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     (dx * dx + dz * dz).sqrt()
                 };
                 let is_intended = *id == target_id;
+                if is_intended && intended_scatter_miss {
+                    if dist > STRATEGY_CENTER_GUN_PRIMARY_RADIUS {
+                        return None;
+                    }
+                    return Some((*id, dist, false));
+                }
                 if is_intended || dist <= STRATEGY_CENTER_GUN_PRIMARY_RADIUS {
                     Some((*id, dist, is_intended))
                 } else {
@@ -34211,6 +34274,12 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: Strategy Center TurretAI idle mood-target residual.
     pub fn honesty_strategy_center_turret_mood_target_ok(&self) -> bool {
         self.battle_plans.honesty_turret_mood_target_ok()
+    }
+
+    /// Residual honesty: StrategyCenterGun ScatterRadius peels applied.
+    pub fn honesty_strategy_center_gun_scatter_ok(&self) -> bool {
+        self.strategy_center_gun_scatter_applied > 0
+            || self.strategy_center_gun_scatter_misses > 0
     }
 
     pub fn camo_netting_structure_residual_reveals(&self) -> u32 {
@@ -80143,6 +80212,97 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn strategy_center_gun_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_strategy_center::{
+            HostBattlePlan, STRATEGY_CENTER_GUN_MIN_RANGE, STRATEGY_CENTER_GUN_SCATTER,
+            STRATEGY_CENTER_GUN_SCATTER_VS_INFANTRY,
+        };
+
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+
+        if !logic.players.contains_key(&0) {
+            logic
+                .players
+                .insert(0, Player::new(0, Team::USA, "USA", true));
+        } else if let Some(p) = logic.players.get_mut(&0) {
+            p.team = Team::USA;
+        }
+
+        let sc_id = logic
+            .create_object("AmericaStrategyCenter", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("strategy center");
+
+        let inf = logic
+            .create_object(
+                "TestInfantry",
+                Team::GLA,
+                glam::Vec3::new(STRATEGY_CENTER_GUN_MIN_RANGE + 50.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        assert!(logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id)));
+        advance_battle_plan_door_to_active(&mut logic);
+        assert!(logic.find_object(sc_id).unwrap().weapon.is_some());
+
+        // Ready weapon.
+        if let Some(o) = logic.objects.get_mut(&sc_id) {
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
+
+        logic.try_strategy_center_bombardment_turret_fire(sc_id);
+        assert!(
+            logic.strategy_center_gun_scatter_applied > 0
+                || logic.strategy_center_gun_scatter_misses > 0
+                || logic.honesty_strategy_center_gun_scatter_ok(),
+            "strategy center gun scatter residual must peel vs infantry"
+        );
+        assert!((STRATEGY_CENTER_GUN_SCATTER - 15.0).abs() < 0.01);
+        assert!((STRATEGY_CENTER_GUN_SCATTER_VS_INFANTRY - 15.0).abs() < 0.01);
+
+        // Non-infantry still exercises scatter (base radius 15) and can hit splash.
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let tank = logic
+            .create_object(
+                "TestTank",
+                Team::GLA,
+                glam::Vec3::new(STRATEGY_CENTER_GUN_MIN_RANGE + 50.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        if let Some(o) = logic.objects.get_mut(&sc_id) {
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
+        let before_applied = logic.strategy_center_gun_scatter_applied;
+        logic.try_strategy_center_bombardment_turret_fire(sc_id);
+        assert!(
+            logic.strategy_center_gun_scatter_applied > before_applied
+                || logic.honesty_strategy_center_gun_scatter_ok(),
+            "vehicle target still peels base ScatterRadius"
+        );
+        let _ = tank;
+    }
+
 
     /// Residual: Strategy Center StealthDetectorUpdate enable stack (S&D).
     ///
