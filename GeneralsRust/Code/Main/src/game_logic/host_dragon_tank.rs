@@ -20,7 +20,9 @@
 //!   DamageType **FLAME**, DeathType **BURNED**, WeaponSpeed **600**
 //!
 //! Fail-closed honesty:
-//! - Not full flamethrower projectile stream / ProjectileStream drawing
+//! - DragonTankFlameProjectile MissileAI flight residual (Fuel 350ms, InitialVelocity 120,
+//!   DetonateOnNoFuel, stream points via ProjectileStreamRegistry / DragonTankFlameStream)
+//! - Not full BoneFX particle trail / garrison-hit kill matrix FX GPU
 //! - Not InchForward FireWallSegment crawl (see host_firewall)
 //! - Not AllowAttackGarrisonedBldgs garrison-clear matrix
 //! - Not multi-select FIRE_WEAPON command-button AI matrix
@@ -58,6 +60,27 @@ pub const DRAGON_DELAY_MS: u32 = 40;
 pub const DRAGON_DELAY_FRAMES: u32 = 2;
 /// Retail WeaponSpeed.
 pub const DRAGON_PROJECTILE_SPEED: f32 = 600.0;
+/// Retail ProjectileObject residual.
+pub const DRAGON_FLAME_PROJECTILE: &str = "DragonTankFlameProjectile";
+/// Retail ProjectileStreamName residual.
+pub const DRAGON_FLAME_STREAM: &str = "DragonTankFlameStream";
+/// MissileAI InitialVelocity residual (dist/sec).
+pub const DRAGON_FLAME_MISSILE_INITIAL_VELOCITY: f32 = 120.0;
+/// MissileAI FuelLifetime 350ms residual.
+pub const DRAGON_FLAME_MISSILE_FUEL_MS: u32 = 350;
+/// Fuel 350ms → 11 frames @ 30 FPS (round 10.5).
+pub const DRAGON_FLAME_MISSILE_FUEL_FRAMES: u32 = 11;
+/// DistanceToTravelBeforeTurning residual.
+pub const DRAGON_FLAME_MISSILE_TURN_DISTANCE: f32 = 2.0;
+/// MaxHealth residual.
+pub const DRAGON_FLAME_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// DetonateOnNoFuel residual.
+pub const DRAGON_FLAME_MISSILE_DETONATE_ON_NO_FUEL: bool = true;
+/// TryToFollowTarget residual.
+pub const DRAGON_FLAME_MISSILE_SEEK: bool = false;
+/// IgnitionDelay residual frames.
+pub const DRAGON_FLAME_MISSILE_IGNITION_DELAY_FRAMES: u32 = 0;
+
 /// Retail FireSoundLoopTime residual (msec).
 pub const DRAGON_FIRE_SOUND_LOOP_MS: u32 = 80;
 /// FireSoundLoopTime 80ms → 2 frames @ 30 FPS.
@@ -153,6 +176,23 @@ pub fn is_dragon_tank_template(template_name: &str) -> bool {
 }
 
 /// Whether residual fire should apply Dragon flame residual path.
+
+/// Per-frame flame projectile step speed (dist/frame). Pre-turn uses InitialVelocity;
+/// post-turn cruises at WeaponSpeed residual.
+pub fn dragon_flame_missile_step_speed(ignited_and_steering: bool) -> f32 {
+    if ignited_and_steering {
+        DRAGON_PROJECTILE_SPEED / DRAGON_LOGIC_FPS
+    } else {
+        DRAGON_FLAME_MISSILE_INITIAL_VELOCITY / DRAGON_LOGIC_FPS
+    }
+}
+
+/// Estimated straight-line flight frames at cruise speed.
+pub fn dragon_flame_flight_frames(distance: f32) -> u32 {
+    let step = dragon_flame_missile_step_speed(true).max(0.001);
+    (distance / step).ceil() as u32
+}
+
 pub fn should_apply_dragon_flame_residual(is_dragon: bool) -> bool {
     is_dragon
 }
@@ -331,10 +371,24 @@ pub fn honesty_dragon_range_residual_ok() -> bool {
 }
 
 /// Combined Wave 59 Dragon Tank residual honesty pack.
+/// Wave residual honesty: DragonTankFlameProjectile MissileAI peels.
+pub fn honesty_dragon_flame_projectile_ok() -> bool {
+    DRAGON_FLAME_PROJECTILE == "DragonTankFlameProjectile"
+        && DRAGON_FLAME_STREAM == "DragonTankFlameStream"
+        && (DRAGON_FLAME_MISSILE_INITIAL_VELOCITY - 120.0).abs() < 0.01
+        && DRAGON_FLAME_MISSILE_FUEL_MS == 350
+        && DRAGON_FLAME_MISSILE_FUEL_FRAMES == 11
+        && (DRAGON_FLAME_MISSILE_TURN_DISTANCE - 2.0).abs() < 0.01
+        && DRAGON_FLAME_MISSILE_DETONATE_ON_NO_FUEL
+        && !DRAGON_FLAME_MISSILE_SEEK
+        && (DRAGON_PROJECTILE_SPEED - 600.0).abs() < 0.01
+}
+
 pub fn honesty_dragon_tank_residual_pack_ok() -> bool {
     honesty_dragon_fire_wall_residual_ok()
         && honesty_dragon_napalm_residual_ok()
         && honesty_dragon_range_residual_ok()
+        && honesty_dragon_flame_projectile_ok()
 }
 
 #[cfg(test)]
@@ -392,6 +446,16 @@ mod tests {
         assert!(!has_black_napalm_upgrade(&tags));
         tags.insert(UPGRADE_CHINA_BLACK_NAPALM.to_string());
         assert!(has_black_napalm_upgrade(&tags));
+    }
+
+    #[test]
+    fn flame_projectile_peels() {
+        assert!(honesty_dragon_flame_projectile_ok());
+        assert_eq!(DRAGON_FLAME_MISSILE_FUEL_FRAMES, 11);
+        assert_eq!(DRAGON_FLAME_MISSILE_FUEL_MS, 350);
+        assert!(dragon_flame_flight_frames(75.0) >= 1);
+        assert!(should_apply_dragon_flame_residual(true));
+        assert!(!should_apply_dragon_flame_residual(false));
     }
 
     #[test]
