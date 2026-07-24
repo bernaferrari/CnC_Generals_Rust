@@ -26,11 +26,13 @@
 //! Fail-closed honesty:
 //! - Not full HordeUpdate RubOffRadius honorary-member / terrain-decal flag matrix
 //! - Not full Fanaticism infantry-general nationalism branch
+//! - BattleMasterTankShell DumbProjectile Bezier flight residual closed
 //! - Not full Nuclear Tanks death weapon / locomotor upgrade residual
 //! - SCIENCE_BattlemasterTraining ELITE spawn residual closed in host_unit_training
 //! - Not network uranium / horde replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const BATTLE_MASTER_LOGIC_FPS: f32 = 30.0;
@@ -66,6 +68,16 @@ pub const BATTLE_MASTER_DAMAGE_TYPE: &str = "ARMOR_PIERCING";
 pub const BATTLE_MASTER_DEATH_TYPE: &str = "NORMAL";
 /// Retail ProjectileObject residual.
 pub const BATTLE_MASTER_PROJECTILE: &str = "BattleMasterTankShell";
+/// Retail BattleMasterTankShell MaxHealth residual.
+pub const BM_SHELL_MAX_HEALTH: f32 = 100.0;
+/// DumbProjectileBehavior FirstHeight residual.
+pub const BM_SHELL_FIRST_HEIGHT: f32 = 10.0;
+/// DumbProjectileBehavior SecondHeight residual.
+pub const BM_SHELL_SECOND_HEIGHT: f32 = 10.0;
+/// FirstPercentIndent residual (50%).
+pub const BM_SHELL_FIRST_PERCENT_INDENT: f32 = 0.50;
+/// SecondPercentIndent residual (90%).
+pub const BM_SHELL_SECOND_PERCENT_INDENT: f32 = 0.90;
 /// Retail FireFX residual.
 pub const BATTLE_MASTER_FIRE_FX: &str = "WeaponFX_GenericTankGunNoTracerSmall";
 /// Retail ProjectileDetonationFX residual.
@@ -290,6 +302,37 @@ pub fn is_legal_battlemaster_splash_target(
 }
 
 /// Whether residual fire should apply Battlemaster residual path.
+
+
+/// Cubic Bezier residual sample for BattleMasterTankShell DumbProjectileBehavior.
+pub fn battlemaster_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * BM_SHELL_FIRST_PERCENT_INDENT
+        + Vec3::Y * BM_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * BM_SHELL_SECOND_PERCENT_INDENT
+        + Vec3::Y * BM_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    p0 * uuu + p1 * (3.0 * uu * t) + p2 * (3.0 * u * tt) + p3 * ttt
+}
+
+/// Flight frame residual from ground distance @ WeaponSpeed 400.
+pub fn battlemaster_shell_flight_frames(from: Vec3, to: Vec3) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let frames = (dist / (BATTLE_MASTER_PROJECTILE_SPEED / BATTLE_MASTER_LOGIC_FPS)).ceil() as u32;
+    frames.clamp(4, 180)
+}
+
 pub fn should_apply_battlemaster_residual(is_battlemaster: bool) -> bool {
     is_battlemaster
 }
@@ -342,6 +385,8 @@ pub fn honesty_battlemaster_weapon_residual_ok() -> bool {
         && BATTLE_MASTER_DAMAGE_TYPE == "ARMOR_PIERCING"
         && BATTLE_MASTER_DEATH_TYPE == "NORMAL"
         && BATTLE_MASTER_PROJECTILE == "BattleMasterTankShell"
+        && (BM_SHELL_FIRST_HEIGHT - 10.0).abs() < 0.01
+        && (BM_SHELL_SECOND_PERCENT_INDENT - 0.90).abs() < 0.001
         && BATTLE_MASTER_FIRE_FX == "WeaponFX_GenericTankGunNoTracerSmall"
         && BATTLE_MASTER_DETONATION_FX == "WeaponFX_GenericTankShellDetonation"
         && BATTLE_MASTER_CLIP_SIZE == 0
