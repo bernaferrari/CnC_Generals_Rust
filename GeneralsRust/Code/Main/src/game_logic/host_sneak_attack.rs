@@ -19,12 +19,12 @@
 //! - Multi-shockwave residual matrix:
 //!   Small **10**/r**35** @ InitialDelay **10**ms → **1**f,
 //!   Big **50**/r**50** @ **1000**ms → **30**f and **2500**ms → **75**f
-//! - Host gameplay still collapses spawn to Big pulse residual (fail-closed multi-pulse
-//!   live apply); honesty pack documents full INI timing matrix
+//! - Multi-pulse residual schedules Small@10ms + Big@1000ms + Big@2500ms from activate;
+//!   tunnel spawn remains at Lifetime 5000ms residual.
 //!
 //! Fail-closed honesty:
 //! - Not full OCL Start/Tunnel model animation / crack dust particle stack
-//! - Not full multi-shockwave live damage apply (host still Big-only at spawn)
+//! - Multi-shockwave live apply residual closed (Small + 2× Big schedule)
 //! - TunnelContain enter/exit residual is host_tunnel_network (shared pool + cross-exit);
 //!   not full GuardTunnelNetwork AI path
 //! - Not SharedSyncedTimer / multiplayer academy classification
@@ -271,6 +271,20 @@ pub fn is_legal_sneak_shockwave_target(is_alive: bool, under_construction: bool)
     is_alive && !under_construction
 }
 
+/// Scheduled multi-shockwave residual pulse (Start FireWeaponUpdate matrix).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingSneakShockwave {
+    pub mission_id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub target_position: Vec3,
+    pub apply_frame: u32,
+    pub damage: f32,
+    pub radius: f32,
+    pub weapon_name: String,
+    pub pulse_index: u8,
+}
+
 /// Host residual registry for SneakAttack special power missions.
 #[derive(Debug, Clone, Default)]
 pub struct HostSneakAttackRegistry {
@@ -284,6 +298,10 @@ pub struct HostSneakAttackRegistry {
     pub tunnel_spawn_count: u32,
     /// Total residual shockwave hits across all spawns.
     pub shockwave_hit_count: u32,
+    /// Multi-pulse residual schedule (Small + 2× Big).
+    pub pending_shockwaves: Vec<PendingSneakShockwave>,
+    /// Honesty: multi-pulse applies executed.
+    pub multi_pulse_applies: u32,
 }
 
 impl HostSneakAttackRegistry {
@@ -296,6 +314,8 @@ impl HostSneakAttackRegistry {
             activation_count: 0,
             tunnel_spawn_count: 0,
             shockwave_hit_count: 0,
+            pending_shockwaves: Vec::new(),
+            multi_pulse_applies: 0,
         }
     }
 
@@ -329,10 +349,6 @@ impl HostSneakAttackRegistry {
             .values()
             .filter(|m| m.phase == HostSneakAttackPhase::Queued)
             .count()
-    }
-
-    pub fn get(&self, id: u32) -> Option<&HostSneakAttackMission> {
-        self.missions.get(&id)
     }
 
     pub fn missions_snapshot(&self) -> Vec<HostSneakAttackMission> {
@@ -385,7 +401,59 @@ impl HostSneakAttackRegistry {
         self.missions.insert(id, mission);
         self.activated_this_frame.push(id);
         self.activation_count = self.activation_count.saturating_add(1);
+        // C++ GLASneakAttackTunnelNetworkStart FireWeaponUpdate multi-pulse residual.
+        self.schedule_shockwave_pulses(
+            id,
+            source_object,
+            source_team,
+            target_position,
+            activate_frame,
+        );
         id
+    }
+
+    /// Schedule Small + 2× Big shockwave pulses from Start object residual.
+    pub fn schedule_shockwave_pulses(
+        &mut self,
+        mission_id: u32,
+        source_object: ObjectId,
+        source_team: super::Team,
+        target_position: Vec3,
+        activate_frame: u32,
+    ) {
+        for (i, pulse) in sneak_attack_shockwave_pulses().into_iter().enumerate() {
+            self.pending_shockwaves.push(PendingSneakShockwave {
+                mission_id,
+                source_object,
+                source_team,
+                target_position,
+                apply_frame: activate_frame.saturating_add(pulse.initial_delay_frames),
+                damage: pulse.primary_damage,
+                radius: pulse.primary_radius,
+                weapon_name: pulse.weapon_name.to_string(),
+                pulse_index: i as u8,
+            });
+        }
+    }
+
+    /// Drain multi-pulse residuals due on `frame`.
+    pub fn take_due_shockwaves(&mut self, frame: u32) -> Vec<PendingSneakShockwave> {
+        let mut due = Vec::new();
+        let mut keep = Vec::new();
+        for p in self.pending_shockwaves.drain(..) {
+            if p.apply_frame <= frame {
+                due.push(p);
+            } else {
+                keep.push(p);
+            }
+        }
+        self.pending_shockwaves = keep;
+        due
+    }
+
+    pub fn record_multi_pulse_apply(&mut self, hits: u32) {
+        self.multi_pulse_applies = self.multi_pulse_applies.saturating_add(1);
+        self.shockwave_hit_count = self.shockwave_hit_count.saturating_add(hits);
     }
 
     /// Build spawn plans for all missions whose spawn frame has arrived.
@@ -446,6 +514,14 @@ impl HostSneakAttackRegistry {
     // --- Honesty flags (host residual; do not claim full retail parity) ---
 
     /// Residual honesty: at least one sneak attack activated/queued.
+    pub fn get(&self, id: u32) -> Option<&HostSneakAttackMission> {
+        self.missions.get(&id)
+    }
+
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut HostSneakAttackMission> {
+        self.missions.get_mut(&id)
+    }
+
     pub fn honesty_activate_ok(&self) -> bool {
         self.activation_count > 0
     }
@@ -463,6 +539,11 @@ impl HostSneakAttackRegistry {
     /// Combined host path: activated and spawned a tunnel.
     pub fn honesty_host_path_ok(&self) -> bool {
         self.honesty_activate_ok() && self.honesty_tunnel_spawn_ok()
+    }
+
+    /// Multi-pulse residual honesty (at least one scheduled pulse applied).
+    pub fn honesty_multi_pulse_ok(&self) -> bool {
+        self.multi_pulse_applies >= 1
     }
 }
 
