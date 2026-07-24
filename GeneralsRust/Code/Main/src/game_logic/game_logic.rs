@@ -1525,6 +1525,8 @@ pub struct GameLogic {
     stealth_fighter_residual_units_hit: u32,
     /// Honesty: StealthJetMissile projectiles spawned residual.
     stealth_jet_missiles_spawned: u32,
+    /// Honesty: Stealth Jet ScatterRadiusVsInfantry aim offsets applied.
+    stealth_jet_scatter_applied: u32,
     /// Honesty: SCUDMissile projectiles spawned residual.
     scud_missiles_spawned: u32,
     /// Honesty: TomahawkMissile projectiles spawned residual.
@@ -3136,6 +3138,7 @@ impl GameLogic {
             stealth_fighter_residual_fires: 0,
             stealth_fighter_residual_units_hit: 0,
             stealth_jet_missiles_spawned: 0,
+            stealth_jet_scatter_applied: 0,
             scud_missiles_spawned: 0,
             tomahawk_missiles_spawned: 0,
             tomahawk_scatter_applied: 0,
@@ -3649,6 +3652,7 @@ impl GameLogic {
         self.stealth_fighter_residual_fires = 0;
         self.stealth_fighter_residual_units_hit = 0;
         self.stealth_jet_missiles_spawned = 0;
+        self.stealth_jet_scatter_applied = 0;
         self.scud_missiles_spawned = 0;
         self.tomahawk_missiles_spawned = 0;
         self.tomahawk_scatter_applied = 0;
@@ -33325,6 +33329,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: Stealth Fighter missile residual fired.
     pub fn honesty_stealth_fighter_ok(&self) -> bool {
         self.stealth_fighter_residual_fires > 0
+            || self.stealth_jet_missiles_spawned > 0
+            || self.stealth_jet_scatter_applied > 0
+    }
+
+    /// Residual honesty: Stealth Jet ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_stealth_jet_scatter_ok(&self) -> bool {
+        self.stealth_jet_scatter_applied > 0
     }
 
     pub fn stealth_fighter_residual_fires(&self) -> u32 {
@@ -39671,6 +39682,28 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on StealthJetMissileWeapon vs infantry.
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) =
+            crate::game_logic::host_stealth_fighter::stealth_jet_scatter_aim(
+                aim,
+                target_is_infantry,
+                seed,
+            );
+        if scattered {
+            self.stealth_jet_scatter_applied =
+                self.stealth_jet_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y + 20.0);
         let pid = self.create_object(STEALTH_JET_MISSILE_PROJECTILE, team, start)?;
@@ -123817,6 +123850,93 @@ assert!(
             .and_then(|o| o.inferno_shell_aim)
             .expect("aim2");
         assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn stealth_jet_missile_scatters_vs_infantry() {
+        use crate::game_logic::host_stealth_fighter::STEALTH_FIGHTER_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut j_tpl = ThingTemplate::new("AmericaJetStealthFighter");
+        j_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        logic
+            .templates
+            .insert("AmericaJetStealthFighter".to_string(), j_tpl);
+        let mut i_tpl = ThingTemplate::new("ChinaInfantryRedguard");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryRedguard".to_string(), i_tpl);
+
+        let jet = logic
+            .create_object(
+                "AmericaJetStealthFighter",
+                Team::USA,
+                glam::Vec3::new(0.0, 40.0, 0.0),
+            )
+            .expect("jet");
+        let inf = logic
+            .create_object(
+                "ChinaInfantryRedguard",
+                Team::China,
+                glam::Vec3::new(180.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(180.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 40.0, 0.0);
+        let shell = logic
+            .spawn_stealth_jet_missile_projectile(jet, from, aim, Some(inf))
+            .expect("missile");
+        assert!(logic.honesty_stealth_jet_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.stealth_jet_missile_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= STEALTH_FIGHTER_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut v_tpl = ThingTemplate::new("ChinaTankBattleMaster");
+        v_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("ChinaTankBattleMaster".to_string(), v_tpl);
+        let tank = logic
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                glam::Vec3::new(220.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.stealth_jet_scatter_applied;
+        let shell2 = logic
+            .spawn_stealth_jet_missile_projectile(
+                jet,
+                from,
+                glam::Vec3::new(220.0, 0.0, 0.0),
+                Some(tank),
+            )
+            .expect("missile2");
+        assert_eq!(logic.stealth_jet_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.stealth_jet_missile_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 220.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
 }
