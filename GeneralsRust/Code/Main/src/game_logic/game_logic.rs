@@ -1158,6 +1158,9 @@ pub struct GameLogic {
     /// C++ NeutronMissileUpdate residual counters.
     neutron_missile_update_reg:
         crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateRegistry,
+    /// C++ ScudStormMissile ballistic flight residual counters.
+    scud_storm_missile_flight_reg:
+        crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2846,6 +2849,8 @@ impl GameLogic {
                 crate::game_logic::host_ocl_apply_random_force::HostOclApplyRandomForceRegistry::new(),
             neutron_missile_update_reg:
                 crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateRegistry::new(),
+            scud_storm_missile_flight_reg:
+                crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3314,6 +3319,7 @@ impl GameLogic {
         self.fuel_air_gas_reg.clear();
         self.ocl_apply_random_force_reg.clear();
         self.neutron_missile_update_reg.clear();
+        self.scud_storm_missile_flight_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -6037,6 +6043,7 @@ impl GameLogic {
         self.update_smart_bomb_target_homing();
         self.update_fuel_air_gas_slow_death();
         self.update_neutron_missile_flights();
+        self.update_scud_storm_missile_flights();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -27480,6 +27487,84 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ ScudStormMissile MissileAIUpdate ballistic residual tick.
+    pub fn update_scud_storm_missile_flights(&mut self) {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::special_power_strikes::{
+            SCUD_STORM_PRIMARY_DAMAGE, SCUD_STORM_PRIMARY_RADIUS,
+        };
+
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.scud_storm_missile_flight.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in ids {
+            let (grounded, ignition_fx, target, producer) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let pos = o.get_position();
+                let producer = o.producer_id;
+                let Some(data) = o.scud_storm_missile_flight.as_mut() else {
+                    continue;
+                };
+                let target = data.target;
+                let tick = data.tick(pos, self.frame);
+                let grounded = tick.grounded;
+                let ignition_fx = tick.ignition_fx;
+                let new_pos = tick.pos;
+                let vel = tick.vel;
+                drop(data);
+                o.set_position(new_pos);
+                o.movement.velocity = vel;
+                if vel.length_squared() > 1e-6 {
+                    o.set_orientation(vel.z.atan2(vel.x));
+                }
+                (grounded, ignition_fx, target, producer)
+            };
+            if ignition_fx {
+                let p = self
+                    .objects
+                    .get(&id)
+                    .map(|o| o.get_position())
+                    .unwrap_or(Vec3::ZERO);
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    p,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                self.scud_storm_missile_flight_reg.record_ignition();
+            }
+            if grounded {
+                let team = self
+                    .objects
+                    .get(&id)
+                    .map(|o| o.team)
+                    .unwrap_or(Team::Neutral);
+                // ScudStormDamageWeapon primary residual at scatter impact.
+                self.apply_fuel_air_radius_damage(
+                    id,
+                    producer,
+                    team,
+                    target,
+                    SCUD_STORM_PRIMARY_DAMAGE,
+                    SCUD_STORM_PRIMARY_RADIUS,
+                    DamageType::Explosive,
+                );
+                self.scud_storm_missile_flight_reg.record_ground();
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -27498,6 +27583,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         o.set_orientation(o.get_orientation() + spin);
         self.ocl_apply_random_force_reg.record(force);
         true
+    }
+
+    pub fn honesty_scud_storm_missile_flight_ok(&self) -> bool {
+        crate::game_logic::host_scud_storm_missile_flight::honesty_scud_storm_missile_flight_residual_ok()
     }
 
     pub fn honesty_neutron_missile_update_ok(&self) -> bool {
@@ -31395,7 +31484,58 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             let _ = self.create_delivery_radius_decal(source_id, target);
             self.ocl_fire_weapon_attack_reg.record_decal();
         }
+        // C++ ScudStorm ClipSize-9 ScudStormMissile ballistic spawns (scatter table).
+        if plan.ocl_name.contains("ScudStorm") {
+            self.spawn_scud_storm_missile_flight(source_id, target);
+        }
         true
+    }
+
+    /// Spawn live ScudStormMissile objects on scatter points with ballistic residual.
+    pub fn spawn_scud_storm_missile_flight(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+    ) -> u32 {
+        use crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightData;
+        use crate::game_logic::special_power_strikes::{
+            scud_storm_points, SCUD_STORM_MISSILE_OBJECT,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let launch = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        if !self.templates.contains_key(SCUD_STORM_MISSILE_OBJECT) {
+            let mut t = ThingTemplate::new(SCUD_STORM_MISSILE_OBJECT);
+            t.set_health(10000.0)
+                .add_kind_of(KindOf::Projectile)
+                .add_kind_of(KindOf::Aircraft);
+            self.templates
+                .insert(SCUD_STORM_MISSILE_OBJECT.to_string(), t);
+        }
+        let points = scud_storm_points(target);
+        let mut n = 0u32;
+        for (i, pt) in points.into_iter().enumerate() {
+            let Some(mid) = self.create_object(SCUD_STORM_MISSILE_OBJECT, team, launch) else {
+                continue;
+            };
+            if let Some(o) = self.objects.get_mut(&mid) {
+                o.producer_id = Some(source_id);
+                o.scud_storm_missile_flight = Some(HostScudStormMissileFlightData::start(
+                    launch,
+                    pt,
+                    i as u32,
+                    Some(source_id.0),
+                ));
+            }
+            n = n.saturating_add(1);
+        }
+        self.scud_storm_missile_flight_reg.record_launch(n);
+        n
     }
 
     /// C++ ObjectCreationList::create residual after OCLSpecialPower plan.
@@ -77116,6 +77256,52 @@ mod tests {
     }
 
 
+
+
+    #[test]
+    fn scud_storm_missile_ballistic_flight() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut storm = crate::game_logic::ThingTemplate::new("GLAScudStorm");
+        storm.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("GLAScudStorm".into(), storm);
+        let mut foe_t = crate::game_logic::ThingTemplate::new("AmericaTankCrusader");
+        foe_t.add_kind_of(KindOf::Vehicle).set_health(800.0);
+        logic.templates.insert("AmericaTankCrusader".into(), foe_t);
+        let storm_id = logic
+            .create_object("GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let foe = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let hp0 = logic.find_object(foe).unwrap().health.current;
+        assert!(logic.execute_ocl_attack(
+            "SUPERWEAPON_ScudStorm",
+            storm_id,
+            Vec3::new(100.0, 0.0, 0.0)
+        ));
+        assert!(logic.scud_storm_missile_flight_reg.launched >= 9);
+        for f in 0..500 {
+            logic.frame = f;
+            logic.update_scud_storm_missile_flights();
+            if logic.scud_storm_missile_flight_reg.grounded >= 1 {
+                break;
+            }
+        }
+        assert!(logic.scud_storm_missile_flight_reg.grounded >= 1);
+        let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        assert!(
+            hp1 < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            "scud impact should damage nearby units"
+        );
+        assert!(logic.honesty_scud_storm_missile_flight_ok());
+    }
 
     #[test]
     fn cruise_missile_moab_impact_not_neutron_field() {

@@ -1054,6 +1054,10 @@ pub struct Object {
     #[serde(default)]
     pub neutron_missile_update:
         Option<crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateData>,
+    /// C++ ScudStormMissile MissileAIUpdate ballistic residual.
+    #[serde(default)]
+    pub scud_storm_missile_flight:
+        Option<crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightData>,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1741,6 +1745,7 @@ impl Object {
             height_die: None,
             fuel_air_gas_slow_death: None,
             neutron_missile_update: None,
+            scud_storm_missile_flight: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2126,6 +2131,7 @@ impl Object {
             height_die: None,
             fuel_air_gas_slow_death: None,
             neutron_missile_update: None,
+            scud_storm_missile_flight: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
