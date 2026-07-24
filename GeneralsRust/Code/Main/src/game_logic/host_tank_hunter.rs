@@ -26,12 +26,14 @@
 //! Fail-closed honesty:
 //! - Not full SpecialAbilityUpdate flee-after / MaxSpecialObjects=8 list / attach bones
 //! - TankHunterMissile projectile flight residual closed (MissileAI peels + splash)
-//! - Not full ScatterRadiusVsInfantry / projectile exhaust FX matrix
+//! - ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
+//! - Not full projectile exhaust FX matrix
 //! - Not full HordeUpdate RubOffRadius honorary-member matrix
 //! - Not Fanaticism infantry-general nationalism branch
 //! - Not network TNT / RPG replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
 use crate::game_logic::host_red_guard::{
     delay_frames_to_reload_secs, is_in_infantry_horde, INFANTRY_HORDE_ROF_MULT,
@@ -392,15 +394,55 @@ pub fn honesty_tank_hunter_body_residual_ok() -> bool {
 }
 
 /// Combined Wave 67 Tank Hunter residual honesty pack.
+
+/// Apply Tank Hunter missile ScatterRadiusVsInfantry residual to aim.
+pub fn tank_hunter_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let scatter = host_effective_scatter_radius(TANK_HUNTER_MISSILE_WEAPON, target_is_infantry);
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Wave residual honesty: Tank Hunter ScatterRadiusVsInfantry peels.
+pub fn honesty_tank_hunter_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    (TANK_HUNTER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && (host_effective_scatter_radius(TANK_HUNTER_MISSILE_WEAPON, true) - 10.0).abs() < 0.01
+        && host_effective_scatter_radius(TANK_HUNTER_MISSILE_WEAPON, false).abs() < 0.01
+}
+
 pub fn honesty_tank_hunter_residual_pack_ok() -> bool {
     honesty_tank_hunter_weapon_residual_ok()
         && honesty_tank_hunter_tnt_residual_ok()
         && honesty_tank_hunter_body_residual_ok()
+        && honesty_tank_hunter_scatter_vs_infantry_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tank_hunter_scatter_vs_infantry_peels() {
+        assert!(honesty_tank_hunter_scatter_vs_infantry_ok());
+        let aim = Vec3::new(120.0, 0.0, 15.0);
+        let (no_sc, applied) = tank_hunter_scatter_aim(aim, false, 19);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = tank_hunter_scatter_aim(aim, true, 19);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= TANK_HUNTER_SCATTER_VS_INFANTRY + 0.01);
+    }
     use std::collections::HashSet;
 
     #[test]
@@ -485,6 +527,7 @@ mod tests {
         assert!(honesty_tank_hunter_weapon_residual_ok());
         assert!(honesty_tank_hunter_tnt_residual_ok());
         assert!(honesty_tank_hunter_body_residual_ok());
+        assert!(honesty_tank_hunter_scatter_vs_infantry_ok());
         assert!(honesty_tank_hunter_residual_pack_ok());
         assert_eq!(tank_hunter_ms_to_frames(1_000), 30);
         assert_eq!(tank_hunter_ms_to_frames(7_500), 225);

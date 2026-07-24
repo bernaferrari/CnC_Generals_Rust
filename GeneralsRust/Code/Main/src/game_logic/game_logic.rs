@@ -1537,6 +1537,8 @@ pub struct GameLogic {
     rpg_trooper_missiles_spawned: u32,
     /// Honesty: TankHunterMissile projectiles spawned residual.
     tank_hunter_missiles_spawned: u32,
+    /// Honesty: Tank Hunter ScatterRadiusVsInfantry aim offsets applied.
+    tank_hunter_scatter_applied: u32,
     /// Honesty: MissileDefenderMissile projectiles spawned residual.
     missile_defender_missiles_spawned: u32,
     /// Honesty: Missile Defender ScatterRadiusVsInfantry aim offsets applied.
@@ -3116,6 +3118,7 @@ impl GameLogic {
             neutron_shells_spawned: 0,
             rpg_trooper_missiles_spawned: 0,
             tank_hunter_missiles_spawned: 0,
+            tank_hunter_scatter_applied: 0,
             missile_defender_missiles_spawned: 0,
             missile_defender_scatter_applied: 0,
             scorpion_shells_spawned: 0,
@@ -3616,6 +3619,7 @@ impl GameLogic {
         self.neutron_shells_spawned = 0;
         self.rpg_trooper_missiles_spawned = 0;
         self.tank_hunter_missiles_spawned = 0;
+        self.tank_hunter_scatter_applied = 0;
         self.missile_defender_missiles_spawned = 0;
         self.missile_defender_scatter_applied = 0;
         self.scorpion_shells_spawned = 0;
@@ -33438,6 +33442,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             || self.tank_hunter_residual_tnt_plants > 0
             || self.tank_hunter_residual_nationalism_upgrades > 0
             || self.tank_hunter_residual_horde_grants > 0
+            || self.tank_hunter_scatter_applied > 0
+            || self.tank_hunter_missiles_spawned > 0
+    }
+
+    /// Residual honesty: Tank Hunter ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_tank_hunter_scatter_ok(&self) -> bool {
+        self.tank_hunter_scatter_applied > 0
     }
 
     pub fn honesty_tank_hunter_tnt_ok(&self) -> bool {
@@ -41466,6 +41477,27 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on TankHunter missile vs infantry.
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) = crate::game_logic::host_tank_hunter::tank_hunter_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
+        if scattered {
+            self.tank_hunter_scatter_applied =
+                self.tank_hunter_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 6.0;
         let pid = self.create_object(TANK_HUNTER_PROJECTILE, team, start)?;
@@ -122230,6 +122262,93 @@ assert!(
             .and_then(|o| o.nuke_shell_aim)
             .expect("aim2");
         assert!((aim2[0] - 280.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn tank_hunter_missile_scatters_vs_infantry() {
+        use crate::game_logic::host_tank_hunter::TANK_HUNTER_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut th_tpl = ThingTemplate::new("ChinaInfantryTankHunter");
+        th_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryTankHunter".to_string(), th_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let th = logic
+            .create_object(
+                "ChinaInfantryTankHunter",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("th");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(100.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 5.0, 0.0);
+        let msl = logic
+            .spawn_tank_hunter_missile_projectile(th, from, aim, Some(inf))
+            .expect("missile");
+        assert!(logic.honesty_tank_hunter_scatter_ok());
+        let m_aim = logic
+            .objects
+            .get(&msl)
+            .and_then(|o| o.tank_hunter_missile_aim)
+            .expect("aim");
+        let d = ((m_aim[0] - aim.x).powi(2) + (m_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= TANK_HUNTER_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut t_tpl = ThingTemplate::new("AmericaTankCrusader");
+        t_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), t_tpl);
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(130.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.tank_hunter_scatter_applied;
+        let msl2 = logic
+            .spawn_tank_hunter_missile_projectile(
+                th,
+                from,
+                glam::Vec3::new(130.0, 0.0, 0.0),
+                Some(tank),
+            )
+            .expect("missile2");
+        assert_eq!(logic.tank_hunter_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&msl2)
+            .and_then(|o| o.tank_hunter_missile_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 130.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
 }
