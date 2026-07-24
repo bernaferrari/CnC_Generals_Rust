@@ -1381,6 +1381,10 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
     if n.contains("firebase") || (n.contains("howitzer") && !n.contains("neutron")) {
         return 15.0;
     }
+    // Nuke Cannon residual ScatterRadiusVsInfantry **30**.
+    if n.contains("nukecannon") || n.contains("nuke_cannon") {
+        return 30.0;
+    }
     // Common ZH residual: tank/missile shells vs infantry inaccuracy ~10.
     if n.contains("tankgun")
         || n.contains("tankshell")
@@ -5612,6 +5616,14 @@ mod tests {
         assert_eq!(
             host_effective_scatter_radius("FireBaseHowitzerGun", true),
             15.0
+        );
+        assert_eq!(
+            seed_scatter_radius_vs_infantry_for("NukeCannonGun"),
+            30.0
+        );
+        assert_eq!(
+            host_effective_scatter_radius("NukeCannonGun", true),
+            30.0
         );
         let o = scatter_aim_offset(42, 10.0);
         assert!(o.length() <= 10.0 + 1e-3);

@@ -1547,6 +1547,8 @@ pub struct GameLogic {
     scorpion_missiles_spawned: u32,
     /// Honesty: NukeCannonShell projectiles spawned residual.
     nuke_cannon_shells_spawned: u32,
+    /// Honesty: NukeCannon ScatterRadiusVsInfantry aim offsets applied.
+    nuke_cannon_scatter_applied: u32,
     /// Honesty: GenericTankShell (USA Crusader/Paladin) projectiles spawned residual.
     usa_tank_shells_spawned: u32,
     /// Honesty: BattleMasterTankShell projectiles spawned residual.
@@ -3119,6 +3121,7 @@ impl GameLogic {
             scorpion_shells_spawned: 0,
             scorpion_missiles_spawned: 0,
             nuke_cannon_shells_spawned: 0,
+            nuke_cannon_scatter_applied: 0,
             usa_tank_shells_spawned: 0,
             battlemaster_shells_spawned: 0,
             overlord_shells_spawned: 0,
@@ -3618,6 +3621,7 @@ impl GameLogic {
         self.scorpion_shells_spawned = 0;
         self.scorpion_missiles_spawned = 0;
         self.nuke_cannon_shells_spawned = 0;
+        self.nuke_cannon_scatter_applied = 0;
         self.usa_tank_shells_spawned = 0;
         self.battlemaster_shells_spawned = 0;
         self.overlord_shells_spawned = 0;
@@ -13962,6 +13966,7 @@ impl GameLogic {
                                         attacker_id,
                                         from,
                                         impact,
+                                        Some(target_id),
                                     )
                                     .is_some();
                                 let (hits, _destroyed_any) = if spawned {
@@ -36198,6 +36203,7 @@ fn update_scud_poison_zones(&mut self) {
         source_id: ObjectId,
         from: glam::Vec3,
         aim: glam::Vec3,
+        intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_nuke_cannon::{
             nuke_shell_flight_frames, NUKE_CANNON_PROJECTILE, NUKE_SHELL_MAX_HEALTH,
@@ -36217,6 +36223,27 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on NukeCannonGun vs infantry.
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) = crate::game_logic::host_nuke_cannon::nuke_cannon_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
+        if scattered {
+            self.nuke_cannon_scatter_applied =
+                self.nuke_cannon_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 2.0;
         let pid = self.create_object(NUKE_CANNON_PROJECTILE, team, start)?;
@@ -36308,6 +36335,11 @@ fn update_scud_poison_zones(&mut self) {
 
     pub fn honesty_nuke_cannon_shell_projectile_ok(&self) -> bool {
         self.nuke_cannon_shells_spawned > 0
+    }
+
+    /// Residual honesty: NukeCannon ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_nuke_cannon_scatter_ok(&self) -> bool {
+        self.nuke_cannon_scatter_applied > 0
     }
 
     pub fn apply_nuke_cannon_primary_at(
@@ -88651,7 +88683,7 @@ mod tests {
                 .unwrap_or(Vec3::new(200.0, 0.0, 0.0));
             assert!(
                 game_logic
-                    .spawn_nuke_cannon_shell_projectile(cannon_id, from, aim)
+                    .spawn_nuke_cannon_shell_projectile(cannon_id, from, aim, None)
                     .is_some()
             );
         }
@@ -97495,7 +97527,7 @@ assert!(
         let frames = nuke_shell_flight_frames(from, aim);
 
         let pid = logic
-            .spawn_nuke_cannon_shell_projectile(src, from, aim)
+            .spawn_nuke_cannon_shell_projectile(src, from, aim, None)
             .expect("nuke shell");
         {
             let m = logic.find_object(pid).unwrap();
@@ -122113,6 +122145,91 @@ assert!(
             .and_then(|o| o.missile_defender_missile_aim)
             .expect("aim2");
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn nuke_cannon_shell_scatters_vs_infantry() {
+        use crate::game_logic::host_nuke_cannon::NUKE_CANNON_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut nc_tpl = ThingTemplate::new("ChinaNukeCannon");
+        nc_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0);
+        logic.templates.insert("ChinaNukeCannon".to_string(), nc_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let cannon = logic
+            .create_object(
+                "ChinaNukeCannon",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cannon");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(250.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(250.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 10.0, 0.0);
+        let shell = logic
+            .spawn_nuke_cannon_shell_projectile(cannon, from, aim, Some(inf))
+            .expect("shell");
+        assert!(logic.honesty_nuke_cannon_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.nuke_shell_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= NUKE_CANNON_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut t_tpl = ThingTemplate::new("AmericaTankCrusader");
+        t_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), t_tpl);
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(280.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.nuke_cannon_scatter_applied;
+        let shell2 = logic
+            .spawn_nuke_cannon_shell_projectile(
+                cannon,
+                from,
+                glam::Vec3::new(280.0, 0.0, 0.0),
+                Some(tank),
+            )
+            .expect("shell2");
+        assert_eq!(logic.nuke_cannon_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.nuke_shell_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 280.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
 }
