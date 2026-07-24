@@ -25,7 +25,7 @@
 //! - Clean-up interaction residual: KindOf CLEANUP_HAZARD / field HP / clear-in-radius
 //!
 //! Fail-closed honesty:
-//! - Not full FireOCLAfterWeaponCooldown continuous-coast live timer matrix
+//! - FireOCLAfterWeaponCooldown: MinShots=4 + coast spawn residual (primary stream still live)
 //! - Not full stream projectile drawing / spigot bone / turret pitch matrix
 //! - Not full gamma particle bones / HazardousMaterialArmor damage stack
 //! - Not network toxin replication (network deferred)
@@ -604,7 +604,63 @@ pub struct HostToxinTractorPoisonTickPlan {
     pub hits: Vec<HostToxinTractorPoisonHit>,
 }
 
-/// Host residual registry for Toxin Tractor poison fields + honesty counters.
+/// C++ FireOCLAfterWeaponCooldownUpdate residual state (toxin spray secondary).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HostFireOclAfterCooldownData {
+    pub consecutive_shots: u32,
+    pub start_frame: u32,
+    pub last_shot_frame: u32,
+    pub valid: bool,
+    pub ocl_spawns: u32,
+}
+
+impl HostFireOclAfterCooldownData {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a secondary spray shot this frame.
+    pub fn record_shot(&mut self, current_frame: u32) {
+        if self.consecutive_shots == 0 {
+            self.start_frame = current_frame;
+        }
+        self.consecutive_shots = self.consecutive_shots.saturating_add(1);
+        self.last_shot_frame = current_frame;
+        self.valid = true;
+    }
+
+    /// Called when secondary is idle past coast; returns Some(lifetime_frames) if OCL should fire.
+    pub fn try_fire_ocl_on_cooldown(&mut self, current_frame: u32) -> Option<u32> {
+        if !self.valid {
+            return None;
+        }
+        if self.consecutive_shots < TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
+            self.reset();
+            return None;
+        }
+        let lifetime = ocl_lifetime_frames(self.start_frame, current_frame);
+        self.reset();
+        Some(lifetime.max(1))
+    }
+
+    pub fn reset(&mut self) {
+        self.consecutive_shots = 0;
+        self.start_frame = 0;
+        self.last_shot_frame = 0;
+        self.valid = false;
+    }
+}
+
+/// C++ fireOCL lifetime: (now-start)*seconds * (lifetimePerSecond_ms/1000) → frames, capped.
+pub fn ocl_lifetime_frames(start_frame: u32, now_frame: u32) -> u32 {
+    let elapsed = now_frame.saturating_sub(start_frame).max(1) as f32;
+    let seconds = elapsed / 30.0;
+    let life_sec = seconds * (TOXIN_SPRAY_OCL_LIFETIME_PER_SECOND_MS as f32) * 0.001;
+    let frames = (life_sec * 30.0).round() as u32;
+    let max_frames = ((TOXIN_SPRAY_OCL_LIFETIME_MAX_CAP_MS as f32) * 30.0 / 1000.0).round() as u32;
+    frames.min(max_frames.max(1)).max(1)
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostToxinTractorRegistry {
     next_id: u32,
@@ -619,6 +675,8 @@ pub struct HostToxinTractorRegistry {
     pub stream_fires: u32,
     /// Units hit by stream residual (including intended).
     pub stream_units_hit: u32,
+    /// FireOCLAfterWeaponCooldown residual medium-field spawns.
+    pub fire_ocl_spawns: u32,
     /// Contaminate spray residual fires.
     pub spray_fires: u32,
     /// Units hit by spray residual splash.
@@ -659,6 +717,10 @@ impl HostToxinTractorRegistry {
         self.stream_units_hit = self.stream_units_hit.saturating_add(units_hit);
     }
 
+    pub fn record_fire_ocl_spawn(&mut self) {
+        self.fire_ocl_spawns = self.fire_ocl_spawns.saturating_add(1);
+    }
+
     pub fn record_spray_fire(&mut self, units_hit: u32) {
         self.spray_fires = self.spray_fires.saturating_add(1);
         self.spray_units_hit = self.spray_units_hit.saturating_add(units_hit);
@@ -677,7 +739,28 @@ impl HostToxinTractorRegistry {
         activate_frame: u32,
         anthrax: AnthraxResidualTier,
     ) -> u32 {
+        self.spawn_medium_field_lifetime(
+            source_object,
+            source_team,
+            impact_pos,
+            activate_frame,
+            anthrax,
+            TOXIN_MED_FIELD_DURATION_FRAMES,
+        )
+    }
+
+    /// FireOCL residual: MediumPoisonField with computed OCL lifetime frames.
+    pub fn spawn_medium_field_lifetime(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        impact_pos: Vec3,
+        activate_frame: u32,
+        anthrax: AnthraxResidualTier,
+        lifetime_frames: u32,
+    ) -> u32 {
         let id = self.alloc_id();
+        let life = lifetime_frames.max(1);
         let zone = HostToxinTractorPoisonZone {
             id,
             source_object,
@@ -686,7 +769,7 @@ impl HostToxinTractorRegistry {
             radius: TOXIN_MED_FIELD_RADIUS,
             damage_per_tick: toxin_med_field_damage(anthrax),
             activate_frame,
-            expires_frame: activate_frame.saturating_add(TOXIN_MED_FIELD_DURATION_FRAMES),
+            expires_frame: activate_frame.saturating_add(life),
             next_tick_frame: activate_frame,
             anthrax_tier: anthrax,
             from_death: false,
@@ -984,6 +1067,24 @@ pub fn honesty_toxin_tractor_residual_pack_ok() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fire_ocl_min_shots_and_lifetime() {
+        let mut d = super::HostFireOclAfterCooldownData::new();
+        assert!(d.try_fire_ocl_on_cooldown(10).is_none());
+        for f in 0..3u32 {
+            d.record_shot(f);
+        }
+        // Only 3 shots < 4.
+        assert!(d.try_fire_ocl_on_cooldown(20).is_none());
+        for f in 0..4u32 {
+            d.record_shot(100 + f);
+        }
+        let life = d.try_fire_ocl_on_cooldown(110).expect("ocl");
+        assert!(life >= 1);
+        // 10 frames = 1/3 sec * 10 lifetime_per_sec = ~3.33 sec → ~100 frames, capped.
+        assert!(life <= 5400); // max cap 180s
+    }
+
     use super::*;
     use crate::game_logic::Team;
 
