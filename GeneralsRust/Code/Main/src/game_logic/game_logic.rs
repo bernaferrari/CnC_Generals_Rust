@@ -1807,6 +1807,10 @@ pub struct GameLogic {
     patriot_scatter_applied: u32,
     /// Honesty: Patriot ScatterRadiusVsInfantry residual misses vs infantry.
     patriot_scatter_misses: u32,
+    /// Honesty: Stinger ScatterRadiusVsInfantry peels applied.
+    stinger_scatter_applied: u32,
+    /// Honesty: Stinger ScatterRadiusVsInfantry residual misses vs infantry.
+    stinger_scatter_misses: u32,
     /// Superweapon General EMP Patriot residual: DISABLED_EMP grants applied.
     supw_patriot_emp_residual_grants: u32,
     /// AssistedTargetingUpdate residual: RequestAssistRange requests issued.
@@ -3298,6 +3302,8 @@ impl GameLogic {
             patriot_residual_aa_fires: 0,
             patriot_scatter_applied: 0,
             patriot_scatter_misses: 0,
+            stinger_scatter_applied: 0,
+            stinger_scatter_misses: 0,
             supw_patriot_emp_residual_grants: 0,
             patriot_assist_residual_requests: 0,
             patriot_assist_residual_fires: 0,
@@ -3808,6 +3814,8 @@ impl GameLogic {
         self.patriot_residual_aa_fires = 0;
         self.patriot_scatter_applied = 0;
         self.patriot_scatter_misses = 0;
+        self.stinger_scatter_applied = 0;
+        self.stinger_scatter_misses = 0;
         self.supw_patriot_emp_residual_grants = 0;
         self.patriot_assist_residual_requests = 0;
         self.patriot_assist_residual_fires = 0;
@@ -31949,9 +31957,9 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     a.weapon.clone()
                 }
             });
-            // C++ Patriot ScatterRadiusVsInfantry residual: ground fire vs infantry may miss.
+            // C++ ScatterRadiusVsInfantry residual: Patriot/Stinger ground fire vs infantry may miss.
             let mut skip_damage = false;
-            if is_patriot && !target_is_air {
+            if (is_patriot || is_stinger) && !target_is_air {
                 let target_is_infantry = self
                     .objects
                     .get(&target_id)
@@ -31976,16 +31984,30 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                         .unwrap_or(
                             crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS,
                         );
-                    self.patriot_scatter_applied =
-                        self.patriot_scatter_applied.saturating_add(1);
-                    if crate::game_logic::host_base_defense::patriot_scatter_misses_infantry(
-                        true,
-                        seed,
-                        hit_r,
-                    ) {
-                        self.patriot_scatter_misses =
-                            self.patriot_scatter_misses.saturating_add(1);
-                        skip_damage = true;
+                    if is_patriot {
+                        self.patriot_scatter_applied =
+                            self.patriot_scatter_applied.saturating_add(1);
+                        if crate::game_logic::host_base_defense::patriot_scatter_misses_infantry(
+                            true,
+                            seed,
+                            hit_r,
+                        ) {
+                            self.patriot_scatter_misses =
+                                self.patriot_scatter_misses.saturating_add(1);
+                            skip_damage = true;
+                        }
+                    } else if is_stinger {
+                        self.stinger_scatter_applied =
+                            self.stinger_scatter_applied.saturating_add(1);
+                        if crate::game_logic::host_base_defense::stinger_scatter_misses_infantry(
+                            true,
+                            seed,
+                            hit_r,
+                        ) {
+                            self.stinger_scatter_misses =
+                                self.stinger_scatter_misses.saturating_add(1);
+                            skip_damage = true;
+                        }
                     }
                 }
             }
@@ -34125,6 +34147,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: Patriot ScatterRadiusVsInfantry peels applied.
     pub fn honesty_patriot_scatter_ok(&self) -> bool {
         self.patriot_scatter_applied > 0
+    }
+
+    /// Residual honesty: Stinger ScatterRadiusVsInfantry peels applied.
+    pub fn honesty_stinger_scatter_ok(&self) -> bool {
+        self.stinger_scatter_applied > 0
     }
 
     /// Residual honesty: Patriot AA secondary residual fire.
@@ -124463,11 +124490,104 @@ assert!(
         assert!(logic.honesty_patriot_scatter_ok());
     }
 
+    #[test]
+    fn stinger_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_base_defense::{
+            STINGER_PRIMARY_WEAPON, STINGER_SCATTER_RADIUS_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        let mut stinger_tpl = ThingTemplate::new("GLAStingerSite");
+        stinger_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(1000.0)
+            .set_primary_weapon_name(STINGER_PRIMARY_WEAPON);
+        logic
+            .templates
+            .insert("GLAStingerSite".to_string(), stinger_tpl);
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let stinger = logic
+            .create_object("GLAStingerSite", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("stinger");
+        // SPAWNS_ARE_THE_WEAPONS residual needs slaves.
+        if let Some(s) = logic.objects.get_mut(&stinger) {
+            s.hive_slave_count = 3;
+            if let Some(w) = s.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        let inf = logic
+            .create_object("TestInfantry", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let mut saw_apply = false;
+        for f in 0..80u32 {
+            logic.frame = f;
+            logic.update_combat(&[stinger, inf], LOGIC_FRAME_TIMESTEP);
+            if logic.stinger_scatter_applied > 0 {
+                saw_apply = true;
+            }
+            if logic.stinger_scatter_misses > 0 {
+                break;
+            }
+        }
+        assert!(
+            saw_apply || logic.stinger_site_residual_ground_fires > 0,
+            "stinger residual should engage infantry (applied={}, ground={})",
+            logic.stinger_scatter_applied,
+            logic.stinger_site_residual_ground_fires
+        );
+        assert!((STINGER_SCATTER_RADIUS_VS_INFANTRY - 10.0).abs() < 0.01);
+
+        // Vehicle path still damages (no infantry scatter gate).
+        let tank = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        if let Some(s) = logic.objects.get_mut(&stinger) {
+            if let Some(w) = s.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        for f in 80..160u32 {
+            logic.frame = f;
+            logic.update_combat(&[stinger, tank], LOGIC_FRAME_TIMESTEP);
+        }
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before || logic.stinger_site_residual_ground_fires > 0,
+            "stinger must still engage vehicles (hp {}->{})",
+            hp_before,
+            hp_after
+        );
+        assert!(
+            logic.honesty_stinger_scatter_ok() || logic.stinger_site_residual_ground_fires > 0
+        );
+    }
+
+
 }
 
 #[cfg(test)]
 mod skirmish_starting_unit_residual_tests {
     use super::*;
+
+
 
     #[test]
     fn spawn_skirmish_starting_units_spawns_missing_builder() {

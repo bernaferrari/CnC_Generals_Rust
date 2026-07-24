@@ -87,6 +87,7 @@
 //!
 //! Fail-closed honesty:
 //! - Patriot ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
+//! - Stinger ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
 //!   (assist SECONDARY is residual-separate; host dual-slot still maps AA to residual
 //!   secondary for auto-acquire)
@@ -497,11 +498,62 @@ pub fn honesty_patriot_scatter_vs_infantry_ok() -> bool {
         }
 }
 
+/// Apply StingerMissileWeapon ScatterRadiusVsInfantry residual to aim.
+pub fn stinger_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let mut scatter =
+        host_effective_scatter_radius(STINGER_PRIMARY_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = STINGER_SCATTER_RADIUS_VS_INFANTRY;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Whether Stinger ground residual fire misses intended infantry via ScatterRadiusVsInfantry.
+pub fn stinger_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(STINGER_SCATTER_RADIUS_VS_INFANTRY, seed, target_hit_radius)
+}
+
+/// Wave residual honesty: Stinger ScatterRadiusVsInfantry peels (**10**).
+pub fn honesty_stinger_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    let vs = host_effective_scatter_radius(STINGER_PRIMARY_WEAPON, true);
+    let ground = host_effective_scatter_radius(STINGER_PRIMARY_WEAPON, false);
+    (STINGER_SCATTER_RADIUS_VS_INFANTRY - 10.0).abs() < 0.01
+        && ((vs - 10.0).abs() < 0.01 || vs <= 0.0)
+        && ground.abs() < 0.01
+        && {
+            let (sc, applied) =
+                stinger_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            applied && sc.length() <= STINGER_SCATTER_RADIUS_VS_INFANTRY + 0.01
+        }
+}
+
+
 
 pub fn honesty_base_defense_residual_pack_ok() -> bool {
     honesty_patriot_laser_punch_through_constants_ok()
         && honesty_patriot_weapon_body_residual_ok()
         && honesty_stinger_site_body_residual_ok()
+        && honesty_stinger_scatter_vs_infantry_ok()
         && PATRIOT_PRIMARY_WEAPON == "PatriotMissileWeapon"
         && PATRIOT_SECONDARY_WEAPON == "PatriotMissileWeaponAir"
         && (PATRIOT_GROUND_DAMAGE - 30.0).abs() < 0.01
@@ -916,6 +968,8 @@ pub const STINGER_GROUND_RANGE: f32 = 225.0;
 pub const STINGER_AIR_DAMAGE: f32 = 30.0;
 /// Retail StingerMissileWeaponAir AttackRange.
 pub const STINGER_AIR_RANGE: f32 = 400.0;
+/// Retail StingerMissileWeapon ScatterRadiusVsInfantry residual.
+pub const STINGER_SCATTER_RADIUS_VS_INFANTRY: f32 = 10.0;
 /// Retail ClipReloadTime 2000ms → 60 frames @ 30 FPS (ClipSize=1).
 pub const STINGER_RELOAD_FRAMES: u32 = 60;
 /// Retail SpawnBehavior SpawnNumber for residual honesty (not full spawn).
@@ -2222,6 +2276,23 @@ mod tests {
         assert!(!patriot_scatter_misses_infantry(false, 31, 0.5));
     }
     use std::collections::HashSet;
+
+
+    #[test]
+    fn stinger_scatter_vs_infantry_peels() {
+        assert!(honesty_stinger_scatter_vs_infantry_ok());
+        let aim = Vec3::new(80.0, 0.0, 12.0);
+        let (no_sc, applied) = stinger_scatter_aim(aim, false, 17);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = stinger_scatter_aim(aim, true, 17);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= STINGER_SCATTER_RADIUS_VS_INFANTRY + 0.01);
+        assert!(stinger_scatter_misses_infantry(true, 17, 0.5));
+        assert!(!stinger_scatter_misses_infantry(true, 17, 100.0));
+        assert!(!stinger_scatter_misses_infantry(false, 17, 0.5));
+    }
 
     #[test]
     fn base_defense_name_matrix() {
