@@ -1448,6 +1448,9 @@ pub struct Object {
     pub technical_cannon_shell_flight_frames: u32,
     #[serde(default)]
     pub technical_cannon_shell_intended: Option<u32>,
+    /// Host residual: projectile has been ECM-jammed (lost lock / scatter).
+    #[serde(default)]
+    pub ecm_missile_jammed: bool,
     /// Host residual: CleanupStreamProjectile in flight.
     #[serde(default)]
     pub cleanup_stream_projectile: bool,
@@ -2533,6 +2536,7 @@ impl Object {
             technical_cannon_shell_launch_frame: None,
             technical_cannon_shell_flight_frames: 0,
             technical_cannon_shell_intended: None,
+            ecm_missile_jammed: false,
             cleanup_stream_projectile: false,
             cleanup_stream_aim: None,
             cleanup_stream_intended: None,
@@ -3149,6 +3153,7 @@ impl Object {
             technical_cannon_shell_launch_frame: None,
             technical_cannon_shell_flight_frames: 0,
             technical_cannon_shell_intended: None,
+            ecm_missile_jammed: false,
             cleanup_stream_projectile: false,
             cleanup_stream_aim: None,
             cleanup_stream_intended: None,

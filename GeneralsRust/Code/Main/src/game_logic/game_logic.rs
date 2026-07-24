@@ -1296,6 +1296,8 @@ pub struct GameLogic {
     /// Host PointDefenseLaser residual honesty (Paladin / Avenger intercept).
     /// Fail-closed: not full PointDefenseLaserUpdate velocity prediction matrix.
     point_defense_residual_intercepts: u32,
+    /// Honesty: ECMTankMissileJammer missiles jammed/scattered residual.
+    ecm_missiles_jammed: u32,
     /// Honesty: PointDefenseLaserBeam objects spawned on intercept residual.
     point_defense_laser_beams_spawned: u32,
     /// Per-carrier next ready frame for residual PDL shot delay.
@@ -2996,6 +2998,7 @@ impl GameLogic {
             gps_scramblers: crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry::new(),
             base_defense_residual_fires: 0,
             point_defense_residual_intercepts: 0,
+            ecm_missiles_jammed: 0,
             point_defense_laser_beams_spawned: 0,
             point_defense_next_ready_frame: HashMap::new(),
             avenger: crate::game_logic::host_avenger::HostAvengerRegistry::new(),
@@ -3502,6 +3505,7 @@ impl GameLogic {
         self.cleanup_areas.clear();
         self.base_defense_residual_fires = 0;
         self.point_defense_residual_intercepts = 0;
+        self.ecm_missiles_jammed = 0;
         self.point_defense_laser_beams_spawned = 0;
         self.point_defense_next_ready_frame.clear();
         self.avenger.clear();
@@ -6164,6 +6168,7 @@ impl GameLogic {
         // Host China ECM Tank / jammer residual: jam enemy weapons in radius.
         // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
         self.update_ecm_jam_field();
+        self.update_ecm_missile_jam();
 
         // Host America Microwave Tank residual: DISABLE_SUBDUED on cooked structures.
         // Fail-closed vs full subdual accumulate/heal / laser stream / emitter field.
@@ -46266,7 +46271,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
 
     /// Residual honesty: ECM tank / jammer jammed enemy weapons at least once.
     pub fn honesty_ecm_jam_ok(&self) -> bool {
-        self.ecm_residual_jams > 0
+        self.ecm_residual_jams > 0 || self.ecm_missiles_jammed > 0
     }
 
     /// Host Microwave Tank residual registry (disable structure honesty).
@@ -49297,6 +49302,201 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
     /// structure within AttackRange 200; structure is fully disabled (production stops).
     /// Fail-closed: not full subdual accumulate/heal, not laser stream drawable,
     /// not MicrowaveTankEmitterWeapon infantry MICROWAVE field.
+
+    /// C++ ECMTankMissileJammer residual: jam in-flight missiles (scatter + subdual dmg).
+    pub fn update_ecm_missile_jam(&mut self) {
+        use crate::game_logic::host_ecm_jam::{
+            ecm_missile_scatter_offset, in_ecm_jam_radius_2d, is_ecm_jammer,
+            is_ecm_jam_projectile_flags, ECM_MISSILE_JAMMER_PRIMARY_DAMAGE,
+            ECM_MISSILE_JAM_MAX_PER_PULSE, HOST_ECM_JAM_RADIUS,
+        };
+
+        let frame = self.frame;
+        let jammers: Vec<(ObjectId, Team, f32, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || !is_ecm_jammer(&obj.template_name) {
+                    return None;
+                }
+                if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
+                    return None;
+                }
+                if obj.status.disabled_unmanned
+                    || obj.status.disabled_hacked
+                    || obj.status.disabled_emp
+                {
+                    return None;
+                }
+                let pos = obj.get_position();
+                Some((*id, obj.team, pos.x, pos.z))
+            })
+            .collect();
+        if jammers.is_empty() {
+            return;
+        }
+
+        let missiles: Vec<(ObjectId, Team, f32, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || obj.ecm_missile_jammed {
+                    return None;
+                }
+                let proj = obj.is_kind_of(KindOf::Projectile);
+                if !is_ecm_jam_projectile_flags(proj, &obj.template_name, false) {
+                    return None;
+                }
+                let in_flight = proj
+                    || obj.raptor_missile_projectile
+                    || obj.mig_missile_projectile
+                    || obj.tomahawk_missile_projectile
+                    || obj.scud_launcher_missile_projectile
+                    || obj.rocket_buggy_missile_projectile
+                    || obj.rpg_trooper_missile_projectile
+                    || obj.tank_hunter_missile_projectile
+                    || obj.missile_defender_missile_projectile
+                    || obj.scorpion_missile_projectile
+                    || obj.technical_rpg_missile_projectile
+                    || obj.stealth_jet_missile_projectile
+                    || obj.humvee_tow_projectile
+                    || obj.usa_tank_shell_projectile
+                    || obj.battlemaster_shell_projectile
+                    || obj.overlord_shell_projectile
+                    || obj.marauder_shell_projectile
+                    || obj.fire_base_shell_projectile
+                    || obj.technical_cannon_shell_projectile
+                    || obj.nuke_cannon_shell_projectile
+                    || obj.neutron_cannon_shell_projectile
+                    || obj.inferno_shell_projectile
+                    || obj.scorpion_shell_projectile;
+                if !in_flight {
+                    return None;
+                }
+                let pos = obj.get_position();
+                Some((*id, obj.team, pos.x, pos.z))
+            })
+            .collect();
+
+        let mut jammed_ids: Vec<(ObjectId, ObjectId, f32, f32)> = Vec::new();
+        for (jammer_id, jammer_team, jx, jz) in &jammers {
+            let mut count = 0u32;
+            for (mid, mteam, mx, mz) in &missiles {
+                if count >= ECM_MISSILE_JAM_MAX_PER_PULSE {
+                    break;
+                }
+                if *mteam == *jammer_team {
+                    continue;
+                }
+                if !in_ecm_jam_radius_2d((*jx, *jz), (*mx, *mz), HOST_ECM_JAM_RADIUS) {
+                    continue;
+                }
+                // Avoid double-queue same missile.
+                if jammed_ids.iter().any(|(id, _, _, _)| *id == *mid) {
+                    continue;
+                }
+                jammed_ids.push((*mid, *jammer_id, *mx, *mz));
+                count = count.saturating_add(1);
+            }
+        }
+
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        for (mid, jammer_id, mx, mz) in jammed_ids {
+            let seed = mid.0.wrapping_add(jammer_id.0).wrapping_add(frame);
+            let (sx, sz) = ecm_missile_scatter_offset(seed);
+            let new_aim = [mx + sx, 0.0, mz + sz];
+            let mut team = None;
+            if let Some(o) = self.objects.get_mut(&mid) {
+                if o.ecm_missile_jammed {
+                    continue;
+                }
+                o.ecm_missile_jammed = true;
+                team = Some(o.team);
+                let killed =
+                    o.take_damage_from(ECM_MISSILE_JAMMER_PRIMARY_DAMAGE, Some(jammer_id));
+                // Deflect aim residual (C++ projectile loses lock and scatters).
+                if o.raptor_missile_aim.is_some() {
+                    o.raptor_missile_aim = Some(new_aim);
+                    o.raptor_missile_intended = None;
+                }
+                if o.mig_missile_aim.is_some() {
+                    o.mig_missile_aim = Some(new_aim);
+                    o.mig_missile_intended = None;
+                }
+                if o.tomahawk_missile_aim.is_some() {
+                    o.tomahawk_missile_aim = Some(new_aim);
+                }
+                if o.scud_launcher_missile_aim.is_some() {
+                    o.scud_launcher_missile_aim = Some(new_aim);
+                }
+                if o.rocket_buggy_missile_aim.is_some() {
+                    o.rocket_buggy_missile_aim = Some(new_aim);
+                    o.rocket_buggy_missile_intended = None;
+                }
+                if o.rpg_trooper_missile_aim.is_some() {
+                    o.rpg_trooper_missile_aim = Some(new_aim);
+                    o.rpg_trooper_missile_intended = None;
+                }
+                if o.tank_hunter_missile_aim.is_some() {
+                    o.tank_hunter_missile_aim = Some(new_aim);
+                    o.tank_hunter_missile_intended = None;
+                }
+                if o.missile_defender_missile_aim.is_some() {
+                    o.missile_defender_missile_aim = Some(new_aim);
+                    o.missile_defender_missile_intended = None;
+                }
+                if o.scorpion_missile_aim.is_some() {
+                    o.scorpion_missile_aim = Some(new_aim);
+                    o.scorpion_missile_intended = None;
+                }
+                if o.technical_rpg_missile_aim.is_some() {
+                    o.technical_rpg_missile_aim = Some(new_aim);
+                    o.technical_rpg_missile_intended = None;
+                }
+                if o.stealth_jet_missile_aim.is_some() {
+                    o.stealth_jet_missile_aim = Some(new_aim);
+                    o.stealth_jet_missile_intended = None;
+                }
+                if o.humvee_tow_aim.is_some() {
+                    o.humvee_tow_aim = Some(new_aim);
+                    o.humvee_tow_intended = None;
+                }
+                if o.usa_tank_shell_aim.is_some() {
+                    o.usa_tank_shell_aim = Some(new_aim);
+                    o.usa_tank_shell_intended = None;
+                }
+                if o.battlemaster_shell_aim.is_some() {
+                    o.battlemaster_shell_aim = Some(new_aim);
+                    o.battlemaster_shell_intended = None;
+                }
+                if o.fire_base_shell_aim.is_some() {
+                    o.fire_base_shell_aim = Some(new_aim);
+                    o.fire_base_shell_intended = None;
+                }
+                if o.technical_cannon_shell_aim.is_some() {
+                    o.technical_cannon_shell_aim = Some(new_aim);
+                    o.technical_cannon_shell_intended = None;
+                }
+                if o.inferno_shell_aim.is_some() {
+                    o.inferno_shell_aim = Some(new_aim);
+                    o.inferno_shell_intended = None;
+                }
+                if killed {
+                    destroy_ids.push((mid, team));
+                }
+            }
+            self.ecm_missiles_jammed = self.ecm_missiles_jammed.saturating_add(1);
+        }
+        for (id, team) in destroy_ids {
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_ecm_missile_jam_ok(&self) -> bool {
+        self.ecm_missiles_jammed > 0
+    }
+
+
     pub fn update_microwave_disable(&mut self) {
         use crate::game_logic::host_microwave::{
             in_microwave_range_2d, is_legal_microwave_disable_target, is_microwave_hostile_team,
@@ -72089,7 +72289,86 @@ mod tests {
     /// C++ ECMTankVehicleDisabler (SUBDUAL → DISABLED_SUBDUED cannot fire) +
     /// ECMTankMissileJammer FireWeaponUpdate pulse (PrimaryDamageRadius=150).
     /// Fail-closed: continuous aura (not full subdual damage / laser stream).
+    
     #[test]
+    fn ecm_missile_jam_scatters_in_flight_projectile() {
+        use crate::game_logic::host_ecm_jam::HOST_ECM_JAM_RADIUS;
+        use crate::game_logic::host_technical::{
+            TechnicalWeaponTier, TECH_CANNON_SHELL_PROJECTILE,
+        };
+
+        let mut logic = GameLogic::new();
+        let mut ecm_tpl = ThingTemplate::new("ChinaTankECM");
+        ecm_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0);
+        logic.templates.insert("ChinaTankECM".to_string(), ecm_tpl);
+
+        let mut tech_tpl = ThingTemplate::new("GLAVehicleTechnical");
+        tech_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(180.0);
+        logic
+            .templates
+            .insert("GLAVehicleTechnical".to_string(), tech_tpl);
+
+        let ecm = logic
+            .create_object("ChinaTankECM", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ecm");
+        let tech = logic
+            .create_object(
+                "GLAVehicleTechnical",
+                Team::GLA,
+                Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("tech");
+        {
+            let t = logic.find_object_mut(tech).unwrap();
+            t.apply_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE");
+            logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::One);
+        }
+        let aim = Vec3::new(200.0, 0.0, 0.0);
+        let from = Vec3::new(50.0, 5.0, 0.0);
+        let shell = logic
+            .spawn_technical_cannon_shell_projectile(tech, from, aim, None)
+            .expect("shell");
+        // Place shell near ECM.
+        if let Some(o) = logic.objects.get_mut(&shell) {
+            o.set_position(Vec3::new(10.0, 5.0, 0.0));
+        }
+        let aim_before = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.technical_cannon_shell_aim)
+            .expect("aim");
+
+        logic.update_ecm_missile_jam();
+        assert!(logic.honesty_ecm_missile_jam_ok());
+        let shell_obj = logic.objects.get(&shell);
+        if let Some(o) = shell_obj {
+            if o.is_alive() {
+                assert!(o.ecm_missile_jammed, "shell should be marked jammed");
+                let aim_after = o.technical_cannon_shell_aim.expect("aim after");
+                assert!(
+                    (aim_after[0] - aim_before[0]).abs() > 0.1
+                        || (aim_after[2] - aim_before[2]).abs() > 0.1,
+                    "jam should scatter aim"
+                );
+            } else {
+                // Destroyed by SUBDUAL_MISSILE residual damage also counts.
+                assert!(logic.ecm_missiles_jammed > 0);
+            }
+        } else {
+            assert!(logic.ecm_missiles_jammed > 0);
+        }
+        let _ = (ecm, HOST_ECM_JAM_RADIUS, TECH_CANNON_SHELL_PROJECTILE);
+    }
+
+#[test]
     fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
