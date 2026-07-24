@@ -219,6 +219,7 @@ pub mod host_spy_satellite;
 mod host_squish_collide;
 mod host_status_damage;
 pub mod host_stealth_fighter;
+pub mod host_status_bits_upgrade;
 pub mod host_strategy_center;
 mod host_structure_collapse;
 pub mod host_structure_economy_residual;
