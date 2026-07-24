@@ -1152,6 +1152,9 @@ pub struct GameLogic {
         crate::game_logic::host_ocl_fire_weapon_attack::HostOclFireWeaponAttackRegistry,
     /// C++ FuelAir gas SlowDeathBehavior residual.
     fuel_air_gas_reg: crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasRegistry,
+    /// C++ OCL ApplyRandomForceNugget residual.
+    ocl_apply_random_force_reg:
+        crate::game_logic::host_ocl_apply_random_force::HostOclApplyRandomForceRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2836,6 +2839,8 @@ impl GameLogic {
             ocl_fire_weapon_attack_reg:
                 crate::game_logic::host_ocl_fire_weapon_attack::HostOclFireWeaponAttackRegistry::new(),
             fuel_air_gas_reg: crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasRegistry::new(),
+            ocl_apply_random_force_reg:
+                crate::game_logic::host_ocl_apply_random_force::HostOclApplyRandomForceRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3302,6 +3307,7 @@ impl GameLogic {
         self.ocl_create_debris_reg.clear();
         self.ocl_fire_weapon_attack_reg.clear();
         self.fuel_air_gas_reg.clear();
+        self.ocl_apply_random_force_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -23167,6 +23173,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         self.maybe_notify_special_power_completion(id);
         // C++ DamDie::onDie residual fires with other die modules at death start.
         self.maybe_apply_dam_die(id);
+        // C++ OCL ApplyRandomForceNugget residual (air-death toss before debris).
+        let _ = self.apply_ocl_random_force(id);
         // C++ UpgradeDie::onDie residual — free producer's upgrade slot.
         self.maybe_apply_upgrade_die(id);
         // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
@@ -27333,6 +27341,31 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     pub fn honesty_smart_bomb_target_homing_ok(&self) -> bool {
         self.smart_bomb_target_homing_reg.honesty_host_path_ok()
             && crate::game_logic::host_smart_bomb_target_homing::honesty_smart_bomb_target_homing_residual_ok()
+    }
+
+    /// C++ ApplyRandomForceNugget::create residual on primary (dying) object.
+    pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_ocl_apply_random_force::{
+            apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
+        };
+        let Some(o) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        let plan = match apply_random_force_plan_for(&o.template_name) {
+            Some(p) => p,
+            None => return false,
+        };
+        let salt = object_id.0.wrapping_add(self.frame);
+        let force = calc_random_force(&plan, salt);
+        o.movement.velocity += force * 0.05;
+        let spin = spin_nudge_rad(&plan, salt);
+        o.set_orientation(o.get_orientation() + spin);
+        self.ocl_apply_random_force_reg.record(force);
+        true
+    }
+
+    pub fn honesty_ocl_apply_random_force_ok(&self) -> bool {
+        crate::game_logic::host_ocl_apply_random_force::honesty_ocl_apply_random_force_residual_ok()
     }
 
     pub fn honesty_fuel_air_gas_slow_death_ok(&self) -> bool {
@@ -76816,6 +76849,36 @@ mod tests {
     }
 
 
+
+
+    #[test]
+    fn ocl_apply_random_force_technical() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        let mut tech = crate::game_logic::ThingTemplate::new("GLAVehicleTechnicalAirDeath");
+        tech.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        logic
+            .templates
+            .insert("GLAVehicleTechnicalAirDeath".into(), tech);
+        // Also match via OCL-style name peel on template containing technical+death
+        let id = logic
+            .create_object(
+                "GLAVehicleTechnicalAirDeath",
+                Team::GLA,
+                Vec3::new(0.0, 5.0, 0.0),
+            )
+            .unwrap();
+        let v0 = logic.find_object(id).unwrap().movement.velocity;
+        assert!(logic.apply_ocl_random_force(id));
+        let v1 = logic.find_object(id).unwrap().movement.velocity;
+        assert!(
+            (v1 - v0).length() > 1.0,
+            "ApplyRandomForce should impulse velocity"
+        );
+        assert!(logic.ocl_apply_random_force_reg.applied >= 1);
+        assert!(logic.honesty_ocl_apply_random_force_ok());
+    }
 
     #[test]
     fn fuel_air_gas_slow_death_detonates() {
