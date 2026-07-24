@@ -1346,7 +1346,7 @@ pub struct GameLogic {
     spy_drones: crate::game_logic::host_spy_drone::HostSpyDroneRegistry,
     spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry,
     /// Host America Countermeasures residual (aircraft flare diversion).
-    /// Fail-closed: not full CountermeasureFlare OCL / bone volley matrix.
+    /// CountermeasureFlare SpecialObject spawn residual closed.
     countermeasures: crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
 
     /// Host CIA Intelligence / SpyVision residual (setUnitsVisionSpied).
@@ -6192,6 +6192,8 @@ impl GameLogic {
                 Some(&mut self.countermeasures),
                 self.frame,
             );
+        self.flush_countermeasure_flare_spawns();
+        self.update_countermeasure_flare_objects();
             crate::game_logic::host_projectile_log::record_snapshot(
                 self.combat_system.projectiles_snapshot(),
             );
@@ -7416,6 +7418,8 @@ impl GameLogic {
 
     fn update_ai(&mut self, object_ids: &[ObjectId], dt: f32) {
         use crate::ai_decisions::*;
+        self.flush_countermeasure_flare_spawns();
+        self.update_countermeasure_flare_objects();
 
         let mut ai_commands = Vec::new();
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP; // Convert frame to seconds
@@ -47385,6 +47389,101 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Residual honesty: at least one missile was diverted by Countermeasures.
+    /// C++ CountermeasuresBehavior flare OCL SpecialObject residual.
+    pub fn spawn_countermeasure_flare_object(
+        &mut self,
+        aircraft_id: ObjectId,
+        volley_index: u32,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_countermeasures::{
+            FLARE_LIFETIME_FRAMES, FLARE_MAX_HEALTH, FLARE_TEMPLATE_NAME, VOLLEY_ARC_ANGLE_DEG,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+        use std::f32::consts::PI;
+
+        if !self.templates.contains_key(FLARE_TEMPLATE_NAME) {
+            let mut t = ThingTemplate::new(FLARE_TEMPLATE_NAME);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(FLARE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(FLARE_TEMPLATE_NAME.to_string(), t);
+        }
+        let (team, origin) = {
+            let o = self.objects.get(&aircraft_id)?;
+            (o.team, o.get_position())
+        };
+        // Volley arc residual: spread flares ± half VolleyArcAngle around aircraft.
+        use crate::game_logic::host_countermeasures::VOLLEY_SIZE;
+        let t = if VOLLEY_SIZE > 1 {
+            (volley_index as f32) / ((VOLLEY_SIZE - 1) as f32)
+        } else {
+            0.5
+        };
+        let angle_deg = (t - 0.5) * VOLLEY_ARC_ANGLE_DEG;
+        let angle = angle_deg * PI / 180.0;
+        let dist = 12.0 + volley_index as f32 * 2.0;
+        let place = glam::Vec3::new(
+            origin.x + angle.cos() * dist,
+            origin.y.max(0.0) + 8.0,
+            origin.z + angle.sin() * dist,
+        );
+        let fid = self.create_object(FLARE_TEMPLATE_NAME, team, place)?;
+        let expires = self.frame.saturating_add(FLARE_LIFETIME_FRAMES.max(1));
+        if let Some(o) = self.objects.get_mut(&fid) {
+            o.countermeasure_flare = true;
+            o.countermeasure_flare_expires_frame = Some(expires);
+            o.producer_id = Some(aircraft_id);
+            o.health.maximum = FLARE_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, FLARE_MAX_HEALTH);
+            o.weapon = None;
+            o.secondary_weapon = None;
+        }
+        self.countermeasures.record_flare_spawned(1);
+        Some(fid)
+    }
+
+    pub fn flush_countermeasure_flare_spawns(&mut self) {
+        let pending = self.countermeasures.take_pending_flare_spawns();
+        for spawn in pending {
+            let _ = self.spawn_countermeasure_flare_object(spawn.aircraft_id, spawn.volley_index);
+        }
+    }
+
+    pub fn update_countermeasure_flare_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<(ObjectId, Option<ObjectId>)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.countermeasure_flare {
+                    return None;
+                }
+                if let Some(exp) = o.countermeasure_flare_expires_frame {
+                    if exp <= frame {
+                        return Some((*id, o.producer_id));
+                    }
+                }
+                None
+            })
+            .collect();
+        for (id, producer) in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.countermeasure_flare = false;
+            }
+            if let Some(pid) = producer {
+                self.countermeasures.note_flare_expired(pid);
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    pub fn honesty_countermeasure_flare_object_ok(&self) -> bool {
+        self.countermeasures.honesty_flare_spawn_ok()
+    }
+
     pub fn honesty_countermeasures_divert_ok(&self) -> bool {
         self.countermeasures.honesty_divert_ok()
     }
@@ -63191,7 +63290,69 @@ mod tests {
     }
 
     
+    
     #[test]
+    fn countermeasures_divert_spawns_flare_objects() {
+        use crate::game_logic::host_countermeasures::{
+            try_divert_missile, FLARE_LIFETIME_FRAMES, FLARE_TEMPLATE_NAME, VOLLEY_SIZE,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_COUNTERMEASURES;
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        let mut jet = ThingTemplate::new("AmericaJetRaptor");
+        jet.add_kind_of(KindOf::Aircraft).set_health(120.0);
+        logic.templates.insert("AmericaJetRaptor".into(), jet);
+        let air = logic
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 40.0, 0.0))
+            .unwrap();
+        {
+            let o = logic.find_object_mut(air).unwrap();
+            o.applied_upgrades
+                .insert(UPGRADE_AMERICA_COUNTERMEASURES.to_string());
+        }
+        logic.countermeasures.ensure(air);
+
+        // Force many rolls until a divert succeeds (deterministic seed space).
+        let mut diverted = false;
+        for f in 0..64u32 {
+            if try_divert_missile(
+                &mut logic.countermeasures,
+                air,
+                ObjectId(900 + f),
+                f,
+                true,
+            ) {
+                diverted = true;
+                break;
+            }
+        }
+        assert!(diverted, "evasion residual must succeed within seed window");
+        logic.flush_countermeasure_flare_spawns();
+        assert!(logic.honesty_countermeasure_flare_object_ok());
+        let flares: Vec<_> = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.countermeasure_flare)
+            .collect();
+        assert!(
+            !flares.is_empty() && flares.len() as u32 <= VOLLEY_SIZE,
+            "volley must spawn CountermeasureFlare objects, got {}",
+            flares.len()
+        );
+        assert!(flares.iter().all(|o| o.template_name == FLARE_TEMPLATE_NAME));
+        let fid = flares[0].id;
+        logic.frame = logic.frame.saturating_add(FLARE_LIFETIME_FRAMES + 2);
+        logic.update_countermeasure_flare_objects();
+        assert!(
+            logic
+                .find_object(fid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
+#[test]
     fn aurora_fuel_air_impact_spawns_gas_object() {
         use crate::game_logic::host_aurora_bomb::{
             HostAuroraBombKind, AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES,
