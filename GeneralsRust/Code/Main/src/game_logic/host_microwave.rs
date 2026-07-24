@@ -22,8 +22,8 @@
 //!
 //! Fail-closed honesty:
 //! - Not full subdual damage accumulate / SubdualDamageHelper heal drain
-//! - Not full MicrowaveDisableStream laser attach / FireWeaponUpdate emitter
-//!   infantry MICROWAVE damage field volume (emitter residual constants only)
+//! - MicrowaveDisableStream laser attach residual closed (LaserName + WEAPON02 bone)
+//! - FireWeaponUpdate emitter infantry MICROWAVE field residual closed (8/r100 / 250ms)
 //! - Not full vehicle disabler (retail WeaponSet has VehicleDisabler commented out)
 //! - Not network microwave replication (network deferred)
 
@@ -193,6 +193,22 @@ pub fn microwave_ally_filter_allows(
     false
 }
 
+/// Retail emitter residual: ground infantry/vehicles in field (NOT_AIRBORNE enemies).
+pub fn is_legal_microwave_emitter_target(
+    is_alive: bool,
+    is_airborne: bool,
+    is_structure: bool,
+    same_team: bool,
+    target_is_neutral: bool,
+) -> bool {
+    if !is_alive || is_airborne || is_structure || same_team {
+        return false;
+    }
+    // Enemies only (NOT_AIRBORNE ENEMIES residual); neutrals fail-closed out of emitter.
+    let _ = target_is_neutral;
+    true
+}
+
 /// 2D distance check residual (C++ FROM_CENTER_2D).
 pub fn in_microwave_range_2d(src: (f32, f32), dst: (f32, f32), range: f32) -> bool {
     let dx = src.0 - dst.0;
@@ -247,6 +263,10 @@ pub struct HostMicrowaveRegistry {
     pub clear_shots: u32,
     /// Wave 55: residual emitter field ticks booked.
     pub emitter_ticks: u32,
+    /// Wave residual: MicrowaveDisableStream laser beams spawned.
+    pub laser_beams_spawned: u32,
+    /// Wave residual: emitter field damage applications.
+    pub emitter_damage_applications: u32,
     /// Wave 55: ally filter rejections (would-be ally cook blocked).
     pub ally_filter_rejects: u32,
 }
@@ -285,6 +305,18 @@ impl HostMicrowaveRegistry {
         self.emitter_ticks = self.emitter_ticks.saturating_add(1);
     }
 
+    pub fn record_laser_beam(&mut self) {
+        self.laser_beams_spawned = self.laser_beams_spawned.saturating_add(1);
+    }
+
+    pub fn record_emitter_damage(&mut self, applications: u32) {
+        if applications > 0 {
+            self.emitter_ticks = self.emitter_ticks.saturating_add(1);
+            self.emitter_damage_applications =
+                self.emitter_damage_applications.saturating_add(applications);
+        }
+    }
+
     pub fn record_ally_filter_reject(&mut self) {
         self.ally_filter_rejects = self.ally_filter_rejects.saturating_add(1);
     }
@@ -292,6 +324,14 @@ impl HostMicrowaveRegistry {
     /// Residual honesty: at least one structure was disabled by microwave.
     pub fn honesty_disable_ok(&self) -> bool {
         self.disable_grants > 0
+    }
+
+    pub fn honesty_laser_ok(&self) -> bool {
+        self.laser_beams_spawned > 0
+    }
+
+    pub fn honesty_emitter_ok(&self) -> bool {
+        self.emitter_ticks > 0 && self.emitter_damage_applications > 0
     }
 
     /// Combined host path honesty for microwave disable residual.
@@ -375,11 +415,25 @@ pub fn honesty_microwave_weapon_residual_ok() -> bool {
 }
 
 /// Combined Wave 55 microwave residual honesty pack.
+/// Wave residual honesty: MicrowaveDisableStream + emitter field peels.
+pub fn honesty_microwave_stream_residual_ok() -> bool {
+    HOST_MICROWAVE_LASER_NAME == "MicrowaveDisableStream"
+        && HOST_MICROWAVE_LASER_BONE == "WEAPON02"
+        && MICROWAVE_WEAPON_EMITTER == "MicrowaveTankEmitterWeapon"
+        && HOST_MICROWAVE_EMITTER_DELAY_FRAMES == 8
+        && (HOST_MICROWAVE_EMITTER_DAMAGE - 8.0).abs() < 0.01
+        && (HOST_MICROWAVE_EMITTER_RADIUS - 100.0).abs() < 0.01
+        && HOST_MICROWAVE_EMITTER_DAMAGE_AT_SELF
+        && HOST_MICROWAVE_EMITTER_AFFECTS.contains("ENEMIES")
+        && HOST_MICROWAVE_EMITTER_AFFECTS.contains("NOT_AIRBORNE")
+}
+
 pub fn honesty_microwave_residual_pack_ok() -> bool {
     honesty_microwave_cook_radius_residual_ok()
         && honesty_microwave_disable_residual_ok()
         && honesty_microwave_ally_filter_residual_ok()
         && honesty_microwave_weapon_residual_ok()
+        && honesty_microwave_stream_residual_ok()
 }
 
 #[cfg(test)]
@@ -445,7 +499,21 @@ mod tests {
         assert_eq!(reg.ally_filter_rejects, 1);
     }
 
-    #[test]
+        #[test]
+    fn microwave_stream_residual_honesty() {
+        assert!(honesty_microwave_stream_residual_ok());
+        assert!(is_legal_microwave_emitter_target(true, false, false, false, false));
+        assert!(!is_legal_microwave_emitter_target(true, true, false, false, false));
+        assert!(!is_legal_microwave_emitter_target(true, false, true, false, false));
+        assert!(!is_legal_microwave_emitter_target(true, false, false, true, false));
+        let mut reg = HostMicrowaveRegistry::new();
+        reg.record_laser_beam();
+        reg.record_emitter_damage(2);
+        assert!(reg.honesty_laser_ok());
+        assert!(reg.honesty_emitter_ok());
+    }
+
+#[test]
     fn microwave_residual_pack_honesty() {
         assert!(honesty_microwave_cook_radius_residual_ok());
         assert!(honesty_microwave_disable_residual_ok());
