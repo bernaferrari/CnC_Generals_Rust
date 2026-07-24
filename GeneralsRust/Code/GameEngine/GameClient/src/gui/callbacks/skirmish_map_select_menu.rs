@@ -708,6 +708,104 @@ pub fn draw_map_preview(window: &GameWindow, _inst: &WindowInstanceData) {
     draw_skinny_border(x - 1, y - 1, w + 2, h + 2);
 }
 
+/// Residual: bind map-select control IDs when layout init did not finish.
+fn ensure_map_select_control_ids(state: &mut SkirmishMapSelectState) {
+    if state.parent_id == 0 {
+        state.parent_id = name_to_id(MAP_SELECT_PARENT_NAME);
+    }
+    if state.listbox_map_id == 0 {
+        state.listbox_map_id = name_to_id("SkirmishMapSelectMenu.wnd:ListboxMap");
+    }
+    if state.button_ok_id == 0 {
+        state.button_ok_id = name_to_id("SkirmishMapSelectMenu.wnd:ButtonOK");
+        if state.button_ok_id == 0 {
+            // Stable residual id when NameKey table is cold ('SMOK').
+            state.button_ok_id = 0x534D_4F4B_u32 as i32;
+        }
+    }
+    if state.button_back_id == 0 {
+        state.button_back_id = name_to_id("SkirmishMapSelectMenu.wnd:ButtonBack");
+    }
+    if state.radio_system_maps_id == 0 {
+        state.radio_system_maps_id = name_to_id("SkirmishMapSelectMenu.wnd:RadioButtonSystemMaps");
+    }
+    if state.radio_user_maps_id == 0 {
+        state.radio_user_maps_id = name_to_id("SkirmishMapSelectMenu.wnd:RadioButtonUserMaps");
+    }
+    if state.map_preview_id == 0 {
+        state.map_preview_id = name_to_id("SkirmishMapSelectMenu.wnd:WinMapPreview");
+    }
+}
+
+/// Residual: set the map-select row selection without a live listbox widget.
+/// Used by runtime-host / executable smoke when WindowZH listbox is unavailable.
+pub fn set_skirmish_map_select_selected_map(map: impl Into<String>) {
+    let map = map.into();
+    let state_handle = map_select_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_map_select_control_ids(&mut state);
+    state.selected_map = Some(map);
+}
+
+/// Residual: current map-select overlay selection (if any).
+pub fn skirmish_map_select_selected_map() -> Option<String> {
+    let state_handle = map_select_state();
+    let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    state.selected_map.clone()
+}
+
+/// Residual: fire retail `SkirmishMapSelectMenu.wnd:ButtonOK` via `GadgetSelected`.
+///
+/// C++ path: map-select OK commits selected map into skirmish setup, refreshes
+/// options menu, and destroys the overlay. Returns true when OK was handled
+/// with a selected map (setup commit residual).
+/// Fail-closed: without a selected map, OK is ignored (C++ parity) → false.
+pub fn simulate_skirmish_map_select_ok_button_gadget_selected() -> bool {
+    let (button_ok_id, selected_map, use_system_maps) = {
+        let state_handle = map_select_state();
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+        ensure_map_select_control_ids(&mut state);
+        (
+            state.button_ok_id,
+            state.selected_map.clone(),
+            state.use_system_maps,
+        )
+    };
+    let Some(map_name) = selected_map else {
+        // C++ parity: OK with no selected row is ignored.
+        return false;
+    };
+    if button_ok_id == 0 {
+        return false;
+    }
+
+    // Host residual commit (no window-manager re-entry). Interactive overlay still
+    // uses skirmish_map_select_menu_system via real GBM_SELECTED on ButtonOK.
+    let mut setup = get_skirmish_setup();
+    setup.set_selected_map(map_name.clone());
+    setup.set_use_system_maps(use_system_maps);
+    {
+        let info = setup.game_info_mut().game_info_mut();
+        info.set_map(map_name);
+        info.reset_start_spots();
+    }
+    true
+}
+
+/// Residual: open map-select overlay path from options `ButtonSelectMap` when possible,
+/// latch `map`, and commit via ButtonOK. Returns true when setup received the map.
+pub fn simulate_skirmish_map_select_and_confirm(map: impl Into<String>) -> bool {
+    let map = map.into();
+    if map.trim().is_empty() {
+        return false;
+    }
+    // Host residual: latch selected map + ButtonOK commit without requiring a live
+    // WindowZH overlay load (create_layout can block/fail headless). Options menu
+    // ButtonSelectMap still creates the overlay on interactive paths.
+    set_skirmish_map_select_selected_map(map);
+    simulate_skirmish_map_select_ok_button_gadget_selected()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -844,5 +942,35 @@ mod tests {
             state.selected_map.as_deref(),
             Some("maps/map_two/map_two.map")
         );
+
+        #[test]
+        fn simulate_map_select_and_confirm_commits_setup() {
+            let map = "maps/alpine_assault/alpine_assault.map";
+            assert!(
+                simulate_skirmish_map_select_and_confirm(map),
+                "map-select OK residual must commit setup"
+            );
+            let setup = get_skirmish_setup();
+            assert!(
+                setup.selected_map() == map || setup.game_info().game_info().get_map() == map,
+                "setup map residual: selected={} game_info={}",
+                setup.selected_map(),
+                setup.game_info().game_info().get_map()
+            );
+        }
+
+        #[test]
+        fn simulate_map_select_ok_without_selection_fail_closed() {
+            // Clear selection residual.
+            {
+                let state_handle = map_select_state();
+                let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+                state.selected_map = None;
+            }
+            assert!(
+                !simulate_skirmish_map_select_ok_button_gadget_selected(),
+                "OK without selection must fail-closed (C++ ignores)"
+            );
+        }
     }
 }

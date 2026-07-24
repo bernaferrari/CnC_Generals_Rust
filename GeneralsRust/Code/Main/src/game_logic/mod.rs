@@ -240,6 +240,7 @@ pub mod host_script_map_team_player_residual;
 pub mod host_scud_launcher;
 pub mod host_sentry_drone;
 pub mod host_shell_campaign_save_residual_wave106;
+pub mod host_skirmish_map_select_residual_wave115;
 pub mod host_slave_drones;
 mod host_slow_death;
 pub mod host_sneak_attack;
@@ -1426,4 +1427,10 @@ pub use host_main_menu_skirmish_nav_residual_wave114::{
     honesty_main_menu_skirmish_names_residual_wave114,
     honesty_main_menu_skirmish_nav_residual_pack_wave114,
     honesty_main_menu_skirmish_nav_steps_residual_wave114,
+};
+pub use host_skirmish_map_select_residual_wave115::{
+    honesty_skirmish_map_select_commands_residual_wave115,
+    honesty_skirmish_map_select_names_residual_wave115,
+    honesty_skirmish_map_select_nav_steps_residual_wave115,
+    honesty_skirmish_map_select_residual_pack_wave115,
 };
