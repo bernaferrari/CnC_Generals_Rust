@@ -18,11 +18,13 @@
 //!
 //! Fail-closed honesty:
 //! - Not full SPAWNS_ARE_THE_WEAPONS / garrison-howitzer HiveStructureBody matrix
-//! - Not full Turret pitch / ScaleWeaponSpeed lob projectile matrix
+//! - GenericTankShell ScaleWeaponSpeed lob Bezier flight residual closed
+//! - Not full Turret pitch drawable matrix
 //! - Not full ScatterRadiusVsInfantry residual miss cone
 //! - Not network Fire Base replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const FIRE_BASE_LOGIC_FPS: f32 = 30.0;
@@ -58,6 +60,16 @@ pub const FIRE_BASE_DEATH_TYPE: &str = "NORMAL";
 pub const FIRE_BASE_CLIP_SIZE: u32 = 0;
 /// Retail ProjectileObject residual.
 pub const FIRE_BASE_PROJECTILE: &str = "GenericTankShell";
+/// Retail GenericTankShell MaxHealth residual.
+pub const FIRE_BASE_SHELL_MAX_HEALTH: f32 = 100.0;
+/// DumbProjectileBehavior FirstHeight residual.
+pub const FIRE_BASE_SHELL_FIRST_HEIGHT: f32 = 10.0;
+/// DumbProjectileBehavior SecondHeight residual.
+pub const FIRE_BASE_SHELL_SECOND_HEIGHT: f32 = 10.0;
+/// FirstPercentIndent residual (50%).
+pub const FIRE_BASE_SHELL_FIRST_PERCENT_INDENT: f32 = 0.50;
+/// SecondPercentIndent residual (90%).
+pub const FIRE_BASE_SHELL_SECOND_PERCENT_INDENT: f32 = 0.90;
 /// Retail FireFX residual.
 pub const FIRE_BASE_FIRE_FX: &str = "WeaponFX_GenericTankGunNoTracer";
 /// Retail ProjectileDetonationFX residual.
@@ -135,6 +147,49 @@ pub fn is_fire_base_template(template_name: &str) -> bool {
 }
 
 /// Whether residual fire should apply Fire Base residual path.
+
+
+/// ScaleWeaponSpeed residual: lob speed proportional to shot distance.
+pub fn fire_base_scaled_weapon_speed(from: Vec3, to: Vec3) -> f32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt();
+    let t = (dist / FIRE_BASE_RANGE).clamp(0.0, 1.0);
+    let speed = FIRE_BASE_MIN_WEAPON_SPEED
+        + (FIRE_BASE_PROJECTILE_SPEED - FIRE_BASE_MIN_WEAPON_SPEED) * t;
+    speed.clamp(FIRE_BASE_MIN_WEAPON_SPEED, FIRE_BASE_PROJECTILE_SPEED)
+}
+
+/// Cubic Bezier residual sample for Fire Base GenericTankShell lob.
+pub fn fire_base_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * FIRE_BASE_SHELL_FIRST_PERCENT_INDENT
+        + Vec3::Y * FIRE_BASE_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * FIRE_BASE_SHELL_SECOND_PERCENT_INDENT
+        + Vec3::Y * FIRE_BASE_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    p0 * uuu + p1 * (3.0 * uu * t) + p2 * (3.0 * u * tt) + p3 * ttt
+}
+
+/// Flight frame residual from ground distance @ scaled weapon speed.
+pub fn fire_base_shell_flight_frames(from: Vec3, to: Vec3) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let speed = fire_base_scaled_weapon_speed(from, to).max(1.0);
+    let frames = (dist / (speed / FIRE_BASE_LOGIC_FPS)).ceil() as u32;
+    frames.clamp(4, 240)
+}
+
 pub fn should_apply_fire_base_residual(is_fire_base: bool) -> bool {
     is_fire_base
 }
@@ -202,6 +257,9 @@ pub fn honesty_fire_base_weapon_residual_ok() -> bool {
         && FIRE_BASE_DEATH_TYPE == "NORMAL"
         && FIRE_BASE_CLIP_SIZE == 0
         && FIRE_BASE_PROJECTILE == "GenericTankShell"
+        && FIRE_BASE_SCALE_WEAPON_SPEED
+        && (FIRE_BASE_SHELL_FIRST_HEIGHT - 10.0).abs() < 0.01
+        && (FIRE_BASE_MIN_WEAPON_SPEED - 75.0).abs() < 0.1
         && FIRE_BASE_FIRE_FX == "WeaponFX_GenericTankGunNoTracer"
         && FIRE_BASE_DETONATION_FX == "FX_FireBaseHowitzerExplosion"
         && FIRE_BASE_FIRE_AUDIO == "StrategyCenter_ArtilleryRound"
