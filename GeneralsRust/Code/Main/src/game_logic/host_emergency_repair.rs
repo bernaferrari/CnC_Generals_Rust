@@ -18,7 +18,7 @@
 //! - ParticleSysBone RepairCloud residual name
 //!
 //! Fail-closed honesty:
-//! - Not full OCL RepairVehicles invisible marker / RepairCloud particle path
+//! - RepairVehiclesInArea_InvisibleMarker spawn residual closed (RepairCloud GPU fail-closed)
 //! - Not full ally relationship filter (uses same-team residual)
 //! - Not full player science ownership matrix beyond residual name tier gate
 //! - Not KindOf aircraft-as-vehicle edge cases beyond residual Vehicle KindOf
@@ -262,6 +262,8 @@ pub struct HostEmergencyRepairRegistry {
     pub heal_count: u32,
     /// Cumulative HP restored.
     pub heal_amount_total: f32,
+    /// Honesty: OCL invisible markers spawned.
+    pub markers_spawned: u32,
 }
 
 impl HostEmergencyRepairRegistry {
@@ -275,6 +277,14 @@ impl HostEmergencyRepairRegistry {
 
     pub fn activation_count(&self) -> u32 {
         self.activation_count
+    }
+
+    pub fn record_marker_spawn(&mut self) {
+        self.markers_spawned = self.markers_spawned.saturating_add(1);
+    }
+
+    pub fn honesty_marker_ok(&self) -> bool {
+        self.markers_spawned > 0
     }
 
     pub fn heal_count(&self) -> u32 {
