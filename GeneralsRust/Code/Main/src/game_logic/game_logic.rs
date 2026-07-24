@@ -6156,8 +6156,9 @@ impl GameLogic {
         self.update_toxin_tractor_poison_zones();
 
         // Host America Aurora dive bomb residual: delayed area damage at target.
-        // Fail-closed vs full AuroraBombLocomotor / FuelAir gas OCL path.
+        // AuroraBombLocomotor flight residual + FuelAir gas OCL path.
         self.update_aurora_bombs();
+        self.update_aurora_bomb_projectiles();
 
         // Host GLA Angry Mob residual: aggregate fire on nearby enemies + expand.
         // Fail-closed vs full SpawnBehavior member objects / MobMemberSlavedUpdate.
@@ -13615,7 +13616,7 @@ impl GameLogic {
                     fired_slot = Some(slot);
 
                     // Aurora dive bomb residual: queue delayed area damage at target.
-                    // Fail-closed: not full AuroraBomb projectile / FuelAir gas OCL path.
+                    // AuroraBomb projectile flight residual closed; FuelAir gas OCL path.
                     // Instant single-target take_damage is skipped; AOE applies after delay.
                     // Keep fired_slot so last_fire_time / particles / audio still run.
                     let aurora_queued = {
@@ -49375,6 +49376,172 @@ fn update_scud_poison_zones(&mut self) {
     /// Retail path: AuroraBombWeapon → AuroraBomb projectile dive, or
     /// AirF/SupW FuelAir bomb → gas → detonation weapon.
     /// Host residual collapses projectile/gas into delayed area damage.
+    /// C++ AuroraBomb SpecialObject residual (AuroraBombLocomotor guided drop).
+    pub fn spawn_aurora_bomb_projectile(
+        &mut self,
+        mission_id: u32,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        projectile_name: &str,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_aurora_bomb::{
+            AURORA_BOMB_HEIGHT_DIE_TARGET, AURORA_BOMB_LOCO_MIN_SPEED, AURORA_BOMB_LOCO_SPEED,
+            AURORA_BOMB_PROJECTILE, AURORA_BOMB_PROJECTILE_MAX_HEALTH,
+        };
+        use crate::game_logic::host_height_die::HostHeightDieData;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let name = if projectile_name.is_empty() {
+            AURORA_BOMB_PROJECTILE
+        } else {
+            projectile_name
+        };
+        if !self.templates.contains_key(name) {
+            let mut t = ThingTemplate::new(name);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(AURORA_BOMB_PROJECTILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(name.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        // Drop slightly below the aircraft so freefall/guidance is visible.
+        let mut start = from;
+        if start.y < aim.y + 30.0 {
+            start.y = aim.y + 80.0;
+        } else {
+            start.y -= 5.0;
+        }
+        let pid = self.create_object(name, team, start)?;
+        let speed = AURORA_BOMB_LOCO_SPEED / 30.0;
+        let min_speed = AURORA_BOMB_LOCO_MIN_SPEED / 30.0;
+        let to_aim = aim - start;
+        let dist = to_aim.length().max(0.001);
+        let dir = to_aim / dist;
+        let mut vel = dir * speed.max(min_speed);
+        // Bias downward residual (dive bomb).
+        vel.y = vel.y.min(-min_speed * 0.35);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.aurora_bomb_projectile = true;
+            o.aurora_bomb_aim = Some([aim.x, aim.y, aim.z]);
+            o.aurora_bomb_mission_id = Some(mission_id);
+            o.producer_id = Some(source_id);
+            o.health.maximum = AURORA_BOMB_PROJECTILE_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, AURORA_BOMB_PROJECTILE_MAX_HEALTH);
+            o.movement.velocity = vel;
+            o.set_orientation(dir.z.atan2(dir.x));
+            o.height_die = Some(HostHeightDieData::with_target(
+                AURORA_BOMB_HEIGHT_DIE_TARGET,
+                true,
+                self.frame.saturating_add(1),
+            ));
+            o.ensure_height_die(self.frame);
+        }
+        self.aurora_bombs.record_projectile_spawn();
+        Some(pid)
+    }
+
+    pub fn update_aurora_bomb_projectiles(&mut self) {
+        use crate::game_logic::host_aurora_bomb::{
+            AURORA_BOMB_LOCO_MIN_SPEED, AURORA_BOMB_LOCO_SPEED,
+        };
+        // Drop shells whose mission already completed residual detonation.
+        let stale: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.aurora_bomb_projectile || !o.is_alive() {
+                    return None;
+                }
+                match o.aurora_bomb_mission_id {
+                    Some(mid) if !self.aurora_bombs.has_mission(mid) => Some(*id),
+                    _ => None,
+                }
+            })
+            .collect();
+        for id in stale {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.aurora_bomb_projectile = false;
+                o.status.destroyed = true;
+                o.health.current = 0.0;
+            }
+            let team = self.objects.get(&id).map(|o| o.team);
+            self.mark_object_for_destruction(id, team);
+        }
+        let speed = AURORA_BOMB_LOCO_SPEED / 30.0;
+        let min_speed = AURORA_BOMB_LOCO_MIN_SPEED / 30.0;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.aurora_bomb_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut arrived: Vec<ObjectId> = Vec::new();
+        for id in flying {
+            let (aim, pos) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .aurora_bomb_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                (aim, o.get_position())
+            };
+            let to_aim = aim - pos;
+            let dist = to_aim.length();
+            let vel = if dist > 0.001 {
+                let mut v = to_aim.normalize() * speed.max(min_speed);
+                // Keep dive component while high.
+                if pos.y > aim.y + 10.0 {
+                    v.y = v.y.min(-min_speed * 0.5);
+                }
+                v
+            } else {
+                glam::Vec3::new(0.0, -speed, 0.0)
+            };
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                o.set_position(pos + vel);
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            let new_pos = pos + vel;
+            let near = glam::Vec3::new(aim.x - new_pos.x, 0.0, aim.z - new_pos.z).length() < 8.0
+                && new_pos.y <= aim.y + 12.0;
+            let height_die = self
+                .objects
+                .get_mut(&id)
+                .map(|o| o.tick_height_die(self.frame, 0.0))
+                .unwrap_or(false);
+            if near || height_die {
+                arrived.push(id);
+            }
+        }
+        for id in arrived {
+            // Snap to aim residual and mark dead; detonation is mission-timer driven.
+            if let Some(o) = self.objects.get_mut(&id) {
+                if let Some(a) = o.aurora_bomb_aim {
+                    o.set_position(glam::Vec3::new(a[0], a[1], a[2]));
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.aurora_bomb_projectile = false;
+            }
+            let team = self.objects.get(&id).map(|o| o.team);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
     pub fn queue_aurora_bomb(
         &mut self,
         kind: crate::game_logic::host_aurora_bomb::HostAuroraBombKind,
@@ -49388,6 +49555,20 @@ fn update_scud_poison_zones(&mut self) {
         let id = self
             .aurora_bombs
             .queue(kind, source_object, source_team, target_position, frame);
+
+        // C++ AuroraBomb SpecialObject residual (guided drop under aircraft).
+        let from = self
+            .objects
+            .get(&source_object)
+            .map(|o| o.get_position())
+            .unwrap_or(target_position);
+        let _ = self.spawn_aurora_bomb_projectile(
+            id,
+            source_object,
+            from,
+            target_position,
+            kind.projectile_object_name(),
+        );
 
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
@@ -90658,6 +90839,65 @@ assert!(
             "impact residual should damage target in splash"
         );
     }
+
+    #[test]
+    fn aurora_bomb_projectile_guided_drop_flight() {
+        use crate::game_logic::host_aurora_bomb::{
+            HostAuroraBombKind, AURORA_BOMB_LOCO_SPEED, AURORA_BOMB_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut jet = ThingTemplate::new("AmericaJetAurora");
+        jet.add_kind_of(KindOf::Aircraft).set_health(80.0);
+        logic.templates.insert("AmericaJetAurora".into(), jet);
+
+        let src = logic
+            .create_object(
+                "AmericaJetAurora",
+                Team::USA,
+                Vec3::new(0.0, 100.0, 0.0),
+            )
+            .unwrap();
+        let aim = Vec3::new(120.0, 0.0, 0.0);
+        let mid = logic.queue_aurora_bomb(
+            HostAuroraBombKind::Standard,
+            src,
+            Team::USA,
+            aim,
+        );
+        assert!(mid > 0);
+        assert!(logic.aurora_bombs.honesty_projectile_ok());
+        let pid = logic
+            .objects
+            .iter()
+            .find(|(_, o)| o.aurora_bomb_projectile)
+            .map(|(id, _)| *id)
+            .expect("aurora bomb projectile");
+        {
+            let b = logic.find_object(pid).unwrap();
+            assert_eq!(b.template_name, AURORA_BOMB_PROJECTILE);
+            assert!(b.get_position().y > 50.0);
+            assert_eq!(b.aurora_bomb_mission_id, Some(mid));
+        }
+        let start = logic.find_object(pid).unwrap().get_position();
+        for _ in 0..20 {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_aurora_bomb_projectiles();
+        }
+        let midpos = logic
+            .find_object(pid)
+            .map(|o| o.get_position())
+            .unwrap_or(start);
+        // Guided toward aim residual.
+        assert!(
+            midpos.x > start.x + 5.0 || (midpos - aim).length() < (start - aim).length(),
+            "bomb should advance toward aim (start={start:?} mid={midpos:?})"
+        );
+        let _ = AURORA_BOMB_LOCO_SPEED;
+    }
+
 
 
 

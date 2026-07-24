@@ -1218,6 +1218,15 @@ pub struct Object {
     /// C++ TomahawkMissile projectile residual.
     #[serde(default)]
     pub tomahawk_missile_projectile: bool,
+    /// C++ AuroraBomb SpecialObject residual (dive bomb).
+    #[serde(default)]
+    pub aurora_bomb_projectile: bool,
+    /// Aim point for AuroraBomb guided drop residual.
+    #[serde(default)]
+    pub aurora_bomb_aim: Option<[f32; 3]>,
+    /// Host aurora mission id linked to this projectile residual.
+    #[serde(default)]
+    pub aurora_bomb_mission_id: Option<u32>,
     /// Aim point for TomahawkMissile lob residual.
     #[serde(default)]
     pub tomahawk_missile_aim: Option<[f32; 3]>,
@@ -2022,6 +2031,9 @@ impl Object {
             tomahawk_missile_aim: None,
             tomahawk_missile_travelled: 0.0,
             tomahawk_missile_fuel_expires_frame: None,
+            aurora_bomb_projectile: false,
+            aurora_bomb_aim: None,
+            aurora_bomb_mission_id: None,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
@@ -2478,6 +2490,9 @@ impl Object {
             tomahawk_missile_aim: None,
             tomahawk_missile_travelled: 0.0,
             tomahawk_missile_fuel_expires_frame: None,
+            aurora_bomb_projectile: false,
+            aurora_bomb_aim: None,
+            aurora_bomb_mission_id: None,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
