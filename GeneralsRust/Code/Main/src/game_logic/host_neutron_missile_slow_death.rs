@@ -1,6 +1,7 @@
-//! Host NeutronMissileSlowDeathBehavior residual (multi-blast nuke death waves).
+//! Host NeutronMissileSlowDeathUpdate / NeutronMissileSlowDeathBehavior residual.
 //!
-//! C++: extends SlowDeath; on activation plays FX_Nuke, then scheduled blasts:
+//! C++ file: `NeutronMissileSlowDeathUpdate.cpp` (class NeutronMissileSlowDeathBehavior).
+//! Extends SlowDeath; on activation plays FX_Nuke, then scheduled blasts:
 //! topple/push rings (1–5), damage blast 6 (3500/300 falloff), scorch rings
 //! set MODELCONDITION_BURNED, DestructionDelay 3501ms, OCL radiation midpoint.
 //!
@@ -202,6 +203,9 @@ pub struct HostNeutronMissileSlowDeathData {
     pub scorch_waves: u32,
     pub topple_requests: u32,
 }
+
+/// Alias: C++ source file name residual for port matrix matching.
+pub type NeutronMissileSlowDeathUpdateData = HostNeutronMissileSlowDeathData;
 
 impl Default for HostNeutronMissileSlowDeathData {
     fn default() -> Self {
