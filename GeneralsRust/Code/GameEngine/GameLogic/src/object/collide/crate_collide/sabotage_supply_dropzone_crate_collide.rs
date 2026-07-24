@@ -608,9 +608,10 @@ mod tests {
         };
         let module = SabotageSupplyDropzoneCrateCollide::new(&saboteur, module_data);
 
+        let target_id = target.read().expect("target read").get_id();
         assert_eq!(
             module
-                .steal_cash(target)
+                .steal_cash(target_id)
                 .expect("cash steal is best effort"),
             0
         );

@@ -861,8 +861,9 @@ mod tests {
             .expect("collector position");
 
         let module = SalvageCrateCollide::new(1003, SalvageCrateCollideModuleData::default());
+        let collector_id = collector.read().expect("collector read").get_id();
         let position = module
-            .money_floating_text_position(&collector)
+            .money_floating_text_position(collector_id)
             .expect("money text position");
 
         assert!((position.x - 11.0).abs() < f32::EPSILON);

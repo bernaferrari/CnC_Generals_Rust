@@ -1655,8 +1655,12 @@ mod tests {
         let mut dock = RepairDockUpdate::new(data, 1, &Coord3D::ZERO);
         let docker = test_object_with_health(2, 50.0, 100.0);
         let drone = test_object_with_health(3, 10.0, 25.0);
+        let docker_id = docker.read().unwrap().get_id();
+        let drone_id = drone.read().unwrap().get_id();
 
-        assert!(dock.action(&docker, Some(&drone)).expect("repair action"));
+        assert!(dock
+            .action(docker_id, Some(drone_id))
+            .expect("repair action"));
         assert_eq!(docker.read().unwrap().get_health(), 55.0);
         assert_eq!(drone.read().unwrap().get_health(), 25.0);
     }
@@ -1666,8 +1670,12 @@ mod tests {
         let mut dock = RepairDockUpdate::new(RepairDockUpdateData::default(), 1, &Coord3D::ZERO);
         let docker = test_object_with_health(2, 100.0, 100.0);
         let drone = test_object_with_health(3, 10.0, 25.0);
+        let docker_id = docker.read().unwrap().get_id();
+        let drone_id = drone.read().unwrap().get_id();
 
-        assert!(!dock.action(&docker, Some(&drone)).expect("repair action"));
+        assert!(!dock
+            .action(docker_id, Some(drone_id))
+            .expect("repair action"));
         assert_eq!(drone.read().unwrap().get_health(), 10.0);
     }
 }
