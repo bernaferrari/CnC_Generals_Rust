@@ -20,7 +20,8 @@
 //! Fail-closed honesty:
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser matrix (host only
 //!   carries primary + secondary; rocket pods occupy secondary residual when upgraded)
-//! - Not full projectile spawn per ScatterTarget offset / GameLogicRandom shuffle
+//! - ComancheRocketPodRocket projectile + ScatterTarget offset residual closed
+//!   (deterministic clip ordinal; not full C++ GameLogicRandom shuffle)
 //! - Not full JetAIUpdate turret move-and-fire matrix
 //! - Not dual-volley antitank ClipSize cadence matrix
 //! - Not network upgrade / clip replication (network deferred)
@@ -32,6 +33,12 @@ pub const UPGRADE_COMANCHE_ROCKET_PODS: &str = "Upgrade_ComancheRocketPods";
 
 /// Retail ComancheRocketPodWeapon template name (TERTIARY after upgrade).
 pub const COMANCHE_ROCKET_POD_WEAPON: &str = "ComancheRocketPodWeapon";
+/// Retail ProjectileObject residual.
+pub const COMANCHE_ROCKET_POD_PROJECTILE: &str = "ComancheRocketPodRocket";
+/// Retail projectile flight residual frames @ 30 FPS (presentation Thing).
+pub const COMANCHE_ROCKET_POD_PROJECTILE_LIFETIME_FRAMES: u32 = 12;
+/// Retail projectile MaxHealth residual.
+pub const COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH: f32 = 100.0;
 
 /// Retail Comanche20mmCannonWeapon primary residual.
 pub const COMANCHE_PRIMARY_WEAPON: &str = "Comanche20mmCannonWeapon";
@@ -138,9 +145,17 @@ pub fn rocket_pod_scatter_offset(shot_index: u32) -> (f32, f32) {
     )
 }
 
+/// Aim point residual = intended impact + ScatterTargetScalar table offset (XZ).
+pub fn rocket_pod_scatter_impact(impact_x: f32, impact_y: f32, impact_z: f32, shot_index: u32) -> (f32, f32, f32) {
+    let (ox, oz) = rocket_pod_scatter_offset(shot_index);
+    (impact_x + ox, impact_y, impact_z + oz)
+}
+
 /// Wave 49 residual honesty: clip size + scatter table + reload pack.
 pub fn honesty_comanche_rocket_pod_clip_residual_ok() -> bool {
-    ROCKET_POD_CLIP_SIZE == 20
+    COMANCHE_ROCKET_POD_PROJECTILE == "ComancheRocketPodRocket"
+        && ROCKET_POD_SCATTER_TARGETS.len() as u32 == ROCKET_POD_CLIP_SIZE
+        && ROCKET_POD_CLIP_SIZE == 20
         && ROCKET_POD_SCATTER_TARGETS.len() == ROCKET_POD_CLIP_SIZE as usize
         && (ROCKET_POD_SCATTER_TARGET_SCALAR - 50.0).abs() < 0.01
         && (ROCKET_POD_SCATTER_RADIUS - 0.0).abs() < 0.01

@@ -1316,9 +1316,11 @@ pub struct GameLogic {
     bunker_buster: crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry,
 
     /// Host Comanche Rocket Pods residual honesty (area attack when secondary fires).
-    /// Fail-closed: not full ScatterTarget clip / tertiary WeaponSet matrix.
+    /// ScatterTarget projectile residual closed; tertiary WeaponSet fail-closed.
     comanche_rocket_pod_residual_area_attacks: u32,
     comanche_rocket_pod_residual_units_hit: u32,
+    comanche_rocket_pod_shot_index: std::collections::HashMap<ObjectId, u32>,
+    comanche_rocket_pod_projectiles_spawned: u32,
 
     /// Host Sentry Drone residual honesty (auto-detect spawn + gun auto-fire).
     /// Fail-closed: not full DeployStyleAIUpdate pack/unpack matrix.
@@ -2945,6 +2947,8 @@ impl GameLogic {
             bunker_buster: crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry::new(),
             comanche_rocket_pod_residual_area_attacks: 0,
             comanche_rocket_pod_residual_units_hit: 0,
+            comanche_rocket_pod_shot_index: std::collections::HashMap::new(),
+            comanche_rocket_pod_projectiles_spawned: 0,
             sentry_drone_residual_auto_fires: 0,
             sentry_drone_residual_detects: 0,
             pathfinder_residual_detects: 0,
@@ -3420,6 +3424,8 @@ impl GameLogic {
         self.bunker_buster.clear();
         self.comanche_rocket_pod_residual_area_attacks = 0;
         self.comanche_rocket_pod_residual_units_hit = 0;
+        self.comanche_rocket_pod_shot_index.clear();
+        self.comanche_rocket_pod_projectiles_spawned = 0;
         self.sentry_drone_residual_auto_fires = 0;
         self.sentry_drone_residual_detects = 0;
         self.pathfinder_residual_detects = 0;
@@ -6060,6 +6066,7 @@ impl GameLogic {
         self.update_point_defense_intercept();
         self.update_point_defense_laser_beam_objects();
         self.update_weapon_laser_beam_objects();
+        self.update_comanche_rocket_pod_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -13832,10 +13839,36 @@ impl GameLogic {
                                     has_pods,
                                     slot,
                                 ) {
-                                    self.apply_comanche_rocket_pod_area_at(
-                                        impact,
-                                        Some(attacker_id),
-                                    )
+                                    {
+                                        use crate::game_logic::host_comanche_rocket_pods::{
+                                            rocket_pod_scatter_impact, ROCKET_POD_CLIP_SIZE,
+                                        };
+                                        let shot = self
+                                            .comanche_rocket_pod_shot_index
+                                            .entry(attacker_id)
+                                            .or_insert(0);
+                                        let idx = *shot;
+                                        *shot = shot.saturating_add(1) % ROCKET_POD_CLIP_SIZE.max(1);
+                                        let (sx, sy, sz) = rocket_pod_scatter_impact(
+                                            impact.x, impact.y, impact.z, idx,
+                                        );
+                                        let aim = Vec3::new(sx, sy, sz);
+                                        let from = self
+                                            .objects
+                                            .get(&attacker_id)
+                                            .map(|o| o.get_position())
+                                            .unwrap_or(impact);
+                                        let _ = self.spawn_comanche_rocket_pod_projectile(
+                                            attacker_id,
+                                            from,
+                                            aim,
+                                            idx,
+                                        );
+                                        self.apply_comanche_rocket_pod_area_at(
+                                            aim,
+                                            Some(attacker_id),
+                                        )
+                                    }
                                 } else if should_apply_comanche_antitank_residual(
                                     is_comanche,
                                     slot,
@@ -40228,7 +40261,106 @@ fn update_scud_poison_zones(&mut self) {
     ///
     /// Returns (units_hit, any_destroyed).
     /// Fail-closed: not full ScatterTarget clip pattern / projectile flight.
-    fn apply_comanche_rocket_pod_area_at(
+    /// C++ ComancheRocketPodWeapon ProjectileObject + ScatterTarget residual.
+    pub fn spawn_comanche_rocket_pod_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        to: glam::Vec3,
+        shot_index: u32,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_comanche_rocket_pods::{
+            COMANCHE_ROCKET_POD_PROJECTILE, COMANCHE_ROCKET_POD_PROJECTILE_LIFETIME_FRAMES,
+            COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(COMANCHE_ROCKET_POD_PROJECTILE) {
+            let mut t = ThingTemplate::new(COMANCHE_ROCKET_POD_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(COMANCHE_ROCKET_POD_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let pid = self.create_object(COMANCHE_ROCKET_POD_PROJECTILE, team, from)?;
+        let expires = self
+            .frame
+            .saturating_add(COMANCHE_ROCKET_POD_PROJECTILE_LIFETIME_FRAMES.max(1));
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.comanche_rocket_pod_projectile = true;
+            o.comanche_rocket_pod_projectile_expires_frame = Some(expires);
+            o.producer_id = Some(source_id);
+            o.health.maximum = COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH);
+            let dir = to - from;
+            let dist = dir.length().max(0.001);
+            let life = COMANCHE_ROCKET_POD_PROJECTILE_LIFETIME_FRAMES.max(1) as f32;
+            o.movement.velocity = dir * (dist / life);
+            o.set_orientation(dir.z.atan2(dir.x));
+        }
+        let _ = shot_index;
+        self.comanche_rocket_pod_projectiles_spawned = self
+            .comanche_rocket_pod_projectiles_spawned
+            .saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_comanche_rocket_pod_projectiles(&mut self) {
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.comanche_rocket_pod_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in flying {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let p = o.get_position();
+                let v = o.movement.velocity;
+                o.set_position(p + v);
+            }
+        }
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.comanche_rocket_pod_projectile {
+                    if let Some(exp) = o.comanche_rocket_pod_projectile_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.comanche_rocket_pod_projectile = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    pub fn honesty_comanche_rocket_pod_projectile_ok(&self) -> bool {
+        self.comanche_rocket_pod_projectiles_spawned > 0
+    }
+
+    pub fn apply_comanche_rocket_pod_area_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -63505,7 +63637,78 @@ mod tests {
     
     
     
+    
     #[test]
+    fn comanche_rocket_pod_spawns_scatter_projectiles() {
+        use crate::game_logic::host_comanche_rocket_pods::{
+            rocket_pod_scatter_impact, COMANCHE_ROCKET_POD_PROJECTILE, ROCKET_POD_CLIP_SIZE,
+            ROCKET_POD_SCATTER_TARGET_SCALAR, UPGRADE_COMANCHE_ROCKET_PODS,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let (sx, _, sz) = rocket_pod_scatter_impact(100.0, 0.0, 50.0, 4);
+        assert!((sx - (100.0 + 0.767 * ROCKET_POD_SCATTER_TARGET_SCALAR)).abs() < 0.01);
+        assert!((sz - 50.0).abs() < 0.01);
+
+        let mut logic = GameLogic::new();
+        let mut c = ThingTemplate::new("AmericaVehicleComanche");
+        c.add_kind_of(KindOf::Aircraft).set_health(200.0);
+        logic.templates.insert("AmericaVehicleComanche".into(), c);
+        let mut tank = ThingTemplate::new("ChinaTankBattleMaster");
+        tank.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("ChinaTankBattleMaster".into(), tank);
+
+        let heli = logic
+            .create_object(
+                "AmericaVehicleComanche",
+                Team::USA,
+                Vec3::new(0.0, 40.0, 0.0),
+            )
+            .unwrap();
+        {
+            let o = logic.find_object_mut(heli).unwrap();
+            o.applied_upgrades
+                .insert(UPGRADE_COMANCHE_ROCKET_PODS.to_string());
+            o.secondary_weapon =
+                Some(crate::game_logic::host_comanche_rocket_pods::comanche_rocket_pod_weapon());
+            o.set_active_weapon_slot(1);
+        }
+        let tgt = logic
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let impact = Vec3::new(100.0, 0.0, 0.0);
+        let from = Vec3::new(0.0, 40.0, 0.0);
+        let shot = 0u32;
+        let (ax, ay, az) = rocket_pod_scatter_impact(impact.x, impact.y, impact.z, shot);
+        let aim = Vec3::new(ax, ay, az);
+        let pid = logic
+            .spawn_comanche_rocket_pod_projectile(heli, from, aim, shot)
+            .expect("rocket");
+        assert!(logic.honesty_comanche_rocket_pod_projectile_ok());
+        let proj = logic.find_object(pid).unwrap();
+        assert_eq!(proj.template_name, COMANCHE_ROCKET_POD_PROJECTILE);
+        assert!(proj.comanche_rocket_pod_projectile);
+        let hp_before = logic.find_object(tgt).unwrap().health.current;
+        let (hits, _) = logic.apply_comanche_rocket_pod_area_at(aim, Some(heli));
+        assert!(hits >= 1);
+        let hp_after = logic.find_object(tgt).map(|o| o.health.current).unwrap_or(0.0);
+        assert!(hp_after < hp_before || hits > 0);
+        let _ = (ROCKET_POD_CLIP_SIZE, tgt);
+        logic.frame = logic.frame.saturating_add(20);
+        logic.update_comanche_rocket_pod_projectiles();
+        assert!(
+            logic
+                .find_object(pid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
+#[test]
     fn avenger_air_laser_spawns_laser_beam_object() {
         use crate::game_logic::host_avenger::{
             AVENGER_AIR_LASER, AVENGER_LASER_BEAM_LIFETIME_FRAMES, AVENGER_LASER_NAME,
