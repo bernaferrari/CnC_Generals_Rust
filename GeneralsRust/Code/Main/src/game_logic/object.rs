@@ -1079,6 +1079,12 @@ pub struct Object {
     #[serde(default)]
     pub a10_strike_transport:
         Option<crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightData>,
+    /// C++ Leaflet AmericaJetB52 transport residual target.
+    #[serde(default)]
+    pub leaflet_transport_target: Option<glam::Vec3>,
+    /// C++ LeafletContainer payload residual (fall then disable).
+    #[serde(default)]
+    pub leaflet_container: bool,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1773,6 +1779,8 @@ impl Object {
             artillery_barrage_transport: None,
             a10_strike_missile: false,
             a10_strike_transport: None,
+            leaflet_transport_target: None,
+            leaflet_container: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2165,6 +2173,8 @@ impl Object {
             artillery_barrage_transport: None,
             a10_strike_missile: false,
             a10_strike_transport: None,
+            leaflet_transport_target: None,
+            leaflet_container: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
