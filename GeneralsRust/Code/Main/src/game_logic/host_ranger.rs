@@ -403,6 +403,16 @@ pub fn ranger_flashbang_scatter_aim(aim: Vec3, seed: u32) -> (Vec3, bool) {
     (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
 }
 
+/// Whether RangerFlashBangGrenadeWeapon residual misses intended via ScatterRadius (**4**).
+pub fn ranger_flashbang_scatter_misses(
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    scatter_misses_intended_target(FLASHBANG_SCATTER_RADIUS, seed, target_hit_radius)
+}
+
+
 /// Wave residual honesty: Ranger flashbang ScatterRadius peels (**4**).
 pub fn honesty_ranger_flashbang_scatter_ok() -> bool {
     use crate::game_logic::weapon_bootstrap::host_scatter_radius_for_weapon_name;
@@ -438,7 +448,10 @@ mod tests {
         // Same seed is deterministic.
         let (sc2, _) = ranger_flashbang_scatter_aim(aim, 31);
         assert_eq!(sc, sc2);
-    }
+    
+        assert!(ranger_flashbang_scatter_misses(67, 0.5));
+        assert!(!ranger_flashbang_scatter_misses(67, 100.0));
+}
     use std::collections::HashSet;
 
     #[test]

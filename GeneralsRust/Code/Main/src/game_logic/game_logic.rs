@@ -1635,6 +1635,8 @@ pub struct GameLogic {
     flashbang_grenades_spawned: u32,
     /// Honesty: Flashbang ScatterRadius aim offsets applied.
     flashbang_scatter_applied: u32,
+    /// Honesty: Flashbang ScatterRadius residual misses intended target.
+    flashbang_scatter_misses: u32,
     /// Honesty: HumveeMissile / PatriotMissile TOW projectiles spawned residual.
     humvee_tow_missiles_spawned: u32,
     /// Honesty: Humvee ground TOW ScatterRadiusVsInfantry aim offsets applied.
@@ -3245,6 +3247,7 @@ impl GameLogic {
             mig_missiles_spawned: 0,
             flashbang_grenades_spawned: 0,
             flashbang_scatter_applied: 0,
+            flashbang_scatter_misses: 0,
             humvee_tow_missiles_spawned: 0,
             humvee_tow_scatter_applied: 0,
             humvee_tow_scatter_misses: 0,
@@ -3785,6 +3788,7 @@ impl GameLogic {
         self.mig_missiles_spawned = 0;
         self.flashbang_grenades_spawned = 0;
         self.flashbang_scatter_applied = 0;
+        self.flashbang_scatter_misses = 0;
         self.usa_tank_residual_units_hit = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
@@ -33789,7 +33793,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: Flashbang ScatterRadius applied at least once.
     pub fn honesty_flashbang_scatter_ok(&self) -> bool {
-        self.flashbang_scatter_applied > 0
+        self.flashbang_scatter_applied > 0 || self.flashbang_scatter_misses > 0
     }
 
     pub fn ranger_residual_rifle_fires(&self) -> u32 {
@@ -43314,6 +43318,35 @@ fn update_scud_poison_zones(&mut self) {
             self.flashbang_scatter_applied =
                 self.flashbang_scatter_applied.saturating_add(1);
         }
+        // ScatterRadius (**4**) residual: miss peels when aim lands outside secondary splash.
+        if intended.is_some() {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_ranger::ranger_flashbang_scatter_misses(seed, hit_r) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist
+                        > crate::game_logic::host_ranger::FLASHBANG_SECONDARY_RADIUS
+                    {
+                        self.flashbang_scatter_misses =
+                            self.flashbang_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
@@ -44449,7 +44482,8 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         flashbang_slot: bool,
     ) -> (u32, bool) {
         use crate::game_logic::host_ranger::{
-            flashbang_damage_at, is_legal_ranger_target, FLASHBANG_SECONDARY_RADIUS,
+            flashbang_damage_at, is_legal_ranger_target, ranger_flashbang_scatter_aim,
+            ranger_flashbang_scatter_misses, FLASHBANG_SECONDARY_RADIUS,
             RANGER_FLASHBANG_FIRE_AUDIO, RANGER_RIFLE_DAMAGE, RANGER_RIFLE_FIRE_AUDIO,
         };
 
@@ -44459,6 +44493,50 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
 
         let mut hits = 0u32;
         let mut any_destroyed = false;
+
+        // C++ RangerFlashBangGrenadeWeapon ScatterRadius residual on instant apply.
+        let mut impact = impact;
+        let mut intended_scatter_miss = false;
+        if flashbang_slot {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source.map(|s| s.0).unwrap_or(0),
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = ranger_flashbang_scatter_aim(impact, seed);
+            if scattered {
+                self.flashbang_scatter_applied =
+                    self.flashbang_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if intended_target.is_some()
+                && ranger_flashbang_scatter_misses(seed, hit_r)
+            {
+                let intended_pos = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position());
+                if let Some(pos) = intended_pos {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > FLASHBANG_SECONDARY_RADIUS {
+                        self.flashbang_scatter_misses =
+                            self.flashbang_scatter_misses.saturating_add(1);
+                        intended_scatter_miss = true;
+                    }
+                }
+            }
+        }
 
         if flashbang_slot {
             // Dual-radius flashbang residual (Primary 35/10 + Secondary 10/40).
@@ -44487,11 +44565,15 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                     let dz = pos.z - impact.z;
                     let dist = (dx * dx + dz * dz).sqrt();
                     let is_intended = intended_target == Some(*id);
-                    // Scan only intended + secondary ring (primary is subset).
-                    if !is_intended && dist > FLASHBANG_SECONDARY_RADIUS {
+                    // Scatter miss residual: intended outside secondary is not force-hit.
+                    if is_intended && intended_scatter_miss {
                         return None;
                     }
-                    let dmg = flashbang_damage_at(is_intended, dist);
+                    // Splash ring only (no force-hit primary when impact scattered away).
+                    if dist > FLASHBANG_SECONDARY_RADIUS {
+                        return None;
+                    }
+                    let dmg = flashbang_damage_at(false, dist);
                     if dmg <= 0.0 {
                         return None;
                     }
@@ -127257,6 +127339,78 @@ assert!(
         let _ = logic.spawn_neutron_cannon_shell_projectile(nc, from, tank_aim, None);
         assert_eq!(logic.neutron_shell_scatter_misses, before_miss);
     }
+
+    #[test]
+    fn flashbang_scatter_misses_intended_residual() {
+        use crate::game_logic::host_ranger::{
+            FLASHBANG_SCATTER_RADIUS, RANGER_FLASHBANG_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut ranger_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        ranger_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_primary_weapon_name(RANGER_FLASHBANG_WEAPON);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), ranger_tpl);
+
+        let ranger = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let impact = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
+        let _ = logic.apply_ranger_residual_at(impact, Some(ranger), Some(inf), true);
+        assert!(
+            logic.flashbang_scatter_applied > 0
+                || logic.flashbang_scatter_misses > 0
+                || logic.honesty_flashbang_scatter_ok(),
+            "flashbang scatter residual must peel"
+        );
+        assert!((FLASHBANG_SCATTER_RADIUS - 4.0).abs() < 0.01);
+
+        // Vehicle in splash still takes residual damage by radius.
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(48.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
+        let (hits, _) = logic.apply_ranger_residual_at(impact, Some(ranger), Some(tank), true);
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "splash still hits");
+    }
+
 
 
 
