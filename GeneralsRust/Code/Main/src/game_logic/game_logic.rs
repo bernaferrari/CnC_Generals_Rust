@@ -1127,6 +1127,8 @@ pub struct GameLogic {
     enemy_near_reg: crate::game_logic::host_enemy_near::HostEnemyNearRegistry,
     /// C++ PassengersFireUpgrade residual counters.
     passengers_fire_upgrade_reg: crate::game_logic::host_passengers_fire_upgrade::HostPassengersFireUpgradeRegistry,
+    /// C++ AnimationSteeringUpdate residual counters.
+    animation_steering_reg: crate::game_logic::host_animation_steering::HostAnimationSteeringRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2798,6 +2800,7 @@ impl GameLogic {
             base_regenerate_reg: crate::game_logic::host_base_regenerate::HostBaseRegenerateRegistry::new(),
             enemy_near_reg: crate::game_logic::host_enemy_near::HostEnemyNearRegistry::new(),
             passengers_fire_upgrade_reg: crate::game_logic::host_passengers_fire_upgrade::HostPassengersFireUpgradeRegistry::new(),
+            animation_steering_reg: crate::game_logic::host_animation_steering::HostAnimationSteeringRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3252,6 +3255,7 @@ impl GameLogic {
         self.base_regenerate_reg.clear();
         self.enemy_near_reg.clear();
         self.passengers_fire_upgrade_reg.clear();
+        self.animation_steering_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -5967,6 +5971,7 @@ impl GameLogic {
         self.update_fire_spread();
         self.update_base_regenerate();
         self.update_enemy_near();
+        self.update_animation_steering();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -22106,6 +22111,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             if object.enemy_near.is_some() {
                 self.enemy_near_reg.record_install();
             }
+            object.install_animation_steering_if_needed();
+            if object.animation_steering.is_some() {
+                self.animation_steering_reg.record_install();
+            }
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -27082,6 +27091,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_passengers_fire_upgrade::honesty_passengers_fire_upgrade_residual_ok()
     }
 
+    pub fn honesty_animation_steering_ok(&self) -> bool {
+        self.animation_steering_reg.honesty_host_path_ok()
+            && crate::game_logic::host_animation_steering::honesty_animation_steering_residual_ok()
+    }
+
     pub fn tensile_formation_registry(
         &self,
     ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
@@ -30642,7 +30656,30 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
         /// C++ BaseRegenerateUpdate residual (structure auto-heal after delay).
         /// C++ EnemyNearUpdate residual (scan vision for enemies → ENEMYNEAR).
-    fn update_enemy_near(&mut self) {
+        /// C++ AnimationSteeringUpdate residual (Battle Bus turn model conditions).
+    fn update_animation_steering(&mut self) {
+        let frame = self.frame as u32;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.animation_steering.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let turning = obj.physics_turning;
+            let Some(anim) = obj.animation_steering.as_mut() else {
+                continue;
+            };
+            if let Some(cond) = anim.tick(frame, turning) {
+                self.animation_steering_reg.record_transition(cond);
+            }
+        }
+    }
+
+fn update_enemy_near(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -75282,7 +75319,57 @@ mod tests {
     #[test]
 
     #[test]
-    fn passengers_fire_upgrade_helix_battle_bunker() {
+
+    #[test]
+    fn animation_steering_battle_bus_turn_conditions() {
+        use crate::game_logic::host_animation_steering::{
+            honesty_animation_steering_residual_ok, BATTLE_BUS_MIN_TRANSITION_FRAMES,
+        };
+        use crate::game_logic::object::PhysicsTurningType;
+        assert!(honesty_animation_steering_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new("GLAVehicleBattleBus");
+        tpl.set_health(220.0);
+        logic
+            .templates
+            .insert("GLAVehicleBattleBus".to_string(), tpl);
+        let id = logic
+            .create_object("GLAVehicleBattleBus", Team::GLA, Vec3::ZERO)
+            .expect("bus");
+        assert!(logic.find_object(id).unwrap().animation_steering.is_some());
+        assert!(logic.animation_steering_reg.installed >= 1);
+
+        {
+            let o = logic.find_object_mut(id).unwrap();
+            o.physics_turning = PhysicsTurningType::TurnNegative;
+        }
+        logic.set_current_frame(0);
+        logic.update_animation_steering();
+        assert_eq!(
+            logic
+                .find_object(id)
+                .and_then(|o| o.animation_steering.as_ref().and_then(|a| a.active_condition.clone())),
+            Some("CENTER_TO_RIGHT".to_string())
+        );
+
+        {
+            let o = logic.find_object_mut(id).unwrap();
+            o.physics_turning = PhysicsTurningType::TurnNone;
+        }
+        logic.set_current_frame(u64::from(BATTLE_BUS_MIN_TRANSITION_FRAMES));
+        logic.update_animation_steering();
+        assert_eq!(
+            logic
+                .find_object(id)
+                .and_then(|o| o.animation_steering.as_ref().and_then(|a| a.active_condition.clone())),
+            Some("RIGHT_TO_CENTER".to_string())
+        );
+        assert!(logic.honesty_animation_steering_ok());
+    }
+
+
+        fn passengers_fire_upgrade_helix_battle_bunker() {
         use crate::game_logic::host_passengers_fire_upgrade::{
             honesty_passengers_fire_upgrade_residual_ok, UPGRADE_HELIX_BATTLE_BUNKER,
         };

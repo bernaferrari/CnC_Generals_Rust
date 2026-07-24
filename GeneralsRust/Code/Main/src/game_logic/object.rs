@@ -1058,6 +1058,9 @@ pub struct Object {
     /// C++ EnemyNearUpdate residual (MODELCONDITION_ENEMYNEAR).
     #[serde(default)]
     pub enemy_near: Option<crate::game_logic::host_enemy_near::HostEnemyNearData>,
+    /// C++ AnimationSteeringUpdate residual (Battle Bus turn anims).
+    #[serde(default)]
+    pub animation_steering: Option<crate::game_logic::host_animation_steering::HostAnimationSteeringData>,
     /// C++ HelicopterSlowDeathBehavior residual.
     #[serde(default)]
     pub helicopter_slow_death:
@@ -1709,6 +1712,7 @@ impl Object {
             fire_spread: None,
             base_regenerate: None,
             enemy_near: None,
+            animation_steering: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -2084,6 +2088,7 @@ impl Object {
             fire_spread: None,
             base_regenerate: None,
             enemy_near: None,
+            animation_steering: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -3664,6 +3669,19 @@ impl Object {
             crate::game_logic::host_fire_spread::HostFireSpreadData::for_template(&self.template_name)
         {
             self.fire_spread = Some(data);
+        }
+    }
+
+    pub fn install_animation_steering_if_needed(&mut self) {
+        if self.animation_steering.is_some() {
+            return;
+        }
+        if let Some(data) =
+            crate::game_logic::host_animation_steering::HostAnimationSteeringData::for_template(
+                &self.template_name,
+            )
+        {
+            self.animation_steering = Some(data);
         }
     }
 
