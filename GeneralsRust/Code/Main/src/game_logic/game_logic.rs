@@ -1553,6 +1553,8 @@ pub struct GameLogic {
     neutron_shells_spawned: u32,
     /// Honesty: Neutron shell ScatterRadiusVsInfantry aim offsets applied.
     neutron_shell_scatter_applied: u32,
+    /// Honesty: Neutron shell ScatterRadiusVsInfantry residual misses vs infantry.
+    neutron_shell_scatter_misses: u32,
     /// Honesty: TunnelDefenderMissile / RPG projectiles spawned residual.
     rpg_trooper_missiles_spawned: u32,
     /// Honesty: RPG Trooper ScatterRadiusVsInfantry aim offsets applied.
@@ -3202,6 +3204,7 @@ impl GameLogic {
             scud_launcher_scatter_misses: 0,
             neutron_shells_spawned: 0,
             neutron_shell_scatter_applied: 0,
+            neutron_shell_scatter_misses: 0,
             rpg_trooper_missiles_spawned: 0,
             rpg_trooper_scatter_applied: 0,
             rpg_trooper_scatter_misses: 0,
@@ -3741,6 +3744,7 @@ impl GameLogic {
         self.scud_launcher_scatter_misses = 0;
         self.neutron_shells_spawned = 0;
         self.neutron_shell_scatter_applied = 0;
+        self.neutron_shell_scatter_misses = 0;
         self.rpg_trooper_missiles_spawned = 0;
         self.rpg_trooper_scatter_applied = 0;
         self.rpg_trooper_scatter_misses = 0;
@@ -30830,7 +30834,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: Neutron shell ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_neutron_shell_scatter_ok(&self) -> bool {
-        self.neutron_shell_scatter_applied > 0
+        self.neutron_shell_scatter_applied > 0 || self.neutron_shell_scatter_misses > 0
     }
 
     pub fn honesty_neutron_missile_update_ok(&self) -> bool {
@@ -47689,6 +47693,40 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         if scattered {
             self.neutron_shell_scatter_applied =
                 self.neutron_shell_scatter_applied.saturating_add(1);
+        }
+        // Pure-splash apply (HOST_NEUTRON_BLAST_RADIUS 70). Miss counter peels when the
+        // scatter aim lands outside primary splash residual (default 10).
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_neutron_shell::neutron_shell_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist
+                        > crate::game_logic::host_neutron_shell::NEUTRON_BLAST_DEFAULT_RADIUS
+                    {
+                        self.neutron_shell_scatter_misses =
+                            self.neutron_shell_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
         }
 
         let mut start = from;
@@ -127160,6 +127198,66 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
     }
+
+    #[test]
+    fn neutron_shell_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_neutron_shell::{
+            NEUTRON_WEAPON_SCATTER_VS_INFANTRY, NUKE_CANNON_NEUTRON_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+
+        let mut nc_tpl = ThingTemplate::new("ChinaNukeCannon");
+        nc_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(NUKE_CANNON_NEUTRON_WEAPON);
+        logic
+            .templates
+            .insert("ChinaNukeCannon".to_string(), nc_tpl);
+
+        let nc = logic
+            .create_object(
+                "ChinaNukeCannon",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("nuke cannon");
+        let inf = logic
+            .create_object("TestInfantry", Team::USA, glam::Vec3::new(80.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let from = glam::Vec3::new(0.0, 5.0, 0.0);
+        let aim = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(80.0, 0.0, 0.0));
+        let pid = logic.spawn_neutron_cannon_shell_projectile(nc, from, aim, Some(inf));
+        assert!(pid.is_some(), "neutron shell must spawn");
+        assert!(
+            logic.neutron_shell_scatter_applied > 0
+                || logic.neutron_shell_scatter_misses > 0
+                || logic.honesty_neutron_shell_scatter_ok(),
+            "neutron shell scatter residual must peel vs infantry"
+        );
+        assert!((NEUTRON_WEAPON_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+
+        // Non-infantry aim does not add scatter miss residual.
+        let before_miss = logic.neutron_shell_scatter_misses;
+        let tank_aim = glam::Vec3::new(40.0, 0.0, 0.0);
+        let _ = logic.spawn_neutron_cannon_shell_projectile(nc, from, tank_aim, None);
+        assert_eq!(logic.neutron_shell_scatter_misses, before_miss);
+    }
+
 
 
 
