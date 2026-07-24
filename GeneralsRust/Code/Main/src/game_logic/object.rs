@@ -1065,6 +1065,13 @@ pub struct Object {
     #[serde(default)]
     pub carpet_bomb_transport:
         Option<crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightData>,
+    /// C++ ChinaArtilleryBarrageShell HeightDie residual.
+    #[serde(default)]
+    pub artillery_barrage_shell: bool,
+    /// C++ ChinaArtilleryCannon transport residual.
+    #[serde(default)]
+    pub artillery_barrage_transport:
+        Option<crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightData>,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1755,6 +1762,8 @@ impl Object {
             scud_storm_missile_flight: None,
             carpet_bomb_payload: false,
             carpet_bomb_transport: None,
+            artillery_barrage_shell: false,
+            artillery_barrage_transport: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2143,6 +2152,8 @@ impl Object {
             scud_storm_missile_flight: None,
             carpet_bomb_payload: false,
             carpet_bomb_transport: None,
+            artillery_barrage_shell: false,
+            artillery_barrage_transport: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,

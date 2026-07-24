@@ -20,6 +20,7 @@ pub mod host_ocl_apply_random_force;
 pub mod host_neutron_missile_update;
 pub mod host_scud_storm_missile_flight;
 pub mod host_carpet_bomb_flight;
+pub mod host_artillery_barrage_flight;
 pub mod host_float_update;
 pub mod host_ai_decision_log;
 pub mod host_ai_mood_log;
