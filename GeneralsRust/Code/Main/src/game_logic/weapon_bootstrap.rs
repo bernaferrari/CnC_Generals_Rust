@@ -1389,6 +1389,10 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
     if n.contains("tomahawk") {
         return 20.0;
     }
+    // Rocket Buggy residual ScatterRadiusVsInfantry **20** (BuggyRocketWeapon).
+    if n.contains("buggyrocket") || n.contains("rocketbuggy") || n.contains("buggy_rocket") {
+        return 20.0;
+    }
     // Common ZH residual: tank/missile shells vs infantry inaccuracy ~10.
     if n.contains("tankgun")
         || n.contains("tankshell")
