@@ -1435,6 +1435,19 @@ pub struct Object {
     pub technical_rpg_missile_fuel_expires_frame: Option<u32>,
     #[serde(default)]
     pub technical_rpg_missile_ignition_frame: Option<u32>,
+    /// Host residual: Technical cannon GenericTankShell in flight.
+    #[serde(default)]
+    pub technical_cannon_shell_projectile: bool,
+    #[serde(default)]
+    pub technical_cannon_shell_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub technical_cannon_shell_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub technical_cannon_shell_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub technical_cannon_shell_flight_frames: u32,
+    #[serde(default)]
+    pub technical_cannon_shell_intended: Option<u32>,
     /// Host residual: CleanupStreamProjectile in flight.
     #[serde(default)]
     pub cleanup_stream_projectile: bool,
@@ -2514,6 +2527,12 @@ impl Object {
             technical_rpg_missile_travelled: 0.0,
             technical_rpg_missile_fuel_expires_frame: None,
             technical_rpg_missile_ignition_frame: None,
+            technical_cannon_shell_projectile: false,
+            technical_cannon_shell_from: None,
+            technical_cannon_shell_aim: None,
+            technical_cannon_shell_launch_frame: None,
+            technical_cannon_shell_flight_frames: 0,
+            technical_cannon_shell_intended: None,
             cleanup_stream_projectile: false,
             cleanup_stream_aim: None,
             cleanup_stream_intended: None,
@@ -3124,6 +3143,12 @@ impl Object {
             technical_rpg_missile_travelled: 0.0,
             technical_rpg_missile_fuel_expires_frame: None,
             technical_rpg_missile_ignition_frame: None,
+            technical_cannon_shell_projectile: false,
+            technical_cannon_shell_from: None,
+            technical_cannon_shell_aim: None,
+            technical_cannon_shell_launch_frame: None,
+            technical_cannon_shell_flight_frames: 0,
+            technical_cannon_shell_intended: None,
             cleanup_stream_projectile: false,
             cleanup_stream_aim: None,
             cleanup_stream_intended: None,

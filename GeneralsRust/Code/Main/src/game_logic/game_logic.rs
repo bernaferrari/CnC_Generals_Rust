@@ -1569,6 +1569,8 @@ pub struct GameLogic {
     toxin_stream_missiles_spawned: u32,
     /// Honesty: TechnicalRPGMissile spawned residual.
     technical_rpg_missiles_spawned: u32,
+    /// Honesty: Technical cannon GenericTankShell spawned residual.
+    technical_cannon_shells_spawned: u32,
     /// Honesty: CleanupStreamProjectile spawned residual.
     cleanup_stream_missiles_spawned: u32,
     /// Honesty: Angry Mob rock/molotov projectiles spawned residual.
@@ -3118,6 +3120,7 @@ impl GameLogic {
             dragon_flame_missiles_spawned: 0,
             toxin_stream_missiles_spawned: 0,
             technical_rpg_missiles_spawned: 0,
+            technical_cannon_shells_spawned: 0,
             cleanup_stream_missiles_spawned: 0,
             angry_mob_projectiles_spawned: 0,
             usa_tank_residual_units_hit: 0,
@@ -6196,6 +6199,7 @@ impl GameLogic {
         self.update_dragon_flame_projectiles();
         self.update_toxin_stream_projectiles();
         self.update_technical_rpg_missile_projectiles();
+        self.update_technical_cannon_shell_projectiles();
         self.update_cleanup_stream_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
@@ -14228,7 +14232,9 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 use crate::game_logic::host_technical::{
-                                    should_apply_technical_rpg_missile, TechnicalWeaponTier as TechTier,
+                                    should_apply_technical_cannon_shell,
+                                    should_apply_technical_rpg_missile,
+                                    TechnicalWeaponTier as TechTier,
                                 };
                                 let impact = target_position;
                                 let tier = self
@@ -14236,16 +14242,36 @@ impl GameLogic {
                                     .get(&attacker_id)
                                     .map(|a| Self::technical_tier_from_object(a))
                                     .unwrap_or(TechTier::Base);
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
                                 let (hits, _destroyed_any) = if should_apply_technical_rpg_missile(
                                     true, tier,
                                 ) {
-                                    let from = self
-                                        .objects
-                                        .get(&attacker_id)
-                                        .map(|a| a.get_position())
-                                        .unwrap_or(impact);
                                     let spawned = self
                                         .spawn_technical_rpg_missile_projectile(
+                                            attacker_id,
+                                            from,
+                                            impact,
+                                            Some(target_id),
+                                        )
+                                        .is_some();
+                                    if spawned {
+                                        self.technical_residual_fires =
+                                            self.technical_residual_fires.saturating_add(1);
+                                        (1, false)
+                                    } else {
+                                        self.apply_technical_residual_at(
+                                            impact,
+                                            Some(attacker_id),
+                                            Some(target_id),
+                                        )
+                                    }
+                                } else if should_apply_technical_cannon_shell(true, tier) {
+                                    let spawned = self
+                                        .spawn_technical_cannon_shell_projectile(
                                             attacker_id,
                                             from,
                                             impact,
@@ -42374,6 +42400,121 @@ fn update_scud_poison_zones(&mut self) {
     pub fn honesty_technical_rpg_missile_projectile_ok(&self) -> bool {
         self.technical_rpg_missiles_spawned > 0
     }
+
+
+    /// Spawn Technical cannon GenericTankShell Bezier residual.
+    pub fn spawn_technical_cannon_shell_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_technical::{
+            technical_cannon_shell_flight_frames, TECH_CANNON_SHELL_MAX_HEALTH,
+            TECH_CANNON_SHELL_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(TECH_CANNON_SHELL_PROJECTILE) {
+            let mut t = ThingTemplate::new(TECH_CANNON_SHELL_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(TECH_CANNON_SHELL_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(TECH_CANNON_SHELL_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(2.0);
+        let pid = self.create_object(TECH_CANNON_SHELL_PROJECTILE, team, start)?;
+        let flight = technical_cannon_shell_flight_frames(start, aim).max(1);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.technical_cannon_shell_projectile = true;
+            o.technical_cannon_shell_from = Some([start.x, start.y, start.z]);
+            o.technical_cannon_shell_aim = Some([aim.x, aim.y, aim.z]);
+            o.technical_cannon_shell_launch_frame = Some(self.frame);
+            o.technical_cannon_shell_flight_frames = flight;
+            o.technical_cannon_shell_intended = intended.map(|id| id.0);
+            o.producer_id = Some(source_id);
+            o.health.current = TECH_CANNON_SHELL_MAX_HEALTH;
+            o.health.maximum = TECH_CANNON_SHELL_MAX_HEALTH;
+        }
+        self.technical_cannon_shells_spawned =
+            self.technical_cannon_shells_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_technical_cannon_shell_projectiles(&mut self) {
+        use crate::game_logic::host_technical::technical_cannon_shell_bezier_point;
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.technical_cannon_shell_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, from, aim, launch, flight) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let from = o
+                    .technical_cannon_shell_from
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let aim = o
+                    .technical_cannon_shell_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or(from);
+                (
+                    o.producer_id,
+                    o.technical_cannon_shell_intended.map(ObjectId),
+                    from,
+                    aim,
+                    o.technical_cannon_shell_launch_frame.unwrap_or(frame),
+                    o.technical_cannon_shell_flight_frames.max(1),
+                )
+            };
+            let elapsed = frame.saturating_sub(launch);
+            let t = (elapsed as f32 / flight as f32).clamp(0.0, 1.0);
+            let pos = technical_cannon_shell_bezier_point(from, aim, t);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.set_position(pos);
+            }
+            if elapsed >= flight {
+                impact.push((id, source, intended, aim));
+            }
+        }
+        for (id, source, intended, pos) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.technical_cannon_shell_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_technical_residual_at(pos, source, intended);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_technical_cannon_shell_projectile_ok(&self) -> bool {
+        self.technical_cannon_shells_spawned > 0
+    }
+
 
 pub fn honesty_toxin_stream_projectile_ok(&self) -> bool {
         self.toxin_stream_missiles_spawned > 0
@@ -97017,7 +97158,111 @@ assert!(
 
     /// Residual: GLA Technical transport capacity 5 + salvage weapon tiers.
     
+    
     #[test]
+    fn technical_cannon_shell_projectile_flies_and_impacts() {
+        use crate::game_logic::host_technical::{
+            technical_cannon_shell_flight_frames, TechnicalWeaponTier, TECH_CANNON_DAMAGE,
+            TECH_CANNON_SHELL_PROJECTILE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+
+        let mut tech_tpl = ThingTemplate::new("GLAVehicleTechnical");
+        tech_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(180.0)
+            .set_primary_weapon_name(crate::game_logic::host_technical::TECHNICAL_CANNON);
+        logic
+            .templates
+            .insert("GLAVehicleTechnical".to_string(), tech_tpl);
+
+        let mut victim_tpl = ThingTemplate::new("TestInfantry");
+        victim_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        logic.templates.insert("TestInfantry".to_string(), victim_tpl);
+
+        let tech = logic
+            .create_object(
+                "GLAVehicleTechnical",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("technical");
+        {
+            let t = logic.find_object_mut(tech).expect("tech mut");
+            t.apply_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE");
+            logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::One);
+        }
+        let enemy = logic
+            .create_object(
+                "TestInfantry",
+                Team::USA,
+                Vec3::new(120.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        let splash = logic
+            .create_object(
+                "TestInfantry",
+                Team::USA,
+                Vec3::new(125.0, 0.0, 0.0),
+            )
+            .expect("splash");
+        let hp_before = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        let splash_before = logic.find_object(splash).map(|e| e.health.current).unwrap_or(0.0);
+
+        let from = Vec3::new(0.0, 5.0, 0.0);
+        let aim = Vec3::new(120.0, 0.0, 0.0);
+        let mid = logic
+            .spawn_technical_cannon_shell_projectile(tech, from, aim, Some(enemy))
+            .expect("spawn shell");
+        assert!(logic.honesty_technical_cannon_shell_projectile_ok());
+        assert_eq!(
+            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            Some(TECH_CANNON_SHELL_PROJECTILE)
+        );
+
+        let max_steps = technical_cannon_shell_flight_frames(from, aim).saturating_add(5).max(10);
+        for _ in 0..max_steps {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_technical_cannon_shell_projectiles();
+            if !logic
+                .objects
+                .values()
+                .any(|o| o.technical_cannon_shell_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+
+        let hp_after = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        let splash_after = logic.find_object(splash).map(|e| e.health.current).unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before - 0.5,
+            "cannon shell impact should damage enemy {hp_before} -> {hp_after} (base {TECH_CANNON_DAMAGE})"
+        );
+        assert!(
+            splash_after < splash_before - 0.5,
+            "cannon shell r25 should splash nearby infantry"
+        );
+        assert!(
+            !logic
+                .objects
+                .values()
+                .any(|o| o.technical_cannon_shell_projectile && o.is_alive()),
+            "shell should detonate"
+        );
+    }
+
+#[test]
     fn technical_rpg_missile_projectile_flies_and_impacts() {
         use crate::game_logic::host_technical::{
             technical_rpg_flight_frames, TechnicalWeaponTier, TECHNICAL_RPG_MISSILE,

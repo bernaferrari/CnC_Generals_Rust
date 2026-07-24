@@ -26,7 +26,7 @@
 //! - Not PassengersAllowedToFire (retail Technical passengers do not fire)
 //! - TechnicalRPGMissile MissileAI flight residual (Tier Two RPG: seek, Fuel 1000ms, InitialVelocity 150)
 //! - Not full chassis reskin (ChassisOne/Two/Three) visual matrix
-//! - Not full GenericTankShell lob for Tier One cannon residual
+//! - TechnicalCannonWeapon GenericTankShell DumbProjectile Bezier lob residual (Tier One)
 //! - Not network salvage / transport replication (network deferred)
 
 use super::Weapon;
@@ -74,6 +74,19 @@ pub const TECH_CANNON_DELAY_MS: u32 = 1000;
 pub const TECH_CANNON_DELAY_FRAMES: u32 = 30;
 /// Retail cannon FireSound residual.
 pub const TECH_CANNON_FIRE_AUDIO: &str = "ScorpionTankWeapon";
+/// Retail TechnicalCannonWeapon ProjectileObject residual.
+pub const TECH_CANNON_SHELL_PROJECTILE: &str = "GenericTankShell";
+/// Retail TechnicalCannonWeapon WeaponSpeed residual (dist/sec).
+pub const TECH_CANNON_WEAPON_SPEED: f32 = 300.0;
+/// GenericTankShell MaxHealth residual.
+pub const TECH_CANNON_SHELL_MAX_HEALTH: f32 = 100.0;
+/// DumbProjectile First/SecondHeight residual.
+pub const TECH_CANNON_SHELL_FIRST_HEIGHT: f32 = 10.0;
+pub const TECH_CANNON_SHELL_SECOND_HEIGHT: f32 = 10.0;
+/// First/SecondPercentIndent residual (50% / 90%).
+pub const TECH_CANNON_SHELL_FIRST_PERCENT_INDENT: f32 = 0.50;
+pub const TECH_CANNON_SHELL_SECOND_PERCENT_INDENT: f32 = 0.90;
+
 
 /// Tier 2 PrimaryDamage / radius / range / min range / delay.
 pub const TECH_RPG_DAMAGE: f32 = 50.0;
@@ -308,6 +321,40 @@ pub fn is_legal_technical_splash_target(
 /// Whether residual fire should apply Technical splash path (cannon/RPG tiers).
 
 /// Whether residual combat should spawn TechnicalRPGMissile (Tier Two only).
+
+/// Whether residual combat should spawn GenericTankShell (Tier One cannon).
+pub fn should_apply_technical_cannon_shell(is_technical: bool, tier: TechnicalWeaponTier) -> bool {
+    is_technical && matches!(tier, TechnicalWeaponTier::One)
+}
+
+/// Cubic Bezier residual sample for Technical cannon shell lob.
+pub fn technical_cannon_shell_bezier_point(from: glam::Vec3, to: glam::Vec3, t: f32) -> glam::Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * TECH_CANNON_SHELL_FIRST_PERCENT_INDENT
+        + glam::Vec3::Y * TECH_CANNON_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * TECH_CANNON_SHELL_SECOND_PERCENT_INDENT
+        + glam::Vec3::Y * TECH_CANNON_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    p0 * (u * u * u)
+        + p1 * (3.0 * u * u * t)
+        + p2 * (3.0 * u * t * t)
+        + p3 * (t * t * t)
+}
+
+/// Flight frames from horizontal distance / WeaponSpeed @ 30 FPS.
+pub fn technical_cannon_shell_flight_frames(from: glam::Vec3, to: glam::Vec3) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let frames = (dist / (TECH_CANNON_WEAPON_SPEED / TECHNICAL_LOGIC_FPS)).ceil() as u32;
+    frames.max(1)
+}
+
 pub fn should_apply_technical_rpg_missile(is_technical: bool, tier: TechnicalWeaponTier) -> bool {
     is_technical && matches!(tier, TechnicalWeaponTier::Two)
 }
@@ -399,6 +446,18 @@ pub fn honesty_technical_training_residual_ok() -> bool {
 
 /// Combined Wave 64 Technical residual honesty pack.
 /// Wave residual honesty: TechnicalRPGMissile MissileAI peels.
+/// Wave residual honesty: Technical cannon GenericTankShell peels.
+pub fn honesty_technical_cannon_shell_ok() -> bool {
+    TECH_CANNON_SHELL_PROJECTILE == "GenericTankShell"
+        && (TECH_CANNON_WEAPON_SPEED - 300.0).abs() < 0.01
+        && (TECH_CANNON_SHELL_FIRST_HEIGHT - 10.0).abs() < 0.01
+        && (TECH_CANNON_SHELL_SECOND_HEIGHT - 10.0).abs() < 0.01
+        && (TECH_CANNON_SHELL_FIRST_PERCENT_INDENT - 0.50).abs() < 0.001
+        && (TECH_CANNON_SHELL_SECOND_PERCENT_INDENT - 0.90).abs() < 0.001
+        && (TECH_CANNON_DAMAGE - 45.0).abs() < 0.01
+        && (TECH_CANNON_RADIUS - 25.0).abs() < 0.01
+}
+
 pub fn honesty_technical_rpg_missile_ok() -> bool {
     TECHNICAL_RPG_MISSILE == "TechnicalRPGMissile"
         && (TECH_RPG_MISSILE_INITIAL_VELOCITY - 150.0).abs() < 0.01
@@ -417,6 +476,7 @@ pub fn honesty_technical_residual_pack_ok() -> bool {
         && honesty_technical_body_residual_ok()
         && honesty_technical_training_residual_ok()
         && honesty_technical_rpg_missile_ok()
+        && honesty_technical_cannon_shell_ok()
 }
 
 #[cfg(test)]
@@ -489,6 +549,19 @@ mod tests {
     #[test]
     fn transport_slots() {
         assert_eq!(TECHNICAL_TRANSPORT_SLOTS, 5);
+    }
+
+    #[test]
+    fn cannon_shell_projectile_peels() {
+        assert!(honesty_technical_cannon_shell_ok());
+        assert!(should_apply_technical_cannon_shell(true, TechnicalWeaponTier::One));
+        assert!(!should_apply_technical_cannon_shell(true, TechnicalWeaponTier::Two));
+        assert!(!should_apply_technical_cannon_shell(true, TechnicalWeaponTier::Base));
+        let from = glam::Vec3::ZERO;
+        let to = glam::Vec3::new(150.0, 0.0, 0.0);
+        assert!(technical_cannon_shell_flight_frames(from, to) >= 1);
+        let mid = technical_cannon_shell_bezier_point(from, to, 0.5);
+        assert!(mid.y > 1.0);
     }
 
     #[test]
