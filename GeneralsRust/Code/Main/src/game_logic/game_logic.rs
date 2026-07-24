@@ -1521,6 +1521,8 @@ pub struct GameLogic {
     stealth_fighter_residual_units_hit: u32,
     /// Honesty: StealthJetMissile projectiles spawned residual.
     stealth_jet_missiles_spawned: u32,
+    /// Honesty: SCUDMissile projectiles spawned residual.
+    scud_missiles_spawned: u32,
 
     /// Host Comanche combat residual honesty (20mm + anti-tank dual-radius).
     /// Rocket pods residual counters remain separate below.
@@ -3040,6 +3042,7 @@ impl GameLogic {
             stealth_fighter_residual_fires: 0,
             stealth_fighter_residual_units_hit: 0,
             stealth_jet_missiles_spawned: 0,
+            scud_missiles_spawned: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
             comanche_antitank_residual_fires: 0,
@@ -3506,6 +3509,7 @@ impl GameLogic {
         self.stealth_fighter_residual_fires = 0;
         self.stealth_fighter_residual_units_hit = 0;
         self.stealth_jet_missiles_spawned = 0;
+        self.scud_missiles_spawned = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
         self.comanche_antitank_residual_fires = 0;
@@ -6072,6 +6076,7 @@ impl GameLogic {
         self.update_weapon_laser_beam_objects();
         self.update_comanche_rocket_pod_projectiles();
         self.update_stealth_jet_missile_projectiles();
+        self.update_scud_launcher_missile_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -13996,12 +14001,29 @@ impl GameLogic {
                                         })
                                         .unwrap_or(slot == 1)
                                 };
-                                let (hits, _destroyed_any) = self.apply_scud_area_at(
-                                    impact,
-                                    Some(attacker_id),
-                                    attacker_team,
-                                    toxin,
-                                );
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let spawned = self
+                                    .spawn_scud_launcher_missile_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                        toxin,
+                                    )
+                                    .is_some();
+                                let (hits, _destroyed_any) = if spawned {
+                                    (1, false) // fire residual honesty; blast deferred to impact
+                                } else {
+                                    self.apply_scud_area_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        attacker_team,
+                                        toxin,
+                                    )
+                                };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 15.0);
@@ -15334,12 +15356,29 @@ impl GameLogic {
                                     .map(|a| scud_toxin_warhead_for_slot(&a.template_name, 0))
                                     .unwrap_or(false)
                             };
-                            let (hits, _) = self.apply_scud_area_at(
-                                target_location,
-                                Some(attacker_id),
-                                attacker_team,
-                                toxin,
-                            );
+                            let from = self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|a| a.get_position())
+                                .unwrap_or(target_location);
+                            let spawned = self
+                                .spawn_scud_launcher_missile_projectile(
+                                    attacker_id,
+                                    from,
+                                    target_location,
+                                    toxin,
+                                )
+                                .is_some();
+                            let (hits, _) = if spawned {
+                                (1, false)
+                            } else {
+                                self.apply_scud_area_at(
+                                    target_location,
+                                    Some(attacker_id),
+                                    attacker_team,
+                                    toxin,
+                                )
+                            };
                             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                 if hits > 0 {
                                     attacker.gain_experience((hits as f32) * 15.0);
@@ -33356,7 +33395,205 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     ///
     /// Returns (units_hit, any_destroyed).
     /// Fail-closed: not full SCUDMissile projectile / PreAttack animation matrix.
-    fn apply_scud_area_at(
+        /// C++ SCUDMissile ProjectileObject residual (lob + HeightDie/impact).
+    pub fn spawn_scud_launcher_missile_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        toxin_warhead: bool,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_height_die::HostHeightDieData;
+        use crate::game_logic::host_scud_launcher::{
+            SCUD_MISSILE_FUEL_FRAMES, SCUD_MISSILE_HEIGHT_DIE_TARGET,
+            SCUD_MISSILE_INITIAL_VELOCITY, SCUD_MISSILE_LOFT_HEIGHT, SCUD_MISSILE_MAX_HEALTH,
+            SCUD_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(SCUD_PROJECTILE) {
+            let mut t = ThingTemplate::new(SCUD_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(SCUD_MISSILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(SCUD_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y) + SCUD_MISSILE_LOFT_HEIGHT * 0.25;
+        let pid = self.create_object(SCUD_PROJECTILE, team, start)?;
+        let speed = SCUD_MISSILE_INITIAL_VELOCITY / 30.0;
+        let to_aim = aim - start;
+        let dist = to_aim.length().max(0.001);
+        let dir = to_aim / dist;
+        let mut vel = dir * speed;
+        vel.y = vel.y.max(speed * 0.6);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.scud_launcher_missile_projectile = true;
+            o.scud_launcher_missile_toxin = toxin_warhead;
+            o.scud_launcher_missile_aim = Some([aim.x, aim.y, aim.z]);
+            o.scud_launcher_missile_travelled = 0.0;
+            o.scud_launcher_missile_fuel_expires_frame =
+                Some(self.frame.saturating_add(SCUD_MISSILE_FUEL_FRAMES));
+            o.producer_id = Some(source_id);
+            o.health.maximum = SCUD_MISSILE_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, SCUD_MISSILE_MAX_HEALTH);
+            o.movement.velocity = vel;
+            o.set_orientation(dir.z.atan2(dir.x));
+            o.height_die = Some(HostHeightDieData::with_target(
+                SCUD_MISSILE_HEIGHT_DIE_TARGET,
+                true,
+                self.frame.saturating_add(2),
+            ));
+            o.ensure_height_die(self.frame);
+        }
+        self.scud_missiles_spawned = self.scud_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_scud_launcher_missile_projectiles(&mut self) {
+        use crate::game_logic::host_scud_launcher::{
+            SCUD_MISSILE_DIVE_DISTANCE, SCUD_MISSILE_INITIAL_VELOCITY, SCUD_MISSILE_LOFT_HEIGHT,
+            SCUD_MISSILE_TURN_DISTANCE,
+        };
+        let frame = self.frame;
+        let speed = SCUD_MISSILE_INITIAL_VELOCITY / 30.0;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.scud_launcher_missile_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, bool, Option<ObjectId>, glam::Vec3, Team)> = Vec::new();
+        for id in flying {
+            let (toxin, source, team, aim, pos, travelled, fuel_done) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .scud_launcher_missile_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let fuel_done = o
+                    .scud_launcher_missile_fuel_expires_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(false);
+                (
+                    o.scud_launcher_missile_toxin,
+                    o.producer_id,
+                    o.team,
+                    aim,
+                    o.get_position(),
+                    o.scud_launcher_missile_travelled,
+                    fuel_done,
+                )
+            };
+            let to_aim = aim - pos;
+            let horiz = glam::Vec3::new(to_aim.x, 0.0, to_aim.z).length();
+            let vel = if travelled < SCUD_MISSILE_TURN_DISTANCE {
+                let dir = if to_aim.length() > 0.001 {
+                    to_aim.normalize()
+                } else {
+                    glam::Vec3::Y
+                };
+                let mut v = dir * speed;
+                if pos.y < aim.y + SCUD_MISSILE_LOFT_HEIGHT {
+                    v.y = speed * 0.85;
+                }
+                v
+            } else if horiz > SCUD_MISSILE_DIVE_DISTANCE {
+                let loft_aim =
+                    glam::Vec3::new(aim.x, aim.y + SCUD_MISSILE_LOFT_HEIGHT * 0.5, aim.z);
+                let d = loft_aim - pos;
+                if d.length() > 0.001 {
+                    d.normalize() * speed
+                } else {
+                    glam::Vec3::new(0.0, -speed, 0.0)
+                }
+            } else {
+                let d = aim - pos;
+                if d.length() > 0.001 {
+                    d.normalize() * speed
+                } else {
+                    glam::Vec3::new(0.0, -speed, 0.0)
+                }
+            };
+            let step = vel.length().max(speed);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                let p = o.get_position();
+                o.set_position(p + vel);
+                o.scud_launcher_missile_travelled += step;
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            let new_pos = pos + vel;
+            let near = glam::Vec3::new(aim.x - new_pos.x, 0.0, aim.z - new_pos.z).length() < 12.0
+                && new_pos.y <= aim.y + 15.0;
+            if fuel_done || near {
+                impact.push((id, toxin, source, new_pos, team));
+            }
+        }
+        for (id, toxin, source, pos, team) in impact {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.scud_launcher_missile_projectile = false;
+            }
+            let _ = self.apply_scud_area_at(pos, source, team, toxin);
+            self.mark_object_for_destruction(id, Some(team));
+        }
+
+        // HeightDie residual: if freefall/low altitude kills missile, detonate warhead.
+        let height_die_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.scud_launcher_missile_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in height_die_ids {
+            let (toxin, source, team, pos, die) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let die = o.tick_height_die(frame, 0.0);
+                (
+                    o.scud_launcher_missile_toxin,
+                    o.producer_id,
+                    o.team,
+                    o.get_position(),
+                    die,
+                )
+            };
+            if die {
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.scud_launcher_missile_projectile = false;
+                }
+                let _ = self.apply_scud_area_at(pos, source, team, toxin);
+                self.mark_object_for_destruction(id, Some(team));
+            }
+        }
+    }
+
+    pub fn honesty_scud_missile_projectile_ok(&self) -> bool {
+        self.scud_missiles_spawned > 0
+    }
+
+    pub fn apply_scud_area_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -90034,6 +90271,73 @@ assert!(
             "scud residual host path honesty must pass"
         );
     }
+
+    #[test]
+    fn scud_missile_projectile_lobs_and_impacts() {
+        use crate::game_logic::host_scud_launcher::{
+            SCUD_MISSILE_FUEL_FRAMES, SCUD_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut scud = ThingTemplate::new("GLAVehicleScudLauncher");
+        scud.add_kind_of(KindOf::Vehicle).set_health(180.0);
+        logic.templates.insert("GLAVehicleScudLauncher".into(), scud);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank.add_kind_of(KindOf::Vehicle).add_kind_of(KindOf::Attackable).set_health(5000.0);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let launcher = logic
+            .create_object(
+                "GLAVehicleScudLauncher",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let enemy = logic
+            .create_object("TestTank", Team::USA, Vec3::new(250.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.find_object(enemy).unwrap().health.current;
+
+        let aim = Vec3::new(250.0, 0.0, 0.0);
+        let from = Vec3::new(0.0, 0.0, 0.0);
+        let pid = logic
+            .spawn_scud_launcher_missile_projectile(launcher, from, aim, false)
+            .expect("scud missile");
+        {
+            let m = logic.find_object(pid).unwrap();
+            assert_eq!(m.template_name, SCUD_PROJECTILE);
+            assert!(m.scud_launcher_missile_projectile);
+            assert!(m.scud_launcher_missile_fuel_expires_frame.is_some());
+        }
+        assert!(logic.honesty_scud_missile_projectile_ok());
+
+        let mut hit = false;
+        for _ in 0..(SCUD_MISSILE_FUEL_FRAMES + 30) {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_scud_launcher_missile_projectiles();
+            let alive = logic
+                .find_object(pid)
+                .map(|o| o.is_alive() && o.scud_launcher_missile_projectile)
+                .unwrap_or(false);
+            if !alive {
+                hit = true;
+                break;
+            }
+        }
+        assert!(hit, "SCUDMissile should impact within fuel lifetime");
+        logic.process_destroy_list();
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before,
+            "impact residual should damage target in splash"
+        );
+    }
+
 
     /// Residual: GLA Technical transport capacity 5 + salvage weapon tiers.
     #[test]
