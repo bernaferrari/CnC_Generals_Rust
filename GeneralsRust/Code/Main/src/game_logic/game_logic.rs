@@ -1115,6 +1115,8 @@ pub struct GameLogic {
     highlander_body_reg: crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry,
     /// C++ DeployStyleAIUpdate residual counters.
     deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry,
+    /// C++ TensileFormationUpdate residual counters.
+    tensile_formation_reg: crate::game_logic::host_tensile_formation::HostTensileFormationRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2780,6 +2782,7 @@ impl GameLogic {
             highlander_body_reg:
                 crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry::new(),
             deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry::new(),
+            tensile_formation_reg: crate::game_logic::host_tensile_formation::HostTensileFormationRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3228,6 +3231,7 @@ impl GameLogic {
         self.battle_bus.clear();
         self.highlander_body_reg.clear();
         self.deploy_style_reg.clear();
+        self.tensile_formation_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -5939,6 +5943,7 @@ impl GameLogic {
         // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
         self.update_scud_poison_zones();
+        self.update_tensile_formations();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -21991,6 +21996,10 @@ impl GameLogic {
                 object.install_highlander_body();
             }
             object.install_deploy_style_if_needed();
+            object.install_tensile_formation_if_needed();
+            if object.has_tensile_formation() {
+                self.tensile_formation_reg.record_install();
+            }
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -26933,6 +26942,17 @@ impl GameLogic {
         self.deploy_style_reg.honesty_deploy_ok() && self.deploy_style_reg.honesty_undeploy_ok()
     }
 
+    pub fn honesty_tensile_formation_ok(&self) -> bool {
+        self.tensile_formation_reg.honesty_host_path_ok()
+            && crate::game_logic::host_tensile_formation::honesty_tensile_formation_residual_ok()
+    }
+
+    pub fn tensile_formation_registry(
+        &self,
+    ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
+        &self.tensile_formation_reg
+    }
+
     pub fn honesty_highlander_body_ok(&self) -> bool {
         self.highlander_body_reg.honesty_clamp_ok()
     }
@@ -30466,7 +30486,186 @@ impl GameLogic {
     }
 
     /// Advance SCUD MediumPoisonField residual zones.
-    fn update_scud_poison_zones(&mut self) {
+        /// C++ TensileFormationUpdate residual (AvalancheChunk springy slide).
+        /// C++ TensileFormationUpdate residual (AvalancheChunk springy slide).
+    fn update_tensile_formations(&mut self) {
+        use crate::game_logic::host_tensile_formation::{
+            TENSILE_BODY_DAMAGED_HEALTH_FRAC, TENSILE_CRACK_SOUND, TENSILE_PROPAGATE_RADIUS,
+        };
+        use crate::game_logic::AudioEventRequest;
+
+        let frame = self.frame as u32;
+        let members: Vec<(ObjectId, Vec3)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.has_tensile_formation())
+            .map(|(id, o)| (*id, o.get_position()))
+            .collect();
+        if members.is_empty() {
+            return;
+        }
+
+        let ids: Vec<ObjectId> = members.iter().map(|(id, _)| *id).collect();
+        let mut crack_events: Vec<Vec3> = Vec::new();
+        let mut propagate_centers: Vec<Vec3> = Vec::new();
+        let mut rubble_ids: Vec<ObjectId> = Vec::new();
+        let mut position_updates: Vec<(ObjectId, Vec3)> = Vec::new();
+
+        for id in ids {
+            let (pos, health_frac, terrain_y_fallback) = {
+                let Some(obj) = self.objects.get(&id) else {
+                    continue;
+                };
+                (obj.get_position(), obj.health_fraction(), obj.get_position().y)
+            };
+
+            let eps = 4.0;
+            let h0 = self.terrain_height_at(pos).unwrap_or(terrain_y_fallback);
+            let h_x = self
+                .terrain_height_at(Vec3::new(pos.x + eps, pos.y, pos.z))
+                .unwrap_or(h0);
+            let h_z = self
+                .terrain_height_at(Vec3::new(pos.x, pos.y, pos.z + eps))
+                .unwrap_or(h0);
+            let mut normal = Vec3::new(h0 - h_x, eps, h0 - h_z);
+            if normal.length_squared() < 1.0e-8 {
+                normal = Vec3::Y;
+            } else {
+                normal = normal.normalize();
+            }
+
+            // Sample terrain heights without holding object borrows.
+            let gh_samples: Vec<(f32, f32, f32)> = {
+                let mut samples = Vec::new();
+                if let Some(terrain) = self.terrain.as_ref() {
+                    // Pre-sample a small grid around current pos for tick closure.
+                    for dx in [-8.0_f32, 0.0, 8.0] {
+                        for dz in [-8.0_f32, 0.0, 8.0] {
+                            let x = pos.x + dx;
+                            let z = pos.z + dz;
+                            samples.push((x, z, terrain.height_at_world(Vec3::new(x, 0.0, z))));
+                        }
+                    }
+                }
+                samples
+            };
+            let flat_y = h0;
+            let ground_height_at = move |x: f32, z: f32| -> f32 {
+                if gh_samples.is_empty() {
+                    return flat_y;
+                }
+                let mut best = flat_y;
+                let mut best_d = f32::MAX;
+                for &(sx, sz, h) in &gh_samples {
+                    let d = (sx - x) * (sx - x) + (sz - z) * (sz - z);
+                    if d < best_d {
+                        best_d = d;
+                        best = h;
+                    }
+                }
+                best
+            };
+
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if obj.tensile_formation.is_none() {
+                continue;
+            }
+            // Init links before exclusive data tick.
+            let needs_init = obj
+                .tensile_formation
+                .as_ref()
+                .map(|d| !d.links_inited)
+                .unwrap_or(false);
+            if needs_init {
+                if let Some(data) = obj.tensile_formation.as_mut() {
+                    data.init_links(id, pos, &members);
+                }
+            }
+            let result = {
+                let data = obj.tensile_formation.as_mut().unwrap();
+                data.tick(frame, pos, health_frac, normal, &ground_height_at, &members)
+            };
+            if result.became_enabled {
+                self.tensile_formation_reg.record_enable();
+            }
+            if result.play_crack {
+                crack_events.push(pos);
+            }
+            if result.propagate {
+                propagate_centers.push(result.new_pos.unwrap_or(pos));
+            }
+            if result.became_rubble {
+                rubble_ids.push(id);
+            }
+            if result.slid {
+                self.tensile_formation_reg.record_slide();
+            }
+            if let Some(np) = result.new_pos {
+                position_updates.push((id, np));
+            }
+        }
+
+        for (id, np) in position_updates {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.set_position(np);
+            }
+        }
+
+        for pos in crack_events {
+            self.tensile_formation_reg.record_crack();
+            self.queue_audio_event(
+                AudioEventRequest::new(TENSILE_CRACK_SOUND)
+                    .with_position(pos)
+                    .with_priority(120),
+            );
+        }
+
+        for center in propagate_centers {
+            self.tensile_formation_reg.record_propagate();
+            let hurt: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter(|(_, o)| o.is_alive() && o.has_tensile_formation())
+                .filter(|(_, o)| {
+                    let p = o.get_position();
+                    let dx = p.x - center.x;
+                    let dz = p.z - center.z;
+                    (dx * dx + dz * dz).sqrt() <= TENSILE_PROPAGATE_RADIUS
+                })
+                .map(|(hid, _)| *hid)
+                .collect();
+            for hid in hurt {
+                if let Some(o) = self.objects.get_mut(&hid) {
+                    let max_h = o.health.maximum.max(o.max_health).max(1.0);
+                    let cap = max_h * TENSILE_BODY_DAMAGED_HEALTH_FRAC;
+                    if o.health.current > cap {
+                        o.health.current = cap;
+                    }
+                    if let Some(tf) = o.tensile_formation.as_mut() {
+                        tf.set_enabled(true);
+                    }
+                }
+            }
+        }
+
+        for id in rubble_ids {
+            self.tensile_formation_reg.record_rubble();
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.health.current = 0.0;
+                if let Some(tf) = o.tensile_formation.as_mut() {
+                    tf.rubble = true;
+                    tf.done = true;
+                    tf.moving = false;
+                    tf.freefall = false;
+                    tf.post_collapse = true;
+                }
+            }
+        }
+    }
+
+fn update_scud_poison_zones(&mut self) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .iter()
@@ -74713,7 +74912,69 @@ mod tests {
     }
 
     #[test]
-    fn toxin_fire_ocl_spawns_field_after_min_shots_and_coast() {
+
+    #[test]
+    fn tensile_formation_avalanche_damage_slide_and_rubble() {
+        use crate::game_logic::host_tensile_formation::{
+            honesty_tensile_formation_residual_ok, TENSILE_LIFE_MAX,
+        };
+
+        assert!(honesty_tensile_formation_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new("AvalancheChunk");
+        tpl.set_health(100.0);
+        logic.templates.insert("AvalancheChunk".to_string(), tpl);
+
+        let a = logic
+            .create_object("AvalancheChunk", Team::Neutral, Vec3::new(0.0, 10.0, 0.0))
+            .expect("chunk a");
+        let b = logic
+            .create_object("AvalancheChunk", Team::Neutral, Vec3::new(20.0, 10.0, 0.0))
+            .expect("chunk b");
+        assert!(logic.find_object(a).unwrap().has_tensile_formation());
+        assert!(logic.find_object(b).unwrap().has_tensile_formation());
+        assert!(logic.tensile_formation_registry().members_installed >= 2);
+
+        // Damage A to BODY_DAMAGED residual → enable formation.
+        {
+            let o = logic.find_object_mut(a).unwrap();
+            o.health.current = 50.0;
+        }
+        logic.set_current_frame(30);
+        logic.update_tensile_formations();
+        assert!(
+            logic.tensile_formation_registry().enables > 0
+                || logic
+                    .find_object(a)
+                    .and_then(|o| o.tensile_formation.as_ref().map(|t| t.enabled))
+                    .unwrap_or(false),
+            "damage must enable tensile formation"
+        );
+        assert!(logic.honesty_tensile_formation_ok());
+
+        // Advance life to rubble.
+        {
+            let o = logic.find_object_mut(a).unwrap();
+            if let Some(tf) = o.tensile_formation.as_mut() {
+                tf.enabled = true;
+                tf.life = TENSILE_LIFE_MAX;
+            }
+        }
+        logic.set_current_frame(400);
+        logic.update_tensile_formations();
+        assert!(
+            logic.tensile_formation_registry().rubbles > 0
+                || logic
+                    .find_object(a)
+                    .and_then(|o| o.tensile_formation.as_ref().map(|t| t.rubble))
+                    .unwrap_or(false),
+            "life>300 must rubble"
+        );
+    }
+
+
+        fn toxin_fire_ocl_spawns_field_after_min_shots_and_coast() {
         use crate::game_logic::host_toxin_tractor::{
             is_toxin_tractor_template, TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES,
             TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL,
