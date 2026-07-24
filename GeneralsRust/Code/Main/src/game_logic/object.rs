@@ -1134,6 +1134,12 @@ pub struct Object {
     /// Absolute frame when TrailRemnant DeletionUpdate residual expires.
     #[serde(default)]
     pub particle_trail_remnant_expires_frame: Option<u32>,
+    /// C++ NukeRadiationFieldWeapon residual object.
+    #[serde(default)]
+    pub nuke_radiation_field: bool,
+    /// Absolute frame when NukeRadiationFieldWeapon Lifetime residual expires.
+    #[serde(default)]
+    pub nuke_radiation_field_expires_frame: Option<u32>,
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
@@ -1875,6 +1881,8 @@ impl Object {
             emp_pulse_spheroid_expires_frame: None,
             particle_trail_remnant: false,
             particle_trail_remnant_expires_frame: None,
+            nuke_radiation_field: false,
+            nuke_radiation_field_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -2294,6 +2302,8 @@ impl Object {
             emp_pulse_spheroid_expires_frame: None,
             particle_trail_remnant: false,
             particle_trail_remnant_expires_frame: None,
+            nuke_radiation_field: false,
+            nuke_radiation_field_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
