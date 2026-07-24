@@ -61,6 +61,7 @@ impl HostEmpPulseFlightData {
 pub struct HostEmpPulseFlightRegistry {
     pub transports_spawned: u32,
     pub bombs_dropped: u32,
+    pub spheroids_spawned: u32,
     pub detonations: u32,
 }
 
@@ -79,6 +80,10 @@ impl HostEmpPulseFlightRegistry {
 
     pub fn record_drop(&mut self) {
         self.bombs_dropped = self.bombs_dropped.saturating_add(1);
+    }
+
+    pub fn record_spheroid(&mut self) {
+        self.spheroids_spawned = self.spheroids_spawned.saturating_add(1);
     }
 
     pub fn record_detonation(&mut self) {
