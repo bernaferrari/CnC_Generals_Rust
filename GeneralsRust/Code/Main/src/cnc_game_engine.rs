@@ -2359,23 +2359,69 @@ impl CnCGameEngine {
                 self.enter_shell_menu_from_runtime_host(Some(override_screen));
             }
             "open_skirmish_menu" => {
-                // Headless runtime-host smoke: status override only (no shell/WND).
-                // Interactive / non-headless: full shell screen + WND push.
+                // Prefer retail MainMenu.wnd:ButtonSkirmish (GBM_SELECTED) residual when
+                // shell/WND push is enabled. Headless still exercises the latch so smoke
+                // can observe open_skirmish_menu_ok_wnd without requiring W3D.
+                // Fallback: soft UI override and/or direct SkirmishGameOptionsMenu push.
                 let env_soft = std::env::var("GENERALS_RUNTIME_HOST_WND")
                     .map(|v| v == "0" || v.eq_ignore_ascii_case("false"))
                     .unwrap_or(false);
-                if self.runtime_host_headless || env_soft {
+                let mut main_menu_skirmish_wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    // Always try ButtonSkirmish residual (state latch); shell push is
+                    // additional when WND is enabled and not soft-disabled.
+                    main_menu_skirmish_wnd_ok =
+                        game_client::gui::simulate_main_menu_skirmish_button_gadget_selected();
+                    if !env_soft {
+                        if self.runtime_host_headless {
+                            // Headless: keep soft Skirmish override; optional shell push
+                            // when WND residual is on (default) so ButtonStart can bind.
+                            self.set_runtime_host_ui_screen_override(Some("Skirmish"));
+                            let push_wnd = std::env::var("GENERALS_RUNTIME_HOST_WND")
+                                .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+                                .unwrap_or(true);
+                            if push_wnd {
+                                self.show_shell_menu();
+                                // Ensure MainMenu then Skirmish options are on the stack.
+                                let _ =
+                                    game_client::gui::get_shell().push("Menus/MainMenu.wnd", false);
+                                let _ = game_client::gui::get_shell()
+                                    .push("Menus/SkirmishGameOptionsMenu.wnd", false);
+                            }
+                        } else {
+                            // Interactive: MainMenu layout, ButtonSkirmish residual, then
+                            // ensure Skirmish options layout is present for ButtonStart.
+                            self.enter_shell_screen_from_runtime_host(
+                                Some("MainMenu"),
+                                "Menus/MainMenu.wnd",
+                            );
+                            // Re-fire after layout push so shell push residual can land.
+                            main_menu_skirmish_wnd_ok =
+                                game_client::gui::simulate_main_menu_skirmish_button_gadget_selected(
+                                ) || main_menu_skirmish_wnd_ok;
+                            self.enter_shell_screen_from_runtime_host(
+                                Some("Skirmish"),
+                                "Menus/SkirmishGameOptionsMenu.wnd",
+                            );
+                        }
+                    } else {
+                        self.set_runtime_host_ui_screen_override(Some("Skirmish"));
+                    }
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    let _ = env_soft;
                     self.set_runtime_host_ui_screen_override(Some("Skirmish"));
-                } else {
-                    self.enter_shell_screen_from_runtime_host(
-                        Some("Skirmish"),
-                        "Menus/SkirmishGameOptionsMenu.wnd",
-                    );
                 }
                 // Sticky residual: smoke polls may miss one-frame Skirmish ui_screen
                 // before start_game clears the override on InGame entry.
                 self.runtime_host_saw_skirmish_menu = true;
-                self.runtime_host_last_gameplay_cmd = "open_skirmish_menu_ok".into();
+                self.runtime_host_last_gameplay_cmd = if main_menu_skirmish_wnd_ok {
+                    "open_skirmish_menu_ok_wnd".into()
+                } else {
+                    "open_skirmish_menu_ok".into()
+                };
             }
             "click_skirmish_start" => {
                 // Prefer retail WND ButtonStart (GadgetSelected) when shell push is

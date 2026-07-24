@@ -190,6 +190,7 @@ mod host_keep_object_die;
 pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
+pub mod host_main_menu_skirmish_nav_residual_wave114;
 pub mod host_marauder;
 pub mod host_message_stream_meta_ingameui_residual_wave110;
 pub mod host_microwave;
@@ -1419,4 +1420,10 @@ pub use host_gadget_video_audio_residual_wave113::{
     honesty_audio_event_residual_wave113, honesty_gadget_residual_wave113,
     honesty_gadget_video_audio_residual_pack_wave113, honesty_game_window_manager_residual_wave113,
     honesty_video_buffer_residual_wave113, honesty_window_style_residual_wave113,
+};
+pub use host_main_menu_skirmish_nav_residual_wave114::{
+    honesty_main_menu_skirmish_message_residual_wave114,
+    honesty_main_menu_skirmish_names_residual_wave114,
+    honesty_main_menu_skirmish_nav_residual_pack_wave114,
+    honesty_main_menu_skirmish_nav_steps_residual_wave114,
 };

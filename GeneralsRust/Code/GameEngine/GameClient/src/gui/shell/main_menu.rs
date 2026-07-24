@@ -2157,6 +2157,54 @@ impl Default for MainMenu {
     }
 }
 
+/// Residual: fire retail `MainMenu.wnd:ButtonSkirmish` via `GBM_SELECTED`.
+///
+/// C++ path: MainMenuSystem → ButtonSkirmish → PushShellScreen(
+/// `Menus/SkirmishGameOptionsMenu.wnd`) + ShellMainMenuSkirmishPushed hook.
+/// Host/runtime-host uses this so shell navigation is not only soft UI override.
+/// Returns true when the button latch fired (skirmish selected residual).
+/// Fail-closed: does not claim full W3D interactive retail navigation.
+pub fn simulate_main_menu_skirmish_button_gadget_selected() -> bool {
+    let ids = build_window_ids();
+    let skirmish_id = if ids.skirmish_id != 0 {
+        ids.skirmish_id
+    } else {
+        // Stable residual id when NameKey table is cold.
+        NameKeyGenerator::name_to_key("MainMenu.wnd:ButtonSkirmish")
+    };
+    let main_menu_id = if ids.main_menu_id != 0 {
+        ids.main_menu_id
+    } else {
+        NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent")
+    };
+
+    {
+        let mut menu = get_main_menu();
+        // Reset latches so residual can re-fire after prior shell peels.
+        {
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            state.button_pushed = false;
+            state.campaign_selected = false;
+            state.dont_allow_transitions = false;
+            state.launch_challenge_menu = false;
+            state.pending_actions.clear();
+            state.window_ids = ids.clone();
+            if state.window_ids.skirmish_id == 0 {
+                state.window_ids.skirmish_id = skirmish_id;
+            }
+            if state.window_ids.main_menu_id == 0 {
+                state.window_ids.main_menu_id = main_menu_id;
+            }
+        }
+        let _ = menu.system(main_menu_id, GBM_SELECTED, skirmish_id as WindowMsgData, 0);
+    }
+
+    let menu = get_main_menu();
+    let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+    // C++ ButtonSkirmish sets buttonPushed + campaignSelected and queues shell push.
+    state.button_pushed && state.campaign_selected
+}
+
 // Global main menu instance
 static MAIN_MENU: OnceLock<Mutex<MainMenu>> = OnceLock::new();
 
@@ -2722,5 +2770,20 @@ mod main_menu_shell_borrow_residual_tests {
             src.contains("try_with_shell_mut(|shell| shell.reverse_animate_window())"),
             "MainMenuShutdown must not call get_shell() while Shell::push holds RefCell"
         );
+
+        #[test]
+        fn simulate_main_menu_skirmish_button_gadget_selected_latches() {
+            // Fresh residual call should fire ButtonSkirmish GBM_SELECTED latch.
+            assert!(
+                simulate_main_menu_skirmish_button_gadget_selected(),
+                "ButtonSkirmish residual must latch button_pushed+campaign_selected"
+            );
+            // Second call resets latches internally and re-fires.
+            assert!(simulate_main_menu_skirmish_button_gadget_selected());
+            let menu = get_main_menu();
+            let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+            assert!(state.button_pushed);
+            assert!(state.campaign_selected);
+        }
     }
 }
