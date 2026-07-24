@@ -1140,6 +1140,12 @@ pub struct Object {
     /// Absolute frame when SpySatellitePing DeletionUpdate residual expires.
     #[serde(default)]
     pub spy_satellite_ping_expires_frame: Option<u32>,
+    /// C++ RadarVanPing residual object.
+    #[serde(default)]
+    pub radar_van_ping: bool,
+    /// Absolute frame when RadarVanPing DeletionUpdate residual expires.
+    #[serde(default)]
+    pub radar_van_ping_expires_frame: Option<u32>,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1853,6 +1859,8 @@ impl Object {
             emergency_repair_marker: false,
             spy_satellite_ping: false,
             spy_satellite_ping_expires_frame: None,
+            radar_van_ping: false,
+            radar_van_ping_expires_frame: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2264,6 +2272,8 @@ impl Object {
             emergency_repair_marker: false,
             spy_satellite_ping: false,
             spy_satellite_ping_expires_frame: None,
+            radar_van_ping: false,
+            radar_van_ping_expires_frame: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
