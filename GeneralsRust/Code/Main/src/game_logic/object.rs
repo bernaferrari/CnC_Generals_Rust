@@ -1043,6 +1043,9 @@ pub struct Object {
     /// C++ HeightDieUpdate residual.
     #[serde(default)]
     pub height_die: Option<crate::game_logic::host_height_die::HostHeightDieData>,
+    /// C++ TensileFormationUpdate residual (avalanche chunks).
+    #[serde(default)]
+    pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
     /// C++ HelicopterSlowDeathBehavior residual.
     #[serde(default)]
     pub helicopter_slow_death:
@@ -1689,6 +1692,7 @@ impl Object {
             lifetime_update: None,
             slow_death: None,
             height_die: None,
+            tensile_formation: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -2059,6 +2063,7 @@ impl Object {
             lifetime_update: None,
             slow_death: None,
             height_die: None,
+            tensile_formation: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -3615,6 +3620,30 @@ impl Object {
         ) {
             self.deploy_style = Some(data);
         }
+    }
+
+    /// C++ TensileFormationUpdate install residual (AvalancheChunk peels).
+    pub fn install_tensile_formation_if_needed(&mut self) {
+        if self.tensile_formation.is_some() {
+            return;
+        }
+        if let Some(data) =
+            crate::game_logic::host_tensile_formation::HostTensileFormationData::for_template(
+                &self.template_name,
+            )
+        {
+            self.tensile_formation = Some(data);
+        }
+    }
+
+    pub fn has_tensile_formation(&self) -> bool {
+        self.tensile_formation.is_some()
+    }
+
+    /// Health fraction for BODY_DAMAGED residual gate.
+    pub fn health_fraction(&self) -> f32 {
+        let max_h = self.health.maximum.max(self.max_health).max(1.0);
+        (self.health.current / max_h).clamp(0.0, 1.0)
     }
 
     /// True when DeployStyle residual allows firing this frame.
