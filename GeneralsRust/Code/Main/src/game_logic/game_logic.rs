@@ -6173,6 +6173,7 @@ impl GameLogic {
         // Host America Microwave Tank residual: DISABLE_SUBDUED on cooked structures.
         // Fail-closed vs full subdual accumulate/heal / laser stream / emitter field.
         self.update_microwave_disable();
+        self.update_microwave_emitter_field();
 
         // Host PointDefenseLaser residual: Paladin / Avenger / King Raptor intercept missiles.
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
@@ -46326,10 +46327,22 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         self.microwaves.honesty_disable_ok()
     }
 
+    /// Residual honesty: MicrowaveDisableStream laser spawned at least once.
+    pub fn honesty_microwave_laser_ok(&self) -> bool {
+        self.microwaves.honesty_laser_ok()
+    }
+
+    /// Residual honesty: emitter MICROWAVE field damaged at least once.
+    pub fn honesty_microwave_emitter_ok(&self) -> bool {
+        self.microwaves.honesty_emitter_ok()
+    }
+
     /// Combined host path honesty for Microwave residual (disable).
     /// Garrison clear honesty is tracked separately via `honesty_kill_garrisoned_ok`.
     pub fn honesty_microwave_ok(&self) -> bool {
-        self.microwaves.honesty_host_path_ok()
+        self.microwaves.honesty_disable_ok()
+            || self.microwaves.honesty_laser_ok()
+            || self.microwaves.honesty_emitter_ok()
     }
 
     /// Host EMP Pulse residual registry (activate + honesty).
@@ -49643,11 +49656,66 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
 
         for _ in 0..new_grants {
             self.microwaves.record_disable_grant();
+            self.microwaves.record_disable_weapon_pulse();
         }
         for _ in 0..refresh_ticks {
             self.microwaves.record_disable_refresh();
+            self.microwaves.record_disable_weapon_pulse();
         }
         self.microwaves.set_currently_disabled(covered.len() as u32);
+
+        // C++ LaserName MicrowaveDisableStream residual attach (bone WEAPON02).
+        // Spawn short-lived beam Things + presentation ResidualWeaponLaser per cook link.
+        {
+            use crate::game_logic::host_microwave::{
+                HOST_MICROWAVE_LASER_BONE, HOST_MICROWAVE_LASER_NAME,
+            };
+            use crate::game_logic::host_weapon_laser::ResidualWeaponLaser;
+
+            let mut laser_links: Vec<(ObjectId, ObjectId, glam::Vec3, glam::Vec3)> = Vec::new();
+            for (cooker_id, _team, target_id, _cx, _cz) in &cookers {
+                if !covered.contains(target_id) {
+                    continue;
+                }
+                let Some(cooker) = self.objects.get(cooker_id) else {
+                    continue;
+                };
+                let Some(target) = self.objects.get(target_id) else {
+                    continue;
+                };
+                if !cooker.is_alive() || !target.is_alive() {
+                    continue;
+                }
+                laser_links.push((
+                    *cooker_id,
+                    *target_id,
+                    cooker.get_position(),
+                    target.get_position(),
+                ));
+            }
+            for (from_id, to_id, from, to) in laser_links {
+                // Raise beam origin slightly for residual WEAPON02 bone height.
+                let from_bone = glam::Vec3::new(from.x, from.y + 8.0, from.z);
+                let to_aim = glam::Vec3::new(to.x, to.y + 5.0, to.z);
+                let _ = self.spawn_weapon_laser_beam_object(
+                    HOST_MICROWAVE_LASER_NAME,
+                    from_id,
+                    Some(to_id),
+                    from_bone,
+                    to_aim,
+                );
+                self.weapon_lasers.push(ResidualWeaponLaser::with_bone(
+                    HOST_MICROWAVE_LASER_NAME,
+                    HOST_MICROWAVE_LASER_BONE,
+                    from_id,
+                    Some(to_id),
+                    (from_bone.x, from_bone.y, from_bone.z),
+                    (to_aim.x, to_aim.y, to_aim.z),
+                    self.frame,
+                ));
+                self.microwaves.record_laser_beam();
+            }
+        }
 
         if new_grants > 0 {
             if let Some(pos) = first_grant_pos {
@@ -49657,6 +49725,118 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                         .with_priority(140),
                 );
             }
+        }
+    }
+
+    /// C++ MicrowaveTankEmitterWeapon residual: MICROWAVE damage field around tank.
+    ///
+    /// Retail: PrimaryDamage **8**, radius **100**, Delay **250**ms, DamageDealtAtSelfPosition,
+    /// RadiusDamageAffects ENEMIES NOT_AIRBORNE. Fail-closed: no ally/neutral cook, no airborne.
+    pub fn update_microwave_emitter_field(&mut self) {
+        use crate::game_logic::host_microwave::{
+            in_microwave_range_2d, is_legal_microwave_emitter_target, is_microwave_tank,
+            microwave_emitter_damage_at, HOST_MICROWAVE_EMITTER_DELAY_FRAMES,
+            HOST_MICROWAVE_EMITTER_FX, HOST_MICROWAVE_EMITTER_RADIUS, MICROWAVE_DISABLE_AUDIO,
+        };
+
+        let frame = self.frame;
+        // Pulse cadence residual (DelayBetweenShots 250ms → 8f).
+        if frame % HOST_MICROWAVE_EMITTER_DELAY_FRAMES.max(1) != 0 {
+            return;
+        }
+
+        let emitters: Vec<(ObjectId, Team, f32, f32, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || !is_microwave_tank(&obj.template_name) {
+                    return None;
+                }
+                if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
+                    return None;
+                }
+                if obj.status.disabled_unmanned
+                    || obj.status.disabled_hacked
+                    || obj.status.disabled_emp
+                    || obj.status.disabled_subdued
+                {
+                    return None;
+                }
+                let pos = obj.get_position();
+                Some((*id, obj.team, pos.x, pos.y, pos.z))
+            })
+            .collect();
+        if emitters.is_empty() {
+            return;
+        }
+
+        let mut hits: Vec<(ObjectId, ObjectId, f32)> = Vec::new();
+        for (eid, eteam, ex, _ey, ez) in &emitters {
+            for (tid, tobj) in &self.objects {
+                if tid == eid || !tobj.is_alive() {
+                    continue;
+                }
+                let is_structure = tobj.is_kind_of(KindOf::Structure)
+                    || tobj.object_type == ObjectType::Building;
+                let airborne = tobj.is_kind_of(KindOf::Aircraft)
+                    || tobj.object_type == ObjectType::Aircraft;
+                let same_team = *eteam == tobj.team;
+                let neutral = tobj.team == Team::Neutral;
+                if !is_legal_microwave_emitter_target(
+                    true,
+                    airborne,
+                    is_structure,
+                    same_team,
+                    neutral,
+                ) {
+                    continue;
+                }
+                let tpos = tobj.get_position();
+                if !in_microwave_range_2d((*ex, *ez), (tpos.x, tpos.z), HOST_MICROWAVE_EMITTER_RADIUS)
+                {
+                    continue;
+                }
+                let dist = {
+                    let dx = tpos.x - *ex;
+                    let dz = tpos.z - *ez;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let dmg = microwave_emitter_damage_at(dist);
+                if dmg > 0.0 {
+                    hits.push((*tid, *eid, dmg));
+                }
+            }
+        }
+
+        let mut applications = 0u32;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let mut any_pos = None;
+        for (tid, src, dmg) in hits {
+            if let Some(o) = self.objects.get_mut(&tid) {
+                if !o.is_alive() {
+                    continue;
+                }
+                any_pos = Some(o.get_position());
+                let killed = o.take_damage_from(dmg, Some(src));
+                applications = applications.saturating_add(1);
+                if killed {
+                    destroy_ids.push((tid, Some(o.team)));
+                }
+            }
+        }
+        if applications > 0 {
+            self.microwaves.record_emitter_damage(applications);
+            let _ = HOST_MICROWAVE_EMITTER_FX;
+            if let Some(pos) = any_pos {
+                self.queue_audio_event(
+                    AudioEventRequest::new(MICROWAVE_DISABLE_AUDIO)
+                        .with_position(pos)
+                        .with_priority(100),
+                );
+            }
+        }
+        for (id, team) in destroy_ids {
+            self.mark_object_for_destruction(id, team);
         }
     }
 
@@ -95115,6 +95295,124 @@ assert!(
 
     /// Residual: Microwave tank attacking enemy structure applies DISABLED_SUBDUED
     /// (production stop residual) while cooking; clears when attack stops.
+    #[test]
+
+    #[test]
+    fn microwave_disable_spawns_laser_stream() {
+        use crate::game_logic::host_microwave::HOST_MICROWAVE_LASER_NAME;
+
+        let mut logic = GameLogic::new();
+        let mut mw_tpl = ThingTemplate::new("AmericaTankMicrowave");
+        mw_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0);
+        logic
+            .templates
+            .insert("AmericaTankMicrowave".to_string(), mw_tpl);
+        let mut b_tpl = ThingTemplate::new("ChinaBarracks");
+        b_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0);
+        logic.templates.insert("ChinaBarracks".to_string(), b_tpl);
+
+        let mw = logic
+            .create_object(
+                "AmericaTankMicrowave",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("mw");
+        let bldg = logic
+            .create_object(
+                "ChinaBarracks",
+                Team::China,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("bldg");
+        {
+            let o = logic.find_object_mut(mw).unwrap();
+            o.status.attacking = true;
+            o.target = Some(bldg);
+        }
+        logic.update_microwave_disable();
+        assert!(logic.honesty_microwave_disable_ok());
+        assert!(logic.honesty_microwave_laser_ok());
+        let beams = logic
+            .objects
+            .values()
+            .filter(|o| o.weapon_laser_beam && o.template_name == HOST_MICROWAVE_LASER_NAME)
+            .count();
+        assert!(beams >= 1, "MicrowaveDisableStream beam object expected");
+        assert!(
+            logic
+                .weapon_lasers
+                .iter()
+                .any(|l| l.laser_name == HOST_MICROWAVE_LASER_NAME),
+            "presentation residual laser expected"
+        );
+    }
+
+    #[test]
+    fn microwave_emitter_damages_nearby_enemy_infantry() {
+        use crate::game_logic::host_microwave::{
+            HOST_MICROWAVE_EMITTER_DAMAGE, HOST_MICROWAVE_EMITTER_DELAY_FRAMES,
+        };
+
+        let mut logic = GameLogic::new();
+        let mut mw_tpl = ThingTemplate::new("AmericaTankMicrowave");
+        mw_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0);
+        logic
+            .templates
+            .insert("AmericaTankMicrowave".to_string(), mw_tpl);
+        let mut r_tpl = ThingTemplate::new("ChinaInfantryRedguard");
+        r_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryRedguard".to_string(), r_tpl);
+
+        let mw = logic
+            .create_object(
+                "AmericaTankMicrowave",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("mw");
+        let inf = logic
+            .create_object(
+                "ChinaInfantryRedguard",
+                Team::China,
+                glam::Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let _ = mw;
+        // Align frame to emitter cadence.
+        logic.frame = HOST_MICROWAVE_EMITTER_DELAY_FRAMES;
+        let hp_before = logic.find_object(inf).unwrap().health.current;
+        logic.update_microwave_emitter_field();
+        let hp_after = logic
+            .find_object(inf)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (hp_before - hp_after - HOST_MICROWAVE_EMITTER_DAMAGE).abs() < 0.1
+                || hp_after + 0.01 < hp_before,
+            "emitter should deal 8 MICROWAVE dmg, before={hp_before} after={hp_after}"
+        );
+        assert!(logic.honesty_microwave_emitter_ok());
+    }
+
     #[test]
     fn microwave_tank_residual_disables_enemy_structure() {
         use crate::game_logic::host_microwave::{is_microwave_tank, HOST_MICROWAVE_DISABLE_RANGE};
