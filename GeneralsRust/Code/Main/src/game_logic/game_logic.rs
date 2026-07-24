@@ -1141,6 +1141,8 @@ pub struct GameLogic {
     checkpoint_update_reg: crate::game_logic::host_checkpoint_update::HostCheckpointUpdateRegistry,
     /// C++ SpectreGunshipDeploymentUpdate residual counters.
     spectre_gunship_deployment_reg: crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry,
+    /// C++ SmartBombTargetHomingUpdate residual counters.
+    smart_bomb_target_homing_reg: crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2819,6 +2821,7 @@ impl GameLogic {
             radius_decal_update_reg: crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateRegistry::new(),
             checkpoint_update_reg: crate::game_logic::host_checkpoint_update::HostCheckpointUpdateRegistry::new(),
             spectre_gunship_deployment_reg: crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry::new(),
+            smart_bomb_target_homing_reg: crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3280,6 +3283,7 @@ impl GameLogic {
         self.radius_decal_update_reg.clear();
         self.checkpoint_update_reg.clear();
         self.spectre_gunship_deployment_reg.clear();
+        self.smart_bomb_target_homing_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -6000,6 +6004,7 @@ impl GameLogic {
         self.update_prone_update();
         self.update_radius_decal_update();
         self.update_checkpoint_update();
+        self.update_smart_bomb_target_homing();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -22213,6 +22218,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             if object.spectre_gunship_deployment.is_some() {
                 self.spectre_gunship_deployment_reg.record_install();
             }
+            object.install_smart_bomb_target_homing_if_needed();
+            if object.smart_bomb_target_homing.is_some() {
+                self.smart_bomb_target_homing_reg.record_install();
+            }
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -27224,6 +27233,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_spectre_gunship_deployment::honesty_spectre_gunship_deployment_residual_ok()
     }
 
+    pub fn honesty_smart_bomb_target_homing_ok(&self) -> bool {
+        self.smart_bomb_target_homing_reg.honesty_host_path_ok()
+            && crate::game_logic::host_smart_bomb_target_homing::honesty_smart_bomb_target_homing_residual_ok()
+    }
+
     pub fn tensile_formation_registry(
         &self,
     ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
@@ -30943,6 +30957,53 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
         self.spectre_gunship_deployment_reg.record_spawn();
         Some(gunship_id)
+    }
+
+    /// C++ SmartBombTargetHomingUpdate::SetTargetPosition residual.
+    pub fn set_smart_bomb_target(&mut self, bomb_id: ObjectId, target: Vec3) -> bool {
+        let Some(obj) = self.objects.get_mut(&bomb_id) else {
+            return false;
+        };
+        if obj.set_smart_bomb_target(target) {
+            self.smart_bomb_target_homing_reg.record_target();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// C++ SmartBombTargetHomingUpdate::update residual.
+    fn update_smart_bomb_target_homing(&mut self) {
+        use crate::game_logic::host_smart_bomb_target_homing::SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.smart_bomb_target_homing.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let (pos, hat) = {
+                let Some(obj) = self.objects.get(&id) else {
+                    continue;
+                };
+                let pos = obj.get_position();
+                let terrain_y = self.terrain_height_at(pos).unwrap_or(0.0);
+                (pos, pos.y - terrain_y)
+            };
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let Some(h) = obj.smart_bomb_target_homing.as_ref() else {
+                continue;
+            };
+            if let Some(np) = h.tick(pos, hat.max(0.0)) {
+                // Only apply when clearly above threshold (tick already gates).
+                if hat >= SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN {
+                    obj.set_position(np);
+                    self.smart_bomb_target_homing_reg.record_steer();
+                }
+            }
+        }
     }
 
 fn update_checkpoint_update(&mut self) {
@@ -75794,7 +75855,31 @@ mod tests {
     #[test]
 
     #[test]
-    fn spectre_gunship_deployment_spawns_at_far_edge() {
+
+    #[test]
+    fn smart_bomb_homing_steers_toward_target() {
+        use crate::game_logic::host_smart_bomb_target_homing::honesty_smart_bomb_target_homing_residual_ok;
+        assert!(honesty_smart_bomb_target_homing_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new("MOAB");
+        tpl.set_health(100.0);
+        logic.templates.insert("MOAB".to_string(), tpl);
+        let id = logic
+            .create_object("MOAB", Team::USA, Vec3::new(0.0, 80.0, 0.0))
+            .expect("moab");
+        assert!(logic.find_object(id).unwrap().smart_bomb_target_homing.is_some());
+        assert!(logic.set_smart_bomb_target(id, Vec3::new(100.0, 0.0, 0.0)));
+        logic.update_smart_bomb_target_homing();
+        let p = logic.find_object(id).unwrap().get_position();
+        assert!(p.x > 0.5 && p.x < 2.0, "1% course fudge got x={}", p.x);
+        assert!((p.y - 80.0).abs() < 0.1, "altitude preserved");
+        assert!(logic.smart_bomb_target_homing_reg.steers >= 1);
+        assert!(logic.honesty_smart_bomb_target_homing_ok());
+    }
+
+
+        fn spectre_gunship_deployment_spawns_at_far_edge() {
         use crate::game_logic::host_spectre_gunship_deployment::{
             honesty_spectre_gunship_deployment_residual_ok, SPECTRE_GUNSHIP_TEMPLATE,
             SPECTRE_PREFERRED_ELEVATION,
