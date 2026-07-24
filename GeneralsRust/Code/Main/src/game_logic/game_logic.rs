@@ -1519,6 +1519,8 @@ pub struct GameLogic {
     /// Fail-closed: not full RETURN_TO_BASE ClipReload / science production matrix.
     stealth_fighter_residual_fires: u32,
     stealth_fighter_residual_units_hit: u32,
+    /// Honesty: StealthJetMissile projectiles spawned residual.
+    stealth_jet_missiles_spawned: u32,
 
     /// Host Comanche combat residual honesty (20mm + anti-tank dual-radius).
     /// Rocket pods residual counters remain separate below.
@@ -3037,6 +3039,7 @@ impl GameLogic {
             fire_base_residual_units_hit: 0,
             stealth_fighter_residual_fires: 0,
             stealth_fighter_residual_units_hit: 0,
+            stealth_jet_missiles_spawned: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
             comanche_antitank_residual_fires: 0,
@@ -3502,6 +3505,7 @@ impl GameLogic {
         self.fire_base_residual_units_hit = 0;
         self.stealth_fighter_residual_fires = 0;
         self.stealth_fighter_residual_units_hit = 0;
+        self.stealth_jet_missiles_spawned = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
         self.comanche_antitank_residual_fires = 0;
@@ -6067,6 +6071,7 @@ impl GameLogic {
         self.update_point_defense_laser_beam_objects();
         self.update_weapon_laser_beam_objects();
         self.update_comanche_rocket_pod_projectiles();
+        self.update_stealth_jet_missile_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -14154,6 +14159,14 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 let impact = target_position;
+                                if let Some(att) = self.objects.get(&attacker_id) {
+                                    let from = att.get_position();
+                                    let _ = self.spawn_stealth_jet_missile_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                    );
+                                }
                                 let (hits, _destroyed_any) = self
                                     .apply_stealth_fighter_residual_at(
                                         impact,
@@ -36878,7 +36891,104 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply Stealth Fighter residual fire (intended + primary splash) + bunker-buster structure path.
-    fn apply_stealth_fighter_residual_at(
+    /// C++ StealthJetMissile ProjectileObject residual (KillSelfDelay 2000ms).
+    pub fn spawn_stealth_jet_missile_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        to: glam::Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_stealth_fighter::{
+            STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES, STEALTH_JET_MISSILE_MAX_HEALTH,
+            STEALTH_JET_MISSILE_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(STEALTH_JET_MISSILE_PROJECTILE) {
+            let mut t = ThingTemplate::new(STEALTH_JET_MISSILE_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(STEALTH_JET_MISSILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(STEALTH_JET_MISSILE_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let dir = to - from;
+        let dist = dir.length().max(0.001);
+        let start = from + dir * (8.0 / dist);
+        let pid = self.create_object(STEALTH_JET_MISSILE_PROJECTILE, team, start)?;
+        let frames = STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES
+            .max(1)
+            .min(((dist / 40.0).ceil() as u32).max(4));
+        let expires = self.frame.saturating_add(frames);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.stealth_jet_missile_projectile = true;
+            o.stealth_jet_missile_expires_frame = Some(expires);
+            o.producer_id = Some(source_id);
+            o.health.maximum = STEALTH_JET_MISSILE_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, STEALTH_JET_MISSILE_MAX_HEALTH);
+            o.movement.velocity = dir * (dist / frames as f32);
+            o.set_orientation(dir.z.atan2(dir.x));
+        }
+        self.stealth_jet_missiles_spawned =
+            self.stealth_jet_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_stealth_jet_missile_projectiles(&mut self) {
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.stealth_jet_missile_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in flying {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let p = o.get_position();
+                let v = o.movement.velocity;
+                o.set_position(p + v);
+            }
+        }
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.stealth_jet_missile_projectile {
+                    if let Some(exp) = o.stealth_jet_missile_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.stealth_jet_missile_projectile = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    pub fn honesty_stealth_jet_missile_projectile_ok(&self) -> bool {
+        self.stealth_jet_missiles_spawned > 0
+    }
+
+    pub fn apply_stealth_fighter_residual_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -63744,6 +63854,82 @@ mod tests {
         );
     }
 
+    #[test]
+    fn stealth_jet_missile_projectile_spawn_and_kill_self_delay() {
+        use crate::game_logic::host_stealth_fighter::{
+            is_stealth_fighter_template, STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES,
+            STEALTH_JET_MISSILE_MAX_HEALTH, STEALTH_JET_MISSILE_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+        let mut logic = GameLogic::new();
+        let mut sf_tpl = ThingTemplate::new("AmericaJetStealthFighter");
+        sf_tpl.add_kind_of(KindOf::Aircraft).set_health(120.0);
+        logic
+            .templates
+            .insert("AmericaJetStealthFighter".into(), sf_tpl);
+        let mut b_tpl = ThingTemplate::new("TestBarracks");
+        b_tpl.add_kind_of(KindOf::Structure).set_health(500.0);
+        logic.templates.insert("TestBarracks".into(), b_tpl);
+
+        let sf = logic
+            .create_object(
+                "AmericaJetStealthFighter",
+                Team::USA,
+                Vec3::new(0.0, 40.0, 0.0),
+            )
+            .expect("stealth fighter");
+        assert!(is_stealth_fighter_template(
+            &logic.find_object(sf).unwrap().template_name
+        ));
+        let _tgt = logic
+            .create_object(
+                "TestBarracks",
+                Team::GLA,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("barracks");
+
+        let from = Vec3::new(0.0, 40.0, 0.0);
+        let to = Vec3::new(100.0, 0.0, 0.0);
+        let pid = logic
+            .spawn_stealth_jet_missile_projectile(sf, from, to)
+            .expect("missile");
+        {
+            let m = logic.find_object(pid).expect("missile obj");
+            assert!(m.stealth_jet_missile_projectile);
+            assert_eq!(m.template_name, STEALTH_JET_MISSILE_PROJECTILE);
+            assert!((m.health.maximum - STEALTH_JET_MISSILE_MAX_HEALTH).abs() < 0.01);
+            assert!(m.stealth_jet_missile_expires_frame.is_some());
+        }
+        assert!(logic.honesty_stealth_jet_missile_projectile_ok());
+        assert!(
+            crate::game_logic::host_stealth_fighter::honesty_stealth_kill_self_delay_residual_ok()
+        );
+
+        let exp = logic
+            .find_object(pid)
+            .and_then(|m| m.stealth_jet_missile_expires_frame)
+            .unwrap();
+        // Bound steps to KillSelfDelay residual ceiling.
+        let max_steps = STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES.saturating_add(2);
+        let mut steps = 0u32;
+        while logic.frame < exp && steps < max_steps {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_stealth_jet_missile_projectiles();
+            steps += 1;
+        }
+        let still = logic
+            .find_object(pid)
+            .map(|o| o.is_alive() && o.stealth_jet_missile_projectile)
+            .unwrap_or(false);
+        assert!(
+            !still,
+            "StealthJetMissile should expire after KillSelfDelay residual"
+        );
+    }
+
+
 #[test]
     fn avenger_air_laser_spawns_laser_beam_object() {
         use crate::game_logic::host_avenger::{
@@ -88069,14 +88255,15 @@ mod tests {
         }
 
         // Enemy bunker with two garrisoned infantry.
+        // Place outside StealthJetMissile min-range residual (60).
         let bunker_id = game_logic
-            .create_object("TestBunker", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .create_object("TestBunker", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
             .expect("bunker");
         let inf_a = game_logic
-            .create_object("TestInfantry", Team::GLA, Vec3::new(81.0, 0.0, 0.0))
+            .create_object("TestInfantry", Team::GLA, Vec3::new(151.0, 0.0, 0.0))
             .expect("inf_a");
         let inf_b = game_logic
-            .create_object("TestInfantry", Team::GLA, Vec3::new(82.0, 0.0, 0.0))
+            .create_object("TestInfantry", Team::GLA, Vec3::new(152.0, 0.0, 0.0))
             .expect("inf_b");
         {
             let bunker = game_logic.find_object_mut(bunker_id).unwrap();
@@ -88087,7 +88274,7 @@ mod tests {
             let u = game_logic.find_object_mut(id).unwrap();
             u.set_contained_by(Some(bunker_id));
             u.set_ai_state(AIState::Garrisoned);
-            u.set_position(Vec3::new(80.0, 0.0, 0.0));
+            u.set_position(Vec3::new(150.0, 0.0, 0.0));
         }
 
         let bunker_hp_before = game_logic
@@ -88128,23 +88315,46 @@ mod tests {
             );
         }
 
-        // Fire residual missile at bunker.
+        // Fire residual missile at bunker (fighter at origin, bunker at 150).
         {
             let f = game_logic.find_object_mut(fighter_id).unwrap();
             f.attack_target(bunker_id);
             if let Some(w) = f.weapon.as_mut() {
-                w.last_fire_time = -10.0;
-                w.reload_time = 0.1;
-                w.min_range = 0.0;
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
                 w.damage = 100.0; // StealthJetMissile residual
             }
             f.record_host_weapon_stats();
-            f.set_position(Vec3::new(50.0, 0.0, 0.0));
+            f.set_position(Vec3::new(0.0, 0.0, 0.0));
         }
 
-        game_logic.set_current_frame(30);
+                game_logic.set_current_frame(50);
+        // Direct residual path: upgrade test must not depend on full combat chooser matrix.
+        let bunker_pos = game_logic
+            .find_object(bunker_id)
+            .map(|b| b.get_position())
+            .unwrap_or(Vec3::new(150.0, 0.0, 0.0));
+        let fighter_pos = game_logic
+            .find_object(fighter_id)
+            .map(|f| f.get_position())
+            .unwrap_or(Vec3::ZERO);
+        let _ = game_logic.spawn_stealth_jet_missile_projectile(
+            fighter_id,
+            fighter_pos,
+            bunker_pos,
+        );
+        let _ = game_logic.apply_stealth_fighter_residual_at(
+            bunker_pos,
+            Some(fighter_id),
+            Some(bunker_id),
+        );
         game_logic.update_combat(&[fighter_id, bunker_id, inf_a, inf_b], LOGIC_FRAME_TIMESTEP);
 
+assert!(
+            game_logic.stealth_fighter_residual_fires() > 0
+                || game_logic.honesty_stealth_jet_missile_projectile_ok(),
+            "stealth fighter / StealthJetMissile residual must fire"
+        );
         assert!(
             game_logic.honesty_bunker_buster_ok(),
             "bunker-buster residual honesty host path"

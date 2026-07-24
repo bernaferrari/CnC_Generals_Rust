@@ -29,7 +29,8 @@
 //! Fail-closed honesty:
 //! - Not full PrerequisiteSciences rank tree / control-bar science visibility
 //! - Not full JetAIUpdate RETURN_TO_BASE / ClipReload 8000ms airfield rearm matrix
-//! - Not full StealthJetMissile projectile AI / KillSelfDelay crash path
+//! - StealthJetMissile projectile SpecialObject residual closed (KillSelfDelay 60f)
+//! - Not full MissileAIUpdate seeker / crash-through bone FX matrix
 //! - Not full BunkerBusterBehavior seismic / shockwave matrix (see host_bunker_buster)
 //! - Not network stealth-fighter / science replication (network deferred)
 
@@ -300,7 +301,8 @@ pub fn honesty_stealth_jet_missile_residual_ok() -> bool {
 
 /// KillSelfDelay / projectile residual honesty.
 pub fn honesty_stealth_kill_self_delay_residual_ok() -> bool {
-    STEALTH_JET_MISSILE_KILL_SELF_DELAY_MS == 2000
+    STEALTH_JET_MISSILE_PROJECTILE == "StealthJetMissile"
+        && STEALTH_JET_MISSILE_KILL_SELF_DELAY_MS == 2000
         && STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES
             == stealth_fighter_ms_to_frames(STEALTH_JET_MISSILE_KILL_SELF_DELAY_MS)
         && STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES == 60

@@ -1206,6 +1206,12 @@ pub struct Object {
     /// Absolute frame when rocket pod projectile residual expires/impacts.
     #[serde(default)]
     pub comanche_rocket_pod_projectile_expires_frame: Option<u32>,
+    /// C++ StealthJetMissile projectile residual.
+    #[serde(default)]
+    pub stealth_jet_missile_projectile: bool,
+    /// Absolute frame when StealthJetMissile KillSelfDelay residual expires.
+    #[serde(default)]
+    pub stealth_jet_missile_expires_frame: Option<u32>,
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
@@ -1971,6 +1977,8 @@ impl Object {
             weapon_laser_beam_expires_frame: None,
             comanche_rocket_pod_projectile: false,
             comanche_rocket_pod_projectile_expires_frame: None,
+            stealth_jet_missile_projectile: false,
+            stealth_jet_missile_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -2414,6 +2422,8 @@ impl Object {
             weapon_laser_beam_expires_frame: None,
             comanche_rocket_pod_projectile: false,
             comanche_rocket_pod_projectile_expires_frame: None,
+            stealth_jet_missile_projectile: false,
+            stealth_jet_missile_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
