@@ -1129,6 +1129,8 @@ pub struct GameLogic {
     passengers_fire_upgrade_reg: crate::game_logic::host_passengers_fire_upgrade::HostPassengersFireUpgradeRegistry,
     /// C++ AnimationSteeringUpdate residual counters.
     animation_steering_reg: crate::game_logic::host_animation_steering::HostAnimationSteeringRegistry,
+    /// C++ ActiveShroudUpgrade residual counters.
+    active_shroud_upgrade_reg: crate::game_logic::host_active_shroud_upgrade::HostActiveShroudUpgradeRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2801,6 +2803,7 @@ impl GameLogic {
             enemy_near_reg: crate::game_logic::host_enemy_near::HostEnemyNearRegistry::new(),
             passengers_fire_upgrade_reg: crate::game_logic::host_passengers_fire_upgrade::HostPassengersFireUpgradeRegistry::new(),
             animation_steering_reg: crate::game_logic::host_animation_steering::HostAnimationSteeringRegistry::new(),
+            active_shroud_upgrade_reg: crate::game_logic::host_active_shroud_upgrade::HostActiveShroudUpgradeRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3256,6 +3259,7 @@ impl GameLogic {
         self.enemy_near_reg.clear();
         self.passengers_fire_upgrade_reg.clear();
         self.animation_steering_reg.clear();
+        self.active_shroud_upgrade_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -18590,7 +18594,55 @@ impl GameLogic {
     /// C++ StatusBitsUpgrade::upgradeImplementation residual for team units.
     
     /// C++ PassengersFireUpgrade residual for Helix BattleBunker unlock.
-    fn apply_passengers_fire_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    
+    /// C++ ActiveShroudUpgrade::upgradeImplementation residual.
+    pub fn apply_active_shroud_upgrade(
+        &mut self,
+        id: ObjectId,
+        new_shroud_range: f32,
+    ) -> bool {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        obj.set_shroud_range(new_shroud_range);
+        self.active_shroud_upgrade_reg
+            .record_apply(obj.shroud_range);
+        true
+    }
+
+    fn apply_active_shroud_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_active_shroud_upgrade::{
+            peel_applies_to_template, peels_for_upgrade,
+        };
+        let peels = peels_for_upgrade(upgrade_name);
+        if peels.is_empty() {
+            return 0;
+        }
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.team == team)
+            .map(|(id, _)| *id)
+            .collect();
+        let mut n = 0u32;
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            for peel in &peels {
+                if !peel_applies_to_template(peel, &obj.template_name) {
+                    continue;
+                }
+                obj.set_shroud_range(peel.new_shroud_range);
+                self.active_shroud_upgrade_reg
+                    .record_apply(obj.shroud_range);
+                n = n.saturating_add(1);
+            }
+        }
+        n
+    }
+
+fn apply_passengers_fire_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_passengers_fire_upgrade::should_enable_passengers_fire;
         if !crate::game_logic::host_passengers_fire_upgrade::is_passengers_fire_upgrade(upgrade_name)
         {
@@ -18804,6 +18856,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let _ = self.apply_status_bits_upgrade_to_team(team, upgrade_name);
         // C++ PassengersFireUpgrade::upgradeImplementation residual.
         let _ = self.apply_passengers_fire_upgrade_to_team(team, upgrade_name);
+        // C++ ActiveShroudUpgrade::upgradeImplementation residual.
+        let _ = self.apply_active_shroud_upgrade_to_team(team, upgrade_name);
     }
 
     /// C++ CashBountyPower / SCIENCE_CashBounty residual via upgrade complete.
@@ -27094,6 +27148,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     pub fn honesty_animation_steering_ok(&self) -> bool {
         self.animation_steering_reg.honesty_host_path_ok()
             && crate::game_logic::host_animation_steering::honesty_animation_steering_residual_ok()
+    }
+
+    pub fn honesty_active_shroud_upgrade_ok(&self) -> bool {
+        self.active_shroud_upgrade_reg.honesty_host_path_ok()
+            && crate::game_logic::host_active_shroud_upgrade::honesty_active_shroud_upgrade_residual_ok()
     }
 
     pub fn tensile_formation_registry(
@@ -75321,7 +75380,26 @@ mod tests {
     #[test]
 
     #[test]
-    fn animation_steering_battle_bus_turn_conditions() {
+
+    #[test]
+    fn active_shroud_upgrade_sets_shroud_range() {
+        use crate::game_logic::host_active_shroud_upgrade::honesty_active_shroud_upgrade_residual_ok;
+        assert!(honesty_active_shroud_upgrade_residual_ok());
+
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let id = logic
+            .create_object("TestTank", Team::USA, Vec3::ZERO)
+            .expect("tank");
+        assert_eq!(logic.find_object(id).unwrap().shroud_range, 0.0);
+        assert!(logic.apply_active_shroud_upgrade(id, 175.0));
+        assert!((logic.find_object(id).unwrap().shroud_range - 175.0).abs() < 0.01);
+        assert!(logic.active_shroud_upgrade_reg.applies >= 1);
+        assert!(logic.honesty_active_shroud_upgrade_ok());
+    }
+
+
+        fn animation_steering_battle_bus_turn_conditions() {
         use crate::game_logic::host_animation_steering::{
             honesty_animation_steering_residual_ok, BATTLE_BUS_MIN_TRANSITION_FRAMES,
         };
