@@ -22,10 +22,12 @@
 //! Fail-closed honesty:
 //! - Not full SURRENDER DamageType infantry-surrender AI / garrison clear matrix
 //! - ClipSize=3 in-clip DelayBetweenShots + ClipReload 700ms volley residual closed
-//! - Not full ScatterRadius projectile lob / PreAttackDelay flashbang anim lock
+//! - RangerFlashBangGrenade DumbProjectile Bezier lob residual closed (50/150, 30%/70%)
+//! - Not full ScatterRadius random miss / PreAttackDelay flashbang anim lock
 //! - Not network flashbang / fire replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 use crate::game_logic::host_red_guard::delay_frames_to_reload_secs;
 
 /// Logic frames per second (host fixed step).
@@ -81,6 +83,18 @@ pub const FLASHBANG_RELOAD_FRAMES: u32 = 60;
 pub const FLASHBANG_CLIP_SIZE: u32 = 1;
 /// Retail WeaponSpeed residual.
 pub const FLASHBANG_PROJECTILE_SPEED: f32 = 120.0;
+/// Retail ProjectileObject residual.
+pub const FLASHBANG_GRENADE_PROJECTILE: &str = "RangerFlashBangGrenade";
+/// Retail grenade MaxHealth residual.
+pub const FLASHBANG_GRENADE_MAX_HEALTH: f32 = 100.0;
+/// DumbProjectileBehavior FirstHeight residual.
+pub const FLASHBANG_SHELL_FIRST_HEIGHT: f32 = 50.0;
+/// DumbProjectileBehavior SecondHeight residual.
+pub const FLASHBANG_SHELL_SECOND_HEIGHT: f32 = 150.0;
+/// FirstPercentIndent residual (30%).
+pub const FLASHBANG_SHELL_FIRST_PERCENT_INDENT: f32 = 0.30;
+/// SecondPercentIndent residual (70%).
+pub const FLASHBANG_SHELL_SECOND_PERCENT_INDENT: f32 = 0.70;
 /// Retail ScatterRadius residual.
 pub const FLASHBANG_SCATTER_RADIUS: f32 = 4.0;
 /// Retail DamageType residual (flashbang).
@@ -163,6 +177,37 @@ pub fn is_ranger_template(template_name: &str) -> bool {
 }
 
 /// Whether residual fire should apply Ranger residual path.
+
+
+/// Cubic Bezier residual sample for RangerFlashBangGrenade DumbProjectileBehavior.
+pub fn flashbang_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * FLASHBANG_SHELL_FIRST_PERCENT_INDENT
+        + Vec3::Y * FLASHBANG_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * FLASHBANG_SHELL_SECOND_PERCENT_INDENT
+        + Vec3::Y * FLASHBANG_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    p0 * uuu + p1 * (3.0 * uu * t) + p2 * (3.0 * u * tt) + p3 * ttt
+}
+
+/// Flight frame residual from ground distance @ WeaponSpeed 120.
+pub fn flashbang_shell_flight_frames(from: Vec3, to: Vec3) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let frames = (dist / (FLASHBANG_PROJECTILE_SPEED / RANGER_LOGIC_FPS)).ceil() as u32;
+    frames.clamp(4, 180)
+}
+
 pub fn should_apply_ranger_residual(is_ranger: bool) -> bool {
     is_ranger
 }
@@ -311,6 +356,9 @@ pub fn honesty_ranger_flashbang_residual_ok() -> bool {
         && FLASHBANG_RELOAD_FRAMES == 60
         && FLASHBANG_CLIP_SIZE == 1
         && (FLASHBANG_PROJECTILE_SPEED - 120.0).abs() < 0.01
+        && FLASHBANG_GRENADE_PROJECTILE == "RangerFlashBangGrenade"
+        && (FLASHBANG_SHELL_FIRST_HEIGHT - 50.0).abs() < 0.01
+        && (FLASHBANG_SHELL_SECOND_PERCENT_INDENT - 0.70).abs() < 0.001
         && (FLASHBANG_SCATTER_RADIUS - 4.0).abs() < 0.01
         && FLASHBANG_DAMAGE_TYPE == "SURRENDER"
         && FLASHBANG_ALLOW_ATTACK_GARRISONED

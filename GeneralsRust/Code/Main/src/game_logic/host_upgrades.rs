@@ -1005,7 +1005,7 @@ mod tests {
         );
         assert_eq!(
             HostUpgradeKind::from_name("Upgrade_ChinaNationalism"),
-            HostUpgradeKind::Other
+            HostUpgradeKind::Nationalism
         );
     }
 

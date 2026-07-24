@@ -1362,6 +1362,19 @@ pub struct Object {
     pub mig_missile_fuel_expires_frame: Option<u32>,
     #[serde(default)]
     pub mig_missile_ignition_frame: Option<u32>,
+    /// C++ RangerFlashBangGrenade DumbProjectile residual.
+    #[serde(default)]
+    pub flashbang_grenade_projectile: bool,
+    #[serde(default)]
+    pub flashbang_grenade_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub flashbang_grenade_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub flashbang_grenade_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub flashbang_grenade_flight_frames: u32,
+    #[serde(default)]
+    pub flashbang_grenade_intended: Option<u32>,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2366,6 +2379,12 @@ impl Object {
             mig_missile_travelled: 0.0,
             mig_missile_fuel_expires_frame: None,
             mig_missile_ignition_frame: None,
+            flashbang_grenade_projectile: false,
+            flashbang_grenade_from: None,
+            flashbang_grenade_aim: None,
+            flashbang_grenade_launch_frame: None,
+            flashbang_grenade_flight_frames: 0,
+            flashbang_grenade_intended: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -2924,6 +2943,12 @@ impl Object {
             mig_missile_travelled: 0.0,
             mig_missile_fuel_expires_frame: None,
             mig_missile_ignition_frame: None,
+            flashbang_grenade_projectile: false,
+            flashbang_grenade_from: None,
+            flashbang_grenade_aim: None,
+            flashbang_grenade_launch_frame: None,
+            flashbang_grenade_flight_frames: 0,
+            flashbang_grenade_intended: None,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
