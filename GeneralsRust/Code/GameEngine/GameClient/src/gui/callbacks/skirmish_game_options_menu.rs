@@ -1672,6 +1672,101 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
     skirmish_button_pushed()
 }
 
+/// Retail skirmish player-combo AI labels residual (ComboBoxPlayer entries).
+pub const SKIRMISH_SLOT_AI_LABELS: &[&str] = &[
+    "GUI:Open",
+    "GUI:Closed",
+    "GUI:EasyAI",
+    "GUI:MediumAI",
+    "GUI:HardAI",
+];
+
+/// Map residual AI label / SlotState ordinal for ComboBoxPlayer (C++ entry order).
+/// Open=0, Closed=1, EasyAI=2, MedAI=3, BrutalAI=4 (HardAI label).
+pub fn skirmish_slot_state_from_ai_label(label: &str) -> Option<SlotState> {
+    match label {
+        "GUI:Open" | "Open" => Some(SlotState::Open),
+        "GUI:Closed" | "Closed" => Some(SlotState::Closed),
+        "GUI:EasyAI" | "EasyAI" | "Easy" => Some(SlotState::EasyAI),
+        "GUI:MediumAI" | "MediumAI" | "Medium" | "MedAI" => Some(SlotState::MedAI),
+        "GUI:HardAI" | "HardAI" | "Hard" | "BrutalAI" | "Brutal" => Some(SlotState::BrutalAI),
+        "GUI:Player" | "Player" => Some(SlotState::Player),
+        _ => None,
+    }
+}
+
+/// Residual: configure one skirmish setup slot as AI (ComboBoxPlayer residual).
+/// Does not require live combo widgets — commits into `get_skirmish_setup` GameInfo.
+/// `player_template` / `color` / `team_number` use C++ sentinel -1 for random/default.
+pub fn simulate_skirmish_configure_slot_ai(
+    slot_index: usize,
+    ai_state: SlotState,
+    player_template: i32,
+    color: i32,
+    team_number: i32,
+) -> bool {
+    if slot_index >= MAX_SLOTS {
+        return false;
+    }
+    if !matches!(
+        ai_state,
+        SlotState::EasyAI | SlotState::MedAI | SlotState::BrutalAI
+    ) {
+        return false;
+    }
+    ensure_default_slots();
+    let mut setup = get_skirmish_setup();
+    let info = setup.game_info_mut().game_info_mut();
+    let Some(slot) = info.get_slot_mut(slot_index) else {
+        return false;
+    };
+    let name = match ai_state {
+        SlotState::EasyAI => GameText::fetch("GUI:EasyAI"),
+        SlotState::MedAI => GameText::fetch("GUI:MediumAI"),
+        SlotState::BrutalAI => GameText::fetch("GUI:HardAI"),
+        _ => GameText::fetch("GUI:Computer"),
+    };
+    slot.set_state(ai_state, name, 0);
+    slot.set_player_template(player_template);
+    slot.set_color(color);
+    slot.set_team_number(team_number);
+    matches!(
+        slot.get_state(),
+        SlotState::EasyAI | SlotState::MedAI | SlotState::BrutalAI
+    )
+}
+
+/// Residual: C++ init default — human slot 0 + Medium AI slot 1.
+pub fn simulate_skirmish_default_human_and_medium_ai() -> bool {
+    ensure_default_slots();
+    let mut setup = get_skirmish_setup();
+    let info = setup.game_info_mut().game_info_mut();
+    // Slot 0 human residual.
+    if let Some(slot) = info.get_slot_mut(0) {
+        if !slot.is_human() {
+            slot.set_state(SlotState::Player, GameText::fetch("GUI:Player"), 0);
+        }
+    } else {
+        return false;
+    }
+    drop(setup);
+    // Slot 1 Medium AI residual (C++ always seeds AI opponent).
+    simulate_skirmish_configure_slot_ai(1, SlotState::MedAI, -1, -1, -1)
+}
+
+/// Residual: bind options-menu combo control IDs for slot `index` (NameKey residual).
+pub fn skirmish_slot_combo_control_names(index: usize) -> Option<[String; 4]> {
+    if index >= MAX_SLOTS {
+        return None;
+    }
+    Some([
+        format!("SkirmishGameOptionsMenu.wnd:ComboBoxPlayer{index}"),
+        format!("SkirmishGameOptionsMenu.wnd:ComboBoxColor{index}"),
+        format!("SkirmishGameOptionsMenu.wnd:ComboBoxPlayerTemplate{index}"),
+        format!("SkirmishGameOptionsMenu.wnd:ComboBoxTeam{index}"),
+    ])
+}
+
 pub fn skirmish_game_options_menu_system(
     _window: &GameWindow,
     msg: WindowMessage,
