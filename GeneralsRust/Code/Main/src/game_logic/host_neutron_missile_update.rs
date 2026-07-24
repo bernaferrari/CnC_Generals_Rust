@@ -30,6 +30,10 @@ pub const NEUTRON_FORWARD_DAMPING: f32 = 0.1;
 pub const NEUTRON_STRAIGHT_DOWN_SLOW: f32 = 0.5;
 pub const NEUTRON_MAX_TURN_RATE_DEG: f32 = 7200.0;
 pub const NEUTRON_GROUND_EPSILON: f32 = 2.0;
+/// Retail DeliveryDecalRadius residual.
+pub const NEUTRON_DELIVERY_DECAL_RADIUS: f32 = 210.0;
+pub const NEUTRON_LAUNCH_FX: &str = "FX_NeutronMissileLaunch";
+pub const NEUTRON_IGNITION_FX: &str = "FX_NeutronMissileIgnition";
 /// Host residual speed units per frame at RelativeSpeed=1.
 pub const NEUTRON_BASE_SPEED_PER_FRAME: f32 = 12.0;
 
@@ -246,6 +250,8 @@ pub fn honesty_neutron_missile_update_residual_ok() -> bool {
         && (NEUTRON_SPECIAL_SPEED_HEIGHT - 160.0).abs() < 0.1
         && (NEUTRON_TARGET_FROM_ABOVE - 500.0).abs() < 0.1
         && (NEUTRON_NO_TURN_DIST - 300.0).abs() < 0.1
+        && (NEUTRON_DELIVERY_DECAL_RADIUS - 210.0).abs() < 0.1
+        && NEUTRON_LAUNCH_FX == "FX_NeutronMissileLaunch"
         && is_neutron_missile_flight_template("NeutronMissile")
         && is_neutron_missile_flight_template("CruiseMissile")
         && !is_neutron_missile_flight_template("AmericaTankCrusader")
