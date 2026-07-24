@@ -26,8 +26,8 @@ pub use base::{
 
 // Re-export main menu types
 pub use main_menu::{
-    DisplaySettings, DropdownType, GameDifficulty, MainMenu, MainMenuError, MainMenuResult,
-    MainMenuState, ShowSide,
+    simulate_main_menu_skirmish_button_gadget_selected, DisplaySettings, DropdownType,
+    GameDifficulty, MainMenu, MainMenuError, MainMenuResult, MainMenuState, ShowSide,
 };
 
 // Re-export replay menu types

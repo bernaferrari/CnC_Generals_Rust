@@ -124,6 +124,8 @@ pub struct ExecutableSmokeResult {
     pub skirmish_start_click_ok: bool,
     /// click_skirmish_start used retail WND ButtonStart path (ok_wnd / wnd_pending).
     pub skirmish_start_wnd_ok: bool,
+    /// open_skirmish_menu used retail MainMenu.wnd:ButtonSkirmish GBM_SELECTED residual.
+    pub main_menu_skirmish_wnd_ok: bool,
     pub frames_observed: u32,
     pub map_seen: String,
     pub exit_code: Option<i32>,
@@ -205,6 +207,7 @@ impl Default for ExecutableSmokeResult {
             skirmish_menu_ok: false,
             skirmish_start_click_ok: false,
             skirmish_start_wnd_ok: false,
+            main_menu_skirmish_wnd_ok: false,
             frames_observed: 0,
             map_seen: "-".into(),
             exit_code: None,
@@ -860,6 +863,13 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                     {
                         result.skirmish_menu_ok = true;
                     }
+                    if snap
+                        .last_gameplay_cmd
+                        .starts_with("open_skirmish_menu_ok_wnd")
+                    {
+                        result.main_menu_skirmish_wnd_ok = true;
+                        result.skirmish_menu_ok = true;
+                    }
                 }
                 "InGame" | "Paused" => {
                     result.reached_menu = true;
@@ -867,6 +877,13 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         || snap.ui_screen.to_ascii_lowercase().contains("skirmish")
                         || snap.last_gameplay_cmd.starts_with("open_skirmish_menu_ok")
                     {
+                        result.skirmish_menu_ok = true;
+                    }
+                    if snap
+                        .last_gameplay_cmd
+                        .starts_with("open_skirmish_menu_ok_wnd")
+                    {
+                        result.main_menu_skirmish_wnd_ok = true;
                         result.skirmish_menu_ok = true;
                     }
                     result.reached_ingame = true;
@@ -895,6 +912,13 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         || snap.ui_screen.to_ascii_lowercase().contains("skirmish")
                         || snap.last_gameplay_cmd.starts_with("open_skirmish_menu_ok")
                     {
+                        result.skirmish_menu_ok = true;
+                    }
+                    if snap
+                        .last_gameplay_cmd
+                        .starts_with("open_skirmish_menu_ok_wnd")
+                    {
+                        result.main_menu_skirmish_wnd_ok = true;
                         result.skirmish_menu_ok = true;
                     }
                     // Proceed once Skirmish is visible, or after a short grace poll.
@@ -2431,7 +2455,7 @@ fn executable_host_ok_from_residuals(reached_ingame: bool, shell_wnd_ok: bool) -
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} host_vertical_slice={} started={} menu={} shell_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} host_vertical_slice={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -2439,6 +2463,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.process_started,
         r.reached_menu,
         r.shell_wnd_ok,
+        r.main_menu_skirmish_wnd_ok,
         r.reached_ingame,
         r.gameplay_cmd_ok,
         r.construct_cmd_ok,
