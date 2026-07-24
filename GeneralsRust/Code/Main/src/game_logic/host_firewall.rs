@@ -10,7 +10,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full DragonTankFireWallWeapon projectile stream / OCL segment spawn
-//! - Not InchForwardLocomotor crawl of FireWallSegment objects
+//! - InchForwardLocomotor crawl residual closed (Speed **25** dist/sec → segments inch along wall dir)
 //! - BlackNapalm upgraded segment weapons residual closed (5 dmg / OCL_FireWallSegmentUpgraded)
 //! - Not full particle systems / GPU firestorm FX
 //! - Not FIRE_WEAPON command-button weapon-slot matrix / multi-select AI
@@ -50,6 +50,17 @@ pub const FIREWALL_MIN_LENGTH: f32 = 36.0;
 /// (retail DragonTankFireWallWeapon AttackRange ≈ 25 residual).
 pub const FIREWALL_START_OFFSET: f32 = 20.0;
 
+/// Retail InchForwardLocomotor Speed residual (dist/sec).
+pub const FIREWALL_INCH_SPEED: f32 = 25.0;
+/// InchForward crawl per logic frame @ 30 FPS (25/30).
+pub const FIREWALL_INCH_PER_FRAME: f32 = FIREWALL_INCH_SPEED / FIREWALL_LOGIC_FPS;
+/// Retail InchForwardLocomotor MinSpeed residual.
+pub const FIREWALL_INCH_MIN_SPEED: f32 = 25.0;
+/// Retail InchForwardLocomotor TurnRate residual (deg/sec).
+pub const FIREWALL_INCH_TURN_RATE: f32 = 1.0;
+/// Retail InchForwardLocomotor PreferredHeight residual.
+pub const FIREWALL_INCH_PREFERRED_HEIGHT: f32 = 1.0;
+
 /// Activate audio residual (CommandButton UnitSpecificSound residual name).
 pub const FIREWALL_ACTIVATE_AUDIO: &str = "DragonTankVoiceModeFireStorm";
 
@@ -71,6 +82,9 @@ pub struct HostFireWall {
     pub source_team: super::Team,
     /// BlackNapalm PLAYER_UPGRADE residual (segment weapon 5 dmg / upgraded OCL).
     pub upgraded: bool,
+    /// Unit crawl direction XZ (InchForward residual).
+    pub dir_x: f32,
+    pub dir_z: f32,
     pub target_position: Vec3,
     pub activate_frame: u32,
     pub expires_frame: u32,
@@ -122,6 +136,8 @@ pub struct HostFireWallRegistry {
     pub activations: u32,
     /// BlackNapalm upgraded activations (honesty).
     pub upgraded_activations: u32,
+    /// InchForward crawl frames applied (honesty).
+    pub crawl_steps: u32,
     /// Walls that have expired (bookkeeping prune).
     pub expirations: u32,
     /// Total residual damage applied across all walls.
@@ -217,11 +233,14 @@ impl HostFireWallRegistry {
     ) -> u32 {
         let id = self.alloc_id();
         let segments = Self::build_segments(caster_pos, target_pos);
+        let (dir_x, dir_z) = Self::wall_direction(caster_pos, target_pos);
         let wall = HostFireWall {
             id,
             source_object,
             source_team,
             upgraded,
+            dir_x,
+            dir_z,
             target_position: target_pos,
             activate_frame,
             expires_frame: activate_frame.saturating_add(FIREWALL_DURATION_FRAMES),
@@ -256,6 +275,44 @@ impl HostFireWallRegistry {
         } else {
             FIREWALL_SEGMENT_TEMPLATE
         }
+    }
+
+    /// Unit XZ direction from caster toward target (default +X).
+    pub fn wall_direction(caster_pos: Vec3, target_pos: Vec3) -> (f32, f32) {
+        let dx = target_pos.x - caster_pos.x;
+        let dz = target_pos.z - caster_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt();
+        if dist < 1.0 {
+            (1.0, 0.0)
+        } else {
+            (dx / dist, dz / dist)
+        }
+    }
+
+    /// Advance all active wall segment positions by InchForward residual step.
+    pub fn crawl_segments(&mut self) {
+        if self.active.is_empty() {
+            return;
+        }
+        let step = FIREWALL_INCH_PER_FRAME;
+        self.crawl_steps = self.crawl_steps.saturating_add(1);
+        for wall in &mut self.active {
+            for seg in &mut wall.segments {
+                seg.position.x += wall.dir_x * step;
+                seg.position.z += wall.dir_z * step;
+                // StickToGround residual: keep preferred height band.
+                if seg.position.y < FIREWALL_INCH_PREFERRED_HEIGHT {
+                    seg.position.y = FIREWALL_INCH_PREFERRED_HEIGHT;
+                }
+            }
+        }
+    }
+
+    /// Crawl offset delta this frame for object motion residual.
+    pub fn inch_step_for_wall(&self, wall_id: u32) -> Option<(f32, f32)> {
+        self.active.iter().find(|w| w.id == wall_id).map(|w| {
+            (w.dir_x * FIREWALL_INCH_PER_FRAME, w.dir_z * FIREWALL_INCH_PER_FRAME)
+        })
     }
 
     /// Plan damage for all walls due to tick this frame.
@@ -336,6 +393,10 @@ impl HostFireWallRegistry {
     /// Residual honesty: at least one FireWall activated.
     pub fn honesty_upgraded_ok(&self) -> bool {
         self.upgraded_activations > 0
+    }
+
+    pub fn honesty_crawl_ok(&self) -> bool {
+        self.crawl_steps > 0
     }
 
     pub fn honesty_activate_ok(&self) -> bool {
@@ -446,6 +507,15 @@ pub fn honesty_firewall_ability_residual_ok() -> bool {
             .is_empty()
 }
 
+/// Wave residual honesty: InchForwardLocomotor peels.
+pub fn honesty_firewall_inch_forward_ok() -> bool {
+    (FIREWALL_INCH_SPEED - 25.0).abs() < 0.01
+        && (FIREWALL_INCH_MIN_SPEED - 25.0).abs() < 0.01
+        && (FIREWALL_INCH_PER_FRAME - (25.0 / 30.0)).abs() < 0.001
+        && (FIREWALL_INCH_TURN_RATE - 1.0).abs() < 0.01
+        && (FIREWALL_INCH_PREFERRED_HEIGHT - 1.0).abs() < 0.01
+}
+
 /// Wave residual honesty: BlackNapalm FireWallSegment upgrade peels.
 pub fn honesty_firewall_black_napalm_ok() -> bool {
     (FIREWALL_DAMAGE_PER_TICK_UPGRADED - 5.0).abs() < 0.01
@@ -461,6 +531,7 @@ pub fn honesty_firewall_residual_pack_ok() -> bool {
     honesty_firewall_weapon_residual_ok()
         && honesty_firewall_ability_residual_ok()
         && honesty_firewall_black_napalm_ok()
+        && honesty_firewall_inch_forward_ok()
 }
 
 #[cfg(test)]
@@ -596,5 +667,40 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert!((plans[0].hits[0].damage - 5.0).abs() < 0.01);
     }
+    #[test]
+    fn firewall_inch_forward_crawls_segments() {
+        assert!(honesty_firewall_inch_forward_ok());
+        let mut reg = HostFireWallRegistry::new();
+        let id = reg.activate(
+            ObjectId(1),
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(100.0, 0.0, 0.0),
+            0,
+            false,
+        );
+        let before = reg
+            .active_walls()
+            .iter()
+            .find(|w| w.id == id)
+            .unwrap()
+            .segments[0]
+            .position;
+        reg.crawl_segments();
+        let after = reg
+            .active_walls()
+            .iter()
+            .find(|w| w.id == id)
+            .unwrap()
+            .segments[0]
+            .position;
+        assert!((after.x - before.x - FIREWALL_INCH_PER_FRAME).abs() < 0.001);
+        assert!((after.z - before.z).abs() < 0.001);
+        assert!(reg.honesty_crawl_ok());
+        let (dx, dz) = reg.inch_step_for_wall(id).unwrap();
+        assert!((dx - FIREWALL_INCH_PER_FRAME).abs() < 0.001);
+        assert!(dz.abs() < 0.001);
+    }
+
 
 }

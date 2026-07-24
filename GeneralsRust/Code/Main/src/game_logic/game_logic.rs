@@ -1424,7 +1424,7 @@ pub struct GameLogic {
     helix_napalm: crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry,
 
     /// Host China FireWall / Firestorm residual (Dragon Tank line of fire zones).
-    /// FireWallSegment OCL spawn residual closed; fail-closed vs InchForwardLocomotor crawl.
+    /// FireWallSegment OCL spawn + InchForwardLocomotor crawl residual closed.
     fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry,
 
     /// Host China Inferno Cannon residual fire zones (FireFieldSmall DoT).
@@ -30397,6 +30397,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 .set_cost(0, 0);
             self.templates.insert(template.to_string(), t);
         }
+        let (dir_x, dir_z) = self
+            .fire_walls
+            .active_walls()
+            .iter()
+            .find(|w| w.id == wall_id)
+            .map(|w| (w.dir_x, w.dir_z))
+            .unwrap_or((1.0, 0.0));
         let expires = self.frame.saturating_add(FIREWALL_DURATION_FRAMES);
         let mut spawned = 0u32;
         for pos in positions {
@@ -30405,6 +30412,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     o.firewall_segment = true;
                     o.producer_id = Some(source_object);
                     o.firewall_segment_expires_frame = Some(expires);
+                    o.firewall_segment_wall_id = Some(wall_id);
+                    o.firewall_segment_dir = Some([dir_x, dir_z]);
                     o.health.maximum = FIREWALL_SEGMENT_MAX_HEALTH;
                     Self::write_object_health_authority_aware(o, FIREWALL_SEGMENT_MAX_HEALTH);
                 }
@@ -30416,7 +30425,33 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     pub fn update_firewall_segment_objects(&mut self) {
+        use crate::game_logic::host_firewall::FIREWALL_INCH_PER_FRAME;
+
         let frame = self.frame;
+
+        // C++ InchForwardLocomotor residual: segments crawl along wall direction.
+        // Keep registry damage zones and live segment objects in lockstep.
+        self.fire_walls.crawl_segments();
+        let crawlers: Vec<(ObjectId, f32, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.firewall_segment || !o.is_alive() {
+                    return None;
+                }
+                let dir = o.firewall_segment_dir.unwrap_or([1.0, 0.0]);
+                Some((*id, dir[0] * FIREWALL_INCH_PER_FRAME, dir[1] * FIREWALL_INCH_PER_FRAME))
+            })
+            .collect();
+        for (id, dx, dz) in crawlers {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let mut p = o.get_position();
+                p.x += dx;
+                p.z += dz;
+                o.set_position(p);
+            }
+        }
+
         let due: Vec<ObjectId> = self
             .objects
             .iter()
@@ -30437,6 +30472,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 o.status.effectively_dead = true;
                 o.health.current = 0.0;
                 o.firewall_segment = false;
+                o.firewall_segment_wall_id = None;
+                o.firewall_segment_dir = None;
             }
             self.mark_object_for_destruction(id, None);
         }
@@ -53309,6 +53346,11 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
     pub fn honesty_firewall_black_napalm_ok(&self) -> bool {
         self.fire_walls.honesty_upgraded_ok()
             || self.dragon_tank_residual_black_napalm_upgrades > 0
+    }
+
+    /// Residual honesty: InchForward crawl applied at least once.
+    pub fn honesty_firewall_inch_forward_ok(&self) -> bool {
+        self.fire_walls.honesty_crawl_ok()
     }
 
     /// Activate China FireWall residual: line of fire damage zones from caster
@@ -85028,7 +85070,48 @@ mod tests {
     }
 
     #[test]
-        fn firewall_spawns_segment_objects_residual() {
+    
+    #[test]
+    fn firewall_inch_forward_moves_segment_objects() {
+        use crate::game_logic::host_firewall::FIREWALL_INCH_PER_FRAME;
+
+        let mut logic = GameLogic::new();
+        let mut dragon_tpl = ThingTemplate::new("ChinaTankDragon");
+        dragon_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("ChinaTankDragon".to_string(), dragon_tpl);
+
+        let caster = logic
+            .create_object("ChinaTankDragon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("dragon");
+        let _wall = logic
+            .activate_firewall(caster, Vec3::new(100.0, 0.0, 0.0))
+            .expect("firewall");
+
+        let seg_id = logic
+            .objects
+            .iter()
+            .find(|(_, o)| o.firewall_segment)
+            .map(|(id, _)| *id)
+            .expect("segment object");
+        let before = logic.find_object(seg_id).unwrap().get_position();
+        logic.update_firewall_segment_objects();
+        let after = logic.find_object(seg_id).unwrap().get_position();
+        assert!(
+            (after.x - before.x - FIREWALL_INCH_PER_FRAME).abs() < 0.01,
+            "segment should inch forward +X, before={before:?} after={after:?}"
+        );
+        assert!(logic.honesty_firewall_inch_forward_ok());
+        assert!(logic.fire_walls.honesty_crawl_ok());
+    }
+
+    #[test]
+    fn firewall_spawns_segment_objects_residual() {
         use crate::game_logic::host_firewall::{
             FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_TEMPLATE,
         };

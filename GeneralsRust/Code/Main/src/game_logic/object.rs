@@ -1673,6 +1673,12 @@ pub struct Object {
     /// Absolute frame when FireWallSegment DeletionUpdate residual expires.
     #[serde(default)]
     pub firewall_segment_expires_frame: Option<u32>,
+    /// Host residual: wall id for InchForward crawl direction lookup.
+    #[serde(default)]
+    pub firewall_segment_wall_id: Option<u32>,
+    /// Host residual: InchForward crawl direction XZ.
+    #[serde(default)]
+    pub firewall_segment_dir: Option<[f32; 2]>,
     /// Absolute frame when RadarVanPing DeletionUpdate residual expires.
     #[serde(default)]
     pub radar_van_ping_expires_frame: Option<u32>,
@@ -2595,6 +2601,8 @@ impl Object {
             radar_van_ping_expires_frame: None,
             firewall_segment: false,
             firewall_segment_expires_frame: None,
+            firewall_segment_wall_id: None,
+            firewall_segment_dir: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -3212,6 +3220,8 @@ impl Object {
             radar_van_ping_expires_frame: None,
             firewall_segment: false,
             firewall_segment_expires_frame: None,
+            firewall_segment_wall_id: None,
+            firewall_segment_dir: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
