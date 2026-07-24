@@ -319,6 +319,10 @@ pub const ANTHRAX_TOXIN_DEATH_TYPE: &str = "POISONED_BETA";
 pub const ANTHRAX_TOXIN_WEAPON_SPEED: f32 = 600.0;
 /// Retail AnthraxBombWeapon FireOCL residual.
 pub const ANTHRAX_TOXIN_OCL: &str = "OCL_PoisonFieldAnthraxBomb";
+/// Retail OCL_PoisonFieldAnthraxBomb CreateObject residual.
+pub const ANTHRAX_TOXIN_OBJECT_NAME: &str = "PoisonFieldAnthraxBomb";
+/// Retail PoisonFieldAnthraxBomb MaxHealth residual.
+pub const ANTHRAX_TOXIN_FIELD_MAX_HEALTH: f32 = 120.0;
 /// Retail AnthraxBombWeapon impact blast residual name.
 pub const ANTHRAX_BOMB_WEAPON_NAME: &str = "AnthraxBombWeapon";
 /// Retail AnthraxBombWeapon PrimaryDamage residual (impact blast only).
@@ -5851,6 +5855,8 @@ pub struct HostToxinField {
     pub id: u32,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    /// Host GameLogic ObjectId for PoisonFieldAnthraxBomb residual.
+    pub object_id: Option<ObjectId>,
     pub position: Vec3,
     pub spawn_frame: u32,
     pub expires_frame: u32,
@@ -6763,6 +6769,8 @@ pub struct HostSpecialPowerStrikeRegistry {
     toxin_spawned_this_frame: Vec<u32>,
     /// Lifetime count of toxin fields spawned (survives prune; honesty).
     toxin_fields_spawned_total: u32,
+    /// Honesty: PoisonFieldAnthraxBomb GameLogic objects spawned.
+    toxin_objects_spawned: u32,
     /// Lifetime toxin damage applications (honesty after field expiry).
     toxin_damage_applications_total: u32,
     /// Active residual Spectre orbit fields (SpectreGunship residual).
@@ -6832,6 +6840,7 @@ impl HostSpecialPowerStrikeRegistry {
             next_toxin_id: 1,
             toxin_spawned_this_frame: Vec::new(),
             toxin_fields_spawned_total: 0,
+            toxin_objects_spawned: 0,
             toxin_damage_applications_total: 0,
             orbit_fields: Vec::new(),
             next_orbit_id: 1,
@@ -6871,6 +6880,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.toxin_spawned_this_frame.clear();
         self.next_toxin_id = 1;
         self.toxin_fields_spawned_total = 0;
+        self.toxin_objects_spawned = 0;
         self.toxin_damage_applications_total = 0;
         self.orbit_fields.clear();
         self.orbit_spawned_this_frame.clear();
@@ -6998,6 +7008,7 @@ impl HostSpecialPowerStrikeRegistry {
             Vec::new(),
             0,
             0,
+            0,
             1,
             Vec::new(),
             0,
@@ -7036,6 +7047,7 @@ impl HostSpecialPowerStrikeRegistry {
             1,
             Vec::new(),
             0,
+            0, // toxin_objects_spawned residual (legacy wrapper)
             0,
             1,
             Vec::new(),
@@ -7068,6 +7080,7 @@ impl HostSpecialPowerStrikeRegistry {
         next_toxin_id: u32,
         toxin_fields: impl IntoIterator<Item = HostToxinField>,
         toxin_fields_spawned_total: u32,
+        toxin_objects_spawned: u32,
         toxin_damage_applications_total: u32,
         next_orbit_id: u32,
         orbit_fields: impl IntoIterator<Item = HostSpectreOrbitField>,
@@ -7109,6 +7122,7 @@ impl HostSpecialPowerStrikeRegistry {
         }
         self.next_toxin_id = next_toxin_id.max(max_tox.saturating_add(1)).max(1);
         self.toxin_fields_spawned_total = toxin_fields_spawned_total.max(max_tox);
+        self.toxin_objects_spawned = toxin_objects_spawned;
         self.toxin_damage_applications_total = toxin_damage_applications_total;
 
         let mut max_orb = 0_u32;
@@ -7168,6 +7182,24 @@ impl HostSpecialPowerStrikeRegistry {
 
     pub fn toxin_fields_spawned_total(&self) -> u32 {
         self.toxin_fields_spawned_total
+    }
+
+    pub fn toxin_objects_spawned(&self) -> u32 {
+        self.toxin_objects_spawned
+    }
+
+    pub fn honesty_toxin_object_spawn_ok(&self) -> bool {
+        self.toxin_objects_spawned > 0
+    }
+
+    /// Bind a spawned PoisonFieldAnthraxBomb ObjectId onto a toxin field.
+    pub fn bind_toxin_object(&mut self, toxin_id: u32, object_id: ObjectId) -> bool {
+        if let Some(f) = self.toxin_fields.iter_mut().find(|f| f.id == toxin_id) {
+            f.object_id = Some(object_id);
+            self.toxin_objects_spawned = self.toxin_objects_spawned.saturating_add(1);
+            return true;
+        }
+        false
     }
 
     pub fn toxin_damage_applications_total(&self) -> u32 {
@@ -8382,6 +8414,7 @@ impl HostSpecialPowerStrikeRegistry {
             id,
             source_object,
             source_team,
+            object_id: None,
             position,
             spawn_frame,
             expires_frame: spawn_frame.saturating_add(duration_frames),
