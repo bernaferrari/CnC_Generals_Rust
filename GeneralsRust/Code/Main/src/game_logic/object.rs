@@ -1049,6 +1049,9 @@ pub struct Object {
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
+    /// C++ FireSpreadUpdate + FlammableUpdate residual.
+    #[serde(default)]
+    pub fire_spread: Option<crate::game_logic::host_fire_spread::HostFireSpreadData>,
     /// C++ HelicopterSlowDeathBehavior residual.
     #[serde(default)]
     pub helicopter_slow_death:
@@ -1697,6 +1700,7 @@ impl Object {
             slow_death: None,
             height_die: None,
             tensile_formation: None,
+            fire_spread: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -2069,6 +2073,7 @@ impl Object {
             slow_death: None,
             height_die: None,
             tensile_formation: None,
+            fire_spread: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -3639,6 +3644,28 @@ impl Object {
         {
             self.tensile_formation = Some(data);
         }
+    }
+
+    pub fn install_fire_spread_if_needed(&mut self) {
+        if self.fire_spread.is_some() {
+            return;
+        }
+        if let Some(data) =
+            crate::game_logic::host_fire_spread::HostFireSpreadData::for_template(&self.template_name)
+        {
+            self.fire_spread = Some(data);
+        }
+    }
+
+    pub fn has_fire_spread(&self) -> bool {
+        self.fire_spread.is_some()
+    }
+
+    pub fn try_ignite_fire_spread(&mut self, current_frame: u32) -> bool {
+        let Some(fs) = self.fire_spread.as_mut() else {
+            return false;
+        };
+        fs.try_to_ignite(current_frame)
     }
 
     pub fn has_tensile_formation(&self) -> bool {

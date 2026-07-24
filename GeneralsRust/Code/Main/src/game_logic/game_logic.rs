@@ -1119,6 +1119,8 @@ pub struct GameLogic {
     tensile_formation_reg: crate::game_logic::host_tensile_formation::HostTensileFormationRegistry,
     /// C++ StatusBitsUpgrade residual counters.
     status_bits_upgrade_reg: crate::game_logic::host_status_bits_upgrade::HostStatusBitsUpgradeRegistry,
+    /// C++ FireSpreadUpdate residual counters.
+    fire_spread_reg: crate::game_logic::host_fire_spread::HostFireSpreadRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2786,6 +2788,7 @@ impl GameLogic {
             deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry::new(),
             tensile_formation_reg: crate::game_logic::host_tensile_formation::HostTensileFormationRegistry::new(),
             status_bits_upgrade_reg: crate::game_logic::host_status_bits_upgrade::HostStatusBitsUpgradeRegistry::new(),
+            fire_spread_reg: crate::game_logic::host_fire_spread::HostFireSpreadRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3236,6 +3239,7 @@ impl GameLogic {
         self.deploy_style_reg.clear();
         self.tensile_formation_reg.clear();
         self.status_bits_upgrade_reg.clear();
+        self.fire_spread_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -5948,6 +5952,7 @@ impl GameLogic {
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
         self.update_scud_poison_zones();
         self.update_tensile_formations();
+        self.update_fire_spread();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -22045,6 +22050,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             if object.has_tensile_formation() {
                 self.tensile_formation_reg.record_install();
             }
+            object.install_fire_spread_if_needed();
+            if object.has_fire_spread() {
+                self.fire_spread_reg.record_install();
+            }
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -26997,6 +27006,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_status_bits_upgrade::honesty_status_bits_upgrade_residual_ok()
     }
 
+    pub fn honesty_fire_spread_ok(&self) -> bool {
+        self.fire_spread_reg.honesty_host_path_ok()
+            && crate::game_logic::host_fire_spread::honesty_fire_spread_residual_ok()
+    }
+
     pub fn tensile_formation_registry(
         &self,
     ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
@@ -30538,7 +30552,120 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Advance SCUD MediumPoisonField residual zones.
         /// C++ TensileFormationUpdate residual (AvalancheChunk springy slide).
         /// C++ TensileFormationUpdate residual (AvalancheChunk springy slide).
-    fn update_tensile_formations(&mut self) {
+        /// Test/host helper: ignite a flammable object residual.
+    pub fn ignite_object_fire_spread(&mut self, id: ObjectId) -> bool {
+        let frame = self.frame as u32;
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if obj.try_ignite_fire_spread(frame) {
+            self.fire_spread_reg.record_ignition();
+            let _ = obj.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
+        /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
+    fn update_fire_spread(&mut self) {
+        use crate::game_logic::host_fire_spread::TREE_OCL_EMBERS;
+
+        let frame = self.frame as u32;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.has_fire_spread())
+            .map(|(id, _)| *id)
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+
+        let positions: Vec<(ObjectId, Vec3, bool)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.has_fire_spread())
+            .map(|(id, o)| {
+                let would = o
+                    .fire_spread
+                    .as_ref()
+                    .map(|f| f.would_ignite())
+                    .unwrap_or(false);
+                (*id, o.get_position(), would)
+            })
+            .collect();
+
+        let mut ignite_targets: Vec<ObjectId> = Vec::new();
+        let mut status_aflame: Vec<ObjectId> = Vec::new();
+        let mut status_burned: Vec<ObjectId> = Vec::new();
+
+        for id in ids {
+            let pos = match self.objects.get(&id) {
+                Some(o) => o.get_position(),
+                None => continue,
+            };
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let Some(fs) = obj.fire_spread.as_mut() else {
+                continue;
+            };
+            let fr = fs.tick_flammable(frame);
+            if fr.became_burned {
+                self.fire_spread_reg.record_burned();
+                status_burned.push(id);
+            } else if fr.aflame {
+                status_aflame.push(id);
+            }
+            let sr = fs.tick_spread(frame);
+            let range = fs.spread_try_range;
+            if sr.spawn_embers {
+                self.fire_spread_reg.record_embers();
+                let _ = TREE_OCL_EMBERS;
+            }
+            if sr.try_spread {
+                self.fire_spread_reg.record_spread();
+                let mut best: Option<(ObjectId, f32)> = None;
+                for &(oid, op, would) in &positions {
+                    if oid == id || !would {
+                        continue;
+                    }
+                    let dx = op.x - pos.x;
+                    let dz = op.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
+                        best = Some((oid, dist));
+                    }
+                }
+                if let Some((tid, _)) = best {
+                    ignite_targets.push(tid);
+                }
+            }
+        }
+
+        for id in status_aflame {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let _ = o.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+            }
+        }
+        for id in status_burned {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let _ = o.apply_status_bits_upgrade_masks(&["BURNED"], &["AFLAME"]);
+            }
+        }
+        for tid in ignite_targets {
+            if let Some(t) = self.objects.get_mut(&tid) {
+                if t.try_ignite_fire_spread(frame) {
+                    self.fire_spread_reg.record_ignition();
+                    let _ = t.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+                }
+            }
+        }
+    }
+
+fn update_tensile_formations(&mut self) {
         use crate::game_logic::host_tensile_formation::{
             TENSILE_BODY_DAMAGED_HEALTH_FRAC, TENSILE_CRACK_SOUND, TENSILE_PROPAGATE_RADIUS,
         };
@@ -74966,7 +75093,61 @@ mod tests {
     #[test]
 
     #[test]
-    fn status_bits_upgrade_booby_trap_sets_bit() {
+
+    #[test]
+    fn fire_spread_tree_ignites_neighbor() {
+        use crate::game_logic::host_fire_spread::{
+            honesty_fire_spread_residual_ok, TREE_SPREAD_TRY_RANGE,
+        };
+        assert!(honesty_fire_spread_residual_ok());
+
+        let mut logic = GameLogic::new();
+        for name in ["DogwoodTreeA", "DogwoodTreeB"] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(name);
+            tpl.set_health(50.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let a = logic
+            .create_object("DogwoodTreeA", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        let b = logic
+            .create_object(
+                "DogwoodTreeB",
+                Team::Neutral,
+                Vec3::new(TREE_SPREAD_TRY_RANGE * 0.5, 0.0, 0.0),
+            )
+            .expect("b");
+        assert!(logic.find_object(a).unwrap().has_fire_spread());
+        assert!(logic.find_object(b).unwrap().has_fire_spread());
+        assert!(logic.fire_spread_reg.installed >= 2);
+
+        assert!(logic.ignite_object_fire_spread(a));
+        // Force spread due immediately.
+        {
+            let o = logic.find_object_mut(a).unwrap();
+            if let Some(fs) = o.fire_spread.as_mut() {
+                fs.next_spread_frame = 0;
+            }
+        }
+        logic.set_current_frame(30);
+        logic.update_fire_spread();
+        assert!(
+            logic.fire_spread_reg.spreads > 0,
+            "aflame tree must attempt spread"
+        );
+        assert!(
+            logic
+                .find_object(b)
+                .and_then(|o| o.fire_spread.as_ref().map(|f| f.is_aflame()))
+                .unwrap_or(false)
+                || logic.fire_spread_reg.ignitions >= 2,
+            "neighbor within range must ignite"
+        );
+        assert!(logic.honesty_fire_spread_ok());
+    }
+
+
+        fn status_bits_upgrade_booby_trap_sets_bit() {
         use crate::game_logic::host_status_bits_upgrade::honesty_status_bits_upgrade_residual_ok;
         assert!(honesty_status_bits_upgrade_residual_ok());
 
