@@ -1224,6 +1224,21 @@ pub struct Object {
     /// C++ RocketBuggyMissile projectile residual.
     #[serde(default)]
     pub rocket_buggy_missile_projectile: bool,
+    /// C++ NeutronCannonShell DumbProjectile residual.
+    #[serde(default)]
+    pub neutron_cannon_shell_projectile: bool,
+    /// Bezier flight start residual.
+    #[serde(default)]
+    pub neutron_shell_from: Option<[f32; 3]>,
+    /// Bezier flight aim residual.
+    #[serde(default)]
+    pub neutron_shell_aim: Option<[f32; 3]>,
+    /// Absolute frame when neutron shell was launched.
+    #[serde(default)]
+    pub neutron_shell_launch_frame: Option<u32>,
+    /// Total flight frames residual for Bezier t.
+    #[serde(default)]
+    pub neutron_shell_flight_frames: u32,
     /// Aim point for RocketBuggyMissile residual.
     #[serde(default)]
     pub rocket_buggy_missile_aim: Option<[f32; 3]>,
@@ -2054,6 +2069,11 @@ impl Object {
             rocket_buggy_missile_intended: None,
             rocket_buggy_missile_travelled: 0.0,
             rocket_buggy_missile_fuel_expires_frame: None,
+            neutron_cannon_shell_projectile: false,
+            neutron_shell_from: None,
+            neutron_shell_aim: None,
+            neutron_shell_launch_frame: None,
+            neutron_shell_flight_frames: 0,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
@@ -2518,6 +2538,11 @@ impl Object {
             rocket_buggy_missile_intended: None,
             rocket_buggy_missile_travelled: 0.0,
             rocket_buggy_missile_fuel_expires_frame: None,
+            neutron_cannon_shell_projectile: false,
+            neutron_shell_from: None,
+            neutron_shell_aim: None,
+            neutron_shell_launch_frame: None,
+            neutron_shell_flight_frames: 0,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,

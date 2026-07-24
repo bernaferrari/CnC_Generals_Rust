@@ -21,11 +21,13 @@
 //! - Kill infantry residual: KillInfantry effect + legal-target matrix honesty
 //!
 //! Fail-closed honesty:
-//! - Not full projectile flight / DumbProjectileBehavior live bezier path
+//! - NeutronCannonShell DumbProjectileBehavior bezier flight residual closed
+//! - Not full FlightPathAdjustDistPerSecond live seeker retarget matrix
 //! - Not full AffectAirborne / ally Relationship matrix beyond residual flags
 //! - Not full WeaponSet chooser command-button toggle beyond active_weapon_slot
 //! - Not network neutron replication (network deferred)
 
+use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 /// Logic frames per second residual.
@@ -252,6 +254,42 @@ pub fn neutron_shell_flight_control_percent(first: bool) -> f32 {
     } else {
         NEUTRON_SHELL_SECOND_PERCENT_INDENT
     }
+}
+
+/// C++ DumbProjectileBehavior cubic Bezier residual sample.
+///
+/// Control points sit above the shot line at First/SecondHeight, indented at
+/// First/SecondPercentIndent along the ground path (Y-up host residual).
+pub fn neutron_shell_bezier_point(
+    from: Vec3,
+    to: Vec3,
+    t: f32,
+) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * NEUTRON_SHELL_FIRST_PERCENT_INDENT
+        + Vec3::Y * NEUTRON_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * NEUTRON_SHELL_SECOND_PERCENT_INDENT
+        + Vec3::Y * NEUTRON_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    p0 * uuu + p1 * (3.0 * uu * t) + p2 * (3.0 * u * tt) + p3 * ttt
+}
+
+/// Flight frame residual from ground distance @ WeaponSpeed 200.
+pub fn neutron_shell_flight_frames(from: Vec3, to: Vec3) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let frames = (dist / (NEUTRON_WEAPON_SPEED / NEUTRON_LOGIC_FPS)).ceil() as u32;
+    frames.clamp(8, 180)
 }
 
 /// Whether weapon identity residual is the neutron shell secondary.
