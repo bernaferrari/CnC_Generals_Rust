@@ -1134,6 +1134,12 @@ pub struct Object {
     /// C++ RepairVehiclesInArea_InvisibleMarker residual.
     #[serde(default)]
     pub emergency_repair_marker: bool,
+    /// C++ SpySatellitePing residual object.
+    #[serde(default)]
+    pub spy_satellite_ping: bool,
+    /// Absolute frame when SpySatellitePing DeletionUpdate residual expires.
+    #[serde(default)]
+    pub spy_satellite_ping_expires_frame: Option<u32>,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1845,6 +1851,8 @@ impl Object {
             ambush_fade_in: false,
             gps_scrambler_marker: false,
             emergency_repair_marker: false,
+            spy_satellite_ping: false,
+            spy_satellite_ping_expires_frame: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2254,6 +2262,8 @@ impl Object {
             ambush_fade_in: false,
             gps_scrambler_marker: false,
             emergency_repair_marker: false,
+            spy_satellite_ping: false,
+            spy_satellite_ping_expires_frame: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
