@@ -1072,6 +1072,13 @@ pub struct Object {
     #[serde(default)]
     pub artillery_barrage_transport:
         Option<crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightData>,
+    /// C++ A10ThunderboltMissile HeightDie residual.
+    #[serde(default)]
+    pub a10_strike_missile: bool,
+    /// C++ AmericaJetA10Thunderbolt transport residual.
+    #[serde(default)]
+    pub a10_strike_transport:
+        Option<crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightData>,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1764,6 +1771,8 @@ impl Object {
             carpet_bomb_transport: None,
             artillery_barrage_shell: false,
             artillery_barrage_transport: None,
+            a10_strike_missile: false,
+            a10_strike_transport: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2154,6 +2163,8 @@ impl Object {
             carpet_bomb_transport: None,
             artillery_barrage_shell: false,
             artillery_barrage_transport: None,
+            a10_strike_missile: false,
+            a10_strike_transport: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
