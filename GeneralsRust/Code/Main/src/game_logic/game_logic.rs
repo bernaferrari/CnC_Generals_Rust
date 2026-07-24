@@ -1167,6 +1167,9 @@ pub struct GameLogic {
     /// C++ ArtilleryBarrage DeliverPayload residual counters.
     artillery_barrage_flight_reg:
         crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightRegistry,
+    /// C++ A10Thunderbolt DeliverPayload residual counters.
+    a10_strike_flight_reg:
+        crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2861,6 +2864,8 @@ impl GameLogic {
                 crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightRegistry::new(),
             artillery_barrage_flight_reg:
                 crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightRegistry::new(),
+            a10_strike_flight_reg:
+                crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3332,6 +3337,7 @@ impl GameLogic {
         self.scud_storm_missile_flight_reg.clear();
         self.carpet_bomb_flight_reg.clear();
         self.artillery_barrage_flight_reg.clear();
+        self.a10_strike_flight_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -6058,6 +6064,7 @@ impl GameLogic {
         self.update_scud_storm_missile_flights();
         self.update_carpet_bomb_flights();
         self.update_artillery_barrage_flights();
+        self.update_a10_strike_flights();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -27976,6 +27983,150 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ SUPERWEAPON_A10ThunderboltMissileStrike DeliverPayload residual.
+    pub fn spawn_a10_strike_flight(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+        tier: crate::game_logic::special_power_strikes::A10StrikeScienceTier,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightData;
+        use crate::game_logic::special_power_strikes::A10_TRANSPORT;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let source_pos = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        let dx = target.x - source_pos.x;
+        let dz = target.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+        let edge = Vec3::new(
+            source_pos.x - dx / dist * 400.0,
+            160.0,
+            source_pos.z - dz / dist * 400.0,
+        );
+        if !self.templates.contains_key(A10_TRANSPORT) {
+            let mut t = ThingTemplate::new(A10_TRANSPORT);
+            t.set_health(600.0)
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle);
+            self.templates.insert(A10_TRANSPORT.to_string(), t);
+        }
+        let tid = self.create_object(A10_TRANSPORT, team, edge)?;
+        if let Some(o) = self.objects.get_mut(&tid) {
+            o.producer_id = Some(source_id);
+            o.a10_strike_transport =
+                Some(HostA10StrikeFlightData::start(edge, target, tier));
+            o.set_orientation(dz.atan2(dx));
+        }
+        self.a10_strike_flight_reg.record_transport();
+        self.a10_strike_flight_reg
+            .schedule_drops(self.frame, source_id.0, target, tier);
+        Some(tid)
+    }
+
+    pub fn update_a10_strike_flights(&mut self) {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::special_power_strikes::{
+            A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS, A10_PAYLOAD_TEMPLATE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.a10_strike_transport.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let pos = o.get_position();
+            let Some(data) = o.a10_strike_transport.as_mut() else {
+                continue;
+            };
+            let (new_pos, vel, _over) = data.tick_transport(pos);
+            let _ = data;
+            o.set_position(new_pos);
+            o.movement.velocity = vel;
+            if vel.length_squared() > 1e-6 {
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+        }
+
+        let due = self.a10_strike_flight_reg.take_due_drops(self.frame);
+        if !due.is_empty() {
+            if !self.templates.contains_key(A10_PAYLOAD_TEMPLATE) {
+                let mut t = ThingTemplate::new(A10_PAYLOAD_TEMPLATE);
+                t.set_health(40.0).add_kind_of(KindOf::Projectile);
+                self.templates.insert(A10_PAYLOAD_TEMPLATE.to_string(), t);
+            }
+            for p in due {
+                let team = self
+                    .objects
+                    .get(&ObjectId(p.source_id))
+                    .map(|o| o.team)
+                    .unwrap_or(Team::Neutral);
+                let drop_pos = Vec3::new(p.target.x, 90.0, p.target.z);
+                if let Some(mid) = self.create_object(A10_PAYLOAD_TEMPLATE, team, drop_pos) {
+                    if let Some(o) = self.objects.get_mut(&mid) {
+                        o.producer_id = Some(ObjectId(p.source_id));
+                        o.a10_strike_missile = true;
+                        o.movement.velocity = Vec3::new(0.0, -20.0, 0.0);
+                        let _ = o.set_smart_bomb_target(p.target);
+                    }
+                    self.a10_strike_flight_reg.record_drop();
+                }
+            }
+        }
+
+        let missiles: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.a10_strike_missile && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in missiles {
+            let (pos, producer, team) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let mut p = o.get_position();
+                p.y += o.movement.velocity.y;
+                o.set_position(p);
+                (p, o.producer_id, o.team)
+            };
+            if pos.y <= 5.0 {
+                self.apply_fuel_air_radius_damage(
+                    id,
+                    producer,
+                    team,
+                    Vec3::new(pos.x, 0.0, pos.z),
+                    A10_MISSILE_PRIMARY_DAMAGE,
+                    A10_MISSILE_PRIMARY_RADIUS,
+                    DamageType::Explosive,
+                );
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    pos,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                self.a10_strike_flight_reg.record_impact();
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -28002,6 +28153,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_artillery_barrage_flight_ok(&self) -> bool {
         crate::game_logic::host_artillery_barrage_flight::honesty_artillery_barrage_flight_residual_ok()
+    }
+
+    pub fn honesty_a10_strike_flight_ok(&self) -> bool {
+        crate::game_logic::host_a10_strike_flight::honesty_a10_strike_flight_residual_ok()
     }
 
     pub fn honesty_scud_storm_missile_flight_ok(&self) -> bool {
@@ -47661,6 +47816,14 @@ fn update_scud_poison_zones(&mut self) {
                 source_object,
                 target_position,
                 artillery_tier,
+            );
+        }
+        // C++ A10Thunderbolt DeliverPayload residual (jet + staggered missiles).
+        if kind == HostSuperweaponKind::A10Strike {
+            let _ = self.spawn_a10_strike_flight(
+                source_object,
+                target_position,
+                a10_tier,
             );
         }
         // C++ OCL FireWeaponNugget / AttackNugget residual (Neutron / Cruise / ScudStorm).
@@ -77721,6 +77884,47 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn a10_strike_flight_drops_missiles() {
+        use crate::game_logic::special_power_strikes::A10StrikeScienceTier;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut foe_t = crate::game_logic::ThingTemplate::new("GLATankScorpion");
+        foe_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("GLATankScorpion".into(), foe_t);
+        let cc_id = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let _foe = logic
+            .create_object("GLATankScorpion", Team::GLA, Vec3::new(180.0, 0.0, 0.0))
+            .unwrap();
+        let jet = logic
+            .spawn_a10_strike_flight(
+                cc_id,
+                Vec3::new(180.0, 0.0, 0.0),
+                A10StrikeScienceTier::Level1,
+            )
+            .expect("a10");
+        assert!(logic.find_object(jet).unwrap().a10_strike_transport.is_some());
+        assert!(logic.a10_strike_flight_reg.missiles_scheduled >= 6);
+        for f in 0..400 {
+            logic.frame = f;
+            logic.update_a10_strike_flights();
+            if logic.a10_strike_flight_reg.impacts >= 1 {
+                break;
+            }
+        }
+        assert!(logic.a10_strike_flight_reg.missiles_dropped >= 1);
+        assert!(logic.a10_strike_flight_reg.impacts >= 1);
+        assert!(logic.honesty_a10_strike_flight_ok());
+    }
 
     #[test]
     fn artillery_barrage_flight_drops_shells() {
