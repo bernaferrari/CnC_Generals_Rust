@@ -1073,6 +1073,10 @@ pub struct Object {
     /// C++ CheckpointUpdate residual (ally gate).
     #[serde(default)]
     pub checkpoint_update: Option<crate::game_logic::host_checkpoint_update::HostCheckpointUpdateData>,
+    /// C++ SpectreGunshipDeploymentUpdate residual (CC spawns gunship).
+    #[serde(default)]
+    pub spectre_gunship_deployment:
+        Option<crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentData>,
     /// C++ HelicopterSlowDeathBehavior residual.
     #[serde(default)]
     pub helicopter_slow_death:
@@ -1732,6 +1736,7 @@ impl Object {
             prone_update: None,
             radius_decal_update: None,
             checkpoint_update: None,
+            spectre_gunship_deployment: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -2113,6 +2118,7 @@ impl Object {
             prone_update: None,
             radius_decal_update: None,
             checkpoint_update: None,
+            spectre_gunship_deployment: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -3770,6 +3776,19 @@ impl Object {
         {
             data.vision_range = self.vision_range.max(data.vision_range);
             self.checkpoint_update = Some(data);
+        }
+    }
+
+    pub fn install_spectre_gunship_deployment_if_needed(&mut self) {
+        if self.spectre_gunship_deployment.is_some() {
+            return;
+        }
+        if let Some(data) =
+            crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentData::for_template(
+                &self.template_name,
+            )
+        {
+            self.spectre_gunship_deployment = Some(data);
         }
     }
 
