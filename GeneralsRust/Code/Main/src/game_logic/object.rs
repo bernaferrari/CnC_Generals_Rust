@@ -1085,6 +1085,12 @@ pub struct Object {
     /// C++ LeafletContainer payload residual (fall then disable).
     #[serde(default)]
     pub leaflet_container: bool,
+    /// C++ AmericaJetCargoPlane paradrop transport residual target.
+    #[serde(default)]
+    pub paradrop_transport_target: Option<glam::Vec3>,
+    /// C++ AmericaParachute container residual (fall then infantry land).
+    #[serde(default)]
+    pub paradrop_parachute: bool,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1781,6 +1787,8 @@ impl Object {
             a10_strike_transport: None,
             leaflet_transport_target: None,
             leaflet_container: false,
+            paradrop_transport_target: None,
+            paradrop_parachute: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2175,6 +2183,8 @@ impl Object {
             a10_strike_transport: None,
             leaflet_transport_target: None,
             leaflet_container: false,
+            paradrop_transport_target: None,
+            paradrop_parachute: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
