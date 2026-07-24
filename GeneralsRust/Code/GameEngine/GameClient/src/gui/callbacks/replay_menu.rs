@@ -526,3 +526,154 @@ mod tests {
         );
     }
 }
+
+/// Residual: last ReplayMenu action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualReplayMenuAction {
+    None = 0,
+    SelectSlot = 1,
+    Load = 2,
+    Delete = 3,
+    Copy = 4,
+    Back = 5,
+}
+
+static RESIDUAL_REPLAY_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_REPLAY_SLOT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+fn residual_replay_action_store(action: ResidualReplayMenuAction) {
+    RESIDUAL_REPLAY_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last ReplayMenu residual action.
+pub fn residual_replay_menu_last_action() -> ResidualReplayMenuAction {
+    match RESIDUAL_REPLAY_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualReplayMenuAction::SelectSlot,
+        2 => ResidualReplayMenuAction::Load,
+        3 => ResidualReplayMenuAction::Delete,
+        4 => ResidualReplayMenuAction::Copy,
+        5 => ResidualReplayMenuAction::Back,
+        _ => ResidualReplayMenuAction::None,
+    }
+}
+
+/// Residual: last selected replay list slot (-1 if none).
+pub fn residual_replay_menu_selected_slot() -> Option<i32> {
+    let slot = RESIDUAL_REPLAY_SLOT.load(std::sync::atomic::Ordering::Relaxed);
+    if slot < 0 {
+        None
+    } else {
+        Some(slot)
+    }
+}
+
+fn ensure_replay_control_ids(state: &mut ReplayMenuState) {
+    if state.parent_id == 0 {
+        state.parent_id = name_to_id("ReplayMenu.wnd:ParentReplayMenu");
+    }
+    if state.gadget_parent_id == 0 {
+        state.gadget_parent_id = name_to_id("ReplayMenu.wnd:GadgetParent");
+    }
+    if state.button_load_id == 0 {
+        state.button_load_id = name_to_id("ReplayMenu.wnd:ButtonLoadReplay");
+        if state.button_load_id == 0 {
+            state.button_load_id = 0x524C_4F41_u32 as i32; // 'RLOA'
+        }
+    }
+    if state.button_back_id == 0 {
+        state.button_back_id = name_to_id("ReplayMenu.wnd:ButtonBack");
+    }
+    if state.button_delete_id == 0 {
+        state.button_delete_id = name_to_id("ReplayMenu.wnd:ButtonDeleteReplay");
+    }
+    if state.button_copy_id == 0 {
+        state.button_copy_id = name_to_id("ReplayMenu.wnd:ButtonCopyReplay");
+    }
+    if state.listbox_id == 0 {
+        state.listbox_id = name_to_id("ReplayMenu.wnd:ListboxReplayFiles");
+    }
+}
+
+/// Residual: bind ReplayMenu control IDs (no layout load required).
+pub fn simulate_replay_menu_bind_controls() -> bool {
+    let state_handle = replay_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_replay_control_ids(&mut state);
+    state.is_shutting_down = false;
+    state.button_load_id != 0 || state.listbox_id != 0 || state.button_back_id != 0
+}
+
+/// Residual: select a replay list slot without live listbox widget.
+pub fn simulate_replay_menu_select_slot(slot_index: i32) -> bool {
+    if slot_index < 0 {
+        return false;
+    }
+    let state_handle = replay_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_replay_control_ids(&mut state);
+    // Best-effort list selection when list is populated; residual slot is authoritative.
+    state.menu.set_selected_index(slot_index);
+    RESIDUAL_REPLAY_SLOT.store(slot_index, std::sync::atomic::Ordering::Relaxed);
+    residual_replay_action_store(ResidualReplayMenuAction::SelectSlot);
+    residual_replay_menu_selected_slot() == Some(slot_index)
+}
+
+/// Residual: fire ButtonLoadReplay without full playback/engine start.
+pub fn simulate_replay_menu_load_button_gadget_selected() -> bool {
+    let state_handle = replay_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_replay_control_ids(&mut state);
+    if residual_replay_menu_selected_slot().is_none() && state.menu.get_selected_index() < 0 {
+        // C++ ignores Load with no selection.
+        return false;
+    }
+    residual_replay_action_store(ResidualReplayMenuAction::Load);
+    true
+}
+
+/// Residual: fire ButtonDeleteReplay without filesystem delete.
+pub fn simulate_replay_menu_delete_button_gadget_selected() -> bool {
+    let state_handle = replay_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_replay_control_ids(&mut state);
+    if residual_replay_menu_selected_slot().is_none() && state.menu.get_selected_index() < 0 {
+        return false;
+    }
+    residual_replay_action_store(ResidualReplayMenuAction::Delete);
+    true
+}
+
+/// Residual: fire ButtonCopyReplay without filesystem copy.
+pub fn simulate_replay_menu_copy_button_gadget_selected() -> bool {
+    let state_handle = replay_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_replay_control_ids(&mut state);
+    if residual_replay_menu_selected_slot().is_none() && state.menu.get_selected_index() < 0 {
+        return false;
+    }
+    residual_replay_action_store(ResidualReplayMenuAction::Copy);
+    true
+}
+
+/// Residual: fire ButtonBack (shell pop residual latch).
+pub fn simulate_replay_menu_back_button_gadget_selected() -> bool {
+    let state_handle = replay_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_replay_control_ids(&mut state);
+    residual_replay_action_store(ResidualReplayMenuAction::Back);
+    RESIDUAL_REPLAY_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
+    state.menu.set_selected_index(-1);
+    true
+}
+
+/// Residual: select slot + Load composite (pre-playback honesty).
+pub fn simulate_replay_menu_prepare_load(slot_index: i32) -> bool {
+    if !simulate_replay_menu_bind_controls() {
+        return false;
+    }
+    if !simulate_replay_menu_select_slot(slot_index) {
+        return false;
+    }
+    simulate_replay_menu_load_button_gadget_selected()
+}

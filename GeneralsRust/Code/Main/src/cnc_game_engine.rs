@@ -2389,12 +2389,51 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     wnd_ok = game_client::gui::simulate_main_menu_replay_button_gadget_selected();
+                    let _ = game_client::gui::callbacks::simulate_replay_menu_bind_controls();
                 }
                 self.enter_shell_menu_from_runtime_host(Some("LoadReplay"));
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
                     "open_load_replay_menu_ok_wnd".into()
                 } else {
                     "open_load_replay_menu_ok".into()
+                };
+            }
+            "click_replay_menu" => {
+                // Retail ReplayMenu list select + Load/Delete/Copy/Back residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "load".to_string());
+                let slot = args
+                    .get("slot")
+                    .and_then(|v| v.parse::<i32>().ok())
+                    .unwrap_or(0);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_replay_menu_back_button_gadget_selected,
+                        simulate_replay_menu_copy_button_gadget_selected,
+                        simulate_replay_menu_delete_button_gadget_selected,
+                        simulate_replay_menu_prepare_load, simulate_replay_menu_select_slot,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "delete" => {
+                            let _ = simulate_replay_menu_select_slot(slot);
+                            simulate_replay_menu_delete_button_gadget_selected()
+                        }
+                        "copy" => {
+                            let _ = simulate_replay_menu_select_slot(slot);
+                            simulate_replay_menu_copy_button_gadget_selected()
+                        }
+                        "back" => simulate_replay_menu_back_button_gadget_selected(),
+                        _ => simulate_replay_menu_prepare_load(slot),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_replay_menu_ok_wnd_{action}")
+                } else {
+                    "click_replay_menu_miss".into()
                 };
             }
             "open_difficulty_menu" => {

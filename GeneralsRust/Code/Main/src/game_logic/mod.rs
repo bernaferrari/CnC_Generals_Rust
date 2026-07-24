@@ -232,6 +232,7 @@ pub mod host_red_guard;
 pub mod host_render_terrain_residual;
 pub mod host_repair;
 mod host_replace_object_upgrade;
+pub mod host_replay_menu_residual_wave122;
 pub mod host_residual_acquire;
 pub mod host_rng_residual;
 pub mod host_rocket_buggy;
@@ -1450,6 +1451,10 @@ pub use host_main_menu_skirmish_nav_residual_wave114::{
     honesty_main_menu_skirmish_names_residual_wave114,
     honesty_main_menu_skirmish_nav_residual_pack_wave114,
     honesty_main_menu_skirmish_nav_steps_residual_wave114,
+};
+pub use host_replay_menu_residual_wave122::{
+    honesty_replay_menu_control_names_residual_wave122,
+    honesty_replay_menu_nav_commands_residual_wave122, honesty_replay_menu_residual_pack_wave122,
 };
 pub use host_save_load_menu_residual_wave121::{
     honesty_save_load_control_stems_residual_wave121, honesty_save_load_layout_residual_wave121,
