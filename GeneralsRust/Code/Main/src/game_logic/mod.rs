@@ -17,6 +17,7 @@ pub mod host_ocl_create_debris;
 pub mod host_ocl_fire_weapon_attack;
 pub mod host_fuel_air_gas_slow_death;
 pub mod host_ocl_apply_random_force;
+pub mod host_neutron_missile_update;
 pub mod host_float_update;
 pub mod host_ai_decision_log;
 pub mod host_ai_mood_log;
