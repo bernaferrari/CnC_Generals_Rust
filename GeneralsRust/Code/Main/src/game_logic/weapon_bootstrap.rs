@@ -1393,6 +1393,10 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
     if n.contains("strategycenter") || n.contains("strategy_center") {
         return 15.0;
     }
+    // SupW EMPPatriotEffectSpheroid residual ScatterRadiusVsInfantry **10**.
+    if n.contains("empblast") || n.contains("emppatriot") {
+        return 10.0;
+    }
     // Neutron shell residual ScatterRadiusVsInfantry **10** (before NukeCannon primary 30).
     if n.contains("neutron") {
         return 10.0;

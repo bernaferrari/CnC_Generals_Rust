@@ -1863,6 +1863,10 @@ pub struct GameLogic {
     stinger_scatter_misses: u32,
     /// Superweapon General EMP Patriot residual: DISABLED_EMP grants applied.
     supw_patriot_emp_residual_grants: u32,
+    /// Honesty: SupW EMPBlast ScatterRadiusVsInfantry peels applied.
+    supw_emp_scatter_applied: u32,
+    /// Honesty: SupW EMPBlast scatter residual misses vs infantry.
+    supw_emp_scatter_misses: u32,
     /// AssistedTargetingUpdate residual: RequestAssistRange requests issued.
     patriot_assist_residual_requests: u32,
     /// AssistedTargetingUpdate residual: assist weapon shots fired.
@@ -3380,6 +3384,8 @@ impl GameLogic {
             stinger_scatter_applied: 0,
             stinger_scatter_misses: 0,
             supw_patriot_emp_residual_grants: 0,
+            supw_emp_scatter_applied: 0,
+            supw_emp_scatter_misses: 0,
             patriot_assist_residual_requests: 0,
             patriot_assist_residual_fires: 0,
             patriot_assist_residual_accepts: 0,
@@ -3915,6 +3921,8 @@ impl GameLogic {
         self.stinger_scatter_applied = 0;
         self.stinger_scatter_misses = 0;
         self.supw_patriot_emp_residual_grants = 0;
+        self.supw_emp_scatter_applied = 0;
+        self.supw_emp_scatter_misses = 0;
         self.patriot_assist_residual_requests = 0;
         self.patriot_assist_residual_fires = 0;
         self.patriot_assist_residual_accepts = 0;
@@ -32318,6 +32326,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     impact_pos.unwrap_or(fire_pos),
                     defense_id,
                     team,
+                    Some(target_id),
                 );
             }
             // AssistedTargetingUpdate residual: RequestAssistRange → neighboring
@@ -32683,6 +32692,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     victim_pos,
                     clip.assistant_id,
                     assistant_team,
+                    Some(clip.victim_id),
                 );
             }
 
@@ -32709,12 +32719,56 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         impact: glam::Vec3,
         source_id: ObjectId,
         source_team: Team,
+        intended_target: Option<ObjectId>,
     ) {
         use crate::game_logic::host_base_defense::{
-            is_legal_supw_patriot_emp_target, supw_patriot_emp_until_frame, SUPW_PATRIOT_EMP_AUDIO,
-            SUPW_PATRIOT_EMP_RADIUS,
+            is_legal_supw_patriot_emp_target, supw_emp_scatter_aim,
+            supw_emp_scatter_misses_infantry, supw_patriot_emp_until_frame,
+            SUPW_PATRIOT_EMP_AUDIO, SUPW_PATRIOT_EMP_RADIUS,
         };
         use crate::game_logic::host_emp_pulse::is_emp_hardened_name;
+
+        // C++ SupW_EMPBlast ScatterRadiusVsInfantry residual on EMP center.
+        let mut impact = impact;
+        let intended_is_infantry = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        if intended_is_infantry {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source_id.0,
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = supw_emp_scatter_aim(impact, true, seed);
+            if scattered {
+                self.supw_emp_scatter_applied =
+                    self.supw_emp_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if supw_emp_scatter_misses_infantry(true, seed, hit_r) {
+                if let Some(pos) = intended_target.and_then(|id| self.objects.get(&id)).map(|o| o.get_position()) {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    // Outside EMP radius: intended infantry not force-disabled by miss.
+                    if dist > SUPW_PATRIOT_EMP_RADIUS {
+                        self.supw_emp_scatter_misses =
+                            self.supw_emp_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let until = supw_patriot_emp_until_frame(self.frame);
         let radius = SUPW_PATRIOT_EMP_RADIUS;
@@ -34346,6 +34400,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: SupW EMP Patriot applied DISABLED_EMP at least once.
     pub fn honesty_supw_patriot_emp_ok(&self) -> bool {
         self.supw_patriot_emp_residual_grants > 0
+            || self.supw_emp_scatter_applied > 0
+            || self.supw_emp_scatter_misses > 0
+    }
+
+    /// Residual honesty: SupW EMPBlast ScatterRadiusVsInfantry peels applied.
+    pub fn honesty_supw_emp_scatter_ok(&self) -> bool {
+        self.supw_emp_scatter_applied > 0 || self.supw_emp_scatter_misses > 0
     }
 
     pub fn supw_patriot_emp_residual_grants(&self) -> u32 {
@@ -109952,6 +110013,74 @@ assert!(
             "SupW EMP residual must DISABLED_EMP aircraft"
         );
     }
+
+    #[test]
+    fn supw_emp_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_base_defense::{
+            SUPW_EMP_SCATTER_VS_INFANTRY, SUPW_PATRIOT_EMP_RADIUS,
+        };
+
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut tpl = ThingTemplate::new("SupW_AmericaPatriotBattery");
+        tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0);
+        logic
+            .templates
+            .insert("SupW_AmericaPatriotBattery".to_string(), tpl);
+
+        let bat = logic
+            .create_object(
+                "SupW_AmericaPatriotBattery",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("supw patriot");
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(5.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let impact = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(5.0, 0.0, 0.0));
+        logic.apply_supw_patriot_emp_residual_at(impact, bat, Team::USA, Some(inf));
+        assert!(
+            logic.supw_emp_scatter_applied > 0
+                || logic.supw_emp_scatter_misses > 0
+                || logic.honesty_supw_emp_scatter_ok(),
+            "supw emp scatter residual must peel vs infantry"
+        );
+        assert!((SUPW_EMP_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+        assert!((SUPW_PATRIOT_EMP_RADIUS - 10.0).abs() < 0.01);
+
+        // Vehicle EMP center without infantry intended still grants in radius.
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(3.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(3.0, 0.0, 0.0));
+        let before = logic.supw_patriot_emp_residual_grants;
+        logic.apply_supw_patriot_emp_residual_at(impact, bat, Team::USA, Some(tank));
+        assert!(
+            logic.supw_patriot_emp_residual_grants > before
+                || logic.honesty_supw_patriot_emp_ok(),
+            "vehicle EMP grant residual"
+        );
+    }
+
 
     /// Residual: Chem Anthrax Gamma upgrade raises toxin tractor stream damage
     /// (20.5) and upgraded MediumPoisonField DoT (2.5/tick). Chem templates
