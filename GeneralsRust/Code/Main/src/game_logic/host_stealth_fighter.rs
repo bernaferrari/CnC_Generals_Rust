@@ -361,6 +361,20 @@ pub fn stealth_jet_scatter_aim(
     (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
 }
 
+/// Whether StealthJetMissileWeapon residual misses intended infantry via ScatterRadiusVsInfantry.
+pub fn stealth_jet_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(STEALTH_FIGHTER_SCATTER_VS_INFANTRY, seed, target_hit_radius)
+}
+
+
 /// Wave residual honesty: Stealth Jet ScatterRadiusVsInfantry peels (**10**).
 pub fn honesty_stealth_jet_scatter_vs_infantry_ok() -> bool {
     use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
@@ -461,7 +475,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= STEALTH_FIGHTER_SCATTER_VS_INFANTRY + 0.01);
-    }
+    
+        assert!(stealth_jet_scatter_misses_infantry(true, 67, 0.5));
+        assert!(!stealth_jet_scatter_misses_infantry(true, 67, 100.0));
+        assert!(!stealth_jet_scatter_misses_infantry(false, 67, 0.5));
+}
 
     #[test]
     fn science_name_recognition() {
