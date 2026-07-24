@@ -6099,6 +6099,7 @@ impl GameLogic {
         self.update_emp_pulse_flights();
         self.update_frenzy_invisible_markers();
         self.update_gps_scrambler_grow();
+        self.update_spy_drone_grow();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -29257,6 +29258,61 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         Some(mid)
     }
 
+    /// C++ AmericaVehicleSpyDrone DynamicShroudClearingRangeUpdate grow residual.
+    /// Expands FOW reveal from StartRadius 0 toward VisionRange 250 over GrowTime.
+    pub fn update_spy_drone_grow(&mut self) {
+        use crate::game_logic::host_spy_drone::{
+            spy_drone_grow_is_final, spy_drone_scan_radius_after_updates,
+            SPY_DRONE_GROW_UPDATES_TO_FINAL, SPY_DRONE_VISION_RANGE,
+        };
+        use gamelogic::common::Coord3D;
+
+        let work: Vec<(usize, Vec3, f32, u32)> = {
+            let acts = self.spy_drones.activations_mut();
+            let mut out = Vec::new();
+            for (i, a) in acts.iter_mut().enumerate() {
+                if !a.growing {
+                    continue;
+                }
+                if a.grow_index >= SPY_DRONE_GROW_UPDATES_TO_FINAL {
+                    a.growing = false;
+                    a.radius = SPY_DRONE_VISION_RANGE;
+                    continue;
+                }
+                let radius = spy_drone_scan_radius_after_updates(a.grow_index);
+                a.radius = radius;
+                a.grow_index = a.grow_index.saturating_add(1);
+                if spy_drone_grow_is_final(a.grow_index.saturating_sub(1)) {
+                    a.growing = false;
+                    a.radius = SPY_DRONE_VISION_RANGE;
+                }
+                out.push((i, a.location, radius, a.player_mask));
+            }
+            out
+        };
+
+        if work.is_empty() {
+            return;
+        }
+
+        let shroud = get_shroud_manager();
+        let mut shroud_mgr = match shroud.lock() {
+            Ok(mgr) => mgr,
+            Err(_) => return,
+        };
+        let world_w = self.world_width.max(1.0);
+        let world_h = self.world_height.max(1.0);
+        if !shroud_mgr.has_shroud_grid() {
+            shroud_mgr.init_shroud_grid(world_w, world_h);
+        }
+        for (_i, location, radius, player_mask) in work {
+            let center = Coord3D::new(location.x, location.z, location.y);
+            shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
+            self.spy_drones.record_grow_pulse();
+        }
+        let _ = SPY_DRONE_VISION_RANGE;
+    }
+
     /// C++ OCL SUPERWEAPON_RadarVanScan CreateObject RadarVanPing residual.
     pub fn spawn_radar_van_ping(
         &mut self,
@@ -46716,7 +46772,8 @@ fn update_scud_poison_zones(&mut self) {
         }
 
         let center = Coord3D::new(location.x, location.z, location.y);
-        let radius = SPY_DRONE_RADIUS;
+        // DynamicShroud grow residual: start at first pulse radius (not full VisionRange).
+        let radius = crate::game_logic::host_spy_drone::spy_drone_scan_radius_after_updates(0);
         let duration = SPY_DRONE_FOW_DURATION_FRAMES;
         let frame = self.frame;
 
@@ -46732,7 +46789,7 @@ fn update_scud_poison_zones(&mut self) {
                         player_id,
                         player_mask,
                         location,
-                        radius,
+                        radius: crate::game_logic::host_spy_drone::spy_drone_scan_radius_after_updates(0),
                         activate_frame: frame,
                         expires_frame: frame.saturating_add(duration),
                         caster_id,
@@ -46741,6 +46798,8 @@ fn update_scud_poison_zones(&mut self) {
                         spawn_ok,
                         dynamic_shroud_applied: true,
                         stealth_detector_applied: true,
+                        grow_index: 0,
+                        growing: true,
                     });
                     self.queue_audio_event(
                         AudioEventRequest::new(SPY_DRONE_ACTIVATE_AUDIO)
@@ -46775,7 +46834,7 @@ fn update_scud_poison_zones(&mut self) {
             player_id,
             player_mask,
             location,
-            radius,
+            radius: crate::game_logic::host_spy_drone::spy_drone_scan_radius_after_updates(0),
             activate_frame: frame,
             expires_frame: frame.saturating_add(duration),
             caster_id,
@@ -46784,6 +46843,8 @@ fn update_scud_poison_zones(&mut self) {
             spawn_ok,
             dynamic_shroud_applied: true,
             stealth_detector_applied: true,
+            grow_index: 1, // initial FOW already applied at first grow step radius
+            growing: true,
         });
 
         self.queue_audio_event(
@@ -46793,6 +46854,11 @@ fn update_scud_poison_zones(&mut self) {
         );
 
         spawn_ok || fow_reveal_ok
+    }
+
+    /// Host SpyDrone residual registry (activate + grow + honesty).
+    pub fn spy_drones(&self) -> &crate::game_logic::host_spy_drone::HostSpyDroneRegistry {
+        &self.spy_drones
     }
 
     /// Residual honesty: SpyDrone activated at least once.
@@ -99159,6 +99225,46 @@ mod tests {
     }
 
     #[test]
+
+    #[test]
+    fn spy_drone_dynamic_shroud_grow_pulse_residual() {
+        use crate::game_logic::host_spy_drone::{
+            spy_drone_scan_radius_after_updates, SPY_DRONE_GROW_UPDATES_TO_FINAL,
+            SPY_DRONE_REQUIRED_SCIENCE, SPY_DRONE_TEMPLATE, SPY_DRONE_VISION_RANGE,
+        };
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        if let Some(p) = logic.get_player_mut(0) {
+            p.unlock_science(SPY_DRONE_REQUIRED_SCIENCE);
+        }
+        assert!(logic.activate_spy_drone(
+            0,
+            Team::USA,
+            Vec3::new(200.0, 0.0, 200.0),
+            None,
+        ));
+        let act = logic.spy_drones().last().expect("activation");
+        assert!(act.growing || act.grow_index > 0);
+        assert!(act.radius + 0.01 < SPY_DRONE_VISION_RANGE || act.grow_index > 0);
+        // Drive grow to final.
+        for _ in 0..SPY_DRONE_GROW_UPDATES_TO_FINAL + 2 {
+            logic.update_spy_drone_grow();
+        }
+        let act = logic.spy_drones().last().expect("activation");
+        assert!(!act.growing, "grow pulse must complete");
+        assert!((act.radius - SPY_DRONE_VISION_RANGE).abs() < 0.01);
+        assert!(logic.spy_drones().honesty_grow_ok());
+        assert!((spy_drone_scan_radius_after_updates(SPY_DRONE_GROW_UPDATES_TO_FINAL - 1)
+            - SPY_DRONE_VISION_RANGE)
+            .abs()
+            < 0.01);
+        assert!(
+            logic
+                .get_objects()
+                .values()
+                .any(|o| o.template_name == SPY_DRONE_TEMPLATE)
+        );
+    }
     fn spy_drone_special_power_spawns_vehicle_residual() {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_spy_drone::{

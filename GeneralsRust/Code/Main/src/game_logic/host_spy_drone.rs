@@ -9,9 +9,9 @@
 //! - Activate audio residual `SpyDroneCreate`.
 //!
 //! Fail-closed honesty:
-//! - Not full DynamicShroudClearingRangeUpdate grow/shrink curve
-//! - Not full StealthUpdate / StealthDetectorUpdate rescan matrix
-//! - Not full SpyDroneLocomotor loft / grid-decal GPU path
+//! - DynamicShroud grow pulse residual closed (0→250 over GrowTime; grid-decal GPU fail-closed)
+//! - Not full StealthUpdate continuous rescan matrix / IR FX
+//! - Not full SpyDroneLocomotor loft path
 //! - Shell `playable_claim` stays false; network deferred
 
 use super::ObjectId;
@@ -62,6 +62,30 @@ pub const SPY_DRONE_FOW_DURATION_MS: u32 =
 /// FOW duration frames residual (4000 ms → 120).
 pub const SPY_DRONE_FOW_DURATION_FRAMES: u32 = 120;
 
+/// DynamicShroudClearingRangeUpdate StartRadius residual (ShroudClearingRange = 0).
+pub const SPY_DRONE_START_RADIUS: f32 = 0.0;
+/// GrowTime 1000 ms → 30 frames @ 30 FPS.
+pub const SPY_DRONE_GROW_TIME_FRAMES: u32 = 30;
+/// GrowInterval 10 ms → 1 frame residual step.
+pub const SPY_DRONE_GROW_INTERVAL_FRAMES: u32 = 1;
+/// Grow steps to FinalVision (GrowTime/GrowInterval).
+pub const SPY_DRONE_GROW_UPDATES_TO_FINAL: u32 = 30;
+/// Radius grow rate per residual update toward VisionRange 250.
+pub const SPY_DRONE_RADIUS_GROW_RATE: f32 =
+    SPY_DRONE_VISION_RANGE / SPY_DRONE_GROW_UPDATES_TO_FINAL as f32;
+
+/// Scan radius after `update_index` grow pulses (0-based completed updates).
+#[inline]
+pub fn spy_drone_scan_radius_after_updates(update_index: u32) -> f32 {
+    let r = SPY_DRONE_START_RADIUS + (update_index as f32 + 1.0) * SPY_DRONE_RADIUS_GROW_RATE;
+    r.min(SPY_DRONE_VISION_RANGE)
+}
+
+#[inline]
+pub fn spy_drone_grow_is_final(update_index: u32) -> bool {
+    spy_drone_scan_radius_after_updates(update_index) + 0.001 >= SPY_DRONE_VISION_RANGE
+}
+
 /// StealthDetectorUpdate DetectionRate residual msec.
 pub const SPY_DRONE_STEALTH_DETECTION_RATE_MS: u32 = 500;
 
@@ -97,6 +121,10 @@ pub struct HostSpyDrone {
     /// DynamicShroud / stealth-detector residual applied flag.
     pub dynamic_shroud_applied: bool,
     pub stealth_detector_applied: bool,
+    /// DynamicShroudClearingRangeUpdate grow pulse index residual.
+    pub grow_index: u32,
+    /// Grow pulse still expanding toward VisionRange.
+    pub growing: bool,
 }
 
 /// Host SpyDrone residual registry.
@@ -106,6 +134,8 @@ pub struct HostSpyDroneRegistry {
     activations: Vec<HostSpyDrone>,
     total_activations: u32,
     total_spawns: u32,
+    /// DynamicShroud grow pulse applications (honesty).
+    pub grow_pulses: u32,
 }
 
 impl HostSpyDroneRegistry {
@@ -147,6 +177,20 @@ impl HostSpyDroneRegistry {
         self.next_id = 0;
         self.total_activations = 0;
         self.total_spawns = 0;
+        self.grow_pulses = 0;
+    }
+
+    pub fn record_grow_pulse(&mut self) {
+        self.grow_pulses = self.grow_pulses.saturating_add(1);
+    }
+
+    pub fn honesty_grow_ok(&self) -> bool {
+        self.grow_pulses > 0
+    }
+
+    /// Mutable access for grow pulse residual updates.
+    pub fn activations_mut(&mut self) -> &mut Vec<HostSpyDrone> {
+        &mut self.activations
     }
 
     pub fn honesty_activate_ok(&self) -> bool {
@@ -174,6 +218,10 @@ pub fn honesty_spy_drone_residual_pack_ok() -> bool {
         && SPY_DRONE_ACTIVATE_AUDIO == "SpyDroneCreate"
         && SPY_DRONE_MODEL == "AVSpyDrone"
         && SPY_DRONE_STEALTH_DETECTION_RATE_MS == 500
+
+        && SPY_DRONE_GROW_UPDATES_TO_FINAL == 30
+        && (SPY_DRONE_RADIUS_GROW_RATE - SPY_DRONE_VISION_RANGE / 30.0).abs() < 0.001
+        && spy_drone_grow_is_final(SPY_DRONE_GROW_UPDATES_TO_FINAL - 1)
 }
 
 #[cfg(test)]
@@ -200,6 +248,8 @@ mod tests {
             spawn_ok: true,
             dynamic_shroud_applied: true,
             stealth_detector_applied: true,
+            grow_index: 0,
+            growing: true,
         });
         assert!(reg.honesty_activate_ok());
         assert!(reg.honesty_spawn_ok());
