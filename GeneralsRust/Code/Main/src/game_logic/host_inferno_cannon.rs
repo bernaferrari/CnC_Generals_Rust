@@ -24,7 +24,8 @@
 //!
 //! Fail-closed honesty:
 //! - InfernoTankShell DumbProjectile Bezier flight residual closed (50/150, 20%/90%)
-//! - Not full FireWeaponWhenDeadBehavior / OCL_FireFieldSmall object spawn
+//! - OCL_FireFieldSmall / FireFieldSmall object spawn residual (DeletionUpdate 2500ms)
+//! - Not full FireWeaponWhenDeadBehavior multi-shell HistoricBonus matrix
 //! - Not HistoricBonus FirestormSmallCreationWeapon multi-shell matrix
 //! - Not upgraded particle bone attach (InfernoCannonFireUpgraded) matrix
 //! - Not multiplayer shared-synced fire field / particle bone attach parity
@@ -97,6 +98,15 @@ pub const INFERNO_FIRE_TICK_MS: u32 = 250;
 pub const INFERNO_FIRE_DURATION_MS: u32 = 2_500;
 /// Retail FireFieldSmall / OCL residual name.
 pub const INFERNO_FIRE_FIELD_OCL: &str = "OCL_FireFieldSmall";
+/// Retail FireFieldSmall object residual.
+pub const INFERNO_FIRE_FIELD_TEMPLATE: &str = "FireFieldSmall";
+/// Retail OCL_FireFieldUpgradedSmall residual.
+pub const INFERNO_FIRE_FIELD_OCL_UPGRADED: &str = "OCL_FireFieldUpgradedSmall";
+/// Retail FireFieldUpgradedSmall object residual.
+pub const INFERNO_FIRE_FIELD_TEMPLATE_UPGRADED: &str = "FireFieldUpgradedSmall";
+/// Retail FireFieldSmall InactiveBody residual MaxHealth honesty.
+pub const INFERNO_FIRE_FIELD_MAX_HEALTH: f32 = 50.0;
+
 /// Retail SmallFireFieldWeapon template name.
 pub const INFERNO_SMALL_FIRE_FIELD_WEAPON: &str = "SmallFireFieldWeapon";
 /// Retail SmallFireFieldWeaponUpgraded template name.
@@ -280,6 +290,8 @@ pub struct HostInfernoFireZoneRegistry {
     active: Vec<HostInfernoFireZone>,
     /// Total fire zones spawned (honesty).
     pub zones_spawned: u32,
+    /// Honesty: FireFieldSmall objects spawned via OCL residual.
+    pub fire_field_objects_spawned: u32,
     /// Zones that have expired (bookkeeping prune).
     pub expirations: u32,
     /// Total residual damage applied across all zones.
@@ -427,6 +439,15 @@ impl HostInfernoFireZoneRegistry {
     }
 
     /// Residual honesty: at least one fire zone spawned.
+    pub fn record_fire_field_object(&mut self, n: u32) {
+        self.fire_field_objects_spawned =
+            self.fire_field_objects_spawned.saturating_add(n);
+    }
+
+    pub fn honesty_fire_field_object_ok(&self) -> bool {
+        self.fire_field_objects_spawned > 0
+    }
+
     pub fn honesty_spawn_ok(&self) -> bool {
         self.zones_spawned > 0
     }
@@ -484,6 +505,17 @@ pub fn honesty_inferno_cannon_weapon_residual_ok() -> bool {
 }
 
 /// Wave 70 residual honesty: fire field residual peel.
+/// Wave residual honesty: FireFieldSmall OCL object peels.
+pub fn honesty_inferno_fire_field_object_ok() -> bool {
+    INFERNO_FIRE_FIELD_OCL == "OCL_FireFieldSmall"
+        && INFERNO_FIRE_FIELD_TEMPLATE == "FireFieldSmall"
+        && INFERNO_FIRE_FIELD_OCL_UPGRADED == "OCL_FireFieldUpgradedSmall"
+        && INFERNO_FIRE_FIELD_TEMPLATE_UPGRADED == "FireFieldUpgradedSmall"
+        && (INFERNO_FIRE_FIELD_MAX_HEALTH - 50.0).abs() < 0.01
+        && INFERNO_FIRE_DURATION_FRAMES == 75
+        && INFERNO_FIRE_DURATION_MS == 2_500
+}
+
 pub fn honesty_inferno_cannon_fire_field_residual_ok() -> bool {
     INFERNO_SMALL_FIRE_FIELD_WEAPON == "SmallFireFieldWeapon"
         && INFERNO_SMALL_FIRE_FIELD_WEAPON_UPGRADED == "SmallFireFieldWeaponUpgraded"
@@ -524,12 +556,20 @@ pub fn honesty_inferno_cannon_residual_pack_ok() -> bool {
     honesty_inferno_cannon_weapon_residual_ok()
         && honesty_inferno_cannon_fire_field_residual_ok()
         && honesty_inferno_cannon_body_residual_ok()
+        && honesty_inferno_fire_field_object_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::game_logic::Team;
+
+    #[test]
+    fn fire_field_object_peels() {
+        assert!(honesty_inferno_fire_field_object_ok());
+        assert_eq!(INFERNO_FIRE_FIELD_TEMPLATE, "FireFieldSmall");
+        assert_eq!(INFERNO_FIRE_FIELD_TEMPLATE_UPGRADED, "FireFieldUpgradedSmall");
+    }
 
     #[test]
     fn inferno_cannon_name_matrix() {

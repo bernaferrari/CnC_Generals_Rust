@@ -6227,6 +6227,7 @@ impl GameLogic {
         // Host China Inferno Cannon residual: tick FireFieldSmall DoT at impact zones.
         // Fail-closed vs full InfernoTankShell projectile / OCL_FireFieldSmall spawn.
         self.update_inferno_fire_zones();
+        self.update_inferno_fire_field_objects();
 
         // Host China Helix NapalmBomb residual: tick FirestormSmall DoT at drop zones.
         // Fail-closed vs full SpecialObject NapalmBomb fall / expand animation.
@@ -53373,7 +53374,85 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
             None,
         );
 
+        // OCL_FireFieldSmall / FireFieldUpgradedSmall object residual.
+        let _ = self.spawn_inferno_fire_field_object(id, impact, upgraded, source_team);
+
         id
+    }
+
+
+    /// C++ OCL_FireFieldSmall CreateObject FireFieldSmall residual.
+    pub fn spawn_inferno_fire_field_object(
+        &mut self,
+        zone_id: u32,
+        impact: Vec3,
+        upgraded: bool,
+        team: Team,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_inferno_cannon::{
+            INFERNO_FIRE_DURATION_FRAMES, INFERNO_FIRE_FIELD_MAX_HEALTH,
+            INFERNO_FIRE_FIELD_TEMPLATE, INFERNO_FIRE_FIELD_TEMPLATE_UPGRADED,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let name = if upgraded {
+            INFERNO_FIRE_FIELD_TEMPLATE_UPGRADED
+        } else {
+            INFERNO_FIRE_FIELD_TEMPLATE
+        };
+        if !self.templates.contains_key(name) {
+            let mut t = ThingTemplate::new(name);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(INFERNO_FIRE_FIELD_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(name.to_string(), t);
+        }
+        let mut pos = impact;
+        pos.y = 0.0; // ON_GROUND_ALIGNED residual
+        let pid = self.create_object(name, team, pos)?;
+        let expires = self.frame.saturating_add(INFERNO_FIRE_DURATION_FRAMES.max(1));
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.inferno_fire_field = true;
+            o.inferno_fire_field_upgraded = upgraded;
+            o.inferno_fire_field_expires_frame = Some(expires);
+            o.inferno_fire_field_zone_id = Some(zone_id);
+            o.health.current = INFERNO_FIRE_FIELD_MAX_HEALTH;
+            o.health.maximum = INFERNO_FIRE_FIELD_MAX_HEALTH;
+        }
+        self.inferno_fire_zones.record_fire_field_object(1);
+        Some(pid)
+    }
+
+    pub fn update_inferno_fire_field_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.inferno_fire_field {
+                    if let Some(exp) = o.inferno_fire_field_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.inferno_fire_field = false;
+            }
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_inferno_fire_field_object_ok(&self) -> bool {
+        self.inferno_fire_zones.honesty_fire_field_object_ok()
     }
 
     /// Advance Inferno fire zones: apply periodic flame damage in residual radius.
@@ -96505,7 +96584,70 @@ assert!(
         );
     }
 
+    
     #[test]
+    fn inferno_fire_field_object_spawns_on_zone() {
+        use crate::game_logic::host_inferno_cannon::{
+            INFERNO_FIRE_DURATION_FRAMES, INFERNO_FIRE_FIELD_TEMPLATE,
+            INFERNO_FIRE_FIELD_TEMPLATE_UPGRADED,
+        };
+
+        let mut logic = GameLogic::new();
+        let mut cannon_tpl = ThingTemplate::new("ChinaVehicleInfernoCannon");
+        cannon_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        logic
+            .templates
+            .insert("ChinaVehicleInfernoCannon".to_string(), cannon_tpl);
+
+        let cannon = logic
+            .create_object(
+                "ChinaVehicleInfernoCannon",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cannon");
+        let impact = Vec3::new(50.0, 0.0, 0.0);
+        let _zone = logic.spawn_inferno_fire_zone(cannon, Team::China, impact, false);
+        assert!(logic.honesty_inferno_fire_field_object_ok());
+        let field = logic
+            .objects
+            .values()
+            .find(|o| o.inferno_fire_field && o.is_alive())
+            .expect("FireFieldSmall object");
+        assert_eq!(field.template_name, INFERNO_FIRE_FIELD_TEMPLATE);
+        assert!(!field.inferno_fire_field_upgraded);
+        assert_eq!(
+            field.inferno_fire_field_expires_frame,
+            Some(logic.frame.saturating_add(INFERNO_FIRE_DURATION_FRAMES))
+        );
+
+        let _ = logic.spawn_inferno_fire_zone(cannon, Team::China, impact, true);
+        let upg = logic
+            .objects
+            .values()
+            .find(|o| o.inferno_fire_field && o.inferno_fire_field_upgraded && o.is_alive())
+            .expect("FireFieldUpgradedSmall object");
+        assert_eq!(upg.template_name, INFERNO_FIRE_FIELD_TEMPLATE_UPGRADED);
+
+        logic.frame = logic
+            .frame
+            .saturating_add(INFERNO_FIRE_DURATION_FRAMES.saturating_add(1));
+        logic.update_inferno_fire_field_objects();
+        logic.process_destroy_list();
+        assert!(
+            !logic
+                .objects
+                .values()
+                .any(|o| o.inferno_fire_field && o.is_alive()),
+            "FireFieldSmall should expire after DeletionUpdate lifetime"
+        );
+    }
+
+#[test]
     fn inferno_shell_bezier_flight_and_fire_field() {
         use crate::game_logic::host_inferno_cannon::{
             inferno_shell_flight_frames, INFERNO_CANNON_PROJECTILE, INFERNO_CANNON_SHELL_DAMAGE,
