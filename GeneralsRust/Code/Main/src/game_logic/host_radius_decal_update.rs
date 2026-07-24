@@ -221,7 +221,11 @@ pub fn default_delivery_decal_radius_for_template(name: &str) -> f32 {
     let n = name.to_ascii_lowercase();
     if n.contains("scudstorm") {
         SCUD_STORM_DELIVERY_DECAL_RADIUS
-    } else if n.contains("nuclear") || n.contains("nuke") {
+    } else if n.contains("nuclear")
+        || n.contains("nuke")
+        || n.contains("neutron")
+        || n.contains("cruisemissile")
+    {
         NUCLEAR_MISSILE_DELIVERY_DECAL_RADIUS
     } else {
         SCUD_STORM_DELIVERY_DECAL_RADIUS
@@ -230,7 +234,11 @@ pub fn default_delivery_decal_radius_for_template(name: &str) -> f32 {
 
 pub fn default_delivery_decal_template_for_host(name: &str) -> HostRadiusDecalTemplate {
     let n = name.to_ascii_lowercase();
-    if n.contains("nuclear") || n.contains("nuke") || n.contains("china") && n.contains("missile")
+    if n.contains("nuclear")
+        || n.contains("nuke")
+        || n.contains("neutron")
+        || n.contains("cruisemissile")
+        || (n.contains("china") && n.contains("missile"))
     {
         HostRadiusDecalTemplate::nuclear_missile()
     } else {

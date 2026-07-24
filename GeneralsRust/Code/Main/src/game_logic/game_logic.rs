@@ -31278,6 +31278,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             o.ensure_neutron_missile_update(secondary, Some(source_id), self.frame);
             if o.neutron_missile_update.is_some() {
                 self.neutron_missile_update_reg.record_launch();
+                // C++ NeutronMissileUpdate DeliveryDecal residual on launcher/missile.
+                let _ = o.create_delivery_radius_decal(secondary, self.frame);
             } else {
                 // Non-neutron projectiles: smart-bomb course residual.
                 let mut p = o.get_position();
@@ -31291,6 +31293,15 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             }
         }
         self.ocl_fire_weapon_attack_reg.record_projectile();
+        // DeliveryDecal also on launcher residual (RadiusDecalUpdate on SW building).
+        if self
+            .objects
+            .get(&id)
+            .and_then(|o| o.neutron_missile_update.as_ref())
+            .is_some()
+        {
+            let _ = self.create_delivery_radius_decal(source_id, secondary);
+        }
         Some(id)
     }
 
@@ -77078,6 +77089,22 @@ mod tests {
                 .unwrap()
                 .neutron_missile_update
                 .is_some()
+        );
+        assert!(
+            logic
+                .find_object(proj)
+                .unwrap()
+                .radius_decal_update
+                .as_ref()
+                .map(|d| !d.delivery_decal.is_empty())
+                .unwrap_or(false)
+                || logic.radius_decal_update_reg.creates > 0
+                || logic
+                    .find_object(launcher)
+                    .and_then(|o| o.radius_decal_update.as_ref())
+                    .map(|d| !d.delivery_decal.is_empty())
+                    .unwrap_or(false),
+            "DeliveryDecal residual should install on neutron launch"
         );
         let mut grounded = false;
         for f in 0..600 {
