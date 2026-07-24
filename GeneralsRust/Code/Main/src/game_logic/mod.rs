@@ -5,6 +5,7 @@ pub mod combat_particles;
 pub mod game_logic;
 pub mod host_ai_ability_upgrade_residual;
 pub mod host_animation_steering;
+pub mod host_active_shroud_upgrade;
 pub mod host_ai_decision_log;
 pub mod host_ai_mood_log;
 pub mod host_ai_request_log;
