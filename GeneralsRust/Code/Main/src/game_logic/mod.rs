@@ -133,6 +133,7 @@ pub mod host_fire_base;
 pub mod host_fire_spread;
 pub mod host_base_regenerate;
 pub mod host_enemy_near;
+pub mod host_passengers_fire_upgrade;
 mod host_fire_weapon_power;
 mod host_fire_weapon_when_damaged;
 mod host_fire_weapon_when_dead;
