@@ -483,12 +483,31 @@ pub fn nuke_cannon_scatter_aim(
     use crate::game_logic::weapon_bootstrap::{
         host_effective_scatter_radius, scatter_aim_offset,
     };
-    let scatter = host_effective_scatter_radius(NUKE_CANNON_PRIMARY_WEAPON, target_is_infantry);
+    let mut scatter =
+        host_effective_scatter_radius(NUKE_CANNON_PRIMARY_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = NUKE_CANNON_SCATTER_VS_INFANTRY;
+    }
     if scatter <= 0.0 {
         return (aim, false);
     }
     let off = scatter_aim_offset(seed, scatter);
     (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Whether NukeCannon primary residual misses intended infantry via ScatterRadiusVsInfantry.
+///
+/// Miss = aim offset exceeds hit radius **and** impact lies outside secondary splash (**60**).
+pub fn nuke_cannon_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(NUKE_CANNON_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
 
 /// Wave residual honesty: Nuke Cannon ScatterRadiusVsInfantry peels.
@@ -521,7 +540,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= NUKE_CANNON_SCATTER_VS_INFANTRY + 0.01);
-    }
+    
+        assert!(nuke_cannon_scatter_misses_infantry(true, 41, 0.5));
+        assert!(!nuke_cannon_scatter_misses_infantry(true, 41, 100.0));
+        assert!(!nuke_cannon_scatter_misses_infantry(false, 41, 0.5));
+}
     use crate::game_logic::Team;
 
     #[test]

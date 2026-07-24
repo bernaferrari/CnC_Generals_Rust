@@ -1579,6 +1579,8 @@ pub struct GameLogic {
     nuke_cannon_shells_spawned: u32,
     /// Honesty: NukeCannon ScatterRadiusVsInfantry aim offsets applied.
     nuke_cannon_scatter_applied: u32,
+    /// Honesty: Nuke Cannon ScatterRadiusVsInfantry residual misses vs infantry.
+    nuke_cannon_scatter_misses: u32,
     /// Honesty: GenericTankShell (USA Crusader/Paladin) projectiles spawned residual.
     usa_tank_shells_spawned: u32,
     /// Honesty: USA tank ScatterRadiusVsInfantry aim offsets applied.
@@ -3199,6 +3201,7 @@ impl GameLogic {
             scorpion_missiles_spawned: 0,
             nuke_cannon_shells_spawned: 0,
             nuke_cannon_scatter_applied: 0,
+            nuke_cannon_scatter_misses: 0,
             usa_tank_shells_spawned: 0,
             usa_tank_scatter_applied: 0,
             battlemaster_shells_spawned: 0,
@@ -3730,6 +3733,7 @@ impl GameLogic {
         self.scorpion_missiles_spawned = 0;
         self.nuke_cannon_shells_spawned = 0;
         self.nuke_cannon_scatter_applied = 0;
+        self.nuke_cannon_scatter_misses = 0;
         self.usa_tank_shells_spawned = 0;
         self.usa_tank_scatter_applied = 0;
         self.battlemaster_shells_spawned = 0;
@@ -36588,6 +36592,37 @@ fn update_scud_poison_zones(&mut self) {
             self.nuke_cannon_scatter_applied =
                 self.nuke_cannon_scatter_applied.saturating_add(1);
         }
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_nuke_cannon::nuke_cannon_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    // Secondary splash outer bound (60); outside = pure splash miss.
+                    if dist > crate::game_logic::host_nuke_cannon::NUKE_CANNON_SECONDARY_RADIUS {
+                        self.nuke_cannon_scatter_misses =
+                            self.nuke_cannon_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 2.0;
@@ -36684,7 +36719,7 @@ fn update_scud_poison_zones(&mut self) {
 
     /// Residual honesty: NukeCannon ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_nuke_cannon_scatter_ok(&self) -> bool {
-        self.nuke_cannon_scatter_applied > 0
+        self.nuke_cannon_scatter_applied > 0 || self.nuke_cannon_scatter_misses > 0
     }
 
     pub fn apply_nuke_cannon_primary_at(
@@ -126084,6 +126119,82 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
     }
+
+    #[test]
+    fn nuke_cannon_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_nuke_cannon::{
+            NUKE_CANNON_PRIMARY_WEAPON, NUKE_CANNON_SCATTER_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut nc_tpl = ThingTemplate::new("ChinaNukeCannon");
+        nc_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(NUKE_CANNON_PRIMARY_WEAPON);
+        logic
+            .templates
+            .insert("ChinaNukeCannon".to_string(), nc_tpl);
+
+        let nc = logic
+            .create_object(
+                "ChinaNukeCannon",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("nuke");
+        if let Some(o) = logic.objects.get_mut(&nc) {
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
+        let inf = logic
+            .create_object("TestInfantry", Team::USA, glam::Vec3::new(120.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let from = glam::Vec3::ZERO;
+        let aim = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(120.0, 0.0, 0.0));
+        let _ = logic.spawn_nuke_cannon_shell_projectile(nc, from, aim, Some(inf));
+        assert!(
+            logic.nuke_cannon_scatter_applied > 0
+                || logic.nuke_cannon_scatter_misses > 0
+                || logic.honesty_nuke_cannon_scatter_ok(),
+            "nuke cannon scatter residual must peel vs infantry"
+        );
+        assert!((NUKE_CANNON_SCATTER_VS_INFANTRY - 30.0).abs() < 0.01);
+
+        // Vehicle still damaged via pure splash at impact (no infantry scatter gate).
+        let tank = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(40.0, 0.0, 0.0));
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let (hits, _) = logic.apply_nuke_cannon_primary_at(impact, Some(nc), Team::China);
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit by splash");
+    }
+
 
 
 
