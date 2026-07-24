@@ -1153,6 +1153,9 @@ pub struct Object {
     /// Absolute host frame until which coast keeps spin-up (0 = none).
     #[serde(default)]
     pub continuous_fire_coast_until_frame: u32,
+    /// C++ FireOCLAfterWeaponCooldownUpdate residual (toxin spray secondary).
+    pub fire_ocl_after_cooldown:
+        Option<crate::game_logic::host_toxin_tractor::HostFireOclAfterCooldownData>,
     /// Last continuous-fire victim object id bits (0 = none/ground).
     #[serde(default)]
     pub continuous_fire_victim: u32,
@@ -1910,6 +1913,7 @@ impl Object {
             auto_reload_when_idle_frames: 0,
             frame_to_force_reload: 0,
             continuous_fire_coast_until_frame: 0,
+            fire_ocl_after_cooldown: None,
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
             subdual_damage: 0.0,
@@ -2279,6 +2283,7 @@ impl Object {
             auto_reload_when_idle_frames: 0,
             frame_to_force_reload: 0,
             continuous_fire_coast_until_frame: 0,
+            fire_ocl_after_cooldown: None,
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
             subdual_damage: 0.0,

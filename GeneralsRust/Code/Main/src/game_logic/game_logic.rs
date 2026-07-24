@@ -5940,6 +5940,7 @@ impl GameLogic {
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
         self.update_scud_poison_zones();
         self.update_nuke_cannon_radiation_zones();
+        self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
 
         // Host America Aurora dive bomb residual: delayed area damage at target.
@@ -21939,6 +21940,9 @@ impl GameLogic {
             // Retail PrimaryDamage=0 fails weapon_from_store gate; host residual installs
             // a ready secondary for AutoChooseSources=NONE special-attack residual.
             if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
+                object.fire_ocl_after_cooldown = Some(
+                    crate::game_logic::host_toxin_tractor::HostFireOclAfterCooldownData::new(),
+                );
                 if object.secondary_weapon.is_none() {
                     use crate::game_logic::host_toxin_tractor::{
                         delay_frames_to_reload_secs, TOXIN_SPRAY_DELAY_FRAMES, TOXIN_SPRAY_RANGE,
@@ -26903,6 +26907,10 @@ impl GameLogic {
     /// Residual honesty: Battle Bus load → docked → unload path.
     pub fn honesty_battle_bus_load_unload_ok(&self) -> bool {
         self.battle_bus.honesty_load_unload_ok()
+    }
+
+    pub fn honesty_toxin_fire_ocl_ok(&self) -> bool {
+        self.toxin_tractor.fire_ocl_spawns > 0
     }
 
     pub fn honesty_preorder_create_ok(&self) -> bool {
@@ -35653,15 +35661,15 @@ impl GameLogic {
             self.mark_object_for_destruction(id, killer);
         }
 
-        // MediumPoisonField residual at contaminate puddle (fail-closed vs MinShots=4).
-        let source_id = source.unwrap_or(ObjectId(0));
-        let _ = self.toxin_tractor.spawn_medium_field(
-            source_id,
-            source_team,
-            center,
-            self.frame,
-            anthrax,
-        );
+        // C++ FireOCLAfterWeaponCooldown: count secondary shots; field on cooldown.
+        if let Some(sid) = source {
+            if let Some(obj) = self.objects.get_mut(&sid) {
+                let data = obj.fire_ocl_after_cooldown.get_or_insert_with(
+                    crate::game_logic::host_toxin_tractor::HostFireOclAfterCooldownData::new,
+                );
+                data.record_shot(self.frame);
+            }
+        }
         self.toxin_tractor.record_spray_fire(hits);
 
         self.queue_audio_event(
@@ -35685,6 +35693,90 @@ impl GameLogic {
         }
 
         (hits, any_destroyed)
+    }
+
+    /// C++ FireOCLAfterWeaponCooldownUpdate residual (toxin spray secondary).
+    ///
+    /// When secondary spray has fired ≥ MinShots and has been idle past
+    /// ContinuousFireCoast, spawn MediumPoisonField with OCL lifetime peel.
+    pub fn tick_fire_ocl_after_weapon_cooldown(&mut self) {
+        use crate::game_logic::host_toxin_tractor::{
+            anthrax_tier_from_flags, is_chem_general_template, is_toxin_tractor_template,
+            TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES, UPGRADE_GLA_ANTHRAX_BETA,
+            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+        };
+
+        let frame = self.frame;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.fire_ocl_after_cooldown
+                    .as_ref()
+                    .map(|d| d.valid && d.consecutive_shots > 0)
+                    .unwrap_or(false)
+                    && is_toxin_tractor_template(&o.template_name)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+
+        for id in ids {
+            // Idle residual: not currently firing secondary (ai not attacking with spray).
+            let (idle, pos, anthrax) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let last = o
+                    .fire_ocl_after_cooldown
+                    .as_ref()
+                    .map(|d| d.last_shot_frame)
+                    .unwrap_or(0);
+                // C++: could have shot but didn't (coast idle after last secondary).
+                let coasted = frame.saturating_sub(last)
+                    >= TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES
+                    && last > 0;
+                let has_gamma = o.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
+                    || o.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
+                    || o.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma");
+                let has_beta = o.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                    || o.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                let anthrax = anthrax_tier_from_flags(
+                    has_gamma,
+                    has_beta,
+                    is_chem_general_template(&o.template_name),
+                );
+                (coasted, o.get_position(), anthrax)
+            };
+            if !idle {
+                continue;
+            }
+            let lifetime = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let Some(d) = o.fire_ocl_after_cooldown.as_mut() else {
+                    continue;
+                };
+                d.try_fire_ocl_on_cooldown(frame)
+            };
+            let Some(life) = lifetime else {
+                continue;
+            };
+            let team = self
+                .objects
+                .get(&id)
+                .map(|o| o.team)
+                .unwrap_or(Team::Neutral);
+            let _ = self
+                .toxin_tractor
+                .spawn_medium_field_lifetime(id, team, pos, frame, anthrax, life);
+            self.toxin_tractor.record_fire_ocl_spawn();
+            if let Some(o) = self.objects.get_mut(&id) {
+                if let Some(d) = o.fire_ocl_after_cooldown.as_mut() {
+                    d.ocl_spawns = d.ocl_spawns.saturating_add(1);
+                }
+            }
+        }
     }
 
     /// Advance Toxin Tractor poison field residual zones (medium spray + small death).
@@ -74618,6 +74710,49 @@ mod tests {
         logic.notify_structure_construction_complete(id);
         let o = logic.find_object(id).unwrap();
         assert!(!has_preorder_model_bit(o.model_condition_bits));
+    }
+
+    #[test]
+    fn toxin_fire_ocl_spawns_field_after_min_shots_and_coast() {
+        use crate::game_logic::host_toxin_tractor::{
+            is_toxin_tractor_template, TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES,
+            TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("GLAVehicleToxinTruck");
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        logic.templates.insert("GLAVehicleToxinTruck".into(), tpl);
+        let id = logic
+            .create_object("GLAVehicleToxinTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("toxin");
+        assert!(is_toxin_tractor_template("GLAVehicleToxinTruck"));
+        assert!(logic
+            .find_object(id)
+            .unwrap()
+            .fire_ocl_after_cooldown
+            .is_some());
+
+        // Fire secondary spray MinShots times.
+        for f in 0..TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
+            logic.frame = f;
+            let _ =
+                logic.apply_toxin_tractor_spray_at(Vec3::new(10.0, 0.0, 0.0), Some(id), Team::GLA);
+        }
+        assert_eq!(logic.toxin_tractor.fire_ocl_spawns, 0, "no OCL until coast");
+        // Advance past coast without more shots.
+        logic.frame =
+            TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL + TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES;
+        logic.tick_fire_ocl_after_weapon_cooldown();
+        assert!(
+            logic.toxin_tractor.fire_ocl_spawns > 0,
+            "FireOCL should spawn medium field after min shots + coast"
+        );
+        assert!(logic.honesty_toxin_fire_ocl_ok());
     }
 
     #[test]
