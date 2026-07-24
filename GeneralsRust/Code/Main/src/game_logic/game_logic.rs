@@ -28725,6 +28725,33 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ OCL_CreateSneakAttackTunnelStart → GLASneakAttackTunnelNetworkStart residual.
+    pub fn spawn_sneak_attack_tunnel_start(
+        &mut self,
+        mission_id: u32,
+        team: Team,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_sneak_attack::SNEAK_ATTACK_TUNNEL_START_TEMPLATE;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(SNEAK_ATTACK_TUNNEL_START_TEMPLATE) {
+            let mut t = ThingTemplate::new(SNEAK_ATTACK_TUNNEL_START_TEMPLATE);
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(SNEAK_ATTACK_TUNNEL_START_TEMPLATE.to_string(), t);
+        }
+        let sid = self.create_object(SNEAK_ATTACK_TUNNEL_START_TEMPLATE, team, position)?;
+        if let Some(o) = self.objects.get_mut(&sid) {
+            o.sneak_tunnel_start = true;
+        }
+        self.host_sneak_attacks.record_tunnel_start(mission_id, sid);
+        Some(sid)
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -49823,6 +49850,9 @@ fn update_scud_poison_zones(&mut self) {
             tunnel_template,
         );
 
+        // C++ OCL_CreateSneakAttackTunnelStart residual (Start object, Lifetime 5000ms).
+        let _ = self.spawn_sneak_attack_tunnel_start(id, source_team, target_position);
+
         // C++ SuperweaponLaunched Sneak Attack EVA residual.
         self.try_eva_special_launched_misc(source_team, "sneak");
 
@@ -49868,7 +49898,7 @@ fn update_scud_poison_zones(&mut self) {
     /// - Shockwave residual SneakAttackShockwaveWeaponBig (50 dmg / radius 50)
     /// - Tunnel template GLASneakAttackTunnelNetwork or residual TestSneakTunnel
     ///
-    /// Fail-closed: not full multi-shockwave timing / OCL Start animation / TunnelContain.
+    /// TunnelStart object residual closed; fail-closed vs full Start animation / TunnelContain.
     pub fn update_sneak_attacks(&mut self) {
         use crate::game_logic::host_sneak_attack::{
             in_sneak_shockwave_radius_2d, is_legal_sneak_shockwave_target,
@@ -49946,6 +49976,15 @@ fn update_scud_poison_zones(&mut self) {
             } else {
                 SNEAK_ATTACK_RESIDUAL_TEMPLATE.to_string()
             };
+
+            // C++ CreateObjectDie on Start → destroy Start, spawn real tunnel.
+            if let Some(start_id) = self
+                .host_sneak_attacks
+                .get(plan.mission_id)
+                .and_then(|m| m.tunnel_start_object)
+            {
+                self.mark_object_for_destruction(start_id, None);
+            }
 
             let tunnel_id =
                 self.create_object(&template_name, plan.source_team, plan.target_position);
@@ -68787,6 +68826,54 @@ mod tests {
         assert!(logic.honesty_anthrax_bomb_flight_ok());
     }
 
+
+    #[test]
+    fn sneak_attack_spawns_tunnel_start() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_sneak_attack::SNEAK_ATTACK_TUNNEL_START_TEMPLATE;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        if let Some(p) = logic.get_player_mut(2) {
+            p.unlock_science("SCIENCE_SneakAttack");
+        }
+        let mut cc = crate::game_logic::ThingTemplate::new("GLACommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("GLACommandCenter".into(), cc);
+        let cc_id = logic
+            .create_object("GLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let id = logic
+            .queue_sneak_attack(
+                &SpecialPowerType::SneakAttack,
+                cc_id,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("sneak");
+        assert!(logic.host_sneak_attacks.tunnel_starts_spawned >= 1);
+        let start_id = logic
+            .host_sneak_attacks
+            .get(id)
+            .and_then(|m| m.tunnel_start_object)
+            .expect("start id");
+        assert_eq!(
+            logic.find_object(start_id).unwrap().template_name,
+            SNEAK_ATTACK_TUNNEL_START_TEMPLATE
+        );
+        assert!(logic.find_object(start_id).unwrap().sneak_tunnel_start);
+        // Advance to tunnel spawn; Start is destroyed and tunnel appears.
+        for f in 0..=160 {
+            logic.frame = f;
+            logic.update_sneak_attacks();
+        }
+        assert!(logic.host_sneak_attacks.tunnel_spawn_count >= 1);
+        assert!(
+            logic.find_object(start_id).map(|o| !o.is_alive()).unwrap_or(true),
+            "TunnelStart should die when real tunnel spawns"
+        );
+        assert!(logic.host_sneak_attacks.honesty_tunnel_start_ok());
+    }
+
     #[test]
     fn sneak_attack_multi_pulse_shockwaves() {
         use crate::command_system::SpecialPowerType;
@@ -68920,10 +69007,28 @@ mod tests {
                 .any(|e| e.event_type == "SneakAttackActivated"),
             "activation must queue SneakAttackActivated audio"
         );
+        // TunnelStart residual may spawn immediately; real tunnel must not yet exist.
+        let real_tunnels = |gl: &GameLogic| {
+            gl.get_objects()
+                .values()
+                .filter(|o| {
+                    o.is_alive()
+                        && o.is_kind_of(crate::game_logic::KindOf::Structure)
+                        && !o.sneak_tunnel_start
+                        && (o.template_name.contains("Tunnel")
+                            || o.template_name.contains("Sneak"))
+                })
+                .count()
+        };
         assert_eq!(
-            game_logic.get_objects().len(),
-            objects_before,
-            "no tunnel before Lifetime delay residual"
+            real_tunnels(&game_logic),
+            0,
+            "no real tunnel before Lifetime delay residual (objects={})",
+            game_logic.get_objects().len()
+        );
+        assert!(
+            game_logic.host_sneak_attacks.tunnel_starts_spawned >= 1,
+            "TunnelStart residual should spawn on queue"
         );
         assert_eq!(
             game_logic.special_power_strikes().strike_count(),
@@ -68934,9 +69039,9 @@ mod tests {
         game_logic.frame = SNEAK_ATTACK_SPAWN_DELAY_FRAMES - 1;
         game_logic.update_sneak_attacks();
         assert_eq!(
-            game_logic.get_objects().len(),
-            objects_before,
-            "still no tunnel one frame before spawn"
+            real_tunnels(&game_logic),
+            0,
+            "still no real tunnel one frame before spawn"
         );
 
         game_logic.frame = SNEAK_ATTACK_SPAWN_DELAY_FRAMES;
@@ -69004,10 +69109,11 @@ mod tests {
             "spawn must queue SneakAttackTunnelSpawn audio"
         );
         assert_eq!(
-            game_logic.get_objects().len(),
-            objects_before + 1,
-            "exactly one tunnel structure added"
+            real_tunnels(&game_logic),
+            1,
+            "exactly one real tunnel structure after Lifetime residual"
         );
+        let _ = objects_before;
     }
 
     /// Residual: ConvertToCarbomb walks to vehicle → IS_CARBOMB + team defect;
