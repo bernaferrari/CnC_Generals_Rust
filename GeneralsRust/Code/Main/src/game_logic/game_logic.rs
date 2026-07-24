@@ -1164,6 +1164,9 @@ pub struct GameLogic {
     /// C++ CarpetBomb DeliverPayload residual counters.
     carpet_bomb_flight_reg:
         crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightRegistry,
+    /// C++ ArtilleryBarrage DeliverPayload residual counters.
+    artillery_barrage_flight_reg:
+        crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2856,6 +2859,8 @@ impl GameLogic {
                 crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightRegistry::new(),
             carpet_bomb_flight_reg:
                 crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightRegistry::new(),
+            artillery_barrage_flight_reg:
+                crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3326,6 +3331,7 @@ impl GameLogic {
         self.neutron_missile_update_reg.clear();
         self.scud_storm_missile_flight_reg.clear();
         self.carpet_bomb_flight_reg.clear();
+        self.artillery_barrage_flight_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -6051,6 +6057,7 @@ impl GameLogic {
         self.update_neutron_missile_flights();
         self.update_scud_storm_missile_flights();
         self.update_carpet_bomb_flights();
+        self.update_artillery_barrage_flights();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -27814,6 +27821,161 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ SUPERWEAPON_ArtilleryBarrage DeliverPayload residual.
+    pub fn spawn_artillery_barrage_flight(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+        tier: crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightData;
+        use crate::game_logic::special_power_strikes::ARTILLERY_BARRAGE_TRANSPORT;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let source_pos = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        let dx = target.x - source_pos.x;
+        let dz = target.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+        let edge = Vec3::new(
+            source_pos.x - dx / dist * 280.0,
+            200.0,
+            source_pos.z - dz / dist * 280.0,
+        );
+        if !self.templates.contains_key(ARTILLERY_BARRAGE_TRANSPORT) {
+            let mut t = ThingTemplate::new(ARTILLERY_BARRAGE_TRANSPORT);
+            t.set_health(800.0)
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle);
+            self.templates
+                .insert(ARTILLERY_BARRAGE_TRANSPORT.to_string(), t);
+        }
+        let tid = self.create_object(ARTILLERY_BARRAGE_TRANSPORT, team, edge)?;
+        if let Some(o) = self.objects.get_mut(&tid) {
+            o.producer_id = Some(source_id);
+            o.artillery_barrage_transport = Some(HostArtilleryBarrageFlightData::start(
+                edge,
+                target,
+                tier,
+            ));
+            o.set_orientation(dz.atan2(dx));
+        }
+        self.artillery_barrage_flight_reg.record_transport();
+        self.artillery_barrage_flight_reg.schedule_drops(
+            self.frame,
+            source_id.0,
+            target,
+            tier,
+        );
+        Some(tid)
+    }
+
+    pub fn update_artillery_barrage_flights(&mut self) {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::special_power_strikes::{
+            ARTILLERY_BARRAGE_DAMAGE, ARTILLERY_BARRAGE_RADIUS, ARTILLERY_BARRAGE_SHELL_OBJECT,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.artillery_barrage_transport.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let pos = o.get_position();
+            let Some(data) = o.artillery_barrage_transport.as_mut() else {
+                continue;
+            };
+            let (new_pos, vel, _over) = data.tick_transport(pos);
+            let _ = data;
+            o.set_position(new_pos);
+            o.movement.velocity = vel;
+            if vel.length_squared() > 1e-6 {
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+        }
+
+        let due = self.artillery_barrage_flight_reg.take_due_drops(self.frame);
+        if !due.is_empty() {
+            if !self.templates.contains_key(ARTILLERY_BARRAGE_SHELL_OBJECT) {
+                let mut t = ThingTemplate::new(ARTILLERY_BARRAGE_SHELL_OBJECT);
+                t.set_health(50.0).add_kind_of(KindOf::Projectile);
+                self.templates
+                    .insert(ARTILLERY_BARRAGE_SHELL_OBJECT.to_string(), t);
+            }
+            for p in due {
+                let team = self
+                    .objects
+                    .get(&ObjectId(p.source_id))
+                    .map(|o| o.team)
+                    .unwrap_or(Team::Neutral);
+                let drop_pos = Vec3::new(p.target.x, 100.0, p.target.z);
+                if let Some(sid) =
+                    self.create_object(ARTILLERY_BARRAGE_SHELL_OBJECT, team, drop_pos)
+                {
+                    if let Some(o) = self.objects.get_mut(&sid) {
+                        o.producer_id = Some(ObjectId(p.source_id));
+                        o.artillery_barrage_shell = true;
+                        o.movement.velocity = Vec3::new(0.0, -18.0, 0.0);
+                        let _ = o.set_smart_bomb_target(p.target);
+                    }
+                    self.artillery_barrage_flight_reg.record_drop();
+                }
+            }
+        }
+
+        let shells: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.artillery_barrage_shell && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in shells {
+            let (pos, producer, team) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let mut p = o.get_position();
+                p.y += o.movement.velocity.y;
+                o.set_position(p);
+                (p, o.producer_id, o.team)
+            };
+            if pos.y <= 5.0 {
+                self.apply_fuel_air_radius_damage(
+                    id,
+                    producer,
+                    team,
+                    Vec3::new(pos.x, 0.0, pos.z),
+                    ARTILLERY_BARRAGE_DAMAGE,
+                    ARTILLERY_BARRAGE_RADIUS,
+                    DamageType::Explosive,
+                );
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    pos,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+                self.artillery_barrage_flight_reg.record_impact();
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -27836,6 +27998,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_carpet_bomb_flight_ok(&self) -> bool {
         crate::game_logic::host_carpet_bomb_flight::honesty_carpet_bomb_flight_residual_ok()
+    }
+
+    pub fn honesty_artillery_barrage_flight_ok(&self) -> bool {
+        crate::game_logic::host_artillery_barrage_flight::honesty_artillery_barrage_flight_residual_ok()
     }
 
     pub fn honesty_scud_storm_missile_flight_ok(&self) -> bool {
@@ -47488,6 +47654,14 @@ fn update_scud_poison_zones(&mut self) {
         // C++ CarpetBomb DeliverPayload residual (B52 + staggered CarpetBomb drops).
         if kind == HostSuperweaponKind::CarpetBomb {
             let _ = self.spawn_carpet_bomb_flight(source_object, target_position);
+        }
+        // C++ ArtilleryBarrage DeliverPayload residual (cannon + staggered shells).
+        if kind == HostSuperweaponKind::ArtilleryBarrage {
+            let _ = self.spawn_artillery_barrage_flight(
+                source_object,
+                target_position,
+                artillery_tier,
+            );
         }
         // C++ OCL FireWeaponNugget / AttackNugget residual (Neutron / Cruise / ScudStorm).
         if let Some(nugget) =
@@ -77546,6 +77720,51 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn artillery_barrage_flight_drops_shells() {
+        use crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::China);
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        let mut cc = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let mut foe_t = crate::game_logic::ThingTemplate::new("GLATankScorpion");
+        foe_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("GLATankScorpion".into(), foe_t);
+        let cc_id = logic
+            .create_object("ChinaCommandCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let _foe = logic
+            .create_object("GLATankScorpion", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
+            .unwrap();
+        let transport = logic
+            .spawn_artillery_barrage_flight(
+                cc_id,
+                Vec3::new(150.0, 0.0, 0.0),
+                ArtilleryBarrageScienceTier::Level1,
+            )
+            .expect("cannon");
+        assert!(logic
+            .find_object(transport)
+            .unwrap()
+            .artillery_barrage_transport
+            .is_some());
+        assert!(logic.artillery_barrage_flight_reg.shells_scheduled >= 12);
+        for f in 0..400 {
+            logic.frame = f;
+            logic.update_artillery_barrage_flights();
+            if logic.artillery_barrage_flight_reg.impacts >= 1 {
+                break;
+            }
+        }
+        assert!(logic.artillery_barrage_flight_reg.shells_dropped >= 1);
+        assert!(logic.artillery_barrage_flight_reg.impacts >= 1);
+        assert!(logic.honesty_artillery_barrage_flight_ok());
+    }
 
     #[test]
     fn carpet_bomb_flight_drops_payload() {
