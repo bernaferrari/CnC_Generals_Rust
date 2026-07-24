@@ -12,7 +12,8 @@
 //!   PLAYER_UPGRADE DAMAGE 125%).
 //!
 //! Fail-closed honesty:
-//! - Not full SpawnBehavior individual member objects / models / wander locomotor
+//! - SpawnBehavior member SpecialObject residual closed (template rotation + follow)
+//! - Not full member models / wander locomotor matrix
 //! - Not full MobMemberSlavedUpdate / MobNexusContain slave AI matrix
 //! - Not full rock/molotov projectile objects / ArmTheMob AK47 WeaponSet swap
 //! - Not AggregateHealth nexus HP bar / IGNORED_IN_GUI member selection kluge
@@ -40,6 +41,19 @@ pub const ANGRY_MOB_INITIAL_MEMBERS: u32 = 5;
 
 /// Retail SpawnBehavior SpawnNumber residual (max members).
 pub const ANGRY_MOB_MAX_MEMBERS: u32 = 10;
+
+/// Retail SpawnTemplateName rotation residual (SpawnBehavior ModuleTag_05).
+pub const ANGRY_MOB_MEMBER_TEMPLATES: &[&str] = &[
+    "GLAInfantryAngryMobPistol01",
+    "GLAInfantryAngryMobRock02",
+    "GLAInfantryAngryMobMolotov02",
+    "GLAInfantryAngryMobPistol03",
+    "GLAInfantryAngryMobRock04",
+    "GLAInfantryAngryMobMolotov02",
+    "GLAInfantryAngryMobPistol05",
+];
+/// Member infantry residual MaxHealth honesty.
+pub const ANGRY_MOB_MEMBER_MAX_HEALTH: f32 = 50.0;
 
 /// Retail SpawnReplaceDelay 30000 ms → 900 frames @ 30 FPS (expand interval).
 pub const ANGRY_MOB_EXPAND_INTERVAL_FRAMES: u32 = 900;
@@ -145,12 +159,27 @@ pub fn angry_mob_damage_for_tick(member_count: u32, armed: bool) -> f32 {
 }
 
 /// Per-nexus residual state (member expand + fire cadence).
+/// Pending SpawnBehavior member object residual.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PendingAngryMobMemberSpawn {
+    pub nexus_id: ObjectId,
+    pub team: super::Team,
+    pub template_name: String,
+    pub slot_index: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostAngryMobState {
     pub object_id: ObjectId,
     pub team: super::Team,
     /// Current residual member strength (InitialBurst..SpawnNumber).
     pub member_count: u32,
+    /// Live member ObjectIds residual (SpawnBehavior slaves).
+    #[serde(default)]
+    pub member_ids: Vec<ObjectId>,
+    /// Next SpawnTemplateName rotation index.
+    #[serde(default)]
+    pub next_template_index: u32,
     /// Next absolute frame for aggregate fire damage tick.
     pub next_tick_frame: u32,
     /// Next absolute frame for expand residual (+1 member toward max).
@@ -176,6 +205,8 @@ impl HostAngryMobState {
             object_id,
             team,
             member_count: ANGRY_MOB_INITIAL_MEMBERS,
+            member_ids: Vec::new(),
+            next_template_index: 0,
             // Immediate first tick so residual damage is observable on first update.
             next_tick_frame: activate_frame,
             next_expand_frame: activate_frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES),
@@ -192,6 +223,14 @@ impl HostAngryMobState {
 
     pub fn is_due_expand(&self, current_frame: u32) -> bool {
         self.member_count < ANGRY_MOB_MAX_MEMBERS && current_frame >= self.next_expand_frame
+    }
+
+    /// Next SpawnTemplateName residual in rotation.
+    pub fn take_next_member_template(&mut self) -> &'static str {
+        let n = ANGRY_MOB_MEMBER_TEMPLATES.len().max(1);
+        let idx = (self.next_template_index as usize) % n;
+        self.next_template_index = self.next_template_index.saturating_add(1);
+        ANGRY_MOB_MEMBER_TEMPLATES[idx]
     }
 }
 
@@ -217,6 +256,12 @@ pub struct HostAngryMobTickPlan {
 pub struct HostAngryMobRegistry {
     /// Active residual mobs keyed by object id (stable order via vec).
     active: Vec<HostAngryMobState>,
+    /// Pending SpawnBehavior member object spawns.
+    #[serde(default)]
+    pending_member_spawns: Vec<PendingAngryMobMemberSpawn>,
+    /// Honesty: member objects spawned residual.
+    #[serde(default)]
+    pub members_spawned: u32,
     /// Total residual fire ticks that applied ≥1 hit.
     pub fire_ticks: u32,
     /// Total residual damage applications (object×tick).
@@ -238,6 +283,27 @@ impl HostAngryMobRegistry {
 
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+
+    pub fn take_pending_member_spawns(&mut self) -> Vec<PendingAngryMobMemberSpawn> {
+        std::mem::take(&mut self.pending_member_spawns)
+    }
+
+    pub fn record_member_spawned(&mut self, n: u32) {
+        self.members_spawned = self.members_spawned.saturating_add(n);
+    }
+
+    pub fn honesty_member_spawn_ok(&self) -> bool {
+        self.members_spawned > 0
+    }
+
+    fn queue_member_spawn(&mut self, nexus_id: ObjectId, team: super::Team, slot_index: u32, template_name: &str) {
+        self.pending_member_spawns.push(PendingAngryMobMemberSpawn {
+            nexus_id,
+            team,
+            template_name: template_name.to_string(),
+            slot_index,
+        });
     }
 
     pub fn active_count(&self) -> usize {
@@ -263,8 +329,20 @@ impl HostAngryMobRegistry {
                 m.team = team;
                 m.position = pos;
             } else {
-                self.active
-                    .push(HostAngryMobState::new(id, team, pos, current_frame));
+                let mut mob = HostAngryMobState::new(id, team, pos, current_frame);
+                // InitialBurst residual: queue SpawnBehavior members immediately.
+                let mut initial = Vec::new();
+                for slot in 0..ANGRY_MOB_INITIAL_MEMBERS {
+                    let tmpl = mob.take_next_member_template();
+                    initial.push(PendingAngryMobMemberSpawn {
+                        nexus_id: id,
+                        team,
+                        template_name: tmpl.to_string(),
+                        slot_index: slot,
+                    });
+                }
+                self.active.push(mob);
+                self.pending_member_spawns.extend(initial);
             }
         }
         self.active.sort_by_key(|m| m.object_id.0);
@@ -273,6 +351,7 @@ impl HostAngryMobRegistry {
     /// Apply expand residual: grow member_count toward max on interval.
     pub fn apply_due_expands(&mut self, current_frame: u32) -> u32 {
         let mut expanded = 0_u32;
+        let mut spawns = Vec::new();
         for mob in &mut self.active {
             if !mob.is_due_expand(current_frame) {
                 continue;
@@ -281,6 +360,14 @@ impl HostAngryMobRegistry {
                 .member_count
                 .saturating_add(1)
                 .min(ANGRY_MOB_MAX_MEMBERS);
+            let slot = mob.member_count.saturating_sub(1);
+            let tmpl = mob.take_next_member_template();
+            spawns.push(PendingAngryMobMemberSpawn {
+                nexus_id: mob.object_id,
+                team: mob.team,
+                template_name: tmpl.to_string(),
+                slot_index: slot,
+            });
             mob.expands = mob.expands.saturating_add(1);
             mob.next_expand_frame = current_frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
             self.expands = self.expands.saturating_add(1);
@@ -289,6 +376,7 @@ impl HostAngryMobRegistry {
                 self.fully_expanded = self.fully_expanded.saturating_add(1);
             }
         }
+        self.pending_member_spawns.extend(spawns);
         expanded
     }
 
@@ -466,6 +554,8 @@ pub fn honesty_angry_mob_weapon_residual_ok() -> bool {
         && ANGRY_MOB_PISTOL_DAMAGE_TYPE == "MOLOTOV_COCKTAIL"
         && ANGRY_MOB_INITIAL_MEMBERS == 5
         && ANGRY_MOB_MAX_MEMBERS == 10
+        && ANGRY_MOB_MEMBER_TEMPLATES[0] == "GLAInfantryAngryMobPistol01"
+        && ANGRY_MOB_MEMBER_TEMPLATES.contains(&"GLAInfantryAngryMobMolotov02")
         && ANGRY_MOB_SPAWN_REPLACE_DELAY_MS == 30_000
         && ANGRY_MOB_EXPAND_INTERVAL_FRAMES
             == angry_mob_ms_to_frames(ANGRY_MOB_SPAWN_REPLACE_DELAY_MS)

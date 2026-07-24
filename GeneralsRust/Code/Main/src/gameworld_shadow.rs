@@ -19213,35 +19213,35 @@ mod tests {
             ),
             (
                 "fn update_scud_poison_zones",
-                "take_damage_from(hit.damage, Some(plan.source_object))",
+                "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
             ),
             (
                 "fn update_bomb_truck_poison_zones",
-                "take_damage_from(hit.damage, Some(plan.source_object))",
+                "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
             ),
             (
                 "fn update_inferno_fire_zones",
-                "take_damage_from(hit.damage, Some(plan.source_object))",
+                "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
             ),
             (
                 "fn update_firewalls",
-                "take_damage_from(hit.damage, Some(plan.source_object))",
+                "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
             ),
             (
                 "fn update_helix_napalm_firestorms",
-                "take_damage_from(hit.damage, Some(plan.source_object))",
+                "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
             ),
             (
                 "fn update_nuclear_tanks_radiation_zones",
-                "take_damage_from(hit.damage, Some(plan.source_object))",
+                "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
             ),
             (
                 "fn update_nuke_cannon_radiation_zones",
-                "take_damage_from(hit.damage, Some(plan.source_object))",
+                "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
             ),
             (
                 "fn update_toxin_tractor_poison_zones",
-                "take_damage_from(hit.damage, Some(plan.source_object))",
+                "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
             ),
         ] {
             let i = src

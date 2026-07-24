@@ -1188,6 +1188,12 @@ pub struct Object {
     /// Absolute frame when CountermeasureFlare Lifetime residual expires.
     #[serde(default)]
     pub countermeasure_flare_expires_frame: Option<u32>,
+    /// C++ AngryMob SpawnBehavior member residual.
+    #[serde(default)]
+    pub angry_mob_member: bool,
+    /// Nexus owner for AngryMob member residual.
+    #[serde(default)]
+    pub angry_mob_nexus_id: Option<ObjectId>,
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
@@ -1947,6 +1953,8 @@ impl Object {
             booby_trap_attached_to: None,
             countermeasure_flare: false,
             countermeasure_flare_expires_frame: None,
+            angry_mob_member: false,
+            angry_mob_nexus_id: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -2384,6 +2392,8 @@ impl Object {
             booby_trap_attached_to: None,
             countermeasure_flare: false,
             countermeasure_flare_expires_frame: None,
+            angry_mob_member: false,
+            angry_mob_nexus_id: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
