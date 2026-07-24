@@ -2476,9 +2476,11 @@ impl CnCGameEngine {
                                 );
                             }
                         }
-                        // C++ init residual: human slot 0 + Medium AI slot 1 before Start.
-                        let slot_ai_wnd_ok =
-                            game_client::gui::callbacks::simulate_skirmish_default_human_and_medium_ai();
+                        // C++ init residual: human+MedAI slots and default rules
+                        // (cash/SW/speed) before Start.
+                        let match_options_ok =
+                            game_client::gui::callbacks::simulate_skirmish_prepare_match_options();
+                        let slot_ai_wnd_ok = match_options_ok;
                         // Optional difficulty override from control-file args.
                         if let Some(diff) = args.get("ai") {
                             let state = match diff.to_ascii_lowercase().as_str() {
@@ -2493,6 +2495,14 @@ impl CnCGameEngine {
                                 );
                             }
                         }
+                        // Optional starting cash override (retail combo amounts only).
+                        if let Some(cash) = args.get("cash") {
+                            if let Ok(amount) = cash.parse::<u32>() {
+                                let _ = game_client::gui::callbacks::simulate_skirmish_set_starting_cash(
+                                    amount,
+                                );
+                            }
+                        }
                         wnd_start_ok = game_client::gui::callbacks::simulate_skirmish_start_button_gadget_selected();
                         if map_select_wnd_ok && wnd_start_ok {
                             // Preserve map-select residual in cmd when both peels fire.
@@ -2503,10 +2513,14 @@ impl CnCGameEngine {
                         if wnd_start_ok {
                             // WND path posts NewGame; drain immediately so headless host
                             // does not wait for next Menu tick.
-                            let start_cmd = if map_select_wnd_ok && slot_ai_wnd_ok {
+                            let start_cmd = if map_select_wnd_ok && match_options_ok {
+                                "click_skirmish_start_ok_wnd_via_map_select_slots_rules"
+                            } else if map_select_wnd_ok && slot_ai_wnd_ok {
                                 "click_skirmish_start_ok_wnd_via_map_select_slots"
                             } else if map_select_wnd_ok {
                                 "click_skirmish_start_ok_wnd_via_map_select"
+                            } else if match_options_ok {
+                                "click_skirmish_start_ok_wnd_via_slots_rules"
                             } else if slot_ai_wnd_ok {
                                 "click_skirmish_start_ok_wnd_via_slots"
                             } else {

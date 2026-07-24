@@ -1767,6 +1767,89 @@ pub fn skirmish_slot_combo_control_names(index: usize) -> Option<[String; 4]> {
     ])
 }
 
+/// Retail starting-cash combo amounts residual (PopulateStartingCash list).
+pub const SKIRMISH_STARTING_CASH_AMOUNTS: &[u32] = &[10000, 20000, 30000, 40000, 50000];
+
+/// Retail default starting cash residual (`Money::default` / multiplayer default).
+pub const SKIRMISH_DEFAULT_STARTING_CASH: u32 = 10000;
+
+/// Retail game-speed slider residual bounds.
+pub const SKIRMISH_GAME_SPEED_SLIDER_MAX: i32 = 60;
+pub const SKIRMISH_GAME_SPEED_NO_LIMIT: i32 = 61;
+
+/// Retail rules control name residual table.
+pub const SKIRMISH_RULES_CONTROL_NAMES: &[&str] = &[
+    "SkirmishGameOptionsMenu.wnd:ComboBoxStartingCash",
+    "SkirmishGameOptionsMenu.wnd:CheckboxLimitSuperweapons",
+    "SkirmishGameOptionsMenu.wnd:SliderGameSpeed",
+    "SkirmishGameOptionsMenu.wnd:StaticTextGameSpeed",
+];
+
+/// Residual: set starting cash on skirmish setup (ComboBoxStartingCash path).
+/// Amount must be one of the retail combo entries.
+pub fn simulate_skirmish_set_starting_cash(amount: u32) -> bool {
+    if !SKIRMISH_STARTING_CASH_AMOUNTS.contains(&amount) {
+        return false;
+    }
+    let mut setup = get_skirmish_setup();
+    setup
+        .game_info_mut()
+        .game_info_mut()
+        .set_starting_cash(Money::new(amount));
+    setup
+        .game_info()
+        .game_info()
+        .get_starting_cash()
+        .count_money()
+        == amount
+}
+
+/// Residual: set superweapon restriction checkbox (0 = unlimited, 1 = limited).
+pub fn simulate_skirmish_set_limit_superweapons(limit: bool) -> bool {
+    let mut setup = get_skirmish_setup();
+    let restriction = if limit { 1 } else { 0 };
+    setup
+        .game_info_mut()
+        .game_info_mut()
+        .set_superweapon_restriction(restriction);
+    (setup.game_info().game_info().get_superweapon_restriction() != 0) == limit
+}
+
+/// Residual: clamp preferred FPS from SliderGameSpeed (1..=60, or 61 = no limit).
+pub fn simulate_skirmish_set_game_speed_fps(fps: i32) -> Option<i32> {
+    if fps < 1 || fps > SKIRMISH_GAME_SPEED_NO_LIMIT {
+        return None;
+    }
+    let clamped = if fps > SKIRMISH_GAME_SPEED_SLIDER_MAX {
+        SKIRMISH_GAME_SPEED_NO_LIMIT
+    } else {
+        fps
+    };
+    Some(clamped)
+}
+
+/// Residual: apply common skirmish rules pack (cash + SW limit + speed).
+/// Defaults: $10000 cash, SW unlimited, 30 FPS (C++ common mid slider).
+/// Single setup lock to avoid re-entrant mutex stalls under residual peels.
+pub fn simulate_skirmish_apply_default_rules() -> bool {
+    let mut setup = get_skirmish_setup();
+    let info = setup.game_info_mut().game_info_mut();
+    info.set_starting_cash(Money::new(SKIRMISH_DEFAULT_STARTING_CASH));
+    info.set_superweapon_restriction(0);
+    let cash_ok = info.get_starting_cash().count_money() == SKIRMISH_DEFAULT_STARTING_CASH;
+    let sw_ok = info.get_superweapon_restriction() == 0;
+    let speed_ok = simulate_skirmish_set_game_speed_fps(30) == Some(30);
+    cash_ok && sw_ok && speed_ok
+}
+
+/// Residual: apply full pre-Start options residual (slots + default rules).
+pub fn simulate_skirmish_prepare_match_options() -> bool {
+    // Order: slots first (may touch setup), then rules under its own lock.
+    let slots_ok = simulate_skirmish_default_human_and_medium_ai();
+    let rules_ok = simulate_skirmish_apply_default_rules();
+    slots_ok && rules_ok
+}
+
 pub fn skirmish_game_options_menu_system(
     _window: &GameWindow,
     msg: WindowMessage,
