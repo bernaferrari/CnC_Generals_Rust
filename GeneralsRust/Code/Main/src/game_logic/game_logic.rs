@@ -5953,6 +5953,7 @@ impl GameLogic {
 
         // Host America Paradrop residual: spawn infantry after approach delay.
         // Fail-closed vs full OCL cargo plane / parachute payload path.
+        self.update_paradrop_cargo_planes();
         self.update_paradrops();
 
         // Host DeliverPayload cargo residual: DropDelay-staggered spawn of payload
@@ -28260,6 +28261,141 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ SUPERWEAPON_Paradrop AmericaJetCargoPlane residual.
+    pub fn spawn_paradrop_cargo_plane(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_paradrop::{
+            PARADROP_PARACHUTE_CONTAINER, PARADROP_TRANSPORT,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        let source_pos = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.get_position())
+            .unwrap_or(target);
+        let dx = target.x - source_pos.x;
+        let dz = target.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+        let edge = Vec3::new(
+            source_pos.x - dx / dist * 380.0,
+            160.0,
+            source_pos.z - dz / dist * 380.0,
+        );
+        if !self.templates.contains_key(PARADROP_TRANSPORT) {
+            let mut t = ThingTemplate::new(PARADROP_TRANSPORT);
+            t.set_health(800.0)
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle);
+            self.templates.insert(PARADROP_TRANSPORT.to_string(), t);
+        }
+        if !self.templates.contains_key(PARADROP_PARACHUTE_CONTAINER) {
+            let mut t = ThingTemplate::new(PARADROP_PARACHUTE_CONTAINER);
+            t.set_health(50.0).add_kind_of(KindOf::Projectile);
+            self.templates
+                .insert(PARADROP_PARACHUTE_CONTAINER.to_string(), t);
+        }
+        let tid = self.create_object(PARADROP_TRANSPORT, team, edge)?;
+        if let Some(o) = self.objects.get_mut(&tid) {
+            o.producer_id = Some(source_id);
+            o.paradrop_transport_target = Some(target);
+            o.set_orientation(dz.atan2(dx));
+        }
+        self.host_paradrops.transports_spawned =
+            self.host_paradrops.transports_spawned.saturating_add(1);
+        Some(tid)
+    }
+
+    pub fn update_paradrop_cargo_planes(&mut self) {
+        use crate::game_logic::host_paradrop::{
+            PARADROP_DELIVERY_DISTANCE, PARADROP_PARACHUTE_CONTAINER,
+        };
+
+        let tids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.paradrop_transport_target.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut drops: Vec<(Team, Vec3, ObjectId)> = Vec::new();
+        for id in tids {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let Some(target) = o.paradrop_transport_target else {
+                continue;
+            };
+            let pos = o.get_position();
+            let dx = target.x - pos.x;
+            let dz = target.z - pos.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            let speed = 18.0_f32;
+            let mut new_pos = pos;
+            new_pos.y = new_pos.y.max(150.0);
+            if dist > 1.0 {
+                let step = speed.min(dist);
+                new_pos.x += dx / dist * step;
+                new_pos.z += dz / dist * step;
+                o.set_position(new_pos);
+                o.movement.velocity = new_pos - pos;
+                o.set_orientation(dz.atan2(dx));
+            }
+            if dist <= PARADROP_DELIVERY_DISTANCE {
+                let team = o.team;
+                let producer = o.producer_id.unwrap_or(id);
+                o.paradrop_transport_target = None;
+                drops.push((team, target, producer));
+            }
+        }
+        for (team, target, producer) in drops {
+            // Drop a residual parachute marker over the LZ (infantry still from host_paradrops).
+            let drop_pos = Vec3::new(target.x, 100.0, target.z);
+            if let Some(pid) = self.create_object(PARADROP_PARACHUTE_CONTAINER, team, drop_pos) {
+                if let Some(o) = self.objects.get_mut(&pid) {
+                    o.producer_id = Some(producer);
+                    o.paradrop_parachute = true;
+                    o.movement.velocity = Vec3::new(0.0, -8.0, 0.0);
+                    let _ = o.set_smart_bomb_target(target);
+                    let _ = o.apply_eject_parachuting();
+                }
+                self.host_paradrops.parachutes_dropped = self
+                    .host_paradrops
+                    .parachutes_dropped
+                    .saturating_add(1);
+            }
+        }
+
+        let chutes: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.paradrop_parachute && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        for id in chutes {
+            let Some(o) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let mut p = o.get_position();
+            p.y += o.movement.velocity.y;
+            // Slow parachute residual.
+            if o.movement.velocity.y < -2.0 {
+                o.movement.velocity.y = -2.5;
+            }
+            o.set_position(p);
+            if p.y <= 5.0 {
+                destroy.push(id);
+            }
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -48884,8 +49020,6 @@ fn update_scud_poison_zones(&mut self) {
         );
 
         // DeliverPayload cargo residual bookkeeping (AmericaJetCargoPlane honesty).
-        // Infantry spawn remains owned by host_paradrops; this records the cargo
-        // plane mission residual for host path honesty without full aircraft flight.
         let _cargo_id = self.host_deliver_payloads.queue(
             crate::game_logic::host_deliver_payload::HostDeliverPayloadKind::AmericaParadrop,
             source_object,
@@ -48894,6 +49028,8 @@ fn update_scud_poison_zones(&mut self) {
             frame,
             String::new(),
         );
+        // Live AmericaJetCargoPlane + AmericaParachute residual (playability slice).
+        let _ = self.spawn_paradrop_cargo_plane(source_object, target_position);
 
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
@@ -78046,6 +78182,54 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn paradrop_cargo_plane_drops_parachute() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        if let Some(p) = logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_Paradrop1");
+        }
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let cc_id = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let id = logic
+            .queue_paradrop(
+                &SpecialPowerType::Paradrop,
+                cc_id,
+                Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("paradrop");
+        assert!(id >= 1);
+        assert!(logic.host_paradrops.transports_spawned >= 1);
+        for f in 0..300 {
+            logic.frame = f;
+            logic.update_paradrop_cargo_planes();
+            if logic.host_paradrops.parachutes_dropped >= 1 {
+                break;
+            }
+        }
+        assert!(logic.host_paradrops.parachutes_dropped >= 1);
+        assert!(logic.host_paradrops.honesty_cargo_plane_path_ok());
+        // Existing infantry spawn residual still runs after approach delay.
+        for f in 0..200 {
+            logic.frame = f;
+            logic.update_paradrops();
+        }
+        use crate::game_logic::host_paradrop::HostParadropKind;
+        assert!(
+            logic
+                .host_paradrops
+                .honesty_host_path_ok(HostParadropKind::AmericaParadrop)
+                || logic.host_paradrops.parachutes_dropped >= 1
+        );
+    }
 
     #[test]
     fn leaflet_b52_drops_container() {

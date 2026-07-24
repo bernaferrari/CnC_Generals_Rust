@@ -67,6 +67,8 @@ pub const PARADROP_SHORTCUT_POWER: bool = true;
 pub const PARADROP_OCL: &str = "SUPERWEAPON_Paradrop1";
 /// Retail AmericaJetCargoPlane transport residual.
 pub const PARADROP_TRANSPORT: &str = "AmericaJetCargoPlane";
+/// Retail DeliveryDistance residual (0 = drop at target residual band).
+pub const PARADROP_DELIVERY_DISTANCE: f32 = 80.0;
 /// Retail DropDelay residual (msec between drops).
 pub const PARADROP_DROP_DELAY_MS: u32 = 150;
 /// DropDelay 150ms → 5 frames @ 30 FPS.
@@ -346,6 +348,10 @@ pub struct HostParadropRegistry {
     missions: HashMap<u32, HostParadropMission>,
     completed_this_frame: Vec<u32>,
     activated_this_frame: Vec<u32>,
+    /// C++ AmericaJetCargoPlane DeliverPayload residual counters.
+    pub transports_spawned: u32,
+    /// C++ AmericaParachute containers dropped residual.
+    pub parachutes_dropped: u32,
 }
 
 impl HostParadropRegistry {
@@ -355,14 +361,13 @@ impl HostParadropRegistry {
             missions: HashMap::new(),
             completed_this_frame: Vec::new(),
             activated_this_frame: Vec::new(),
+            transports_spawned: 0,
+            parachutes_dropped: 0,
         }
     }
 
     pub fn clear(&mut self) {
-        self.missions.clear();
-        self.completed_this_frame.clear();
-        self.activated_this_frame.clear();
-        self.next_id = 1;
+        *self = Self::new();
     }
 
     pub fn clear_frame_events(&mut self) {
@@ -573,6 +578,11 @@ impl HostParadropRegistry {
     pub fn honesty_host_path_ok(&self, kind: HostParadropKind) -> bool {
         self.honesty_complete_ok(kind)
     }
+    /// C++ AmericaJetCargoPlane live flight residual honesty.
+    pub fn honesty_cargo_plane_path_ok(&self) -> bool {
+        self.transports_spawned > 0 && self.parachutes_dropped > 0
+    }
+
 }
 
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
