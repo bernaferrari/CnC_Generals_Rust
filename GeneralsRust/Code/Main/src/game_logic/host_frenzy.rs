@@ -19,7 +19,7 @@
 //! - ParticleSysBone FrenzyCloud residual name
 //!
 //! Fail-closed honesty:
-//! - Not full OCL Frenzy_InvisibleMarker spawn / live DeletionUpdate object
+//! - Frenzy_InvisibleMarker spawn + DeletionUpdate 1-frame residual closed
 //! - Not full KindOf multi-mask engine beyond residual Required/Forbidden filters
 //! - Not full ally relationship filter (uses same-team residual)
 //! - Not full player science ownership matrix beyond residual name tier gate
@@ -347,15 +347,46 @@ pub struct HostFrenzyRegistry {
     pub activation_count: u32,
     /// Total FRENZY weapon-bonus grants applied.
     pub buff_count: u32,
+    /// C++ Frenzy_InvisibleMarker OCL spawn residual.
+    pub markers_spawned: u32,
+    /// Marker ids spawned this frame (DeletionUpdate next frame).
+    pub markers_this_frame: Vec<super::ObjectId>,
+    /// Marker ids due for DeletionUpdate residual this update.
+    pub pending_marker_deletes: Vec<super::ObjectId>,
 }
 
 impl HostFrenzyRegistry {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            next_id: 1,
+            activations: Vec::new(),
+            activation_count: 0,
+            buff_count: 0,
+            markers_spawned: 0,
+            markers_this_frame: Vec::new(),
+            pending_marker_deletes: Vec::new(),
+        }
     }
 
     pub fn clear(&mut self) {
-        *self = Self::default();
+        *self = Self::new();
+    }
+
+    pub fn record_marker_spawn(&mut self, marker_id: super::ObjectId) {
+        self.markers_spawned = self.markers_spawned.saturating_add(1);
+        self.markers_this_frame.push(marker_id);
+    }
+
+    pub fn take_due_marker_deletes(&mut self) -> Vec<super::ObjectId> {
+        // Retail DeletionUpdate Min/MaxLifetime = 1ms → 1 frame residual:
+        // promote last-frame spawns to due, then drain due.
+        let due = std::mem::take(&mut self.pending_marker_deletes);
+        self.pending_marker_deletes = std::mem::take(&mut self.markers_this_frame);
+        due
+    }
+
+    pub fn honesty_marker_ok(&self) -> bool {
+        self.markers_spawned > 0
     }
 
     pub fn activation_count(&self) -> u32 {

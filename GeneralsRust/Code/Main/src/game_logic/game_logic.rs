@@ -1270,7 +1270,7 @@ pub struct GameLogic {
     sub_objects_upgrades: crate::game_logic::host_sub_objects_upgrade::HostSubObjectsUpgradeLog,
 
     /// Host China Frenzy ("Rage") residual — temporary ally attack buff in radius.
-    /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
+    /// Frenzy_InvisibleMarker + DeletionUpdate residual closed; fail-closed vs FrenzyCloud GPU.
     frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry,
 
     /// Host USA Strategy Center battle-plan residual (Bombardment / HoldTheLine / S&D).
@@ -6095,6 +6095,7 @@ impl GameLogic {
         self.update_anthrax_bomb_flights();
         self.update_cluster_mines_flights();
         self.update_emp_pulse_flights();
+        self.update_frenzy_invisible_markers();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -29052,6 +29053,52 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ SUPERWEAPON_Frenzy OCL Frenzy_InvisibleMarker residual.
+    pub fn spawn_frenzy_invisible_marker(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        level: crate::game_logic::host_frenzy::HostFrenzyLevel,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let tmpl = level.marker_template();
+        if !self.templates.contains_key(tmpl) {
+            let mut t = ThingTemplate::new(tmpl);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates.insert(tmpl.to_string(), t);
+        }
+        let mid = self.create_object(tmpl, team, position)?;
+        if let Some(o) = self.objects.get_mut(&mid) {
+            o.frenzy_invisible_marker = true;
+        }
+        self.frenzies.record_marker_spawn(mid);
+        Some(mid)
+    }
+
+    pub fn update_frenzy_invisible_markers(&mut self) {
+        // Retail DeletionUpdate Min/MaxLifetime = 1ms → 1 frame residual.
+        let due = self.frenzies.take_due_marker_deletes();
+        for id in due {
+            if self
+                .objects
+                .get(&id)
+                .map(|o| o.frenzy_invisible_marker)
+                .unwrap_or(false)
+            {
+                // Invisible marker has no SlowDeath residual — hard-remove.
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.status.destroyed = true;
+                    o.status.effectively_dead = true;
+                    o.health.current = 0.0;
+                }
+                self.mark_object_for_destruction(id, None);
+            }
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -42537,6 +42584,9 @@ fn update_scud_poison_zones(&mut self) {
             caster_id,
             None,
         );
+
+        // C++ SUPERWEAPON_Frenzy* OCL Frenzy_InvisibleMarker + DeletionUpdate residual.
+        let _ = self.spawn_frenzy_invisible_marker(caster_team, location, level);
 
         true
     }
@@ -69127,6 +69177,58 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn frenzy_spawns_invisible_marker() {
+        use crate::game_logic::host_frenzy::{HostFrenzyLevel, FRENZY_MARKER_LEVEL1};
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::China);
+        if let Some(p) = logic.get_player_mut(1) {
+            p.unlock_science("SCIENCE_Frenzy1");
+        }
+        let mut tank_t = crate::game_logic::ThingTemplate::new("ChinaTankBattleMaster");
+        tank_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("ChinaTankBattleMaster".into(), tank_t);
+        let tank = logic
+            .create_object("ChinaTankBattleMaster", Team::China, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.activate_frenzy(
+            1,
+            Vec3::new(10.0, 0.0, 0.0),
+            Some(tank),
+            HostFrenzyLevel::One,
+        ));
+        assert!(logic.frenzies.markers_spawned >= 1);
+        assert!(logic.frenzies.honesty_marker_ok());
+        let marker = logic
+            .get_objects()
+            .values()
+            .find(|o| o.frenzy_invisible_marker)
+            .expect("marker");
+        assert_eq!(marker.template_name, FRENZY_MARKER_LEVEL1);
+        let mid = marker.id;
+        // DeletionUpdate residual: 1 frame lifetime → due on following update.
+        logic.update_frenzy_invisible_markers();
+        assert!(
+            logic.find_object(mid).map(|o| o.is_alive()).unwrap_or(false),
+            "marker should survive spawn frame"
+        );
+        logic.update_frenzy_invisible_markers();
+        let gone = logic
+            .find_object(mid)
+            .map(|o| !o.is_alive() || o.status.destroyed || o.frenzy_invisible_marker)
+            .unwrap_or(true);
+        // After delete residual, object is dead or removed from world.
+        assert!(
+            gone && logic
+                .find_object(mid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true),
+            "marker should be deleted after 1-frame residual"
+        );
+    }
 
     #[test]
     fn emp_pulse_flight_disables_on_impact() {

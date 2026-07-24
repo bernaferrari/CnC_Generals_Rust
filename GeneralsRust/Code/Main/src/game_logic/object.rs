@@ -1122,6 +1122,9 @@ pub struct Object {
     /// C++ EMPPulseBomb HeightDie residual.
     #[serde(default)]
     pub emp_pulse_bomb: bool,
+    /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
+    #[serde(default)]
+    pub frenzy_invisible_marker: bool,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1829,6 +1832,7 @@ impl Object {
             cluster_mines_bomb: false,
             emp_pulse_transport: None,
             emp_pulse_bomb: false,
+            frenzy_invisible_marker: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2234,6 +2238,7 @@ impl Object {
             cluster_mines_bomb: false,
             emp_pulse_transport: None,
             emp_pulse_bomb: false,
+            frenzy_invisible_marker: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
