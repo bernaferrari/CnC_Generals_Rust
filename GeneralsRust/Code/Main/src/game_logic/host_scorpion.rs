@@ -19,10 +19,12 @@
 //! Fail-closed honesty:
 //! - Not full SalvageCrate W3D turret / missile-rack subobject swap matrix
 //! - Not full ClipSize=2 DelayBetweenShots 200ms dual-volley cadence
+//! - ScorpionTankShell DumbProjectile Bezier + ScorpionMissile MissileAI flight residual closed
 //! - Not full ScatterRadiusVsInfantry / projectile exhaust FX matrix
 //! - Not network salvage / rocket replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 use std::collections::HashSet;
 
 /// Retail primary base gun.
@@ -50,6 +52,31 @@ pub const SCORPION_RANGE: f32 = 150.0;
 pub const SCORPION_GUN_DELAY_FRAMES: u32 = 30;
 /// Retail WeaponSpeed residual (shell flight residual; host hits still residual-instant).
 pub const SCORPION_GUN_PROJECTILE_SPEED: f32 = 400.0;
+
+/// Retail primary shell projectile object.
+pub const SCORPION_TANK_SHELL: &str = "ScorpionTankShell";
+/// Retail secondary rocket projectile object.
+pub const SCORPION_MISSILE: &str = "ScorpionMissile";
+/// Retail shell MaxHealth residual.
+pub const SCORPION_SHELL_MAX_HEALTH: f32 = 100.0;
+/// DumbProjectileBehavior FirstHeight residual.
+pub const SCORPION_SHELL_FIRST_HEIGHT: f32 = 10.0;
+/// DumbProjectileBehavior SecondHeight residual.
+pub const SCORPION_SHELL_SECOND_HEIGHT: f32 = 10.0;
+/// FirstPercentIndent residual (50%).
+pub const SCORPION_SHELL_FIRST_PERCENT_INDENT: f32 = 0.50;
+/// SecondPercentIndent residual (90%).
+pub const SCORPION_SHELL_SECOND_PERCENT_INDENT: f32 = 0.90;
+/// Retail missile MaxHealth residual.
+pub const SCORPION_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// MissileAI FuelLifetime 4000ms → 120 frames @ 30 FPS.
+pub const SCORPION_MISSILE_FUEL_MS: u32 = 4_000;
+pub const SCORPION_MISSILE_FUEL_FRAMES: u32 = 120;
+/// MissileAI InitialVelocity residual.
+pub const SCORPION_MISSILE_INITIAL_VELOCITY: f32 = 150.0;
+/// DistanceToTravelBeforeTurning residual.
+pub const SCORPION_MISSILE_TURN_DISTANCE: f32 = 30.0;
+
 
 /// Retail ScorpionMissileWeapon PrimaryDamage.
 pub const SCORPION_MISSILE_PRIMARY_DAMAGE: f32 = 100.0;
@@ -142,6 +169,37 @@ pub fn is_scorpion_template(template_name: &str) -> bool {
 }
 
 /// Whether residual fire should apply Scorpion residual path.
+
+
+/// Cubic Bezier residual sample for ScorpionTankShell DumbProjectileBehavior.
+pub fn scorpion_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * SCORPION_SHELL_FIRST_PERCENT_INDENT
+        + Vec3::Y * SCORPION_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * SCORPION_SHELL_SECOND_PERCENT_INDENT
+        + Vec3::Y * SCORPION_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    p0 * uuu + p1 * (3.0 * uu * t) + p2 * (3.0 * u * tt) + p3 * ttt
+}
+
+/// Flight frame residual from ground distance @ WeaponSpeed 400.
+pub fn scorpion_shell_flight_frames(from: Vec3, to: Vec3) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let frames = (dist / (SCORPION_GUN_PROJECTILE_SPEED / 30.0)).ceil() as u32;
+    frames.clamp(4, 180)
+}
+
 pub fn should_apply_scorpion_residual(is_scorpion: bool) -> bool {
     is_scorpion
 }
@@ -314,6 +372,10 @@ pub fn honesty_scorpion_gun_residual_ok() -> bool {
         && (SCORPION_RANGE - 150.0).abs() < 0.01
         && SCORPION_GUN_DELAY_FRAMES == 30
         && (SCORPION_GUN_PROJECTILE_SPEED - 400.0).abs() < 0.1
+        && SCORPION_TANK_SHELL == "ScorpionTankShell"
+        && SCORPION_MISSILE == "ScorpionMissile"
+        && SCORPION_MISSILE_FUEL_FRAMES == 120
+        && (SCORPION_SHELL_FIRST_HEIGHT - 10.0).abs() < 0.01
         && SCORPION_TANK_GUN == "ScorpionTankGun"
         && SCORPION_TANK_GUN_PLUS_ONE == "ScorpionTankGunPlusOne"
 }

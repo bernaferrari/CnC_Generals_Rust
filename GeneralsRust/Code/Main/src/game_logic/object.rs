@@ -1251,6 +1251,42 @@ pub struct Object {
     /// Whether this MD missile was fired from laser-guided secondary residual.
     #[serde(default)]
     pub missile_defender_missile_laser_slot: bool,
+    /// C++ ScorpionTankShell DumbProjectile residual.
+    #[serde(default)]
+    pub scorpion_shell_projectile: bool,
+    /// Shell launch origin residual.
+    #[serde(default)]
+    pub scorpion_shell_from: Option<[f32; 3]>,
+    /// Shell aim residual.
+    #[serde(default)]
+    pub scorpion_shell_aim: Option<[f32; 3]>,
+    /// Shell launch frame residual.
+    #[serde(default)]
+    pub scorpion_shell_launch_frame: Option<u32>,
+    /// Shell flight frames residual.
+    #[serde(default)]
+    pub scorpion_shell_flight_frames: u32,
+    /// Weapon slot residual for scorpion shell (0=gun).
+    #[serde(default)]
+    pub scorpion_shell_slot: u8,
+    /// C++ ScorpionMissile projectile residual.
+    #[serde(default)]
+    pub scorpion_missile_projectile: bool,
+    /// Aim for ScorpionMissile residual.
+    #[serde(default)]
+    pub scorpion_missile_aim: Option<[f32; 3]>,
+    /// Intended target id residual.
+    #[serde(default)]
+    pub scorpion_missile_intended: Option<u32>,
+    /// Distance travelled residual.
+    #[serde(default)]
+    pub scorpion_missile_travelled: f32,
+    /// Fuel expires frame residual.
+    #[serde(default)]
+    pub scorpion_missile_fuel_expires_frame: Option<u32>,
+    /// Weapon slot residual for scorpion missile.
+    #[serde(default)]
+    pub scorpion_missile_slot: u8,
     /// Aim point for TankHunter missile residual.
     #[serde(default)]
     pub tank_hunter_missile_aim: Option<[f32; 3]>,
@@ -2138,6 +2174,18 @@ impl Object {
             missile_defender_missile_travelled: 0.0,
             missile_defender_missile_fuel_expires_frame: None,
             missile_defender_missile_laser_slot: false,
+            scorpion_shell_projectile: false,
+            scorpion_shell_from: None,
+            scorpion_shell_aim: None,
+            scorpion_shell_launch_frame: None,
+            scorpion_shell_flight_frames: 0,
+            scorpion_shell_slot: 0,
+            scorpion_missile_projectile: false,
+            scorpion_missile_aim: None,
+            scorpion_missile_intended: None,
+            scorpion_missile_travelled: 0.0,
+            scorpion_missile_fuel_expires_frame: None,
+            scorpion_missile_slot: 0,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
@@ -2623,6 +2671,18 @@ impl Object {
             missile_defender_missile_travelled: 0.0,
             missile_defender_missile_fuel_expires_frame: None,
             missile_defender_missile_laser_slot: false,
+            scorpion_shell_projectile: false,
+            scorpion_shell_from: None,
+            scorpion_shell_aim: None,
+            scorpion_shell_launch_frame: None,
+            scorpion_shell_flight_frames: 0,
+            scorpion_shell_slot: 0,
+            scorpion_missile_projectile: false,
+            scorpion_missile_aim: None,
+            scorpion_missile_intended: None,
+            scorpion_missile_travelled: 0.0,
+            scorpion_missile_fuel_expires_frame: None,
+            scorpion_missile_slot: 0,
             airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
