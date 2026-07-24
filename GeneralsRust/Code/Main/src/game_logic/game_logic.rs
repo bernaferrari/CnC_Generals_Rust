@@ -1535,6 +1535,8 @@ pub struct GameLogic {
     neutron_shells_spawned: u32,
     /// Honesty: TunnelDefenderMissile / RPG projectiles spawned residual.
     rpg_trooper_missiles_spawned: u32,
+    /// Honesty: RPG Trooper ScatterRadiusVsInfantry aim offsets applied.
+    rpg_trooper_scatter_applied: u32,
     /// Honesty: TankHunterMissile projectiles spawned residual.
     tank_hunter_missiles_spawned: u32,
     /// Honesty: Tank Hunter ScatterRadiusVsInfantry aim offsets applied.
@@ -3119,6 +3121,7 @@ impl GameLogic {
             rocket_buggy_missiles_spawned: 0,
             neutron_shells_spawned: 0,
             rpg_trooper_missiles_spawned: 0,
+            rpg_trooper_scatter_applied: 0,
             tank_hunter_missiles_spawned: 0,
             tank_hunter_scatter_applied: 0,
             missile_defender_missiles_spawned: 0,
@@ -3621,6 +3624,7 @@ impl GameLogic {
         self.rocket_buggy_missiles_spawned = 0;
         self.neutron_shells_spawned = 0;
         self.rpg_trooper_missiles_spawned = 0;
+        self.rpg_trooper_scatter_applied = 0;
         self.tank_hunter_missiles_spawned = 0;
         self.tank_hunter_scatter_applied = 0;
         self.missile_defender_missiles_spawned = 0;
@@ -33593,7 +33597,15 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: GLA RPG Trooper rocket / AP Rockets residual.
     pub fn honesty_rpg_trooper_ok(&self) -> bool {
-        self.rpg_trooper_residual_fires > 0 || self.rpg_trooper_residual_ap_upgrades > 0
+        self.rpg_trooper_residual_fires > 0
+            || self.rpg_trooper_residual_ap_upgrades > 0
+            || self.rpg_trooper_scatter_applied > 0
+            || self.rpg_trooper_missiles_spawned > 0
+    }
+
+    /// Residual honesty: RPG Trooper ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_rpg_trooper_scatter_ok(&self) -> bool {
+        self.rpg_trooper_scatter_applied > 0
     }
 
     pub fn honesty_rpg_trooper_ap_ok(&self) -> bool {
@@ -37919,6 +37931,27 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on TunnelDefenderRocketWeapon vs infantry.
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) = crate::game_logic::host_rpg_trooper::rpg_trooper_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
+        if scattered {
+            self.rpg_trooper_scatter_applied =
+                self.rpg_trooper_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 6.0;
         let pid = self.create_object(SCORPION_MISSILE, team, start)?;
@@ -43390,6 +43423,27 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on TunnelDefenderRocketWeapon vs infantry.
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) = crate::game_logic::host_rpg_trooper::rpg_trooper_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
+        if scattered {
+            self.rpg_trooper_scatter_applied =
+                self.rpg_trooper_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 6.0;
         let pid = self.create_object(TUNNEL_DEFENDER_MISSILE, team, start)?;
@@ -122463,6 +122517,93 @@ assert!(
             .and_then(|o| o.overlord_shell_aim)
             .expect("aim2");
         assert!((aim2[0] - 160.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn rpg_trooper_missile_scatters_vs_infantry() {
+        use crate::game_logic::host_rpg_trooper::RPG_TROOPER_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut r_tpl = ThingTemplate::new("GLAInfantryTunnelDefender");
+        r_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("GLAInfantryTunnelDefender".to_string(), r_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let rpg = logic
+            .create_object(
+                "GLAInfantryTunnelDefender",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("rpg");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(100.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 5.0, 0.0);
+        let msl = logic
+            .spawn_rpg_trooper_missile_projectile(rpg, from, aim, Some(inf))
+            .expect("missile");
+        assert!(logic.honesty_rpg_trooper_scatter_ok());
+        let m_aim = logic
+            .objects
+            .get(&msl)
+            .and_then(|o| o.rpg_trooper_missile_aim)
+            .expect("aim");
+        let d = ((m_aim[0] - aim.x).powi(2) + (m_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= RPG_TROOPER_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut t_tpl = ThingTemplate::new("AmericaTankCrusader");
+        t_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), t_tpl);
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(130.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.rpg_trooper_scatter_applied;
+        let msl2 = logic
+            .spawn_rpg_trooper_missile_projectile(
+                rpg,
+                from,
+                glam::Vec3::new(130.0, 0.0, 0.0),
+                Some(tank),
+            )
+            .expect("missile2");
+        assert_eq!(logic.rpg_trooper_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&msl2)
+            .and_then(|o| o.rpg_trooper_missile_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 130.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
 }

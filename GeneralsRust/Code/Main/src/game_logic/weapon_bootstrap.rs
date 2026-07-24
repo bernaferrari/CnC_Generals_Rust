@@ -1399,6 +1399,8 @@ fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
         || n.contains("rpg")
         || n.contains("tankhunter")
         || n.contains("tomahawk")
+        || n.contains("tunneldefender")
+        || n.contains("rocketweapon")
     {
         return 10.0;
     }
