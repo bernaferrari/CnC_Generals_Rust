@@ -1355,6 +1355,9 @@ pub struct Object {
     /// C++ Object::m_shroudClearingRange residual (CarBomb endow path).
     #[serde(default = "default_vision_range")]
     pub shroud_clearing_range: f32,
+    /// C++ Object::m_shroudRange residual (active enemy fogging radius).
+    #[serde(default)]
+    pub shroud_range: f32,
     /// C++ AutoAcquireEnemiesWhenIdle residual (AAS_Idle bit).
     #[serde(default = "default_true_for_auto_acquire")]
     pub auto_acquire_when_idle: bool,
@@ -1986,6 +1989,7 @@ impl Object {
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range: default_vision_range(),
             shroud_clearing_range: default_vision_range(),
+            shroud_range: 0.0,
             auto_acquire_when_idle: true,
             attack_priority_set: None,
             camo_friendly_opacity: 1.0,
@@ -2362,6 +2366,7 @@ impl Object {
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range: default_vision_range(),
             shroud_clearing_range: default_vision_range(),
+            shroud_range: 0.0,
             auto_acquire_when_idle: true,
             attack_priority_set: None,
             camo_friendly_opacity: 1.0,
@@ -3670,6 +3675,15 @@ impl Object {
         {
             self.fire_spread = Some(data);
         }
+    }
+
+    /// C++ Object::setShroudRange residual (ActiveShroudUpgrade).
+    pub fn set_shroud_range(&mut self, new_range: f32) {
+        self.shroud_range =
+            crate::game_logic::host_active_shroud_upgrade::apply_active_shroud_range(
+                self.shroud_range,
+                new_range,
+            );
     }
 
     pub fn install_animation_steering_if_needed(&mut self) {
