@@ -1529,6 +1529,8 @@ pub struct GameLogic {
     scud_missiles_spawned: u32,
     /// Honesty: TomahawkMissile projectiles spawned residual.
     tomahawk_missiles_spawned: u32,
+    /// Honesty: Tomahawk ScatterRadiusVsInfantry aim offsets applied.
+    tomahawk_scatter_applied: u32,
     /// Honesty: RocketBuggyMissile projectiles spawned residual.
     rocket_buggy_missiles_spawned: u32,
     /// Honesty: NeutronCannonShell projectiles spawned residual.
@@ -3128,6 +3130,7 @@ impl GameLogic {
             stealth_jet_missiles_spawned: 0,
             scud_missiles_spawned: 0,
             tomahawk_missiles_spawned: 0,
+            tomahawk_scatter_applied: 0,
             rocket_buggy_missiles_spawned: 0,
             neutron_shells_spawned: 0,
             rpg_trooper_missiles_spawned: 0,
@@ -3636,6 +3639,7 @@ impl GameLogic {
         self.stealth_jet_missiles_spawned = 0;
         self.scud_missiles_spawned = 0;
         self.tomahawk_missiles_spawned = 0;
+        self.tomahawk_scatter_applied = 0;
         self.rocket_buggy_missiles_spawned = 0;
         self.neutron_shells_spawned = 0;
         self.rpg_trooper_missiles_spawned = 0;
@@ -14510,6 +14514,7 @@ impl GameLogic {
                                         attacker_id,
                                         from,
                                         impact,
+                                        Some(target_id),
                                     )
                                     .is_some();
                                 let (hits, _destroyed_any) = if spawned {
@@ -16188,6 +16193,7 @@ impl GameLogic {
                                     attacker_id,
                                     from,
                                     target_location,
+                                    None,
                                 )
                                 .is_some();
                             let (hits, _) = if spawned {
@@ -33185,6 +33191,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     pub fn honesty_tomahawk_ok(&self) -> bool {
         self.tomahawk_residual_fires > 0
+            || self.tomahawk_missiles_spawned > 0
+            || self.tomahawk_scatter_applied > 0
+    }
+
+    /// Residual honesty: Tomahawk ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_tomahawk_scatter_ok(&self) -> bool {
+        self.tomahawk_scatter_applied > 0
     }
 
     pub fn tomahawk_residual_fires(&self) -> u32 {
@@ -38310,6 +38323,7 @@ fn update_scud_poison_zones(&mut self) {
         source_id: ObjectId,
         from: glam::Vec3,
         aim: glam::Vec3,
+        intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_height_die::HostHeightDieData;
         use crate::game_logic::host_tomahawk::{
@@ -38332,6 +38346,26 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on TomahawkMissileWeapon vs infantry (**20**).
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) = crate::game_logic::host_tomahawk::tomahawk_scatter_aim(
+            aim,
+            target_is_infantry,
+            seed,
+        );
+        if scattered {
+            self.tomahawk_scatter_applied = self.tomahawk_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + TOMAHAWK_PREFERRED_HEIGHT * 0.2;
         let pid = self.create_object(TOMAHAWK_MISSILE_PROJECTILE, team, start)?;
@@ -97233,6 +97267,7 @@ assert!(
                 src,
                 Vec3::new(0.0, 0.0, 0.0),
                 Vec3::new(150.0, 0.0, 0.0),
+                None,
             )
             .expect("tomahawk missile");
         {
@@ -101057,7 +101092,7 @@ assert!(
                 .unwrap_or(Vec3::new(200.0, 0.0, 0.0));
             assert!(
                 game_logic
-                    .spawn_tomahawk_missile_projectile(tom_id, from, aim)
+                    .spawn_tomahawk_missile_projectile(tom_id, from, aim, None)
                     .is_some(),
                 "direct TomahawkMissile spawn residual"
             );
@@ -123205,6 +123240,93 @@ assert!(
             .and_then(|o| o.technical_cannon_shell_aim)
             .expect("aim2");
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn tomahawk_missile_scatters_vs_infantry() {
+        use crate::game_logic::host_tomahawk::TOMAHAWK_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut t_tpl = ThingTemplate::new("AmericaVehicleTomahawk");
+        t_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(180.0);
+        logic
+            .templates
+            .insert("AmericaVehicleTomahawk".to_string(), t_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let tom = logic
+            .create_object(
+                "AmericaVehicleTomahawk",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tom");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::China,
+                glam::Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(200.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 6.0, 0.0);
+        let shell = logic
+            .spawn_tomahawk_missile_projectile(tom, from, aim, Some(inf))
+            .expect("missile");
+        assert!(logic.honesty_tomahawk_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.tomahawk_missile_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= TOMAHAWK_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut v_tpl = ThingTemplate::new("ChinaTankBattleMaster");
+        v_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("ChinaTankBattleMaster".to_string(), v_tpl);
+        let tank = logic
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                glam::Vec3::new(250.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.tomahawk_scatter_applied;
+        let shell2 = logic
+            .spawn_tomahawk_missile_projectile(
+                tom,
+                from,
+                glam::Vec3::new(250.0, 0.0, 0.0),
+                Some(tank),
+            )
+            .expect("missile2");
+        assert_eq!(logic.tomahawk_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.tomahawk_missile_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
 }
