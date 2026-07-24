@@ -1143,6 +1143,12 @@ pub struct Object {
     /// C++ RadarVanPing residual object.
     #[serde(default)]
     pub radar_van_ping: bool,
+    /// C++ FireWallSegment residual object.
+    #[serde(default)]
+    pub firewall_segment: bool,
+    /// Absolute frame when FireWallSegment DeletionUpdate residual expires.
+    #[serde(default)]
+    pub firewall_segment_expires_frame: Option<u32>,
     /// Absolute frame when RadarVanPing DeletionUpdate residual expires.
     #[serde(default)]
     pub radar_van_ping_expires_frame: Option<u32>,
@@ -1861,6 +1867,8 @@ impl Object {
             spy_satellite_ping_expires_frame: None,
             radar_van_ping: false,
             radar_van_ping_expires_frame: None,
+            firewall_segment: false,
+            firewall_segment_expires_frame: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2274,6 +2282,8 @@ impl Object {
             spy_satellite_ping_expires_frame: None,
             radar_van_ping: false,
             radar_van_ping_expires_frame: None,
+            firewall_segment: false,
+            firewall_segment_expires_frame: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
