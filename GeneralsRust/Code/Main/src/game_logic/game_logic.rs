@@ -27364,15 +27364,17 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let mut destroy = Vec::new();
         let mut intermediate_hits = 0u32;
         for id in ids {
-            let (grounded, phase) = {
+            let (grounded, phase, is_cruise, producer, launch_fx, ignition_fx) = {
                 let Some(o) = self.objects.get_mut(&id) else {
                     continue;
                 };
                 let pos = o.get_position();
+                let producer = o.producer_id;
                 let Some(data) = o.neutron_missile_update.as_mut() else {
                     continue;
                 };
                 let was_inter = data.reached_intermediate;
+                let is_cruise = data.is_cruise;
                 let tick = data.tick(pos, self.frame);
                 if !was_inter && data.reached_intermediate {
                     intermediate_hits += 1;
@@ -27381,6 +27383,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                 let phase = tick.phase;
                 let new_pos = tick.pos;
                 let vel = tick.vel;
+                let launch_fx = tick.launch_fx;
+                let ignition_fx = tick.ignition_fx;
                 drop(data);
                 o.set_position(new_pos);
                 o.movement.velocity = vel;
@@ -27388,23 +27392,77 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                     let yaw = vel.z.atan2(vel.x);
                     o.set_orientation(yaw);
                 }
-                (grounded, phase)
+                (grounded, phase, is_cruise, producer, launch_fx, ignition_fx)
             };
+            if launch_fx || ignition_fx {
+                let p = self
+                    .objects
+                    .get(&id)
+                    .map(|o| o.get_position())
+                    .unwrap_or(Vec3::ZERO);
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    p,
+                    self.frame,
+                    Some(id),
+                    None,
+                );
+            }
             if grounded || matches!(phase, NeutronMissileFlightPhase::Dead) {
-                // Impact: C++ NeutronMissileSlowDeath blast field + die residuals.
+                // Impact residuals: neutron SlowDeath vs cruise MOAB detonation.
                 let (pos, team, producer) = self
                     .objects
                     .get(&id)
-                    .map(|o| (o.get_position(), o.team, o.producer_id))
-                    .unwrap_or((Vec3::ZERO, Team::Neutral, None));
+                    .map(|o| (o.get_position(), o.team, o.producer_id.or(producer)))
+                    .unwrap_or((Vec3::ZERO, Team::Neutral, producer));
                 let source = producer.unwrap_or(id);
-                self.special_power_strikes.spawn_neutron_slow_death_field(
-                    source,
-                    team,
-                    pos,
-                    self.frame,
-                    0,
-                );
+                // Kill delivery decals on missile + launcher.
+                if let Some(o) = self.objects.get_mut(&id) {
+                    if let Some(rd) = o.radius_decal_update.as_mut() {
+                        rd.kill_radius_decal();
+                        self.radius_decal_update_reg.record_kill(false);
+                    }
+                }
+                if let Some(lid) = producer {
+                    if let Some(o) = self.objects.get_mut(&lid) {
+                        if let Some(rd) = o.radius_decal_update.as_mut() {
+                            rd.kill_radius_decal();
+                            self.radius_decal_update_reg.record_kill(false);
+                        }
+                    }
+                }
+                if is_cruise {
+                    use crate::game_logic::special_power_strikes::{
+                        CRUISE_MISSILE_DAMAGE, CRUISE_MISSILE_RADIUS, MOAB_FLAME_DAMAGE,
+                    };
+                    use crate::game_logic::combat::DamageType;
+                    self.apply_fuel_air_radius_damage(
+                        id,
+                        producer,
+                        team,
+                        pos,
+                        CRUISE_MISSILE_DAMAGE,
+                        CRUISE_MISSILE_RADIUS,
+                        DamageType::Explosive,
+                    );
+                    self.apply_fuel_air_radius_damage(
+                        id,
+                        producer,
+                        team,
+                        pos,
+                        MOAB_FLAME_DAMAGE,
+                        CRUISE_MISSILE_RADIUS,
+                        DamageType::Flame,
+                    );
+                } else {
+                    self.special_power_strikes.spawn_neutron_slow_death_field(
+                        source,
+                        team,
+                        pos,
+                        self.frame,
+                        0,
+                    );
+                }
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.fire_create_object_die();
                     o.fire_fx_list_die();
@@ -77057,6 +77115,64 @@ mod tests {
         assert!(debris, "shell debris should spawn");
     }
 
+
+
+    #[test]
+    fn cruise_missile_moab_impact_not_neutron_field() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut enemy = crate::game_logic::ThingTemplate::new("GLATankScorpion");
+        enemy.add_kind_of(KindOf::Vehicle).set_health(500.0);
+        logic.templates.insert("GLATankScorpion".into(), enemy);
+        let launcher = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let foe = logic
+            .create_object("GLATankScorpion", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .unwrap();
+        let hp0 = logic.find_object(foe).unwrap().health.current;
+        let proj = logic
+            .execute_ocl_fire_weapon(
+                "SUPERWEAPON_CruiseMissile",
+                launcher,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("cruise");
+        assert!(
+            logic
+                .find_object(proj)
+                .unwrap()
+                .neutron_missile_update
+                .as_ref()
+                .map(|d| d.is_cruise)
+                .unwrap_or(false)
+        );
+        let neutron0 = logic.special_power_strikes.neutron_slow_death_spawned_total();
+        for f in 0..600 {
+            logic.frame = f;
+            logic.update_neutron_missile_flights();
+            if logic.neutron_missile_update_reg.grounded >= 1 {
+                break;
+            }
+        }
+        assert!(logic.neutron_missile_update_reg.grounded >= 1);
+        assert_eq!(
+            logic.special_power_strikes.neutron_slow_death_spawned_total(),
+            neutron0,
+            "cruise must not spawn neutron SlowDeath field"
+        );
+        let foe_hp = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
+        assert!(
+            foe_hp < hp0 || logic.find_object(foe).map(|o| !o.is_alive()).unwrap_or(true),
+            "MOAB residual should damage nearby enemy"
+        );
+    }
 
     #[test]
     fn neutron_missile_loft_reaches_ground() {
