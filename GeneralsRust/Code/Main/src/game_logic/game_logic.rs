@@ -21192,6 +21192,9 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
                                 obj.producer_id = Some(tid);
                             }
                         }
+                        // C++ CreateObjectDie + HeightDie on fuel-air / daisy payloads.
+                        obj.ensure_create_object_die();
+                        obj.ensure_height_die(self.frame);
                     }
                     self.ocl_special_power_reg.record_payload_spawn();
                 } else {
@@ -23413,7 +23416,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// C++ FireWeaponWhenDamagedBehavior forceFireWeapon residual at object position.
 
     /// C++ CreateObjectDie::onDie residual — spawn OCL templates at dying object.
-    fn apply_pending_create_object_die(&mut self, dying_id: ObjectId) {
+    pub fn apply_pending_create_object_die(&mut self, dying_id: ObjectId) {
         let (spawns, transfer_dmg, transfer, team, pos) = {
             let Some(o) = self.objects.get_mut(&dying_id) else {
                 return;
@@ -23466,6 +23469,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             let Some(new_id) = self.create_object(&tmpl, team, pos) else {
                 continue;
             };
+            // C++ CreateObject Disposition=LIKE_EXISTING residual: copy pose.
+            if let Some(dying) = self.objects.get(&dying_id) {
+                let yaw = dying.get_orientation();
+                if let Some(n) = self.objects.get_mut(&new_id) {
+                    n.set_orientation(yaw);
+                    n.producer_id = Some(dying_id);
+                }
+            }
             if transfer && transfer_dmg > 0.0 {
                 if let Some(n) = self.objects.get_mut(&new_id) {
                     let _ = n.take_damage_from_typed(
@@ -76681,6 +76692,36 @@ mod tests {
         assert!(logic.ocl_create_debris_reg.debris_spawned >= 3);
         assert!(logic.ocl_create_debris_reg.flying_forces >= 1);
         assert!(crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok());
+    }
+
+
+    #[test]
+    fn daisy_bomb_create_object_die_spawns_gas() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut bomb = crate::game_logic::ThingTemplate::new("DaisyCutterBomb");
+        bomb.add_kind_of(KindOf::Projectile).set_health(10.0);
+        logic.templates.insert("DaisyCutterBomb".into(), bomb);
+        let id = logic
+            .create_object("DaisyCutterBomb", Team::USA, Vec3::new(50.0, 40.0, 50.0))
+            .expect("bomb");
+        {
+            let o = logic.objects.get_mut(&id).unwrap();
+            o.ensure_create_object_die();
+            o.fire_create_object_die();
+        }
+        logic.apply_pending_create_object_die(id);
+        let gas = logic
+            .objects
+            .values()
+            .any(|o| o.template_name.contains("FuelAirGas") || o.template_name.contains("Gas"));
+        let debris = logic
+            .objects
+            .values()
+            .any(|o| o.template_name.contains("Debris"));
+        assert!(gas, "FuelAir gas should spawn from DaisyCutterBomb CreateObjectDie");
+        assert!(debris, "shell debris should spawn");
     }
 
     #[test]
