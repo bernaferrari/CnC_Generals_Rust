@@ -147,6 +147,7 @@ pub mod host_demo_suicide_bomb;
 mod host_deploy_style;
 pub mod host_dock_contain_exit_heal_residual;
 pub mod host_dragon_tank;
+pub mod host_drawable_display_client_residual_wave111;
 pub mod host_ecm_jam;
 pub mod host_emergency_repair;
 pub mod host_emp_pulse;
