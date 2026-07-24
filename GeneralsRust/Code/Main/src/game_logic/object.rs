@@ -1212,6 +1212,9 @@ pub struct Object {
     /// Absolute frame when StealthJetMissile KillSelfDelay residual expires.
     #[serde(default)]
     pub stealth_jet_missile_expires_frame: Option<u32>,
+    /// C++ JetAIUpdate ClipReload airfield rearm ready frame residual.
+    #[serde(default)]
+    pub airfield_rearm_ready_frame: Option<u32>,
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
@@ -1979,6 +1982,7 @@ impl Object {
             comanche_rocket_pod_projectile_expires_frame: None,
             stealth_jet_missile_projectile: false,
             stealth_jet_missile_expires_frame: None,
+            airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -2424,6 +2428,7 @@ impl Object {
             comanche_rocket_pod_projectile_expires_frame: None,
             stealth_jet_missile_projectile: false,
             stealth_jet_missile_expires_frame: None,
+            airfield_rearm_ready_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -9379,6 +9384,28 @@ impl Object {
             .template
             .primary_weapon_name
             .as_deref())
+    }
+
+    /// Max ClipReload frames among empty RETURN_TO_BASE weapons (C++ airfield rearm).
+    pub fn airfield_rearm_clip_reload_frames(&self) -> u32 {
+        let mut frames = 0u32;
+        let consider = |w: &Weapon, acc: &mut u32| {
+            if matches!(w.ammo, Some(0)) {
+                let f = if w.clip_reload_time > 0.0 {
+                    (w.clip_reload_time * 30.0).round() as u32
+                } else {
+                    0
+                };
+                *acc = (*acc).max(f);
+            }
+        };
+        if let Some(w) = self.weapon.as_ref() {
+            consider(w, &mut frames);
+        }
+        if let Some(w) = self.secondary_weapon.as_ref() {
+            consider(w, &mut frames);
+        }
+        frames
     }
 
     pub fn needs_return_to_base_rearm(&self) -> bool {

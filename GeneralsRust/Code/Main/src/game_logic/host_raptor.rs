@@ -25,7 +25,7 @@
 //! - Clip residual: standard ClipReload **8000**ms → **240**f / King **2000**ms → **60**f.
 //!
 //! Fail-closed honesty:
-//! - Not full JetAIUpdate RETURN_TO_BASE / ClipReload 8000ms airfield rearm matrix
+//! - JetAIUpdate RETURN_TO_BASE ClipReload airfield rearm residual (8000ms/2000ms King)
 //! - Not full ScatterRadiusVsInfantry / projectile exhaust FX matrix
 //! - Not full CountermeasuresBehavior flare volley residual
 //! - Not network laser-missiles / raptor fire replication (network deferred)
@@ -299,8 +299,12 @@ pub fn raptor_weapon(is_king: bool, has_laser_missiles: bool) -> Weapon {
         can_target_ground: true,
         projectile_speed: RAPTOR_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
-        clip_size: 0,
-        clip_reload_time: 0.0,
+        clip_size: raptor_clip_size(is_king),
+        clip_reload_time: delay_frames_to_reload_secs(if is_king {
+            KING_RAPTOR_CLIP_RELOAD_FRAMES
+        } else {
+            RAPTOR_CLIP_RELOAD_FRAMES
+        }),
         splash_radius: 0.0,
     }
 }
