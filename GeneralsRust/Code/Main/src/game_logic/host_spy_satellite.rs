@@ -13,7 +13,7 @@
 //! - Honesty counters/flags for residual gates and tests.
 //!
 //! Fail-closed honesty:
-//! - Not full OCL SpySatellitePing Object spawn / GridDecalTemplate GPU path
+//! - SpySatellitePing object spawn residual closed (GridDecalTemplate GPU fail-closed)
 //! - Not multiplayer shared-synced timer / academy / shortcut UI / radius cursor
 //! - Not Common `Radar` minimap-cell scan list Xfer tables
 //! - Not CIA Intelligence / SpyVisionUpdate setUnitsVisionSpied enemy-vision path
@@ -225,6 +225,8 @@ pub struct HostSpySatelliteRegistry {
     pub dynamic_shroud_applications: u32,
     /// StealthDetector residual applications on activate (honesty).
     pub stealth_detector_applications: u32,
+    /// Honesty: SpySatellitePing objects spawned.
+    pub pings_spawned: u32,
 }
 
 impl HostSpySatelliteRegistry {
@@ -309,6 +311,14 @@ impl HostSpySatelliteRegistry {
     /// Residual honesty: at least one scan activated.
     pub fn honesty_activate_ok(&self) -> bool {
         self.activations > 0
+    }
+
+    pub fn record_ping_spawn(&mut self) {
+        self.pings_spawned = self.pings_spawned.saturating_add(1);
+    }
+
+    pub fn honesty_ping_ok(&self) -> bool {
+        self.pings_spawned > 0
     }
 
     /// Residual honesty: FOW reveal was observed at least once.
