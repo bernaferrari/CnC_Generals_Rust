@@ -30973,7 +30973,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         /// C++ ObjectCreationList::create residual after OCLSpecialPower plan.
     ///
     /// Spawns transport at creation_coord (DeliverPayload) or CreateObject names
-    /// at target (SpyDrone). Payload object is tagged at target for drop residual.
+    /// at target (SpyDrone). Payload object is tagged at target for drop residual
+    /// unless TransportOnly mode (Leaflet/Paradrop host owns impact).
     pub fn execute_ocl_special_power(
         &mut self,
         power_template: &str,
@@ -30981,14 +30982,19 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         target_pos: Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_ocl_special_power::{
-            create_object_for_ocl, deliver_payload_for_ocl,
+            create_object_for_ocl, deliver_payload_for_ocl, ocl_execute_mode_for_template,
+            OclExecuteMode,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let plan = self.plan_ocl_special_power(power_template, caster_id, target_pos)?;
         let team = self.objects.get(&caster_id)?.team;
+        let mode = ocl_execute_mode_for_template(power_template);
 
-        if let Some(create) = create_object_for_ocl(&plan.ocl_name) {
+        if create_object_for_ocl(&plan.ocl_name).is_some()
+            || matches!(mode, OclExecuteMode::CreateObject)
+        {
+            let create = create_object_for_ocl(&plan.ocl_name)?;
             let mut last = None;
             for name in &create.object_names {
                 for _ in 0..create.count.max(1) {
@@ -31012,7 +31018,6 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
 
         let deliver = deliver_payload_for_ocl(&plan.ocl_name)?;
-        // Spawn transport at creation edge/above.
         if !self.templates.contains_key(&deliver.transport) {
             let mut tpl = ThingTemplate::new(&deliver.transport);
             tpl.add_kind_of(KindOf::Aircraft)
@@ -31024,7 +31029,6 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         let transport_id = self.create_object(&deliver.transport, team, plan.creation_coord)?;
         if let Some(t) = self.objects.get_mut(&transport_id) {
             t.producer_id = Some(caster_id);
-            // Orient toward target (host XZ).
             let p = t.get_position();
             let yaw = (plan.target_coord.z - p.z).atan2(plan.target_coord.x - p.x);
             t.set_orientation(yaw);
@@ -31036,17 +31040,16 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
         self.ocl_special_power_reg.record_transport_spawn();
 
-        // Payload residual at target (bomb/leaflet container) — drop point.
+        if mode == OclExecuteMode::TransportOnly {
+            return Some(transport_id);
+        }
+
         if !self.templates.contains_key(&deliver.payload) {
             let mut tpl = ThingTemplate::new(&deliver.payload);
-            if deliver.payload.to_ascii_lowercase().contains("bomb")
-                || deliver.payload.to_ascii_lowercase().contains("moab")
-                || deliver.payload.to_ascii_lowercase().contains("missile")
-            {
+            let pl = deliver.payload.to_ascii_lowercase();
+            if pl.contains("bomb") || pl.contains("moab") || pl.contains("missile") {
                 tpl.add_kind_of(KindOf::Projectile);
-            } else if deliver.payload.to_ascii_lowercase().contains("infantry")
-                || deliver.payload.to_ascii_lowercase().contains("ranger")
-            {
+            } else if pl.contains("infantry") || pl.contains("ranger") {
                 tpl.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable);
             } else {
                 tpl.add_kind_of(KindOf::Vehicle);
@@ -31059,7 +31062,6 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         if let Some(pid) = self.create_object(&deliver.payload, team, payload_pos) {
             if let Some(o) = self.objects.get_mut(&pid) {
                 o.producer_id = Some(transport_id);
-                // Smart bomb course residual when applicable.
                 let _ = o.set_smart_bomb_target(plan.target_coord);
             }
             self.ocl_special_power_reg.record_payload_spawn();
@@ -31067,7 +31069,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         Some(transport_id)
     }
 
-pub fn plan_ocl_special_power(
+    pub fn plan_ocl_special_power(
         &mut self,
         power_template: &str,
         caster_id: ObjectId,
@@ -47360,6 +47362,14 @@ fn update_scud_poison_zones(&mut self) {
             unit_count,
         );
 
+        // C++ OCLSpecialPower DeliverPayload residual: cargo plane transport only;
+        // infantry drop remains host_paradrops-owned.
+        let _ = self.execute_ocl_special_power(
+            "SuperweaponParadropAmerica",
+            source_object,
+            target_position,
+        );
+
         // DeliverPayload cargo residual bookkeeping (AmericaJetCargoPlane honesty).
         // Infantry spawn remains owned by host_paradrops; this records the cargo
         // plane mission residual for host path honesty without full aircraft flight.
@@ -47652,6 +47662,14 @@ fn update_scud_poison_zones(&mut self) {
         let id =
             self.host_leaflet_drops
                 .queue(kind, source_object, source_team, target_position, frame);
+
+        // C++ OCLSpecialPower DeliverPayload residual: B52 transport only;
+        // LeafletDropBehavior disable residual remains host-owned.
+        let _ = self.execute_ocl_special_power(
+            "SuperweaponLeafletDrop",
+            source_object,
+            target_position,
+        );
 
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
@@ -76082,6 +76100,39 @@ mod tests {
         assert!(logic.ocl_special_power_reg.transports_spawned >= 1);
         assert!(logic.ocl_special_power_reg.payloads_spawned >= 1);
         assert!(logic.honesty_ocl_special_power_ok());
+    }
+
+    #[test]
+    fn ocl_special_power_leaflet_transport_only() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic
+            .templates
+            .insert("AmericaCommandCenter".to_string(), cc);
+        let id = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                Vec3::new(10.0, 0.0, 10.0),
+            )
+            .expect("cc");
+        let before_payload = logic.ocl_special_power_reg.payloads_spawned;
+        let transport = logic
+            .execute_ocl_special_power(
+                "SuperweaponLeafletDrop",
+                id,
+                Vec3::new(250.0, 0.0, 250.0),
+            )
+            .expect("leaflet transport");
+        let t = logic.find_object(transport).unwrap();
+        assert!(t.template_name.contains("B52"));
+        assert_eq!(
+            logic.ocl_special_power_reg.payloads_spawned, before_payload,
+            "Leaflet is TransportOnly — host owns LeafletContainer disable residual"
+        );
     }
 
     #[test]
