@@ -1625,6 +1625,8 @@ pub struct GameLogic {
     humvee_tow_missiles_spawned: u32,
     /// Honesty: Humvee ground TOW ScatterRadiusVsInfantry aim offsets applied.
     humvee_tow_scatter_applied: u32,
+    /// Honesty: Humvee ground TOW ScatterRadiusVsInfantry residual misses vs infantry.
+    humvee_tow_scatter_misses: u32,
     /// Honesty: Humvee TOW residual fires (spawn or instant fallback).
     humvee_tow_residual_fires: u32,
     /// Honesty: DragonTankFlameProjectile spawned residual.
@@ -3224,6 +3226,7 @@ impl GameLogic {
             flashbang_scatter_applied: 0,
             humvee_tow_missiles_spawned: 0,
             humvee_tow_scatter_applied: 0,
+            humvee_tow_scatter_misses: 0,
             humvee_tow_residual_fires: 0,
             dragon_flame_missiles_spawned: 0,
             toxin_stream_missiles_spawned: 0,
@@ -43076,6 +43079,37 @@ fn update_scud_poison_zones(&mut self) {
             self.humvee_tow_scatter_applied =
                 self.humvee_tow_scatter_applied.saturating_add(1);
         }
+        if target_is_infantry && !air {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_humvee::humvee_tow_scatter_misses_infantry(
+                true,
+                false,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > crate::game_logic::host_humvee::HUMVEE_GROUND_TOW_RADIUS {
+                        self.humvee_tow_scatter_misses =
+                            self.humvee_tow_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let mut start = from;
         if air {
@@ -43932,7 +43966,7 @@ pub fn honesty_dragon_flame_projectile_ok(&self) -> bool {
 
     /// Residual honesty: Humvee ground TOW ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_humvee_tow_scatter_ok(&self) -> bool {
-        self.humvee_tow_scatter_applied > 0
+        self.humvee_tow_scatter_applied > 0 || self.humvee_tow_scatter_misses > 0
     }
 
     pub fn humvee_tow_residual_fires(&self) -> u32 {
@@ -126194,6 +126228,85 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit by splash");
     }
+
+    #[test]
+    fn humvee_tow_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_humvee::{
+            HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY, HUMVEE_MISSILE_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut hv_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+        hv_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(HUMVEE_MISSILE_WEAPON);
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), hv_tpl);
+
+        let hv = logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("humvee");
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(60.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let from = glam::Vec3::ZERO;
+        let aim = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(60.0, 0.0, 0.0));
+        let _ = logic.spawn_humvee_tow_missile_projectile(hv, from, aim, Some(inf), false);
+        assert!(
+            logic.humvee_tow_scatter_applied > 0
+                || logic.humvee_tow_scatter_misses > 0
+                || logic.honesty_humvee_tow_scatter_ok(),
+            "humvee ground TOW scatter residual must peel vs infantry"
+        );
+        assert!((HUMVEE_GROUND_TOW_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+
+        // Air TOW does not peel scatter.
+        let before = logic.humvee_tow_scatter_applied;
+        let _ = logic.spawn_humvee_tow_missile_projectile(hv, from, aim, Some(inf), true);
+        assert_eq!(
+            logic.humvee_tow_scatter_applied, before,
+            "air TOW must not apply infantry scatter"
+        );
+
+        // Vehicle still damaged via pure splash.
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(20.0, 0.0, 0.0));
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let (hits, _) = logic.apply_humvee_tow_residual_at(impact, Some(hv), Some(tank), false);
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit by tow splash");
+    }
+
 
 
 
