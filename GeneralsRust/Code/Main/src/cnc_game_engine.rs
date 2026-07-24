@@ -2734,6 +2734,24 @@ impl CnCGameEngine {
                     "open_challenge_menu_ok".into()
                 };
             }
+            "click_challenge_start" => {
+                // Retail ChallengeMenu general select + ButtonPlay residual.
+                let general = args
+                    .get("general")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(0);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok =
+                        game_client::gui::callbacks::simulate_challenge_menu_prepare_start(general);
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "click_challenge_start_ok_wnd".into()
+                } else {
+                    "click_challenge_start_miss".into()
+                };
+            }
             "start_game" => {
                 let mode = Self::parse_runtime_host_mode(args.get("mode").map(String::as_str));
                 let map = args

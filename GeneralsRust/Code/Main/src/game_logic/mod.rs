@@ -128,6 +128,7 @@ pub mod host_booby_trap;
 pub mod host_bunker_buster;
 pub mod host_car_bomb;
 pub mod host_cash_bounty;
+pub mod host_challenge_menu_residual_wave120;
 pub mod host_cia_intelligence;
 pub mod host_cleanup_area;
 pub mod host_colonel_burton;
@@ -1421,6 +1422,11 @@ impl Default for Weapon {
         }
     }
 }
+pub use host_challenge_menu_residual_wave120::{
+    honesty_challenge_menu_control_names_residual_wave120,
+    honesty_challenge_menu_nav_commands_residual_wave120,
+    honesty_challenge_menu_residual_pack_wave120,
+};
 pub use host_gadget_video_audio_residual_wave113::{
     honesty_audio_event_residual_wave113, honesty_gadget_residual_wave113,
     honesty_gadget_video_audio_residual_pack_wave113, honesty_game_window_manager_residual_wave113,
