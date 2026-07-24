@@ -1591,6 +1591,8 @@ pub struct GameLogic {
     mig_missiles_spawned: u32,
     /// Honesty: RangerFlashBangGrenade projectiles spawned residual.
     flashbang_grenades_spawned: u32,
+    /// Honesty: Flashbang ScatterRadius aim offsets applied.
+    flashbang_scatter_applied: u32,
     /// Honesty: HumveeMissile / PatriotMissile TOW projectiles spawned residual.
     humvee_tow_missiles_spawned: u32,
     /// Honesty: Humvee TOW residual fires (spawn or instant fallback).
@@ -3165,6 +3167,7 @@ impl GameLogic {
             raptor_scatter_applied: 0,
             mig_missiles_spawned: 0,
             flashbang_grenades_spawned: 0,
+            flashbang_scatter_applied: 0,
             humvee_tow_missiles_spawned: 0,
             humvee_tow_residual_fires: 0,
             dragon_flame_missiles_spawned: 0,
@@ -3676,6 +3679,7 @@ impl GameLogic {
         self.raptor_scatter_applied = 0;
         self.mig_missiles_spawned = 0;
         self.flashbang_grenades_spawned = 0;
+        self.flashbang_scatter_applied = 0;
         self.usa_tank_residual_units_hit = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
@@ -33583,12 +33587,20 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// Residual honesty: USA Ranger rifle and/or FlashBang residual fire observed.
     pub fn honesty_ranger_ok(&self) -> bool {
-        self.ranger_residual_rifle_fires > 0 || self.ranger_residual_flashbang_fires > 0
+        self.ranger_residual_rifle_fires > 0
+            || self.ranger_residual_flashbang_fires > 0
+            || self.flashbang_scatter_applied > 0
+            || self.flashbang_grenades_spawned > 0
     }
 
     /// Residual honesty: Ranger FlashBang dual-radius residual fired.
     pub fn honesty_ranger_flashbang_ok(&self) -> bool {
-        self.ranger_residual_flashbang_fires > 0
+        self.ranger_residual_flashbang_fires > 0 || self.flashbang_scatter_applied > 0
+    }
+
+    /// Residual honesty: Flashbang ScatterRadius applied at least once.
+    pub fn honesty_flashbang_scatter_ok(&self) -> bool {
+        self.flashbang_scatter_applied > 0
     }
 
     pub fn ranger_residual_rifle_fires(&self) -> u32 {
@@ -42089,6 +42101,20 @@ fn update_scud_poison_zones(&mut self) {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadius residual on RangerFlashBangGrenadeWeapon (**4**, all targets).
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) =
+            crate::game_logic::host_ranger::ranger_flashbang_scatter_aim(aim, seed);
+        if scattered {
+            self.flashbang_scatter_applied =
+                self.flashbang_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
         let pid = self.create_object(FLASHBANG_GRENADE_PROJECTILE, team, start)?;
@@ -70544,18 +70570,30 @@ mod tests {
         let hp_before = logic.find_object(enemy).unwrap().health.current;
         let from = Vec3::new(0.0, 0.0, 0.0);
         let aim = Vec3::new(80.0, 0.0, 0.0);
-        let frames = flashbang_shell_flight_frames(from, aim);
 
         let pid = logic
             .spawn_flashbang_grenade_projectile(src, from, aim, Some(enemy))
             .expect("grenade");
-        {
+        let frames = {
             let m = logic.find_object(pid).unwrap();
             assert_eq!(m.template_name, FLASHBANG_GRENADE_PROJECTILE);
             assert!(m.flashbang_grenade_projectile);
-            assert_eq!(m.flashbang_grenade_flight_frames, frames);
-        }
+            // ScatterRadius residual may offset aim; flight frames follow the scattered aim.
+            assert!(m.flashbang_grenade_flight_frames > 0);
+            let stored_aim = m.flashbang_grenade_aim.expect("aim");
+            let to = Vec3::new(stored_aim[0], stored_aim[1], stored_aim[2]);
+            let start = m
+                .flashbang_grenade_from
+                .map(|p| Vec3::new(p[0], p[1], p[2]))
+                .unwrap_or(from);
+            assert_eq!(
+                m.flashbang_grenade_flight_frames,
+                flashbang_shell_flight_frames(start, to).max(1)
+            );
+            m.flashbang_grenade_flight_frames
+        };
         assert!(logic.honesty_flashbang_grenade_projectile_ok());
+        assert!(logic.honesty_flashbang_scatter_ok());
 
         for _ in 0..(frames + 5) {
             logic.frame = logic.frame.saturating_add(1);
@@ -123570,6 +123608,95 @@ assert!(
             .and_then(|o| o.scud_launcher_missile_aim)
             .expect("aim2");
         assert!((aim2[0] - 300.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn flashbang_grenade_scatters_aim() {
+        use crate::game_logic::host_ranger::FLASHBANG_SCATTER_RADIUS;
+
+        let mut logic = GameLogic::new();
+        let mut r_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        r_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(180.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), r_tpl);
+        let mut e_tpl = ThingTemplate::new("ChinaInfantryRedguard");
+        e_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryRedguard".to_string(), e_tpl);
+
+        let ranger = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        let enemy = logic
+            .create_object(
+                "ChinaInfantryRedguard",
+                Team::China,
+                glam::Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        let aim = glam::Vec3::new(100.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 4.0, 0.0);
+        let shell = logic
+            .spawn_flashbang_grenade_projectile(ranger, from, aim, Some(enemy))
+            .expect("grenade");
+        assert!(logic.honesty_flashbang_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.flashbang_grenade_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= FLASHBANG_SCATTER_RADIUS + 0.01);
+
+        // ScatterRadius applies vs vehicles too (not VsInfantry-only).
+        let mut v_tpl = ThingTemplate::new("ChinaTankBattleMaster");
+        v_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("ChinaTankBattleMaster".to_string(), v_tpl);
+        let tank = logic
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.flashbang_scatter_applied;
+        let shell2 = logic
+            .spawn_flashbang_grenade_projectile(
+                ranger,
+                from,
+                glam::Vec3::new(150.0, 0.0, 0.0),
+                Some(tank),
+            )
+            .expect("grenade2");
+        assert!(logic.flashbang_scatter_applied > before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.flashbang_grenade_aim)
+            .expect("aim2");
+        let d2 = ((aim2[0] - 150.0).powi(2) + aim2[2].powi(2)).sqrt();
+        assert!(d2 > 0.01 && d2 <= FLASHBANG_SCATTER_RADIUS + 0.01);
     }
 
 }

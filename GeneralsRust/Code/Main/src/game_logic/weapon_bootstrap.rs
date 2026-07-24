@@ -1369,6 +1369,10 @@ fn seed_scatter_radius_for(name: &str) -> f32 {
     if n.contains("scudstorm") && n.contains("weapon") && !n.contains("damage") {
         return 0.0;
     }
+    // Flashbang residual ScatterRadius **4** (applies to all targets).
+    if n.contains("flashbang") || n.contains("flash_bang") {
+        return 4.0;
+    }
     0.0
 }
 
