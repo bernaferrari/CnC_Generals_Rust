@@ -189,6 +189,7 @@ pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
 pub mod host_marauder;
+pub mod host_message_stream_meta_ingameui_residual_wave110;
 pub mod host_microwave;
 pub mod host_mig;
 pub mod host_mines;
@@ -596,6 +597,12 @@ pub use host_marauder::{
     marauder_weapon_stats, should_apply_marauder_residual, MarauderWeaponTier, MARAUDER_DAMAGE,
     MARAUDER_RANGE, MARAUDER_TANK_GUN, MARAUDER_TANK_GUN_UPGRADE_ONE,
     MARAUDER_TANK_GUN_UPGRADE_TWO,
+};
+pub use host_message_stream_meta_ingameui_residual_wave110::{
+    honesty_game_message_argument_type_residual_wave110, honesty_ingame_ui_residual_wave110,
+    honesty_message_stream_marker_residual_wave110,
+    honesty_message_stream_meta_ingameui_residual_pack_wave110,
+    honesty_meta_event_category_residual_wave110,
 };
 pub use host_mines::{
     can_clear_mine_kind, demo_trap_damage_at, demo_trap_profile, is_mine_clearer, DemoTrapProfile,
