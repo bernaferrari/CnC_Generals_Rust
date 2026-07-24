@@ -284,6 +284,9 @@ pub struct Object {
 
     /// Object status
     pub status: ObjectStatus,
+    /// C++ ObjectStatusMaskType residual bits (StatusBitsUpgrade set/clear).
+    #[serde(default)]
+    pub object_status_bits: u64,
     /// C++ ModelConditionFlags residual bits (ALLOW_SURRENDER-off index layout).
     #[serde(default)]
     pub model_condition_bits: u128,
@@ -1629,6 +1632,7 @@ impl Object {
             team,
             name: String::new(),
             status: ObjectStatus::default(),
+            object_status_bits: 0,
             model_condition_bits: 0,
             radar_extend_done_frame: 0,
             radar_extend_complete: false,
@@ -2000,6 +2004,7 @@ impl Object {
             team,
             name: String::new(),
             status: ObjectStatus::default(),
+            object_status_bits: 0,
             model_condition_bits: 0,
             radar_extend_done_frame: 0,
             radar_extend_complete: false,
@@ -12066,6 +12071,56 @@ impl Object {
     pub fn set_status_disabled_subdued(&mut self, v: bool) {
         self.status.disabled_subdued = v;
         crate::game_logic::host_status_log::record_disabled_subdued(self.id, v);
+    }
+
+    /// C++ Object::setStatus / clearStatus residual via StatusBitsUpgrade.
+    pub fn apply_status_bits_upgrade_masks(
+        &mut self,
+        set_names: &[&str],
+        clear_names: &[&str],
+    ) -> (u32, u32) {
+        use crate::game_logic::host_status_bits_upgrade::{
+            apply_status_bits_upgrade, object_status_mask_from_names, status_bits_has,
+        };
+        let before = self.object_status_bits;
+        self.object_status_bits =
+            apply_status_bits_upgrade(self.object_status_bits, set_names, clear_names);
+        // Mirror a few high-traffic bits onto ObjectStatus bools.
+        if status_bits_has(self.object_status_bits, "DESTROYED") {
+            self.status.destroyed = true;
+        }
+        if status_bits_has(self.object_status_bits, "UNDER_CONSTRUCTION") {
+            self.status.under_construction = true;
+        } else if set_names.iter().any(|n| n.eq_ignore_ascii_case("UNDER_CONSTRUCTION"))
+            || clear_names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case("UNDER_CONSTRUCTION"))
+        {
+            // cleared path
+            if !status_bits_has(self.object_status_bits, "UNDER_CONSTRUCTION") {
+                self.status.under_construction = false;
+            }
+        }
+        if status_bits_has(self.object_status_bits, "REPULSOR") {
+            self.status.repulsor = true;
+        }
+        if status_bits_has(self.object_status_bits, "SOLD") {
+            // best-effort: sold residual if field exists
+            let _ = self.status.sold;
+            self.status.sold = true;
+        }
+        let set_m = object_status_mask_from_names(set_names);
+        let clear_m = object_status_mask_from_names(clear_names);
+        let set_count = set_m.count_ones();
+        let clear_count = (before & clear_m).count_ones();
+        (set_count, clear_count)
+    }
+
+    pub fn has_object_status_bit(&self, name: &str) -> bool {
+        crate::game_logic::host_status_bits_upgrade::status_bits_has(
+            self.object_status_bits,
+            name,
+        )
     }
 
     pub fn set_status_masked(&mut self, v: bool) {

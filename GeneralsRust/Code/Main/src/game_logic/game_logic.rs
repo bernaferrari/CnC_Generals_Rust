@@ -1117,6 +1117,8 @@ pub struct GameLogic {
     deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry,
     /// C++ TensileFormationUpdate residual counters.
     tensile_formation_reg: crate::game_logic::host_tensile_formation::HostTensileFormationRegistry,
+    /// C++ StatusBitsUpgrade residual counters.
+    status_bits_upgrade_reg: crate::game_logic::host_status_bits_upgrade::HostStatusBitsUpgradeRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2783,6 +2785,7 @@ impl GameLogic {
                 crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry::new(),
             deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry::new(),
             tensile_formation_reg: crate::game_logic::host_tensile_formation::HostTensileFormationRegistry::new(),
+            status_bits_upgrade_reg: crate::game_logic::host_status_bits_upgrade::HostStatusBitsUpgradeRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3232,6 +3235,7 @@ impl GameLogic {
         self.highlander_body_reg.clear();
         self.deploy_style_reg.clear();
         self.tensile_formation_reg.clear();
+        self.status_bits_upgrade_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -18558,7 +18562,45 @@ impl GameLogic {
 
     /// Apply unlock effects for a completed upgrade and record honesty.
     /// Matches C++ ProductionUpdate upgrade-complete: player mask + object giveUpgrade.
-    fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_name: &str) {
+    
+    /// C++ StatusBitsUpgrade::upgradeImplementation residual for team units.
+    fn apply_status_bits_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_status_bits_upgrade::{
+            peel_applies_to_template, peels_for_upgrade,
+        };
+        let peels = peels_for_upgrade(upgrade_name);
+        if peels.is_empty() {
+            return 0;
+        }
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.team == team)
+            .map(|(id, _)| *id)
+            .collect();
+        let mut touched = 0u32;
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let mut any = false;
+            for peel in &peels {
+                if !peel_applies_to_template(peel, &obj.template_name) {
+                    continue;
+                }
+                let (set_c, clear_c) =
+                    obj.apply_status_bits_upgrade_masks(peel.status_to_set, peel.status_to_clear);
+                self.status_bits_upgrade_reg.record_apply(set_c, clear_c);
+                any = true;
+            }
+            if any {
+                touched = touched.saturating_add(1);
+            }
+        }
+        touched
+    }
+
+fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_name: &str) {
         use crate::game_logic::host_upgrades::HostUpgradeKind;
 
         let kind = HostUpgradeKind::from_name(upgrade_name);
@@ -18705,6 +18747,9 @@ impl GameLogic {
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
+
+        // C++ StatusBitsUpgrade::upgradeImplementation residual.
+        let _ = self.apply_status_bits_upgrade_to_team(team, upgrade_name);
     }
 
     /// C++ CashBountyPower / SCIENCE_CashBounty residual via upgrade complete.
@@ -26945,6 +26990,11 @@ impl GameLogic {
     pub fn honesty_tensile_formation_ok(&self) -> bool {
         self.tensile_formation_reg.honesty_host_path_ok()
             && crate::game_logic::host_tensile_formation::honesty_tensile_formation_residual_ok()
+    }
+
+    pub fn honesty_status_bits_upgrade_ok(&self) -> bool {
+        self.status_bits_upgrade_reg.honesty_host_path_ok()
+            && crate::game_logic::host_status_bits_upgrade::honesty_status_bits_upgrade_residual_ok()
     }
 
     pub fn tensile_formation_registry(
@@ -74914,7 +74964,30 @@ mod tests {
     #[test]
 
     #[test]
-    fn tensile_formation_avalanche_damage_slide_and_rubble() {
+
+    #[test]
+    fn status_bits_upgrade_booby_trap_sets_bit() {
+        use crate::game_logic::host_status_bits_upgrade::honesty_status_bits_upgrade_residual_ok;
+        assert!(honesty_status_bits_upgrade_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new("GLATunnelNetwork");
+        tpl.set_health(400.0);
+        logic.templates.insert("GLATunnelNetwork".to_string(), tpl);
+        let id = logic
+            .create_object("GLATunnelNetwork", Team::GLA, Vec3::ZERO)
+            .expect("net");
+        assert!(!logic.find_object(id).unwrap().has_object_status_bit("BOOBY_TRAPPED"));
+
+        let n = logic.apply_status_bits_upgrade_to_team(Team::GLA, "Upgrade_GLABoobyTrap");
+        assert!(n >= 1);
+        assert!(logic.find_object(id).unwrap().has_object_status_bit("BOOBY_TRAPPED"));
+        assert!(logic.status_bits_upgrade_reg.applies >= 1);
+        assert!(logic.honesty_status_bits_upgrade_ok());
+    }
+
+
+        fn tensile_formation_avalanche_damage_slide_and_rubble() {
         use crate::game_logic::host_tensile_formation::{
             honesty_tensile_formation_residual_ok, TENSILE_LIFE_MAX,
         };
