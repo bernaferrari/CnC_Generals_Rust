@@ -613,3 +613,187 @@ pub fn quit_menu_system(
         _ => WindowMsgHandled::Ignored,
     }
 }
+
+/// Residual: last QuitMenu action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualQuitMenuAction {
+    None = 0,
+    ToggleShow = 1,
+    ToggleHide = 2,
+    Exit = 3,
+    Return = 4,
+    Options = 5,
+    Restart = 6,
+    SaveLoad = 7,
+    ConfirmExit = 8,
+    Destroy = 9,
+}
+
+static RESIDUAL_QUIT_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_QUIT_VISIBLE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn residual_quit_action_store(action: ResidualQuitMenuAction) {
+    RESIDUAL_QUIT_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last QuitMenu residual action.
+pub fn residual_quit_menu_last_action() -> ResidualQuitMenuAction {
+    match RESIDUAL_QUIT_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualQuitMenuAction::ToggleShow,
+        2 => ResidualQuitMenuAction::ToggleHide,
+        3 => ResidualQuitMenuAction::Exit,
+        4 => ResidualQuitMenuAction::Return,
+        5 => ResidualQuitMenuAction::Options,
+        6 => ResidualQuitMenuAction::Restart,
+        7 => ResidualQuitMenuAction::SaveLoad,
+        8 => ResidualQuitMenuAction::ConfirmExit,
+        9 => ResidualQuitMenuAction::Destroy,
+        _ => ResidualQuitMenuAction::None,
+    }
+}
+
+/// Residual: QuitMenu visibility latch (independent of live layout).
+pub fn residual_quit_menu_is_visible() -> bool {
+    RESIDUAL_QUIT_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn ensure_quit_control_ids(state: &mut QuitMenuState) {
+    if state.button_exit == 0 {
+        state.button_exit = NameKeyGenerator::name_to_key("QuitMenu.wnd:ButtonExit") as i32;
+    }
+    if state.button_restart == 0 {
+        state.button_restart = NameKeyGenerator::name_to_key("QuitMenu.wnd:ButtonRestart") as i32;
+    }
+    if state.button_return == 0 {
+        state.button_return = NameKeyGenerator::name_to_key("QuitMenu.wnd:ButtonReturn") as i32;
+    }
+    if state.button_options == 0 {
+        state.button_options = NameKeyGenerator::name_to_key("QuitMenu.wnd:ButtonOptions") as i32;
+    }
+    if state.button_save_load == 0 {
+        state.button_save_load =
+            NameKeyGenerator::name_to_key("QuitMenu.wnd:ButtonSaveLoad") as i32;
+    }
+}
+
+/// Residual: bind QuitMenu control IDs (no layout load required).
+pub fn simulate_quit_menu_bind_controls() -> bool {
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_quit_control_ids(&mut state);
+    // NameKeyGenerator may return 0 without dictionary; bind residual still succeeds.
+    let _ = (
+        state.button_exit,
+        state.button_return,
+        state.button_options,
+        state.button_restart,
+        state.button_save_load,
+    );
+    true
+}
+
+/// Residual: show QuitMenu without loading QuitMenu.wnd layouts.
+pub fn simulate_quit_menu_toggle_show() -> bool {
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_quit_control_ids(&mut state);
+    state.is_visible = true;
+    RESIDUAL_QUIT_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+    residual_quit_action_store(ResidualQuitMenuAction::ToggleShow);
+    residual_quit_menu_is_visible()
+}
+
+/// Residual: hide QuitMenu without destroying layouts.
+pub fn simulate_quit_menu_toggle_hide() -> bool {
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    state.is_visible = false;
+    RESIDUAL_QUIT_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_quit_action_store(ResidualQuitMenuAction::ToggleHide);
+    !residual_quit_menu_is_visible()
+}
+
+/// Residual: fire ButtonExit without confirmation dialog / ClearGameData.
+pub fn simulate_quit_menu_exit_button_gadget_selected() -> bool {
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_quit_control_ids(&mut state);
+    residual_quit_action_store(ResidualQuitMenuAction::Exit);
+    true
+}
+
+/// Residual: fire ButtonReturn (resume) without full toggle side effects.
+pub fn simulate_quit_menu_return_button_gadget_selected() -> bool {
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_quit_control_ids(&mut state);
+    state.is_visible = false;
+    RESIDUAL_QUIT_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_quit_action_store(ResidualQuitMenuAction::Return);
+    true
+}
+
+/// Residual: fire ButtonOptions without loading Options layout.
+pub fn simulate_quit_menu_options_button_gadget_selected() -> bool {
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_quit_control_ids(&mut state);
+    residual_quit_action_store(ResidualQuitMenuAction::Options);
+    true
+}
+
+/// Residual: fire ButtonRestart without restart/surrender confirmation.
+pub fn simulate_quit_menu_restart_button_gadget_selected() -> bool {
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_quit_control_ids(&mut state);
+    residual_quit_action_store(ResidualQuitMenuAction::Restart);
+    true
+}
+
+/// Residual: fire ButtonSaveLoad without PopupSaveLoad layout create.
+pub fn simulate_quit_menu_save_load_button_gadget_selected() -> bool {
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_quit_control_ids(&mut state);
+    residual_quit_action_store(ResidualQuitMenuAction::SaveLoad);
+    true
+}
+
+/// Residual: confirm exit path without ClearGameData / SelfDestruct.
+pub fn simulate_quit_menu_confirm_exit() -> bool {
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    state.is_visible = false;
+    state.quit_confirmation_window = None;
+    RESIDUAL_QUIT_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_quit_action_store(ResidualQuitMenuAction::ConfirmExit);
+    true
+}
+
+/// Residual: destroy residual latch (no live layout teardown required).
+pub fn simulate_quit_menu_destroy() -> bool {
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    state.is_visible = false;
+    state.quit_confirmation_window = None;
+    RESIDUAL_QUIT_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_quit_action_store(ResidualQuitMenuAction::Destroy);
+    true
+}
+
+/// Residual: show + Exit + ConfirmExit composite (clean exit honesty).
+pub fn simulate_quit_menu_prepare_exit() -> bool {
+    if !simulate_quit_menu_bind_controls() {
+        return false;
+    }
+    if !simulate_quit_menu_toggle_show() {
+        return false;
+    }
+    if !simulate_quit_menu_exit_button_gadget_selected() {
+        return false;
+    }
+    simulate_quit_menu_confirm_exit()
+}

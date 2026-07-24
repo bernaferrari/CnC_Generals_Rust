@@ -222,6 +222,7 @@ mod host_preorder_create;
 pub mod host_production_buildable_command_residual;
 pub mod host_propaganda;
 pub mod host_quad_cannon;
+pub mod host_quit_menu_residual_wave123;
 pub mod host_radar;
 pub mod host_radar_scan;
 pub mod host_radar_stealth_vision_residual;
@@ -1451,6 +1452,10 @@ pub use host_main_menu_skirmish_nav_residual_wave114::{
     honesty_main_menu_skirmish_names_residual_wave114,
     honesty_main_menu_skirmish_nav_residual_pack_wave114,
     honesty_main_menu_skirmish_nav_steps_residual_wave114,
+};
+pub use host_quit_menu_residual_wave123::{
+    honesty_quit_menu_control_names_residual_wave123,
+    honesty_quit_menu_nav_commands_residual_wave123, honesty_quit_menu_residual_pack_wave123,
 };
 pub use host_replay_menu_residual_wave122::{
     honesty_replay_menu_control_names_residual_wave122,
