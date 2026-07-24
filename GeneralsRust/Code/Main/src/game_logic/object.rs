@@ -1209,6 +1209,16 @@ pub struct Object {
     /// C++ StealthJetMissile projectile residual.
     #[serde(default)]
     pub stealth_jet_missile_projectile: bool,
+    #[serde(default)]
+    pub stealth_jet_missile_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub stealth_jet_missile_intended: Option<u32>,
+    #[serde(default)]
+    pub stealth_jet_missile_travelled: f32,
+    #[serde(default)]
+    pub stealth_jet_missile_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub stealth_jet_missile_ignition_frame: Option<u32>,
     /// C++ NapalmBomb SpecialObject residual (Helix drop).
     #[serde(default)]
     pub helix_napalm_bomb_projectile: bool,
@@ -2258,6 +2268,11 @@ impl Object {
             comanche_rocket_pod_projectile: false,
             comanche_rocket_pod_projectile_expires_frame: None,
             stealth_jet_missile_projectile: false,
+            stealth_jet_missile_aim: None,
+            stealth_jet_missile_intended: None,
+            stealth_jet_missile_travelled: 0.0,
+            stealth_jet_missile_fuel_expires_frame: None,
+            stealth_jet_missile_ignition_frame: None,
             stealth_jet_missile_expires_frame: None,
             helix_napalm_bomb_projectile: false,
             scud_launcher_missile_projectile: false,
@@ -2805,6 +2820,11 @@ impl Object {
             comanche_rocket_pod_projectile: false,
             comanche_rocket_pod_projectile_expires_frame: None,
             stealth_jet_missile_projectile: false,
+            stealth_jet_missile_aim: None,
+            stealth_jet_missile_intended: None,
+            stealth_jet_missile_travelled: 0.0,
+            stealth_jet_missile_fuel_expires_frame: None,
+            stealth_jet_missile_ignition_frame: None,
             stealth_jet_missile_expires_frame: None,
             helix_napalm_bomb_projectile: false,
             scud_launcher_missile_projectile: false,

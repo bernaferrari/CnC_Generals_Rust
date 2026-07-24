@@ -29,8 +29,8 @@
 //! Fail-closed honesty:
 //! - Not full PrerequisiteSciences rank tree / control-bar science visibility
 //! - JetAIUpdate RETURN_TO_BASE ClipReload airfield rearm residual (8000ms)
-//! - StealthJetMissile projectile SpecialObject residual closed (KillSelfDelay 60f)
-//! - Not full MissileAIUpdate seeker / crash-through bone FX matrix
+//! - StealthJetMissile MissileAI flight residual closed (seeker + KillSelfDelay 60f)
+//! - Not full crash-through bone FX matrix
 //! - Not full BunkerBusterBehavior seismic / shockwave matrix (see host_bunker_buster)
 //! - Not network stealth-fighter / science replication (network deferred)
 
@@ -103,6 +103,14 @@ pub const STEALTH_FIGHTER_PLAYER_UPGRADE_DAMAGE_MULT: f32 = 1.25;
 pub const STEALTH_JET_MISSILE_KILL_SELF_DELAY_MS: u32 = 2000;
 /// KillSelfDelay 2000ms → 60 frames @ 30 FPS.
 pub const STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES: u32 = 60;
+/// MissileAI FuelLifetime 10000ms → 300 frames @ 30 FPS.
+pub const STEALTH_MISSILE_FUEL_MS: u32 = 10_000;
+pub const STEALTH_MISSILE_FUEL_FRAMES: u32 = 300;
+/// MissileAI InitialVelocity residual (dist/sec).
+pub const STEALTH_MISSILE_INITIAL_VELOCITY: f32 = 75.0;
+/// MissileAI IgnitionDelay 30ms → 1 frame @ 30 FPS.
+pub const STEALTH_MISSILE_IGNITION_DELAY_MS: u32 = 30;
+pub const STEALTH_MISSILE_IGNITION_DELAY_FRAMES: u32 = 1;
 /// Retail DetonateCallsKill residual on StealthJetMissile.
 pub const STEALTH_JET_MISSILE_DETONATE_CALLS_KILL: bool = true;
 /// Retail projectile MaxHealth residual.
@@ -306,6 +314,8 @@ pub fn honesty_stealth_kill_self_delay_residual_ok() -> bool {
         && STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES
             == stealth_fighter_ms_to_frames(STEALTH_JET_MISSILE_KILL_SELF_DELAY_MS)
         && STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES == 60
+        && STEALTH_MISSILE_FUEL_FRAMES == 300
+        && (STEALTH_MISSILE_INITIAL_VELOCITY - 75.0).abs() < 0.01
         && STEALTH_JET_MISSILE_DETONATE_CALLS_KILL
         && (STEALTH_JET_MISSILE_MAX_HEALTH - 100.0).abs() < 0.01
         && (STEALTH_JET_MISSILE_MASS - 1.0).abs() < 0.01
