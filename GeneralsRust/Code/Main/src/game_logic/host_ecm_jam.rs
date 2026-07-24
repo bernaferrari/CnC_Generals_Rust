@@ -21,7 +21,8 @@
 //!
 //! Fail-closed honesty:
 //! - Not full subdual damage accumulate / SubdualDamageHelper heal drain
-//! - Not full laser attach / ECMDisableStream / FireWeaponUpdate exclusive delay
+//! - ECMDisableStream laser attach residual closed (LaserName + WEAPONA01 bone)
+//! - Not full FireWeaponUpdate ExclusiveWeaponDelay multi-weapon matrix beyond residual cadence
 //! - ECMTankMissileJammer projectile_now_jammed scatter residual (deflect aim + SUBDUAL_MISSILE dmg)
 //! - Not full ally relationship / underpower / DISABLED_SUBDUED FX tint matrix
 //! - Not network jam replication (network deferred)
@@ -293,12 +294,23 @@ pub fn honesty_ecm_missile_jam_scatter_ok() -> bool {
         && ECM_MISSILE_JAMMER_WEAPON == "ECMTankMissileJammer"
 }
 
+/// Wave residual honesty: ECMDisableStream laser peels.
+pub fn honesty_ecm_disable_stream_ok() -> bool {
+    ECM_DISABLE_STREAM_LASER == "ECMDisableStream"
+        && ECM_DISABLE_STREAM_BONE == "WEAPONA01"
+        && ECM_VEHICLE_DISABLER_WEAPON == "ECMTankVehicleDisabler"
+        && ECM_VEHICLE_DISABLER_DELAY_FRAMES == 3
+        && ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES == 30
+        && ECM_VEHICLE_DISABLER_FIRE_SOUND == "FrequencyJammerWeaponLoop"
+}
+
 pub fn honesty_ecm_jam_residual_pack_ok() -> bool {
     honesty_ecm_jam_radius_weapon_residual_ok()
         && honesty_ecm_vehicle_disabler_residual_ok()
         && honesty_ecm_subdual_reload_residual_ok()
         && honesty_ecm_vehicle_list_kindof_residual_ok()
         && honesty_ecm_missile_jam_scatter_ok()
+        && honesty_ecm_disable_stream_ok()
 }
 
 #[cfg(test)]
@@ -370,7 +382,15 @@ mod tests {
         assert!(!is_ecm_jam_projectile_flags(true, "foo", true));
     }
 
-    #[test]
+        #[test]
+#[test]
+    fn ecm_disable_stream_peels() {
+        assert!(honesty_ecm_disable_stream_ok());
+        assert_eq!(ECM_DISABLE_STREAM_LASER, "ECMDisableStream");
+        assert_eq!(ECM_DISABLE_STREAM_BONE, "WEAPONA01");
+    }
+
+#[test]
     fn ecm_jam_residual_pack_honesty() {
         assert!(honesty_ecm_jam_residual_pack_ok());
         assert_eq!(ecm_ms_to_frames(650), 20);

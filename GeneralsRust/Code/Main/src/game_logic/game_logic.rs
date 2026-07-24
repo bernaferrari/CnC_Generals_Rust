@@ -1298,6 +1298,8 @@ pub struct GameLogic {
     point_defense_residual_intercepts: u32,
     /// Honesty: ECMTankMissileJammer missiles jammed/scattered residual.
     ecm_missiles_jammed: u32,
+    /// Honesty: ECMDisableStream laser beams spawned residual.
+    ecm_laser_beams_spawned: u32,
     /// Honesty: PointDefenseLaserBeam objects spawned on intercept residual.
     point_defense_laser_beams_spawned: u32,
     /// Per-carrier next ready frame for residual PDL shot delay.
@@ -2999,6 +3001,7 @@ impl GameLogic {
             base_defense_residual_fires: 0,
             point_defense_residual_intercepts: 0,
             ecm_missiles_jammed: 0,
+            ecm_laser_beams_spawned: 0,
             point_defense_laser_beams_spawned: 0,
             point_defense_next_ready_frame: HashMap::new(),
             avenger: crate::game_logic::host_avenger::HostAvengerRegistry::new(),
@@ -3506,6 +3509,7 @@ impl GameLogic {
         self.base_defense_residual_fires = 0;
         self.point_defense_residual_intercepts = 0;
         self.ecm_missiles_jammed = 0;
+        self.ecm_laser_beams_spawned = 0;
         self.point_defense_laser_beams_spawned = 0;
         self.point_defense_next_ready_frame.clear();
         self.avenger.clear();
@@ -46314,7 +46318,14 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
 
     /// Residual honesty: ECM tank / jammer jammed enemy weapons at least once.
     pub fn honesty_ecm_jam_ok(&self) -> bool {
-        self.ecm_residual_jams > 0 || self.ecm_missiles_jammed > 0
+        self.ecm_residual_jams > 0
+            || self.ecm_missiles_jammed > 0
+            || self.ecm_laser_beams_spawned > 0
+    }
+
+    /// Residual honesty: ECMDisableStream laser spawned at least once.
+    pub fn honesty_ecm_laser_ok(&self) -> bool {
+        self.ecm_laser_beams_spawned > 0
     }
 
     /// Host Microwave Tank residual registry (disable structure honesty).
@@ -49294,6 +49305,8 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
             .collect();
 
         let mut covered: HashSet<ObjectId> = HashSet::new();
+        // Jammer → target links for ECMDisableStream laser residual.
+        let mut jam_links: Vec<(ObjectId, ObjectId)> = Vec::new();
         for (jammer_id, jammer_team, jx, jz) in &jammers {
             let jammer_neutral = *jammer_team == Team::Neutral;
             for (target_id, target_team, tx, tz, has_weapon) in &candidates {
@@ -49315,6 +49328,7 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
                     continue;
                 }
                 covered.insert(*target_id);
+                jam_links.push((*jammer_id, *target_id));
             }
         }
 
@@ -49347,6 +49361,68 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
 
         for _ in 0..jam_ticks {
             self.record_ecm_residual_jam();
+        }
+
+        // C++ LaserName ECMDisableStream residual (VehicleDisabler WEAPONA01 bone).
+        // Cadence residual: DelayBetweenShots 100ms → 3f (ExclusiveWeaponDelay fail-closed).
+        {
+            use crate::game_logic::host_ecm_jam::{
+                ECM_DISABLE_STREAM_BONE, ECM_DISABLE_STREAM_LASER,
+                ECM_VEHICLE_DISABLER_DELAY_FRAMES, ECM_VEHICLE_DISABLER_FIRE_SOUND,
+            };
+            use crate::game_logic::host_weapon_laser::ResidualWeaponLaser;
+
+            let pulse = self.frame % ECM_VEHICLE_DISABLER_DELAY_FRAMES.max(1) == 0;
+            if pulse && !jam_links.is_empty() {
+                // Dedup links (same pair once per pulse).
+                jam_links.sort_by_key(|(a, b)| (a.0, b.0));
+                jam_links.dedup();
+                let mut audio_pos = None;
+                for (from_id, to_id) in jam_links {
+                    let Some(from_obj) = self.objects.get(&from_id) else {
+                        continue;
+                    };
+                    let Some(to_obj) = self.objects.get(&to_id) else {
+                        continue;
+                    };
+                    if !from_obj.is_alive() || !to_obj.is_alive() {
+                        continue;
+                    }
+                    let from = from_obj.get_position();
+                    let to = to_obj.get_position();
+                    // Residual WEAPONA01 bone height.
+                    let from_bone = glam::Vec3::new(from.x, from.y + 8.0, from.z);
+                    let to_aim = glam::Vec3::new(to.x, to.y + 5.0, to.z);
+                    let _ = self.spawn_weapon_laser_beam_object(
+                        ECM_DISABLE_STREAM_LASER,
+                        from_id,
+                        Some(to_id),
+                        from_bone,
+                        to_aim,
+                    );
+                    self.weapon_lasers.push(ResidualWeaponLaser::with_bone(
+                        ECM_DISABLE_STREAM_LASER,
+                        ECM_DISABLE_STREAM_BONE,
+                        from_id,
+                        Some(to_id),
+                        (from_bone.x, from_bone.y, from_bone.z),
+                        (to_aim.x, to_aim.y, to_aim.z),
+                        self.frame,
+                    ));
+                    self.ecm_laser_beams_spawned =
+                        self.ecm_laser_beams_spawned.saturating_add(1);
+                    if audio_pos.is_none() {
+                        audio_pos = Some(from);
+                    }
+                }
+                if let Some(pos) = audio_pos {
+                    self.queue_audio_event(
+                        AudioEventRequest::new(ECM_VEHICLE_DISABLER_FIRE_SOUND)
+                            .with_position(pos)
+                            .with_priority(130),
+                    );
+                }
+            }
         }
     }
 
@@ -72613,6 +72689,79 @@ mod tests {
     }
 
 #[test]
+
+    #[test]
+    fn ecm_jam_spawns_disable_stream_laser() {
+        use crate::game_logic::host_ecm_jam::{
+            ECM_DISABLE_STREAM_LASER, ECM_VEHICLE_DISABLER_DELAY_FRAMES,
+        };
+
+        let mut logic = GameLogic::new();
+        let mut ecm_tpl = ThingTemplate::new("ChinaTankECM");
+        ecm_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0);
+        logic.templates.insert("ChinaTankECM".to_string(), ecm_tpl);
+
+        let mut tank_tpl = ThingTemplate::new("AmericaTankCrusader");
+        tank_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), tank_tpl);
+
+        let ecm = logic
+            .create_object("ChinaTankECM", Team::China, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("ecm");
+        let enemy = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        // Ensure enemy has a weapon residual so jam candidates include it.
+        {
+            let o = logic.find_object_mut(enemy).unwrap();
+            o.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 150.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+        // Align to laser pulse cadence.
+        logic.frame = ECM_VEHICLE_DISABLER_DELAY_FRAMES;
+        logic.update_ecm_jam_field();
+        assert!(logic.find_object(enemy).unwrap().status.weapons_jammed);
+        assert!(logic.honesty_ecm_jam_ok());
+        assert!(
+            logic.honesty_ecm_laser_ok(),
+            "ECMDisableStream laser should spawn on jam pulse"
+        );
+        let beams = logic
+            .objects
+            .values()
+            .filter(|o| o.weapon_laser_beam && o.template_name == ECM_DISABLE_STREAM_LASER)
+            .count();
+        assert!(beams >= 1, "ECMDisableStream beam object expected");
+        assert!(
+            logic
+                .weapon_lasers
+                .iter()
+                .any(|l| l.laser_name == ECM_DISABLE_STREAM_LASER),
+            "presentation residual laser expected"
+        );
+        let _ = ecm;
+    }
+
+    #[test]
     fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
