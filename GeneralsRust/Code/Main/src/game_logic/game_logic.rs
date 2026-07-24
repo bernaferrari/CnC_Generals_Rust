@@ -1541,6 +1541,8 @@ pub struct GameLogic {
     scud_launcher_scatter_applied: u32,
     /// Honesty: NeutronCannonShell projectiles spawned residual.
     neutron_shells_spawned: u32,
+    /// Honesty: Neutron shell ScatterRadiusVsInfantry aim offsets applied.
+    neutron_shell_scatter_applied: u32,
     /// Honesty: TunnelDefenderMissile / RPG projectiles spawned residual.
     rpg_trooper_missiles_spawned: u32,
     /// Honesty: RPG Trooper ScatterRadiusVsInfantry aim offsets applied.
@@ -3148,6 +3150,7 @@ impl GameLogic {
             rocket_buggy_scatter_applied: 0,
             scud_launcher_scatter_applied: 0,
             neutron_shells_spawned: 0,
+            neutron_shell_scatter_applied: 0,
             rpg_trooper_missiles_spawned: 0,
             rpg_trooper_scatter_applied: 0,
             tank_hunter_missiles_spawned: 0,
@@ -3663,6 +3666,7 @@ impl GameLogic {
         self.rocket_buggy_scatter_applied = 0;
         self.scud_launcher_scatter_applied = 0;
         self.neutron_shells_spawned = 0;
+        self.neutron_shell_scatter_applied = 0;
         self.rpg_trooper_missiles_spawned = 0;
         self.rpg_trooper_scatter_applied = 0;
         self.tank_hunter_missiles_spawned = 0;
@@ -14055,6 +14059,7 @@ impl GameLogic {
                                         attacker_id,
                                         from,
                                         impact,
+                                        Some(target_id),
                                     )
                                     .is_some();
                                 let (ik, vu, _vk) = if spawned {
@@ -30733,6 +30738,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         crate::game_logic::host_scud_storm_missile_flight::honesty_scud_storm_missile_flight_residual_ok()
     }
 
+    /// Residual honesty: Neutron shell ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_neutron_shell_scatter_ok(&self) -> bool {
+        self.neutron_shell_scatter_applied > 0
+    }
+
     pub fn honesty_neutron_missile_update_ok(&self) -> bool {
         crate::game_logic::host_neutron_missile_update::honesty_neutron_missile_update_residual_ok()
     }
@@ -32947,6 +32957,8 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: at least one neutron shell blast residual applied.
     pub fn honesty_neutron_shell_ok(&self) -> bool {
         self.neutron_shell_residual_blasts > 0
+            || self.neutron_shells_spawned > 0
+            || self.neutron_shell_scatter_applied > 0
     }
 
     /// Residual honesty counter: neutron shell blasts.
@@ -46221,6 +46233,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         source_id: ObjectId,
         from: glam::Vec3,
         aim: glam::Vec3,
+        intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_neutron_shell::{
             neutron_shell_flight_frames, NEUTRON_CANNON_SHELL_PROJECTILE, NEUTRON_SHELL_MAX_HEALTH,
@@ -46240,6 +46253,28 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on NukeCannonNeutronWeapon vs infantry (**10**).
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) =
+            crate::game_logic::host_neutron_shell::neutron_shell_scatter_aim(
+                aim,
+                target_is_infantry,
+                seed,
+            );
+        if scattered {
+            self.neutron_shell_scatter_applied =
+                self.neutron_shell_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 2.0;
         let pid = self.create_object(NEUTRON_CANNON_SHELL_PROJECTILE, team, start)?;
@@ -95587,7 +95622,7 @@ mod tests {
                 .unwrap_or(Vec3::new(200.0, 0.0, 0.0));
             assert!(
                 game_logic
-                    .spawn_neutron_cannon_shell_projectile(cannon_id, from, aim)
+                    .spawn_neutron_cannon_shell_projectile(cannon_id, from, aim, None)
                     .is_some()
             );
         }
@@ -97672,6 +97707,7 @@ assert!(
                 src,
                 Vec3::new(0.0, 0.0, 0.0),
                 Vec3::new(100.0, 0.0, 0.0),
+                None,
             )
             .expect("neutron shell");
         {
@@ -124068,6 +124104,93 @@ assert!(
             .and_then(|o| o.humvee_tow_aim)
             .expect("aim2");
         assert!((aim2[0] - 150.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn neutron_shell_scatters_vs_infantry() {
+        use crate::game_logic::host_neutron_shell::NEUTRON_WEAPON_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut c_tpl = ThingTemplate::new("ChinaVehicleNukeCannon");
+        c_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(280.0);
+        logic
+            .templates
+            .insert("ChinaVehicleNukeCannon".to_string(), c_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let cannon = logic
+            .create_object(
+                "ChinaVehicleNukeCannon",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cannon");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(200.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 6.0, 0.0);
+        let shell = logic
+            .spawn_neutron_cannon_shell_projectile(cannon, from, aim, Some(inf))
+            .expect("shell");
+        assert!(logic.honesty_neutron_shell_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.neutron_shell_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= NEUTRON_WEAPON_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut v_tpl = ThingTemplate::new("AmericaTankCrusader");
+        v_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), v_tpl);
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(250.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.neutron_shell_scatter_applied;
+        let shell2 = logic
+            .spawn_neutron_cannon_shell_projectile(
+                cannon,
+                from,
+                glam::Vec3::new(250.0, 0.0, 0.0),
+                Some(tank),
+            )
+            .expect("shell2");
+        assert_eq!(logic.neutron_shell_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.neutron_shell_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
 }
