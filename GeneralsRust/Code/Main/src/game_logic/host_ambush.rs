@@ -8,7 +8,8 @@
 //! Fail-closed honesty:
 //! - FadeIn residual: spawned rebels STEALTHED until FadeTime elapses
 //! - Science tier Ambush1/2/3 payload counts via AmbushScienceTier residual
-//! - Not OCLAdjustPositionToPassable / DiesOnBadLand water-drown path
+//! - DiesOnBadLand residual: underwater/cliff spawn cells kill rebels (drown)
+//! - Fail-closed: not full OCLAdjustPositionToPassable snap-to-passable path
 //! - Not SharedSyncedTimer / multiplayer academy classification
 
 use super::ObjectId;
@@ -162,6 +163,8 @@ pub struct HostAmbushRegistry {
     pub fade_in_grants: u32,
     /// Honesty: FadeIn clears completed.
     pub fade_in_clears: u32,
+    /// Honesty: DiesOnBadLand kills applied.
+    pub dies_on_bad_land_kills: u32,
 }
 
 impl HostAmbushRegistry {
@@ -174,6 +177,7 @@ impl HostAmbushRegistry {
             pending_fade_clears: Vec::new(),
             fade_in_grants: 0,
             fade_in_clears: 0,
+            dies_on_bad_land_kills: 0,
         }
     }
 
@@ -214,6 +218,14 @@ impl HostAmbushRegistry {
         AMBUSH_FADE_IN
             && self.fade_in_grants > 0
             && (self.fade_in_clears > 0 || !self.pending_fade_clears.is_empty())
+    }
+
+    pub fn record_dies_on_bad_land_kill(&mut self) {
+        self.dies_on_bad_land_kills = self.dies_on_bad_land_kills.saturating_add(1);
+    }
+
+    pub fn honesty_dies_on_bad_land_ok(&self) -> bool {
+        AMBUSH_DIES_ON_BAD_LAND && self.dies_on_bad_land_kills > 0
     }
 
     pub fn clear_frame_events(&mut self) {
