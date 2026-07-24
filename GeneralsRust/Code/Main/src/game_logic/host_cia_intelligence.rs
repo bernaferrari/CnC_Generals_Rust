@@ -19,8 +19,9 @@
 //! - Default FOW vision radius residual **150**.
 //!
 //! Fail-closed honesty:
+//! - BonusDurationPerCaptured from caster ContainModule count residual closed
 //! - Not full SpyVisionUpdate module timers / upgrade mux / self-powered path
-//! - Not per-kindof SpyOnKindof filter / capture / sabotage-disable matrix
+//! - Not per-kindof SpyOnKindof filter / sabotage-disable matrix
 //! - Not multiplayer shared-synced timer / academy / shortcut UI parity
 //! - Not Common Player::setUnitsVisionSpied full OBJECT_REGISTRY iteration
 
@@ -104,6 +105,9 @@ pub struct HostCiaIntelligenceSpiedUnit {
 /// One active residual CIA Intelligence activation (host-side bookkeeping).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostCiaIntelligence {
+    /// Caster ContainModule getContainCount residual (BonusDurationPerCaptured).
+    #[serde(default)]
+    pub captured_count: u32,
     pub id: u32,
     pub player_id: u32,
     pub player_mask: u32,
@@ -148,6 +152,8 @@ pub struct HostCiaIntelligenceRegistry {
     pub fow_reveals: u32,
     /// Activations that marked at least one stealthed enemy DETECTED.
     pub detects: u32,
+    /// Activations that applied BonusDurationPerCaptured (contain count > 0).
+    pub bonus_duration_applications: u32,
     /// Total enemy units vision-spied across activations (honesty counter).
     pub units_spied: u32,
     /// Activations that have expired (undo applied / bookkeeping pruned).
@@ -207,6 +213,9 @@ impl HostCiaIntelligenceRegistry {
         if act.detect_ok {
             self.detects = self.detects.saturating_add(1);
         }
+        if act.captured_count > 0 {
+            self.bonus_duration_applications = self.bonus_duration_applications.saturating_add(1);
+        }
         self.units_spied = self
             .units_spied
             .saturating_add(act.spied_units.len() as u32);
@@ -242,6 +251,10 @@ impl HostCiaIntelligenceRegistry {
     /// Residual honesty: at least one activation recorded.
     pub fn honesty_activate_ok(&self) -> bool {
         self.activations > 0
+    }
+
+    pub fn honesty_bonus_duration_ok(&self) -> bool {
+        self.bonus_duration_applications > 0
     }
 
     /// Residual honesty: at least one enemy unit was vision-spied.
@@ -345,6 +358,7 @@ mod tests {
         assert!(!reg.honesty_host_path_ok());
         let id = reg.alloc_id();
         reg.record_activation(HostCiaIntelligence {
+            captured_count: 0,
             id,
             player_id: 0,
             player_mask: 1,

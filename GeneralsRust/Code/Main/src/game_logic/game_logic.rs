@@ -46949,8 +46949,8 @@ fn update_scud_poison_zones(&mut self) {
         caster_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_cia_intelligence::{
-            HostCiaIntelligence, HostCiaIntelligenceSpiedUnit, CIA_INTELLIGENCE_ACTIVATE_AUDIO,
-            CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS, CIA_INTELLIGENCE_DURATION_FRAMES,
+            cia_intelligence_duration_frames, HostCiaIntelligence, HostCiaIntelligenceSpiedUnit,
+            CIA_INTELLIGENCE_ACTIVATE_AUDIO, CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
         };
         use gamelogic::common::Coord3D;
 
@@ -46967,7 +46967,12 @@ fn update_scud_poison_zones(&mut self) {
             player_mask = 1u32 << player_id.min(31);
         }
 
-        let duration = CIA_INTELLIGENCE_DURATION_FRAMES;
+        // C++ SpyVisionSpecialPower: duration += contain->getContainCount() * bonus.
+        let captured_count = caster_id
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.contained_units().len() as u32)
+            .unwrap_or(0);
+        let duration = cia_intelligence_duration_frames(captured_count);
         let frame = self.frame;
         let expires_frame = frame.saturating_add(duration);
 
@@ -47072,6 +47077,7 @@ fn update_scud_poison_zones(&mut self) {
         let act_id = self.cia_intelligence.alloc_id();
         self.cia_intelligence
             .record_activation(HostCiaIntelligence {
+                captured_count,
                 id: act_id,
                 player_id,
                 player_mask,
@@ -75595,6 +75601,65 @@ mod tests {
 
     /// Residual: CIA Intelligence temporarily vision-spies enemy units (visible/detectable).
     /// Fail-closed: not full SpyVisionUpdate setUnitsVisionSpied module path.
+    #[test]
+    fn cia_intelligence_bonus_duration_per_captured_residual() {
+        use crate::game_logic::host_cia_intelligence::{
+            cia_intelligence_duration_frames, CIA_INTELLIGENCE_DURATION_FRAMES,
+            CIA_INTELLIGENCE_MAX_DURATION_FRAMES,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_test_player_for_team(&mut logic, Team::China);
+        ensure_test_tank_template(&mut logic);
+        // Detention-style caster with contained captives residual.
+        let mut camp = crate::game_logic::ThingTemplate::new("AmericaDetentionCamp");
+        camp.add_kind_of(KindOf::Structure).set_health(2000.0);
+        logic.templates.insert("AmericaDetentionCamp".into(), camp);
+        let caster = logic
+            .create_object("AmericaDetentionCamp", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        // Two "captured" units inside contain residual.
+        let c1 = logic
+            .create_object("TestTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let c2 = logic
+            .create_object("TestTank", Team::China, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let camp_obj = logic.find_object_mut(caster).unwrap();
+            // C++ ContainModule getContainCount residual (contained_units path).
+            if let Some(b) = camp_obj.building_data.as_mut() {
+                b.garrisoned_units.push(c1);
+                b.garrisoned_units.push(c2);
+            } else {
+                camp_obj.occupants.push(c1);
+                camp_obj.occupants.push(c2);
+            }
+        }
+        // Free enemy outside for vision spy residual.
+        let _enemy = logic
+            .create_object("TestTank", Team::China, Vec3::new(400.0, 0.0, 400.0))
+            .unwrap();
+
+        assert!(logic.activate_cia_intelligence(0, Team::USA, Some(caster)));
+        let act = logic
+            .cia_intelligence()
+            .active_scans()
+            .last()
+            .expect("cia act");
+        assert_eq!(act.captured_count, 2);
+        let expected = cia_intelligence_duration_frames(2);
+        assert_eq!(expected, CIA_INTELLIGENCE_DURATION_FRAMES + 600);
+        assert!(expected < CIA_INTELLIGENCE_MAX_DURATION_FRAMES);
+        assert_eq!(
+            act.expires_frame.saturating_sub(act.activate_frame),
+            expected
+        );
+        assert!(logic.cia_intelligence().honesty_bonus_duration_ok());
+    }
+
+
     #[test]
     fn cia_intelligence_special_power_reveals_enemy_units() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
