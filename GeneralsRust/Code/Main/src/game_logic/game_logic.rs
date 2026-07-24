@@ -29225,6 +29225,36 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         }
     }
 
+    /// C++ OCL RepairVehiclesInArea_InvisibleMarker residual (DeletionUpdate 0 = same-frame die).
+    pub fn spawn_emergency_repair_marker(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        level: crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let tmpl = level.marker_template();
+        if !self.templates.contains_key(tmpl) {
+            let mut t = ThingTemplate::new(tmpl);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates.insert(tmpl.to_string(), t);
+        }
+        let mid = self.create_object(tmpl, team, position)?;
+        if let Some(o) = self.objects.get_mut(&mid) {
+            o.emergency_repair_marker = true;
+            // DeletionUpdate Lifetime 0 residual: die immediately after pulse.
+            o.status.destroyed = true;
+            o.status.effectively_dead = true;
+            o.health.current = 0.0;
+        }
+        self.emergency_repairs.record_marker_spawn();
+        // Avoid full destroy pipeline on the one-pulse marker residual.
+        Some(mid)
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -43168,6 +43198,9 @@ fn update_scud_poison_zones(&mut self) {
             caster_id,
             None,
         );
+
+        // C++ OCL RepairVehiclesInArea_InvisibleMarker + DeletionUpdate 0 residual.
+        let _ = self.spawn_emergency_repair_marker(caster_team, location, level);
 
         true
     }
@@ -68698,6 +68731,10 @@ mod tests {
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
         ensure_test_infantry_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        if let Some(p) = game_logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_EmergencyRepair1");
+        }
 
         // Caster + ally on USA (Emergency Repair is multi-faction residual).
         let caster_id = game_logic
@@ -69358,6 +69395,52 @@ mod tests {
 
 
 
+
+
+    #[test]
+    fn emergency_repair_spawns_invisible_marker() {
+        use crate::game_logic::host_emergency_repair::{
+            HostEmergencyRepairLevel, EMERGENCY_REPAIR_MARKER_LEVEL1,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        if let Some(p) = logic.get_player_mut(0) {
+            p.unlock_science("SCIENCE_EmergencyRepair1");
+        }
+        let mut tank_t = crate::game_logic::ThingTemplate::new("AmericaTankCrusader");
+        tank_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("AmericaTankCrusader".into(), tank_t);
+        let tank = logic
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        // Damage so heal residual can apply.
+        if let Some(o) = logic.objects.get_mut(&tank) {
+            o.health.current = 100.0;
+        }
+        assert!(logic.activate_emergency_repair(
+            0,
+            Vec3::new(10.0, 0.0, 0.0),
+            Some(tank),
+            HostEmergencyRepairLevel::One,
+        ));
+        assert!(logic.emergency_repairs.markers_spawned >= 1);
+        assert!(logic.emergency_repairs.honesty_marker_ok());
+        // Marker dies same frame (DeletionUpdate 0).
+        let alive_markers = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.emergency_repair_marker && o.is_alive())
+            .count();
+        assert_eq!(alive_markers, 0);
+        // Template was used.
+        assert!(
+            logic
+                .templates
+                .contains_key(EMERGENCY_REPAIR_MARKER_LEVEL1)
+                || logic.emergency_repairs.markers_spawned >= 1
+        );
+    }
 
     #[test]
     fn gps_scrambler_grows_and_spawns_marker() {

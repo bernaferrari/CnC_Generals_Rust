@@ -1131,6 +1131,9 @@ pub struct Object {
     /// C++ GPSScrambler_InvisibleMarker residual.
     #[serde(default)]
     pub gps_scrambler_marker: bool,
+    /// C++ RepairVehiclesInArea_InvisibleMarker residual.
+    #[serde(default)]
+    pub emergency_repair_marker: bool,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1841,6 +1844,7 @@ impl Object {
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
+            emergency_repair_marker: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2249,6 +2253,7 @@ impl Object {
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
+            emergency_repair_marker: false,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
