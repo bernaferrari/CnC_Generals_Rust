@@ -1146,6 +1146,12 @@ pub struct Object {
     /// Absolute frame when PoisonFieldAnthraxBomb Lifetime residual expires.
     #[serde(default)]
     pub anthrax_toxin_field_expires_frame: Option<u32>,
+    /// C++ SpectreHowitzerShell residual projectile object.
+    #[serde(default)]
+    pub spectre_howitzer_shell: bool,
+    /// Absolute frame when SpectreHowitzerShell HeightDie residual expires.
+    #[serde(default)]
+    pub spectre_howitzer_shell_expires_frame: Option<u32>,
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
@@ -1891,6 +1897,8 @@ impl Object {
             nuke_radiation_field_expires_frame: None,
             anthrax_toxin_field: false,
             anthrax_toxin_field_expires_frame: None,
+            spectre_howitzer_shell: false,
+            spectre_howitzer_shell_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -2314,6 +2322,8 @@ impl Object {
             nuke_radiation_field_expires_frame: None,
             anthrax_toxin_field: false,
             anthrax_toxin_field_expires_frame: None,
+            spectre_howitzer_shell: false,
+            spectre_howitzer_shell_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,

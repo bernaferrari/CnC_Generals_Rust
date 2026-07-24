@@ -49624,6 +49624,8 @@ fn update_scud_poison_zones(&mut self) {
         self.update_anthrax_toxin_fields();
         // SpectreGunship residual orbit damage ticks (after insertion).
         self.update_spectre_orbit_fields();
+        self.spawn_spectre_howitzer_shell_objects_for_new_spawns();
+        self.update_spectre_howitzer_shell_objects();
         // ParticleCannon residual continuous beam pulses (after charge residual).
         self.update_particle_beam_fields();
         // Particle Uplink DamagePulseRemnant trail residual ticks.
@@ -50186,6 +50188,79 @@ fn update_scud_poison_zones(&mut self) {
         }
 
         self.special_power_strikes.prune_expired_beam(frame);
+    }
+
+    /// C++ SpectreHowitzerShell ThingFactory Object residual (orbit howitzer ticks).
+    pub fn spawn_spectre_howitzer_shell_objects_for_new_spawns(&mut self) {
+        use crate::game_logic::special_power_strikes::{
+            SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES, SPECTRE_HOWITZER_SHELL_MAX_HEALTH,
+            SPECTRE_HOWITZER_SHELL_OBJECT,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let pending = self
+            .special_power_strikes
+            .take_howitzer_shell_spawns_this_frame();
+        if pending.is_empty() {
+            return;
+        }
+        if !self.templates.contains_key(SPECTRE_HOWITZER_SHELL_OBJECT) {
+            let mut t = ThingTemplate::new(SPECTRE_HOWITZER_SHELL_OBJECT);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(SPECTRE_HOWITZER_SHELL_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(SPECTRE_HOWITZER_SHELL_OBJECT.to_string(), t);
+        }
+        let expires = self
+            .frame
+            .saturating_add(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES.max(1));
+        for (source, team, pos) in pending {
+            if let Some(oid) = self.create_object(SPECTRE_HOWITZER_SHELL_OBJECT, team, pos) {
+                if let Some(o) = self.objects.get_mut(&oid) {
+                    o.spectre_howitzer_shell = true;
+                    o.producer_id = Some(source);
+                    o.spectre_howitzer_shell_expires_frame = Some(expires);
+                    o.health.maximum = SPECTRE_HOWITZER_SHELL_MAX_HEALTH;
+                    Self::write_object_health_authority_aware(o, SPECTRE_HOWITZER_SHELL_MAX_HEALTH);
+                    // Fall residual toward ground.
+                    o.movement.velocity = Vec3::new(0.0, -14.0, 0.0);
+                }
+                self.special_power_strikes
+                    .record_howitzer_shell_object_spawn();
+            }
+        }
+    }
+
+    pub fn update_spectre_howitzer_shell_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.spectre_howitzer_shell {
+                    if let Some(exp) = o.spectre_howitzer_shell_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                    // HeightDie residual: destroy near ground.
+                    if o.get_position().y <= 1.0 {
+                        return Some(*id);
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.spectre_howitzer_shell = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
     }
 
     /// C++ PoisonFieldAnthraxBomb ThingFactory Object residual.
@@ -64972,6 +65047,68 @@ mod tests {
     #[test]
     
     #[test]
+    
+    #[test]
+    fn spectre_orbit_spawns_howitzer_shell_objects() {
+        use crate::game_logic::special_power_strikes::{
+            SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES, SPECTRE_HOWITZER_SHELL_OBJECT,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut sc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        sc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), sc);
+        let caster = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let field_id = logic.special_power_strikes.spawn_orbit_field(
+            caster,
+            Team::USA,
+            Vec3::new(200.0, 0.0, 200.0),
+            logic.frame,
+            1,
+        );
+        // Force howitzer stream due this frame.
+        if let Some(f) = logic
+            .special_power_strikes
+            .orbit_fields_mut()
+            .iter_mut()
+            .find(|f| f.id == field_id)
+        {
+            f.next_tick_frame = logic.frame;
+        }
+        logic.special_power_strikes.record_orbit_tick_complete(
+            field_id,
+            0.0,
+            0,
+            0,
+            logic.frame,
+        );
+        logic.spawn_spectre_howitzer_shell_objects_for_new_spawns();
+        assert!(logic
+            .special_power_strikes
+            .honesty_howitzer_shell_object_spawn_ok());
+        assert!(logic.special_power_strikes.howitzer_shell_objects_spawned() >= 1);
+        let shell = logic
+            .get_objects()
+            .values()
+            .find(|o| o.spectre_howitzer_shell)
+            .expect("SpectreHowitzerShell");
+        assert_eq!(shell.template_name, SPECTRE_HOWITZER_SHELL_OBJECT);
+        let sid = shell.id;
+        logic.frame = logic
+            .frame
+            .saturating_add(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES + 2);
+        logic.update_spectre_howitzer_shell_objects();
+        assert!(
+            logic
+                .find_object(sid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
     fn anthrax_bomb_spawns_toxin_field_object() {
         use crate::game_logic::special_power_strikes::{
             ANTHRAX_TOXIN_DURATION_FRAMES, ANTHRAX_TOXIN_OBJECT_NAME,
