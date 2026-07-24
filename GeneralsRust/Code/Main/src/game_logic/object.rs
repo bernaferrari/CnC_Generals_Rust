@@ -1435,6 +1435,23 @@ pub struct Object {
     pub technical_rpg_missile_fuel_expires_frame: Option<u32>,
     #[serde(default)]
     pub technical_rpg_missile_ignition_frame: Option<u32>,
+    /// Host residual: CleanupStreamProjectile in flight.
+    #[serde(default)]
+    pub cleanup_stream_projectile: bool,
+    #[serde(default)]
+    pub cleanup_stream_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub cleanup_stream_intended: Option<u32>,
+    #[serde(default)]
+    pub cleanup_stream_travelled: f32,
+    #[serde(default)]
+    pub cleanup_stream_fuel_expires_frame: Option<u32>,
+    #[serde(default)]
+    pub cleanup_stream_ignition_frame: Option<u32>,
+    #[serde(default)]
+    pub cleanup_stream_shooter: Option<u32>,
+    #[serde(default)]
+    pub cleanup_stream_player_id: u32,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2472,6 +2489,14 @@ impl Object {
             technical_rpg_missile_travelled: 0.0,
             technical_rpg_missile_fuel_expires_frame: None,
             technical_rpg_missile_ignition_frame: None,
+            cleanup_stream_projectile: false,
+            cleanup_stream_aim: None,
+            cleanup_stream_intended: None,
+            cleanup_stream_travelled: 0.0,
+            cleanup_stream_fuel_expires_frame: None,
+            cleanup_stream_ignition_frame: None,
+            cleanup_stream_shooter: None,
+            cleanup_stream_player_id: 0,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -3063,6 +3088,14 @@ impl Object {
             technical_rpg_missile_travelled: 0.0,
             technical_rpg_missile_fuel_expires_frame: None,
             technical_rpg_missile_ignition_frame: None,
+            cleanup_stream_projectile: false,
+            cleanup_stream_aim: None,
+            cleanup_stream_intended: None,
+            cleanup_stream_travelled: 0.0,
+            cleanup_stream_fuel_expires_frame: None,
+            cleanup_stream_ignition_frame: None,
+            cleanup_stream_shooter: None,
+            cleanup_stream_player_id: 0,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,

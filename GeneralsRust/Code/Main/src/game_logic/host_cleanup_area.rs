@@ -18,7 +18,9 @@
 //!   Delay **40**ms → **2**f, ClipSize **30**, ClipReload **40**ms, AttackRange **100**
 //!
 //! Fail-closed honesty:
-//! - Not full CleanupHazardUpdate scan/shot/clip / CleanupStreamProjectile path
+//! - CleanupStreamProjectile MissileAI flight residual (Fuel 600ms, InitialVelocity 120,
+//!   stream points via ProjectileStreamRegistry / CleanupHazardProjectileStream)
+//! - Not full CleanupHazardUpdate continuous scan/shot/clip idle-patrol matrix
 //! - Not full HazardousMaterialArmor object stack / CLEANUP_HAZARD KindOf matrix
 //! - Not full rubble geometry / pathfind ground-rubble zone clear
 //! - Not full MaxMoveDistance idle-patrol cleanup loop (instant residual clear)
@@ -70,6 +72,21 @@ pub const HOST_CLEANUP_DAMAGE_TYPE: &str = "HAZARD_CLEANUP";
 pub const HOST_CLEANUP_WEAPON_NAME: &str = "AmbulanceCleanHazardWeapon";
 /// Retail projectile residual.
 pub const HOST_CLEANUP_PROJECTILE: &str = "CleanupStreamProjectile";
+/// MissileAI InitialVelocity residual (dist/sec).
+pub const CLEANUP_STREAM_MISSILE_INITIAL_VELOCITY: f32 = 120.0;
+/// MissileAI FuelLifetime 600ms residual.
+pub const CLEANUP_STREAM_MISSILE_FUEL_MS: u32 = 600;
+/// Fuel 600ms → 18 frames @ 30 FPS (ceil).
+pub const CLEANUP_STREAM_MISSILE_FUEL_FRAMES: u32 = 18;
+/// DistanceToTravelBeforeTurning residual.
+pub const CLEANUP_STREAM_MISSILE_TURN_DISTANCE: f32 = 2.0;
+/// MaxHealth residual.
+pub const CLEANUP_STREAM_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// TryToFollowTarget residual.
+pub const CLEANUP_STREAM_MISSILE_SEEK: bool = false;
+/// IgnitionDelay residual frames.
+pub const CLEANUP_STREAM_MISSILE_IGNITION_DELAY_FRAMES: u32 = 0;
+
 /// Retail projectile stream residual.
 pub const HOST_CLEANUP_PROJECTILE_STREAM: &str = "CleanupHazardProjectileStream";
 /// Retail FireFX residual.
@@ -108,6 +125,22 @@ pub fn cleanup_scan_requires_move(scan_range: f32, attack_range: f32) -> bool {
 }
 
 /// Whether template can issue CleanupArea residual (ambulance detox or dozer clear).
+
+/// Per-frame cleanup stream projectile step speed.
+pub fn cleanup_stream_missile_step_speed(ignited_and_steering: bool) -> f32 {
+    if ignited_and_steering {
+        HOST_CLEANUP_WEAPON_SPEED / CLEANUP_AREA_LOGIC_FPS
+    } else {
+        CLEANUP_STREAM_MISSILE_INITIAL_VELOCITY / CLEANUP_AREA_LOGIC_FPS
+    }
+}
+
+/// Estimated straight-line flight frames at cruise speed.
+pub fn cleanup_stream_flight_frames(distance: f32) -> u32 {
+    let step = cleanup_stream_missile_step_speed(true).max(0.001);
+    (distance / step).ceil() as u32
+}
+
 pub fn is_cleanup_area_caster(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     n.contains("ambulance")
@@ -264,13 +297,33 @@ pub fn honesty_cleanup_hazard_scan_residual_ok() -> bool {
 }
 
 /// Combined Wave 55 cleanup residual honesty pack.
+/// Wave residual honesty: CleanupStreamProjectile MissileAI peels.
+pub fn honesty_cleanup_stream_projectile_ok() -> bool {
+    HOST_CLEANUP_PROJECTILE == "CleanupStreamProjectile"
+        && HOST_CLEANUP_PROJECTILE_STREAM == "CleanupHazardProjectileStream"
+        && (CLEANUP_STREAM_MISSILE_INITIAL_VELOCITY - 120.0).abs() < 0.01
+        && CLEANUP_STREAM_MISSILE_FUEL_MS == 600
+        && CLEANUP_STREAM_MISSILE_FUEL_FRAMES == cleanup_ms_to_frames(CLEANUP_STREAM_MISSILE_FUEL_MS)
+        && (CLEANUP_STREAM_MISSILE_TURN_DISTANCE - 2.0).abs() < 0.01
+        && !CLEANUP_STREAM_MISSILE_SEEK
+        && (HOST_CLEANUP_WEAPON_SPEED - 600.0).abs() < 0.01
+}
+
 pub fn honesty_cleanup_area_residual_pack_ok() -> bool {
     honesty_cleanup_hazard_scan_residual_ok()
+        && honesty_cleanup_stream_projectile_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_projectile_peels() {
+        assert!(honesty_cleanup_stream_projectile_ok());
+        assert_eq!(cleanup_ms_to_frames(600), 18);
+        assert!(cleanup_stream_flight_frames(100.0) >= 1);
+    }
 
     #[test]
     fn cleanup_area_constants_match_retail_residual() {

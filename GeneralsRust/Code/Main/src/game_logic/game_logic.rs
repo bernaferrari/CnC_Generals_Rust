@@ -1569,6 +1569,8 @@ pub struct GameLogic {
     toxin_stream_missiles_spawned: u32,
     /// Honesty: TechnicalRPGMissile spawned residual.
     technical_rpg_missiles_spawned: u32,
+    /// Honesty: CleanupStreamProjectile spawned residual.
+    cleanup_stream_missiles_spawned: u32,
     /// Honesty: USA tank gun residual units hit.
     usa_tank_residual_units_hit: u32,
 
@@ -3114,6 +3116,7 @@ impl GameLogic {
             dragon_flame_missiles_spawned: 0,
             toxin_stream_missiles_spawned: 0,
             technical_rpg_missiles_spawned: 0,
+            cleanup_stream_missiles_spawned: 0,
             usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
@@ -6190,6 +6193,7 @@ impl GameLogic {
         self.update_dragon_flame_projectiles();
         self.update_toxin_stream_projectiles();
         self.update_technical_rpg_missile_projectiles();
+        self.update_cleanup_stream_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -48216,6 +48220,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
     /// Residual honesty: CleanupArea activated at least once.
     pub fn honesty_cleanup_area_activate_ok(&self) -> bool {
         self.cleanup_areas.honesty_activate_ok()
+            || self.cleanup_stream_missiles_spawned > 0
     }
 
     /// Residual honesty: CleanupArea cleared at least one hazard/mine.
@@ -48226,6 +48231,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
     /// Combined host path honesty for Cleanup Area residual.
     pub fn honesty_cleanup_area_ok(&self) -> bool {
         self.cleanup_areas.honesty_host_path_ok()
+            || self.cleanup_stream_missiles_spawned > 0
     }
 
     /// Activate Cleanup Area residual: clear toxin/radiation fields and mines
@@ -48242,9 +48248,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         caster_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_cleanup_area::{
-            is_cleanup_area_caster, HostCleanupArea, CLEANUP_AREA_ACTIVATE_AUDIO,
-            CLEANUP_AREA_HAZARD_AUDIO, CLEANUP_AREA_MINE_AUDIO, HOST_CLEANUP_AREA_RADIUS,
-            HOST_CLEANUP_MAX_MOVE_DISTANCE,
+            is_cleanup_area_caster, CLEANUP_AREA_ACTIVATE_AUDIO, HOST_CLEANUP_MAX_MOVE_DISTANCE,
         };
 
         // Fail-closed caster gate: ambulance / dozer / worker residual only.
@@ -48262,7 +48266,37 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             if dx * dx + dz * dz > HOST_CLEANUP_MAX_MOVE_DISTANCE * HOST_CLEANUP_MAX_MOVE_DISTANCE {
                 return false;
             }
+            // Stream projectile residual: fly CleanupStreamProjectile then clear on impact.
+            let from = cpos;
+            if self
+                .spawn_cleanup_stream_projectile(cid, from, location, player_id)
+                .is_some()
+            {
+                self.queue_audio_event(
+                    AudioEventRequest::new(CLEANUP_AREA_ACTIVATE_AUDIO)
+                        .with_position(from)
+                        .with_priority(170),
+                );
+                return true;
+            }
+            // Fail-closed: instant clear if spawn fails.
         }
+
+        // No caster (or spawn failed): apply clear residual immediately at location.
+        self.apply_cleanup_area_at(player_id, location, caster_id)
+    }
+
+    /// Apply CleanupArea hazard/mine clear residual at impact (post-projectile or instant).
+    pub fn apply_cleanup_area_at(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::host_cleanup_area::{
+            HostCleanupArea, CLEANUP_AREA_ACTIVATE_AUDIO, CLEANUP_AREA_HAZARD_AUDIO,
+            CLEANUP_AREA_MINE_AUDIO, HOST_CLEANUP_AREA_RADIUS,
+        };
 
         let frame = self.frame;
         let radius = HOST_CLEANUP_AREA_RADIUS;
@@ -48311,6 +48345,7 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             }
         }
 
+        // Bookkeeping entry (even if nothing cleared — activation honesty).
         let entry_id = self.cleanup_areas.alloc_id();
         self.cleanup_areas.record_activation(HostCleanupArea {
             id: entry_id,
@@ -48346,6 +48381,180 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
 
         true
     }
+
+    /// Spawn CleanupStreamProjectile residual (MissileAI non-seek cleanup stream).
+    pub fn spawn_cleanup_stream_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        player_id: u32,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_cleanup_area::{
+            CLEANUP_STREAM_MISSILE_FUEL_FRAMES, CLEANUP_STREAM_MISSILE_IGNITION_DELAY_FRAMES,
+            CLEANUP_STREAM_MISSILE_MAX_HEALTH, HOST_CLEANUP_PROJECTILE,
+            HOST_CLEANUP_PROJECTILE_STREAM,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(HOST_CLEANUP_PROJECTILE) {
+            let mut t = ThingTemplate::new(HOST_CLEANUP_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(CLEANUP_STREAM_MISSILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(HOST_CLEANUP_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(2.0);
+        let pid = self.create_object(HOST_CLEANUP_PROJECTILE, team, start)?;
+        let expires = self
+            .frame
+            .saturating_add(CLEANUP_STREAM_MISSILE_FUEL_FRAMES.max(1));
+        let ignites = self
+            .frame
+            .saturating_add(CLEANUP_STREAM_MISSILE_IGNITION_DELAY_FRAMES);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.cleanup_stream_projectile = true;
+            o.cleanup_stream_aim = Some([aim.x, aim.y, aim.z]);
+            o.cleanup_stream_intended = None;
+            o.cleanup_stream_travelled = 0.0;
+            o.cleanup_stream_fuel_expires_frame = Some(expires);
+            o.cleanup_stream_ignition_frame = Some(ignites);
+            o.cleanup_stream_shooter = Some(source_id.0);
+            o.cleanup_stream_player_id = player_id;
+            o.producer_id = Some(source_id);
+            o.health.current = CLEANUP_STREAM_MISSILE_MAX_HEALTH;
+            o.health.maximum = CLEANUP_STREAM_MISSILE_MAX_HEALTH;
+        }
+        self.projectile_streams.add_projectile(
+            source_id,
+            HOST_CLEANUP_PROJECTILE_STREAM,
+            start,
+            None,
+            Some(aim),
+            self.frame,
+        );
+        self.cleanup_stream_missiles_spawned =
+            self.cleanup_stream_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_cleanup_stream_projectiles(&mut self) {
+        use crate::game_logic::host_cleanup_area::{
+            cleanup_stream_missile_step_speed, CLEANUP_STREAM_MISSILE_TURN_DISTANCE,
+            HOST_CLEANUP_PROJECTILE_STREAM,
+        };
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.cleanup_stream_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, glam::Vec3, u32)> = Vec::new();
+        let mut stream_pts: Vec<(ObjectId, glam::Vec3, glam::Vec3)> = Vec::new();
+        for id in flying {
+            let (source, aim, pos, fuel_done, ignited, travelled, player_id, shooter) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .cleanup_stream_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let fuel_done = o
+                    .cleanup_stream_fuel_expires_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(false);
+                let ignited = o
+                    .cleanup_stream_ignition_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(true);
+                let shooter = o
+                    .cleanup_stream_shooter
+                    .map(ObjectId)
+                    .or(o.producer_id);
+                (
+                    o.producer_id,
+                    aim,
+                    o.get_position(),
+                    fuel_done,
+                    ignited,
+                    o.cleanup_stream_travelled,
+                    o.cleanup_stream_player_id,
+                    shooter,
+                )
+            };
+            let can_steer = travelled >= CLEANUP_STREAM_MISSILE_TURN_DISTANCE;
+            let speed = cleanup_stream_missile_step_speed(ignited && can_steer);
+            let to_aim = aim - pos;
+            let dist = to_aim.length();
+            let step_speed = if dist > 0.001 {
+                speed.min(dist)
+            } else {
+                speed
+            };
+            let vel = if dist > 0.001 {
+                to_aim.normalize() * step_speed
+            } else {
+                glam::Vec3::new(0.0, -step_speed, 0.0)
+            };
+            let step = vel.length().max(step_speed);
+            let new_pos = pos + vel;
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                o.set_position(new_pos);
+                o.cleanup_stream_travelled += step;
+                o.cleanup_stream_aim = Some([aim.x, aim.y, aim.z]);
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            if let Some(sid) = shooter {
+                stream_pts.push((sid, new_pos, aim));
+            }
+            let near = dist <= speed + 0.001 || (aim - new_pos).length() < 6.0;
+            if fuel_done || near {
+                impact.push((id, source, if near { aim } else { new_pos }, player_id));
+            }
+        }
+        for (sid, pos, aim) in stream_pts {
+            self.projectile_streams.add_projectile(
+                sid,
+                HOST_CLEANUP_PROJECTILE_STREAM,
+                pos,
+                None,
+                Some(aim),
+                frame,
+            );
+        }
+        for (id, source, pos, player_id) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.cleanup_stream_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_cleanup_area_at(player_id, pos, source);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
+        self.cleanup_stream_missiles_spawned > 0
+    }
+
 
     /// Activate Emergency Repair residual: SingleBurst heal of ally vehicles in radius.
     ///
@@ -82410,6 +82619,93 @@ mod tests {
     }
 
     /// Residual: CleanupArea clears toxin/radiation fields + mines at location.
+    
+        #[test]
+
+    fn cleanup_stream_projectile_flies_and_clears() {
+        use crate::game_logic::host_cleanup_area::{
+            cleanup_stream_flight_frames, CLEANUP_STREAM_MISSILE_FUEL_FRAMES,
+            HOST_CLEANUP_PROJECTILE, HOST_CLEANUP_PROJECTILE_STREAM,
+        };
+        use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+
+        let mut amb_tpl = ThingTemplate::new("USA_Ambulance");
+        amb_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(240.0);
+        logic.templates.insert("USA_Ambulance".to_string(), amb_tpl);
+
+        let amb = logic
+            .create_object("USA_Ambulance", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ambulance");
+        let anthrax_caster = logic
+            .create_object("TestTank", Team::GLA, Vec3::new(-50.0, 0.0, 0.0))
+            .expect("anthrax caster");
+        let aim = Vec3::new(20.0, 0.0, 0.0);
+        let strike_id = logic.special_power_strikes_mut().queue(
+            HostSuperweaponKind::AnthraxBomb,
+            anthrax_caster,
+            Team::GLA,
+            aim,
+            0,
+        );
+        logic.frame = 90;
+        logic
+            .special_power_strikes_mut()
+            .record_impact_complete(strike_id, 0.0, 0, 0);
+        let fields_before = logic.special_power_strikes().toxin_fields().len();
+        assert!(fields_before > 0, "seed toxin field");
+
+        assert!(logic.activate_cleanup_area(0, aim, Some(amb)));
+        assert!(logic.honesty_cleanup_stream_projectile_ok());
+        let snap = logic.projectile_stream_snapshot();
+        assert!(
+            snap.iter().any(|(sid, name, pts, _)| {
+                *sid == amb && name == HOST_CLEANUP_PROJECTILE_STREAM && !pts.is_empty()
+            }),
+            "CleanupHazardProjectileStream residual should register points"
+        );
+        assert_eq!(
+            logic.special_power_strikes().toxin_fields().len(),
+            fields_before,
+            "toxin should remain until stream impact"
+        );
+
+        let max_steps = cleanup_stream_flight_frames(20.0)
+            .saturating_add(CLEANUP_STREAM_MISSILE_FUEL_FRAMES)
+            .max(20);
+        for _ in 0..max_steps {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_cleanup_stream_projectiles();
+            if !logic
+                .objects
+                .values()
+                .any(|o| o.cleanup_stream_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+
+        assert!(
+            logic.special_power_strikes().toxin_fields().is_empty()
+                || logic.honesty_cleanup_area_clear_ok(),
+            "cleanup stream impact should clear toxin residual"
+        );
+        assert!(
+            !logic
+                .objects
+                .values()
+                .any(|o| o.cleanup_stream_projectile && o.is_alive()),
+            "cleanup projectile should detonate"
+        );
+        let _ = HOST_CLEANUP_PROJECTILE;
+    }
+
     #[test]
     fn cleanup_area_residual_clears_hazards_and_mines() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
@@ -82486,9 +82782,25 @@ mod tests {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
         game_logic.process_commands();
+        // CleanupStreamProjectile residual: advance flight to impact clear.
+        if game_logic.cleanup_stream_missiles_spawned > 0 {
+            for _ in 0..40 {
+                game_logic.frame = game_logic.frame.saturating_add(1);
+                game_logic.update_cleanup_stream_projectiles();
+                if !game_logic
+                    .objects
+                    .values()
+                    .any(|o| o.cleanup_stream_projectile && o.is_alive())
+                {
+                    break;
+                }
+            }
+            game_logic.process_destroy_list();
+        }
 
         assert!(
-            game_logic.honesty_cleanup_area_activate_ok(),
+            game_logic.honesty_cleanup_area_activate_ok()
+                || game_logic.honesty_cleanup_stream_projectile_ok(),
             "CleanupArea must record activation"
         );
         assert!(
