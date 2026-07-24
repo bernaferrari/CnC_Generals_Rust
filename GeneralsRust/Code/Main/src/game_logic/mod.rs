@@ -7,6 +7,7 @@ pub mod host_ai_ability_upgrade_residual;
 pub mod host_animation_steering;
 pub mod host_active_shroud_upgrade;
 pub mod host_prone_update;
+pub mod host_radius_decal_update;
 pub mod host_float_update;
 pub mod host_ai_decision_log;
 pub mod host_ai_mood_log;

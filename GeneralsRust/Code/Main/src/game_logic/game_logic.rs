@@ -1135,6 +1135,8 @@ pub struct GameLogic {
     float_update_reg: crate::game_logic::host_float_update::HostFloatUpdateRegistry,
     /// C++ ProneUpdate residual counters.
     prone_update_reg: crate::game_logic::host_prone_update::HostProneUpdateRegistry,
+    /// C++ RadiusDecalUpdate residual counters.
+    radius_decal_update_reg: crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2810,6 +2812,7 @@ impl GameLogic {
             active_shroud_upgrade_reg: crate::game_logic::host_active_shroud_upgrade::HostActiveShroudUpgradeRegistry::new(),
             float_update_reg: crate::game_logic::host_float_update::HostFloatUpdateRegistry::new(),
             prone_update_reg: crate::game_logic::host_prone_update::HostProneUpdateRegistry::new(),
+            radius_decal_update_reg: crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3268,6 +3271,7 @@ impl GameLogic {
         self.active_shroud_upgrade_reg.clear();
         self.float_update_reg.clear();
         self.prone_update_reg.clear();
+        self.radius_decal_update_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -5986,6 +5990,7 @@ impl GameLogic {
         self.update_animation_steering();
         self.update_float_update();
         self.update_prone_update();
+        self.update_radius_decal_update();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -22187,6 +22192,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             if object.prone_update.is_some() {
                 self.prone_update_reg.record_install();
             }
+            object.install_radius_decal_update_if_needed();
+            if object.radius_decal_update.is_some() {
+                self.radius_decal_update_reg.record_install();
+            }
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -27183,6 +27192,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_prone_update::honesty_prone_update_residual_ok()
     }
 
+    pub fn honesty_radius_decal_update_ok(&self) -> bool {
+        self.radius_decal_update_reg.honesty_host_path_ok()
+            && crate::game_logic::host_radius_decal_update::honesty_radius_decal_update_residual_ok()
+    }
+
     pub fn tensile_formation_registry(
         &self,
     ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
@@ -30801,7 +30815,55 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ ProneUpdate residual countdown + NO_ATTACK / PRONE condition.
-    fn update_prone_update(&mut self) {
+        /// C++ OCL DeliveryDecal residual: create radius decal on SW host.
+    pub fn create_delivery_radius_decal(
+        &mut self,
+        host_id: ObjectId,
+        target_pos: Vec3,
+    ) -> bool {
+        let frame = self.frame as u32;
+        let Some(obj) = self.objects.get_mut(&host_id) else {
+            return false;
+        };
+        if obj.create_delivery_radius_decal(target_pos, frame) {
+            self.radius_decal_update_reg.record_create();
+            // Mark attacking so killWhenNoLongerAttacking stays alive until attack ends.
+            obj.status.attacking = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// C++ RadiusDecalUpdate::update residual.
+    fn update_radius_decal_update(&mut self) {
+        let frame = self.frame as u32;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.radius_decal_update.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let attacking = obj.status.attacking
+                || matches!(obj.ai_state, crate::game_logic::AIState::Attacking);
+            let Some(rd) = obj.radius_decal_update.as_mut() else {
+                continue;
+            };
+            if !rd.awake {
+                continue;
+            }
+            self.radius_decal_update_reg.record_update();
+            if rd.tick(frame, attacking) {
+                self.radius_decal_update_reg.record_kill(true);
+            }
+        }
+    }
+
+fn update_prone_update(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -75517,7 +75579,74 @@ mod tests {
     #[test]
 
     #[test]
-    fn float_update_ferry_sways() {
+
+    #[test]
+    fn radius_decal_scud_storm_create_and_kill_on_idle() {
+        use crate::game_logic::host_radius_decal_update::{
+            honesty_radius_decal_update_residual_ok, SCUD_STORM_DELIVERY_DECAL_RADIUS,
+            SCUD_STORM_DECAL_TEXTURE,
+        };
+        assert!(honesty_radius_decal_update_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new("GLAScudStorm");
+        tpl.set_health(4000.0);
+        logic.templates.insert("GLAScudStorm".to_string(), tpl);
+        let id = logic
+            .create_object("GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("storm");
+        assert!(logic.find_object(id).unwrap().radius_decal_update.is_some());
+        assert!(logic.radius_decal_update_reg.installed >= 1);
+
+        let target = Vec3::new(400.0, 0.0, 200.0);
+        assert!(logic.create_delivery_radius_decal(id, target));
+        {
+            let o = logic.find_object(id).unwrap();
+            let rd = o.radius_decal_update.as_ref().unwrap();
+            assert!(!rd.delivery_decal.is_empty());
+            assert!((rd.delivery_decal.radius - SCUD_STORM_DELIVERY_DECAL_RADIUS).abs() < 0.1);
+            assert_eq!(
+                rd.delivery_decal
+                    .template
+                    .as_ref()
+                    .map(|t| t.texture.as_str()),
+                Some(SCUD_STORM_DECAL_TEXTURE)
+            );
+            assert!(rd.kill_when_no_longer_attacking);
+            assert!(o.status.attacking);
+        }
+        assert!(logic.radius_decal_update_reg.creates >= 1);
+
+        // Still attacking: decal stays.
+        logic.set_current_frame(10);
+        logic.update_radius_decal_update();
+        assert!(
+            logic
+                .find_object(id)
+                .and_then(|o| o.radius_decal_update.as_ref().map(|r| !r.delivery_decal.is_empty()))
+                .unwrap_or(false)
+        );
+
+        // Attack ends → killWhenNoLongerAttacking clears decal.
+        {
+            let o = logic.find_object_mut(id).unwrap();
+            o.status.attacking = false;
+            o.ai_state = crate::game_logic::AIState::Idle;
+        }
+        logic.set_current_frame(20);
+        logic.update_radius_decal_update();
+        assert!(
+            logic
+                .find_object(id)
+                .and_then(|o| o.radius_decal_update.as_ref().map(|r| r.delivery_decal.is_empty()))
+                .unwrap_or(false)
+        );
+        assert!(logic.radius_decal_update_reg.attack_kills >= 1);
+        assert!(logic.honesty_radius_decal_update_ok());
+    }
+
+
+        fn float_update_ferry_sways() {
         use crate::game_logic::host_float_update::honesty_float_update_residual_ok;
         assert!(honesty_float_update_residual_ok());
         let mut logic = GameLogic::new();
