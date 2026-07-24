@@ -261,21 +261,15 @@ pub fn neutron_shell_flight_control_percent(first: bool) -> f32 {
 ///
 /// Control points sit above the shot line at First/SecondHeight, indented at
 /// First/SecondPercentIndent along the ground path (Y-up host residual).
-pub fn neutron_shell_bezier_point(
-    from: Vec3,
-    to: Vec3,
-    t: f32,
-) -> Vec3 {
+pub fn neutron_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
     let t = t.clamp(0.0, 1.0);
     let delta = to - from;
     let p0 = from;
     let p3 = to;
-    let p1 = from
-        + delta * NEUTRON_SHELL_FIRST_PERCENT_INDENT
-        + Vec3::Y * NEUTRON_SHELL_FIRST_HEIGHT;
-    let p2 = from
-        + delta * NEUTRON_SHELL_SECOND_PERCENT_INDENT
-        + Vec3::Y * NEUTRON_SHELL_SECOND_HEIGHT;
+    let p1 =
+        from + delta * NEUTRON_SHELL_FIRST_PERCENT_INDENT + Vec3::Y * NEUTRON_SHELL_FIRST_HEIGHT;
+    let p2 =
+        from + delta * NEUTRON_SHELL_SECOND_PERCENT_INDENT + Vec3::Y * NEUTRON_SHELL_SECOND_HEIGHT;
     let u = 1.0 - t;
     let tt = t * t;
     let uu = u * u;
@@ -473,16 +467,9 @@ pub fn honesty_neutron_kill_infantry_residual_ok() -> bool {
 /// Combined Wave 55 neutron residual honesty pack.
 
 /// Apply NukeCannonNeutronWeapon ScatterRadiusVsInfantry residual to aim.
-pub fn neutron_shell_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(NUKE_CANNON_NEUTRON_WEAPON, target_is_infantry);
+pub fn neutron_shell_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(NUKE_CANNON_NEUTRON_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = NEUTRON_WEAPON_SCATTER_VS_INFANTRY;
     }
@@ -506,7 +493,6 @@ pub fn neutron_shell_scatter_misses_infantry(
     scatter_misses_intended_target(NEUTRON_WEAPON_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
 
-
 /// Wave residual honesty: Neutron shell ScatterRadiusVsInfantry peels (**10**).
 pub fn honesty_neutron_shell_scatter_vs_infantry_ok() -> bool {
     use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
@@ -516,8 +502,7 @@ pub fn honesty_neutron_shell_scatter_vs_infantry_ok() -> bool {
         && (vs - 10.0).abs() < 0.01
         && ground.abs() < 0.01
         && {
-            let (sc, applied) =
-                neutron_shell_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            let (sc, applied) = neutron_shell_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
             applied && sc.length() <= NEUTRON_WEAPON_SCATTER_VS_INFANTRY + 0.01
         }
 }
@@ -544,11 +529,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= NEUTRON_WEAPON_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(neutron_shell_scatter_misses_infantry(true, 67, 0.5));
         assert!(!neutron_shell_scatter_misses_infantry(true, 67, 100.0));
         assert!(!neutron_shell_scatter_misses_infantry(false, 67, 0.5));
-}
+    }
 
     #[test]
     fn nuke_cannon_name_matrix() {

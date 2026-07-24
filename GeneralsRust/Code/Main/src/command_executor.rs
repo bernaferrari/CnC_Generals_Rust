@@ -3175,7 +3175,9 @@ impl<'a> CommandExecutor<'a> {
                         .is_none()
                     {
                         // Fail-open residual: place mines immediately if flight spawn fails.
-                        let placed = self.game_logic.place_cluster_mines(team, pos, Some(unit_id));
+                        let placed = self
+                            .game_logic
+                            .place_cluster_mines(team, pos, Some(unit_id));
                         if placed.is_empty() {
                             continue;
                         }

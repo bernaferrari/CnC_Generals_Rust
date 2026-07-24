@@ -443,7 +443,14 @@ mod tests {
     #[test]
     fn residual_registry_plant_and_detonate() {
         let mut reg = HostBoobyTrapRegistry::new();
-        reg.install(ObjectId(10), ObjectId(1), Team::GLA, 5, 12.0, Some(ObjectId(99)));
+        reg.install(
+            ObjectId(10),
+            ObjectId(1),
+            Team::GLA,
+            5,
+            12.0,
+            Some(ObjectId(99)),
+        );
         assert!(reg.can_place_special_object(ObjectId(1))); // 1 < 100
         assert_eq!(reg.active_special_objects_for_planter(ObjectId(1)), 1);
         assert!(reg.is_booby_trapped(ObjectId(10)));

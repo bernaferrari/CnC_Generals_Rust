@@ -105,12 +105,7 @@ impl HostRadiusDecal {
         self.empty || self.template.is_none()
     }
 
-    pub fn create(
-        tmpl: HostRadiusDecalTemplate,
-        radius: f32,
-        pos: Vec3,
-        frame: u32,
-    ) -> Self {
+    pub fn create(tmpl: HostRadiusDecalTemplate, radius: f32, pos: Vec3, frame: u32) -> Self {
         let opacity = tmpl.opacity_min;
         Self {
             empty: !tmpl.valid(),

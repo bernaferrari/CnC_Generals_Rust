@@ -218,7 +218,6 @@ pub fn honesty_spy_drone_residual_pack_ok() -> bool {
         && SPY_DRONE_ACTIVATE_AUDIO == "SpyDroneCreate"
         && SPY_DRONE_MODEL == "AVSpyDrone"
         && SPY_DRONE_STEALTH_DETECTION_RATE_MS == 500
-
         && SPY_DRONE_GROW_UPDATES_TO_FINAL == 30
         && (SPY_DRONE_RADIUS_GROW_RATE - SPY_DRONE_VISION_RANGE / 30.0).abs() < 0.001
         && spy_drone_grow_is_final(SPY_DRONE_GROW_UPDATES_TO_FINAL - 1)

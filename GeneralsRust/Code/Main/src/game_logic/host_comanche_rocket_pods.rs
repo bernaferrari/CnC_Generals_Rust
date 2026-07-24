@@ -148,7 +148,12 @@ pub fn rocket_pod_scatter_offset(shot_index: u32) -> (f32, f32) {
 }
 
 /// Aim point residual = intended impact + ScatterTargetScalar table offset (XZ).
-pub fn rocket_pod_scatter_impact(impact_x: f32, impact_y: f32, impact_z: f32, shot_index: u32) -> (f32, f32, f32) {
+pub fn rocket_pod_scatter_impact(
+    impact_x: f32,
+    impact_y: f32,
+    impact_z: f32,
+    shot_index: u32,
+) -> (f32, f32, f32) {
     let (ox, oz) = rocket_pod_scatter_offset(shot_index);
     (impact_x + ox, impact_y, impact_z + oz)
 }
@@ -343,11 +348,8 @@ pub fn comanche_antitank_scatter_aim(
     target_is_infantry: bool,
     seed: u32,
 ) -> (glam::Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(COMANCHE_ANTITANK_WEAPON, target_is_infantry);
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(COMANCHE_ANTITANK_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = COMANCHE_AT_SCATTER_VS_INFANTRY;
     }
@@ -355,10 +357,7 @@ pub fn comanche_antitank_scatter_aim(
         return (aim, false);
     }
     let off = scatter_aim_offset(seed, scatter);
-    (
-        glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z),
-        true,
-    )
+    (glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
 }
 
 /// Whether Comanche AT residual misses intended infantry via ScatterRadiusVsInfantry.
@@ -373,7 +372,6 @@ pub fn comanche_antitank_scatter_misses_infantry(
     }
     scatter_misses_intended_target(COMANCHE_AT_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
-
 
 /// Legal residual splash target (enemy/neutral combat kinds; allies residual-hit per
 /// RadiusDamageAffects = ALLIES ENEMIES NEUTRALS — host residual hits non-self all teams).
@@ -538,5 +536,4 @@ mod tests {
         assert!(!comanche_antitank_scatter_misses_infantry(true, 67, 100.0));
         assert!(!comanche_antitank_scatter_misses_infantry(false, 67, 0.5));
     }
-
 }

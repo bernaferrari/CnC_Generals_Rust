@@ -311,7 +311,10 @@ impl HostFireWallRegistry {
     /// Crawl offset delta this frame for object motion residual.
     pub fn inch_step_for_wall(&self, wall_id: u32) -> Option<(f32, f32)> {
         self.active.iter().find(|w| w.id == wall_id).map(|w| {
-            (w.dir_x * FIREWALL_INCH_PER_FRAME, w.dir_z * FIREWALL_INCH_PER_FRAME)
+            (
+                w.dir_x * FIREWALL_INCH_PER_FRAME,
+                w.dir_z * FIREWALL_INCH_PER_FRAME,
+            )
         })
     }
 
@@ -660,10 +663,7 @@ mod tests {
         assert!(wall.upgraded);
 
         let seg = wall.segments[0].position;
-        let plans = reg.plan_due_ticks(
-            0,
-            &[(ObjectId(99), seg, Team::USA, true)],
-        );
+        let plans = reg.plan_due_ticks(0, &[(ObjectId(99), seg, Team::USA, true)]);
         assert_eq!(plans.len(), 1);
         assert!((plans[0].hits[0].damage - 5.0).abs() < 0.01);
     }
@@ -701,6 +701,4 @@ mod tests {
         assert!((dx - FIREWALL_INCH_PER_FRAME).abs() < 0.001);
         assert!(dz.abs() < 0.001);
     }
-
-
 }

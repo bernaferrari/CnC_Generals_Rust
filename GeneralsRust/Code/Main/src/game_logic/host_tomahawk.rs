@@ -333,16 +333,9 @@ pub fn honesty_tomahawk_launcher_residual_ok() -> bool {
 /// Combined Wave 58 Tomahawk residual honesty pack.
 
 /// Apply TomahawkMissileWeapon ScatterRadiusVsInfantry residual to aim.
-pub fn tomahawk_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(TOMAHAWK_MISSILE_WEAPON, target_is_infantry);
+pub fn tomahawk_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(TOMAHAWK_MISSILE_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = TOMAHAWK_SCATTER_VS_INFANTRY;
     }
@@ -366,7 +359,6 @@ pub fn tomahawk_scatter_misses_infantry(
     scatter_misses_intended_target(TOMAHAWK_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
 
-
 /// Wave residual honesty: Tomahawk ScatterRadiusVsInfantry peels (**20**).
 pub fn honesty_tomahawk_scatter_vs_infantry_ok() -> bool {
     use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
@@ -376,8 +368,7 @@ pub fn honesty_tomahawk_scatter_vs_infantry_ok() -> bool {
         && (vs - 20.0).abs() < 0.01
         && ground.abs() < 0.01
         && {
-            let (sc, applied) =
-                tomahawk_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            let (sc, applied) = tomahawk_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
             applied && sc.length() <= TOMAHAWK_SCATTER_VS_INFANTRY + 0.01
         }
 }
@@ -404,11 +395,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= TOMAHAWK_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(tomahawk_scatter_misses_infantry(true, 31, 0.5));
         assert!(!tomahawk_scatter_misses_infantry(true, 31, 100.0));
         assert!(!tomahawk_scatter_misses_infantry(false, 31, 0.5));
-}
+    }
 
     #[test]
     fn tomahawk_name_matrix() {

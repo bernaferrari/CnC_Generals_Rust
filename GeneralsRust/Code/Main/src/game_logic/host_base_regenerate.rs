@@ -207,7 +207,13 @@ mod tests {
         assert_eq!(d.wake_frame, 10 + BASE_REGEN_DELAY_FRAMES);
         // Before wake: no heal.
         assert_eq!(
-            d.tick_heal_amount(10 + BASE_REGEN_DELAY_FRAMES - 1, 500.0, 1000.0, false, false),
+            d.tick_heal_amount(
+                10 + BASE_REGEN_DELAY_FRAMES - 1,
+                500.0,
+                1000.0,
+                false,
+                false
+            ),
             0.0
         );
         // At wake: heal.

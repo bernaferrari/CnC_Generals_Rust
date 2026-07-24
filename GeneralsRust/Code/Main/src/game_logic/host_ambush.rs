@@ -185,7 +185,6 @@ impl HostAmbushRegistry {
         *self = Self::new();
     }
 
-    
     pub fn schedule_fade_in(&mut self, object_id: ObjectId, spawn_frame: u32) {
         if !AMBUSH_FADE_IN {
             return;

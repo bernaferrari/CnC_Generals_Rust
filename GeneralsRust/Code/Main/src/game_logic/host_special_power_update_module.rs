@@ -57,13 +57,12 @@ impl HostSpecialPowerUpdateModuleData {
 }
 
 pub fn honesty_special_power_update_module_residual_ok() -> bool {
-    SPECTRE_DEPLOY_DISABLED_MASK.count_ones() == 4
-        && {
-            let d = HostSpecialPowerUpdateModuleData::spectre_deployment_defaults();
-            d.is_special_power
-                && !d.is_special_ability
-                && d.does_special_power_update_pass_science_test(|_| false)
-        }
+    SPECTRE_DEPLOY_DISABLED_MASK.count_ones() == 4 && {
+        let d = HostSpecialPowerUpdateModuleData::spectre_deployment_defaults();
+        d.is_special_power
+            && !d.is_special_ability
+            && d.does_special_power_update_pass_science_test(|_| false)
+    }
 }
 
 #[cfg(test)]

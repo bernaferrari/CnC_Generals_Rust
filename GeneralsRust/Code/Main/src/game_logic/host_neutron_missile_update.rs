@@ -102,13 +102,21 @@ impl HostNeutronMissileUpdateData {
             return None;
         }
         let is_cruise = template_name.to_ascii_lowercase().contains("cruise");
-        Some(Self::launch_at(launch_pos, target, launcher_id, now, is_cruise))
+        Some(Self::launch_at(
+            launch_pos,
+            target,
+            launcher_id,
+            now,
+            is_cruise,
+        ))
     }
 
     /// One logic frame. Returns new position + velocity; `grounded` when dive hits terrain.
     pub fn tick(&mut self, pos: Vec3, _now: u32) -> NeutronMissileTick {
-        if matches!(self.phase, NeutronMissileFlightPhase::Dead | NeutronMissileFlightPhase::Prelaunch)
-        {
+        if matches!(
+            self.phase,
+            NeutronMissileFlightPhase::Dead | NeutronMissileFlightPhase::Prelaunch
+        ) {
             return NeutronMissileTick {
                 pos,
                 vel: Vec3::ZERO,
@@ -133,8 +141,8 @@ impl HostNeutronMissileUpdateData {
                 }
                 // Special loft: climb SpecialSpeedHeight over SpecialSpeedTime.
                 if self.special_frames_left > 0 {
-                    let step = NEUTRON_SPECIAL_SPEED_HEIGHT
-                        / NEUTRON_SPECIAL_SPEED_TIME_FRAMES as f32;
+                    let step =
+                        NEUTRON_SPECIAL_SPEED_HEIGHT / NEUTRON_SPECIAL_SPEED_TIME_FRAMES as f32;
                     new_pos.y += step;
                     vel.y = step;
                     // SpecialJitterDistance residual (small lateral wobble).

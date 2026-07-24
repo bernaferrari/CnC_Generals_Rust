@@ -201,15 +201,8 @@ pub fn honesty_ocl_create_debris_residual_ok() -> bool {
         && parse_disposition_names("SEND_IT_FLYING INHERIT_VELOCITY")
             == (DEBRIS_SEND_IT_FLYING | DEBRIS_INHERIT_VELOCITY)
         && {
-            let v = debris_initial_velocity(
-                DEBRIS_SEND_IT_UP,
-                Vec3::ZERO,
-                0,
-                10.0,
-                10.0,
-                90.0,
-                90.0,
-            );
+            let v =
+                debris_initial_velocity(DEBRIS_SEND_IT_UP, Vec3::ZERO, 0, 10.0, 10.0, 90.0, 90.0);
             v.y >= 9.0
         }
         && {

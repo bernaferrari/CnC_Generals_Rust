@@ -380,14 +380,8 @@ pub fn mig_damage_at(distance_from_impact: f32, loadout: MigLoadout) -> f32 {
 }
 
 /// C++ ScatterRadiusVsInfantry residual on NapalmMissileWeapon / BlackNapalm / Nuke MiG.
-pub fn mig_scatter_aim(
-    aim: glam::Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (glam::Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
+pub fn mig_scatter_aim(aim: glam::Vec3, target_is_infantry: bool, seed: u32) -> (glam::Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
     let mut scatter = host_effective_scatter_radius(NAPALM_MISSILE_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = MIG_SCATTER_VS_INFANTRY;
@@ -396,10 +390,7 @@ pub fn mig_scatter_aim(
         return (aim, false);
     }
     let off = scatter_aim_offset(seed, scatter);
-    (
-        glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z),
-        true,
-    )
+    (glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
 }
 
 /// Whether MiG napalm residual misses intended infantry via ScatterRadiusVsInfantry.
@@ -414,7 +405,6 @@ pub fn mig_scatter_misses_infantry(
     }
     scatter_misses_intended_target(MIG_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
-
 
 /// Legal residual splash / fire target.
 pub fn is_legal_mig_target(
@@ -588,7 +578,6 @@ mod tests {
         assert!(!mig_scatter_misses_infantry(true, 67, 100.0));
         assert!(!mig_scatter_misses_infantry(false, 67, 0.5));
     }
-
 
     #[test]
     fn mig_residual_pack_honesty_wave67() {

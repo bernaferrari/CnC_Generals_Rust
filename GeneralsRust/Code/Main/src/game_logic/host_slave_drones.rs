@@ -583,16 +583,9 @@ pub fn honesty_slave_drones_repair_residual_ok() -> bool {
 /// Combined Wave 61 slave-drone residual honesty pack.
 
 /// Apply HellfireMissileWeapon ScatterRadiusVsInfantry residual to aim.
-pub fn hellfire_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(HELLFIRE_MISSILE_WEAPON, target_is_infantry);
+pub fn hellfire_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(HELLFIRE_MISSILE_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = HELLFIRE_SCATTER_VS_INFANTRY;
     }
@@ -625,8 +618,7 @@ pub fn honesty_hellfire_scatter_vs_infantry_ok() -> bool {
         && ((vs - 10.0).abs() < 0.01 || vs <= 0.0)
         && ground.abs() < 0.01
         && {
-            let (sc, applied) =
-                hellfire_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            let (sc, applied) = hellfire_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
             applied && sc.length() <= HELLFIRE_SCATTER_VS_INFANTRY + 0.01
         }
 }

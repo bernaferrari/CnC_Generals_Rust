@@ -1684,7 +1684,8 @@ pub struct Object {
     pub radar_van_ping_expires_frame: Option<u32>,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
-    pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
+    pub tensile_formation:
+        Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
     /// C++ FireSpreadUpdate + FlammableUpdate residual.
     #[serde(default)]
     pub fire_spread: Option<crate::game_logic::host_fire_spread::HostFireSpreadData>,
@@ -1696,7 +1697,8 @@ pub struct Object {
     pub enemy_near: Option<crate::game_logic::host_enemy_near::HostEnemyNearData>,
     /// C++ AnimationSteeringUpdate residual (Battle Bus turn anims).
     #[serde(default)]
-    pub animation_steering: Option<crate::game_logic::host_animation_steering::HostAnimationSteeringData>,
+    pub animation_steering:
+        Option<crate::game_logic::host_animation_steering::HostAnimationSteeringData>,
     /// C++ FloatUpdate residual (boat sway / water snap).
     #[serde(default)]
     pub float_update: Option<crate::game_logic::host_float_update::HostFloatUpdateData>,
@@ -1705,14 +1707,17 @@ pub struct Object {
     pub prone_update: Option<crate::game_logic::host_prone_update::HostProneUpdateData>,
     /// C++ RadiusDecalUpdate residual (SW delivery decal).
     #[serde(default)]
-    pub radius_decal_update: Option<crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateData>,
+    pub radius_decal_update:
+        Option<crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateData>,
     /// C++ CheckpointUpdate residual (ally gate).
     #[serde(default)]
-    pub checkpoint_update: Option<crate::game_logic::host_checkpoint_update::HostCheckpointUpdateData>,
+    pub checkpoint_update:
+        Option<crate::game_logic::host_checkpoint_update::HostCheckpointUpdateData>,
     /// C++ SpectreGunshipDeploymentUpdate residual (CC spawns gunship).
     #[serde(default)]
-    pub spectre_gunship_deployment:
-        Option<crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentData>,
+    pub spectre_gunship_deployment: Option<
+        crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentData,
+    >,
     /// C++ SmartBombTargetHomingUpdate residual (MOAB course fudge).
     #[serde(default)]
     pub smart_bomb_target_homing:
@@ -4023,7 +4028,6 @@ impl Object {
         }
     }
 
-
     /// C++ NeutronMissileUpdate residual install when target known.
     pub fn ensure_neutron_missile_update(
         &mut self,
@@ -4047,7 +4051,6 @@ impl Object {
             self.neutron_missile_update = Some(data);
         }
     }
-
 
     pub fn tick_height_die(&mut self, current_frame: u32, terrain_height: f32) -> bool {
         self.ensure_height_die(current_frame);
@@ -4861,9 +4864,9 @@ impl Object {
         if self.fire_spread.is_some() {
             return;
         }
-        if let Some(data) =
-            crate::game_logic::host_fire_spread::HostFireSpreadData::for_template(&self.template_name)
-        {
+        if let Some(data) = crate::game_logic::host_fire_spread::HostFireSpreadData::for_template(
+            &self.template_name,
+        ) {
             self.fire_spread = Some(data);
         }
     }
@@ -4894,11 +4897,9 @@ impl Object {
         if self.float_update.is_some() {
             return;
         }
-        if let Some(data) =
-            crate::game_logic::host_float_update::HostFloatUpdateData::for_template(
-                &self.template_name,
-            )
-        {
+        if let Some(data) = crate::game_logic::host_float_update::HostFloatUpdateData::for_template(
+            &self.template_name,
+        ) {
             self.float_update = Some(data);
         }
     }
@@ -4907,11 +4908,9 @@ impl Object {
         if self.prone_update.is_some() {
             return;
         }
-        if let Some(data) =
-            crate::game_logic::host_prone_update::HostProneUpdateData::for_template(
-                &self.template_name,
-            )
-        {
+        if let Some(data) = crate::game_logic::host_prone_update::HostProneUpdateData::for_template(
+            &self.template_name,
+        ) {
             self.prone_update = Some(data);
         }
     }
@@ -4978,21 +4977,19 @@ impl Object {
             .unwrap_or(false)
     }
 
-    pub fn create_delivery_radius_decal(
-        &mut self,
-        pos: glam::Vec3,
-        frame: u32,
-    ) -> bool {
+    pub fn create_delivery_radius_decal(&mut self, pos: glam::Vec3, frame: u32) -> bool {
         self.install_radius_decal_update_if_needed();
         let Some(rd) = self.radius_decal_update.as_mut() else {
             return false;
         };
-        let tmpl = crate::game_logic::host_radius_decal_update::default_delivery_decal_template_for_host(
-            &self.template_name,
-        );
-        let radius = crate::game_logic::host_radius_decal_update::default_delivery_decal_radius_for_template(
-            &self.template_name,
-        );
+        let tmpl =
+            crate::game_logic::host_radius_decal_update::default_delivery_decal_template_for_host(
+                &self.template_name,
+            );
+        let radius =
+            crate::game_logic::host_radius_decal_update::default_delivery_decal_radius_for_template(
+                &self.template_name,
+            );
         rd.create_radius_decal(tmpl, radius, pos, frame);
         rd.set_kill_when_no_longer_attacking(true);
         !rd.delivery_decal.is_empty()
@@ -13535,7 +13532,9 @@ impl Object {
         }
         if status_bits_has(self.object_status_bits, "UNDER_CONSTRUCTION") {
             self.status.under_construction = true;
-        } else if set_names.iter().any(|n| n.eq_ignore_ascii_case("UNDER_CONSTRUCTION"))
+        } else if set_names
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case("UNDER_CONSTRUCTION"))
             || clear_names
                 .iter()
                 .any(|n| n.eq_ignore_ascii_case("UNDER_CONSTRUCTION"))
@@ -13561,10 +13560,7 @@ impl Object {
     }
 
     pub fn has_object_status_bit(&self, name: &str) -> bool {
-        crate::game_logic::host_status_bits_upgrade::status_bits_has(
-            self.object_status_bits,
-            name,
-        )
+        crate::game_logic::host_status_bits_upgrade::status_bits_has(self.object_status_bits, name)
     }
 
     pub fn set_status_masked(&mut self, v: bool) {

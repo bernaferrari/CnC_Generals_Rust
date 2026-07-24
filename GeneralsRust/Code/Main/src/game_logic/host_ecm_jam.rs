@@ -140,7 +140,8 @@ pub fn is_ecm_jam_missile_name(template_name: &str) -> bool {
         || n.contains("napalm")
         || n.contains("stinger")
         || n.contains("rpg")
-        || (n.contains("shell") && (n.contains("tank") || n.contains("cannon") || n.contains("nuke")))
+        || (n.contains("shell")
+            && (n.contains("tank") || n.contains("cannon") || n.contains("nuke")))
 }
 
 /// Whether object flags indicate an in-flight projectile residual.
@@ -389,7 +390,7 @@ mod tests {
         assert_eq!(ECM_DISABLE_STREAM_BONE, "WEAPONA01");
     }
 
-#[test]
+    #[test]
     fn ecm_jam_residual_pack_honesty() {
         assert!(honesty_ecm_jam_residual_pack_ok());
         assert_eq!(ecm_ms_to_frames(650), 20);

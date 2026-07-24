@@ -789,11 +789,8 @@ pub fn strategy_center_gun_scatter_aim(
     target_is_infantry: bool,
     seed: u32,
 ) -> (glam::Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(STRATEGY_CENTER_GUN_WEAPON, target_is_infantry);
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(STRATEGY_CENTER_GUN_WEAPON, target_is_infantry);
     if scatter <= 0.0 {
         scatter = if target_is_infantry {
             STRATEGY_CENTER_GUN_SCATTER + STRATEGY_CENTER_GUN_SCATTER_VS_INFANTRY
@@ -805,10 +802,7 @@ pub fn strategy_center_gun_scatter_aim(
         return (aim, false);
     }
     let off = scatter_aim_offset(seed, scatter);
-    (
-        glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z),
-        true,
-    )
+    (glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
 }
 
 /// Whether StrategyCenterGun residual misses intended via scatter (all targets).
@@ -825,7 +819,6 @@ pub fn strategy_center_gun_scatter_misses(
     };
     scatter_misses_intended_target(scatter, seed, target_hit_radius)
 }
-
 
 /// Whether residual target is in StrategyCenterGun range band (min..=max).
 pub fn strategy_center_gun_in_range(distance: f32) -> bool {
@@ -2512,10 +2505,13 @@ mod tests {
         assert!(d > 0.01 && d <= STRATEGY_CENTER_GUN_SCATTER + 0.01);
         let (sci, _) = strategy_center_gun_scatter_aim(aim, true, 31);
         let di = ((sci.x - aim.x).powi(2) + (sci.z - aim.z).powi(2)).sqrt();
-        assert!(di > 0.01 && di <= STRATEGY_CENTER_GUN_SCATTER + STRATEGY_CENTER_GUN_SCATTER_VS_INFANTRY + 0.01);
+        assert!(
+            di > 0.01
+                && di
+                    <= STRATEGY_CENTER_GUN_SCATTER + STRATEGY_CENTER_GUN_SCATTER_VS_INFANTRY + 0.01
+        );
         assert!(strategy_center_gun_scatter_misses(67, 0.5, true));
         assert!(!strategy_center_gun_scatter_misses(67, 100.0, true));
         assert!(strategy_center_gun_scatter_misses(67, 0.5, false));
     }
-
 }

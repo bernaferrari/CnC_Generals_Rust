@@ -312,8 +312,9 @@ impl HostMicrowaveRegistry {
     pub fn record_emitter_damage(&mut self, applications: u32) {
         if applications > 0 {
             self.emitter_ticks = self.emitter_ticks.saturating_add(1);
-            self.emitter_damage_applications =
-                self.emitter_damage_applications.saturating_add(applications);
+            self.emitter_damage_applications = self
+                .emitter_damage_applications
+                .saturating_add(applications);
         }
     }
 
@@ -499,13 +500,21 @@ mod tests {
         assert_eq!(reg.ally_filter_rejects, 1);
     }
 
-        #[test]
+    #[test]
     fn microwave_stream_residual_honesty() {
         assert!(honesty_microwave_stream_residual_ok());
-        assert!(is_legal_microwave_emitter_target(true, false, false, false, false));
-        assert!(!is_legal_microwave_emitter_target(true, true, false, false, false));
-        assert!(!is_legal_microwave_emitter_target(true, false, true, false, false));
-        assert!(!is_legal_microwave_emitter_target(true, false, false, true, false));
+        assert!(is_legal_microwave_emitter_target(
+            true, false, false, false, false
+        ));
+        assert!(!is_legal_microwave_emitter_target(
+            true, true, false, false, false
+        ));
+        assert!(!is_legal_microwave_emitter_target(
+            true, false, true, false, false
+        ));
+        assert!(!is_legal_microwave_emitter_target(
+            true, false, false, true, false
+        ));
         let mut reg = HostMicrowaveRegistry::new();
         reg.record_laser_beam();
         reg.record_emitter_damage(2);
@@ -513,7 +522,7 @@ mod tests {
         assert!(reg.honesty_emitter_ok());
     }
 
-#[test]
+    #[test]
     fn microwave_residual_pack_honesty() {
         assert!(honesty_microwave_cook_radius_residual_ok());
         assert!(honesty_microwave_disable_residual_ok());

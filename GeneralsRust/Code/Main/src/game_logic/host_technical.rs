@@ -89,7 +89,6 @@ pub const TECH_CANNON_SHELL_SECOND_HEIGHT: f32 = 10.0;
 pub const TECH_CANNON_SHELL_FIRST_PERCENT_INDENT: f32 = 0.50;
 pub const TECH_CANNON_SHELL_SECOND_PERCENT_INDENT: f32 = 0.90;
 
-
 /// Tier 2 PrimaryDamage / radius / range / min range / delay.
 pub const TECH_RPG_DAMAGE: f32 = 50.0;
 pub const TECH_RPG_RADIUS: f32 = 5.0;
@@ -119,7 +118,6 @@ pub const TECH_RPG_MISSILE_SEEK: bool = true;
 pub const TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES: u32 = 0;
 /// Cruise WeaponSpeed residual (projectile weapons list ignored; host cruise 600).
 pub const TECH_RPG_MISSILE_CRUISE_SPEED: f32 = 600.0;
-
 
 /// AP bullets WeaponBonus DAMAGE 125%.
 pub const TECH_AP_DAMAGE_MULT: f32 = 1.25;
@@ -342,10 +340,7 @@ pub fn technical_cannon_shell_bezier_point(from: glam::Vec3, to: glam::Vec3, t: 
         + delta * TECH_CANNON_SHELL_SECOND_PERCENT_INDENT
         + glam::Vec3::Y * TECH_CANNON_SHELL_SECOND_HEIGHT;
     let u = 1.0 - t;
-    p0 * (u * u * u)
-        + p1 * (3.0 * u * u * t)
-        + p2 * (3.0 * u * t * t)
-        + p3 * (t * t * t)
+    p0 * (u * u * u) + p1 * (3.0 * u * u * t) + p2 * (3.0 * u * t * t) + p3 * (t * t * t)
 }
 
 /// Flight frames from horizontal distance / WeaponSpeed @ 30 FPS.
@@ -472,18 +467,14 @@ pub fn honesty_technical_rpg_missile_ok() -> bool {
         && (TECH_RPG_RADIUS - 5.0).abs() < 0.01
 }
 
-
 /// Apply TechnicalCannonWeapon ScatterRadiusVsInfantry residual to aim.
 pub fn technical_cannon_scatter_aim(
     aim: Vec3,
     target_is_infantry: bool,
     seed: u32,
 ) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(TECHNICAL_CANNON, target_is_infantry);
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(TECHNICAL_CANNON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = TECH_CANNON_SCATTER_VS_INFANTRY;
     }
@@ -518,8 +509,7 @@ pub fn honesty_technical_cannon_scatter_vs_infantry_ok() -> bool {
         && ground.abs() < 0.01
         && mg_vs.abs() < 0.01
         && {
-            let (sc, applied) =
-                technical_cannon_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            let (sc, applied) = technical_cannon_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
             applied && sc.length() <= TECH_CANNON_SCATTER_VS_INFANTRY + 0.01
         }
 }
@@ -549,11 +539,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= TECH_CANNON_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(technical_cannon_scatter_misses_infantry(true, 17, 0.5));
         assert!(!technical_cannon_scatter_misses_infantry(true, 17, 100.0));
         assert!(!technical_cannon_scatter_misses_infantry(false, 17, 0.5));
-}
+    }
 
     #[test]
     fn technical_name_matrix() {
@@ -626,9 +616,18 @@ mod tests {
     #[test]
     fn cannon_shell_projectile_peels() {
         assert!(honesty_technical_cannon_shell_ok());
-        assert!(should_apply_technical_cannon_shell(true, TechnicalWeaponTier::One));
-        assert!(!should_apply_technical_cannon_shell(true, TechnicalWeaponTier::Two));
-        assert!(!should_apply_technical_cannon_shell(true, TechnicalWeaponTier::Base));
+        assert!(should_apply_technical_cannon_shell(
+            true,
+            TechnicalWeaponTier::One
+        ));
+        assert!(!should_apply_technical_cannon_shell(
+            true,
+            TechnicalWeaponTier::Two
+        ));
+        assert!(!should_apply_technical_cannon_shell(
+            true,
+            TechnicalWeaponTier::Base
+        ));
         let from = glam::Vec3::ZERO;
         let to = glam::Vec3::new(150.0, 0.0, 0.0);
         assert!(technical_cannon_shell_flight_frames(from, to) >= 1);
@@ -640,9 +639,18 @@ mod tests {
     fn rpg_missile_projectile_peels() {
         assert!(honesty_technical_rpg_missile_ok());
         assert_eq!(technical_ms_to_frames(1_000), 30);
-        assert!(should_apply_technical_rpg_missile(true, TechnicalWeaponTier::Two));
-        assert!(!should_apply_technical_rpg_missile(true, TechnicalWeaponTier::One));
-        assert!(!should_apply_technical_rpg_missile(true, TechnicalWeaponTier::Base));
+        assert!(should_apply_technical_rpg_missile(
+            true,
+            TechnicalWeaponTier::Two
+        ));
+        assert!(!should_apply_technical_rpg_missile(
+            true,
+            TechnicalWeaponTier::One
+        ));
+        assert!(!should_apply_technical_rpg_missile(
+            true,
+            TechnicalWeaponTier::Base
+        ));
         assert!(technical_rpg_flight_frames(150.0) >= 1);
     }
 

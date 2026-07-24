@@ -62,10 +62,7 @@ pub fn create_object_die_config_for_template(name: &str) -> Option<HostCreateObj
     if n.contains("aurorabomb") || n.contains("aurora_bomb") {
         return Some(HostCreateObjectDieData {
             ocl_name: "AirF_OCL_AuroraBombExplode".into(),
-            spawn_templates: vec![
-                "AirF_AuroraBombGas".into(),
-                "GenericDebris".into(),
-            ],
+            spawn_templates: vec!["AirF_AuroraBombGas".into(), "GenericDebris".into()],
             transfer_previous_health: false,
             fired: false,
         });
@@ -157,7 +154,10 @@ mod tests {
     fn fuel_air_bomb_peel() {
         let d = create_object_die_config_for_template("DaisyCutterBomb").unwrap();
         assert_eq!(d.ocl_name, "SupW_OCL_FuelAirBomb");
-        assert!(d.spawn_templates.iter().any(|s| s.contains("FuelAirGas") || s.contains("Gas")));
+        assert!(d
+            .spawn_templates
+            .iter()
+            .any(|s| s.contains("FuelAirGas") || s.contains("Gas")));
         assert!(d.spawn_templates.iter().any(|s| s.contains("Debris")));
         let m = create_object_die_config_for_template("MOAB").unwrap();
         assert_eq!(m.spawn_templates.len(), 2);

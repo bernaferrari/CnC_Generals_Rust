@@ -116,15 +116,20 @@ impl HostFireSpreadData {
         }
         self.state = HostFlammableState::Aflame;
         self.aflame_end_frame = current_frame.saturating_add(self.aflame_duration);
-        self.burned_end_frame = current_frame.saturating_add(self.burned_delay.max(self.aflame_duration));
+        self.burned_end_frame =
+            current_frame.saturating_add(self.burned_delay.max(self.aflame_duration));
         // C++ startFireSpreading → wake with next delay.
-        self.next_spread_frame = current_frame.saturating_add(self.calc_next_spread_delay(current_frame));
+        self.next_spread_frame =
+            current_frame.saturating_add(self.calc_next_spread_delay(current_frame));
         true
     }
 
     /// Accumulate flame damage residual (limit → ignite).
     pub fn apply_flame_damage(&mut self, amount: f32, current_frame: u32) -> bool {
-        if matches!(self.state, HostFlammableState::Burned | HostFlammableState::Aflame) {
+        if matches!(
+            self.state,
+            HostFlammableState::Burned | HostFlammableState::Aflame
+        ) {
             return false;
         }
         self.flame_damage_accum += amount.max(0.0);
@@ -200,7 +205,8 @@ pub struct SpreadTickResult {
 pub fn is_fire_spread_template(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     n.contains("dogwood")
-        || n.contains("tree") && (n.contains("pt") || n.contains("shrub") || n.contains("pine") || n.contains("oak"))
+        || n.contains("tree")
+            && (n.contains("pt") || n.contains("shrub") || n.contains("pine") || n.contains("oak"))
         || n.contains("shrubbery")
         || n.ends_with("tree")
         || n.contains("burnabletree")

@@ -28,8 +28,8 @@
 //! - Not network flashbang / fire replication (network deferred)
 
 use super::Weapon;
-use glam::Vec3;
 use crate::game_logic::host_red_guard::delay_frames_to_reload_secs;
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const RANGER_LOGIC_FPS: f32 = 30.0;
@@ -178,7 +178,6 @@ pub fn is_ranger_template(template_name: &str) -> bool {
 }
 
 /// Whether residual fire should apply Ranger residual path.
-
 
 /// Cubic Bezier residual sample for RangerFlashBangGrenade DumbProjectileBehavior.
 pub fn flashbang_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
@@ -404,26 +403,19 @@ pub fn ranger_flashbang_scatter_aim(aim: Vec3, seed: u32) -> (Vec3, bool) {
 }
 
 /// Whether RangerFlashBangGrenadeWeapon residual misses intended via ScatterRadius (**4**).
-pub fn ranger_flashbang_scatter_misses(
-    seed: u32,
-    target_hit_radius: f32,
-) -> bool {
+pub fn ranger_flashbang_scatter_misses(seed: u32, target_hit_radius: f32) -> bool {
     use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
     scatter_misses_intended_target(FLASHBANG_SCATTER_RADIUS, seed, target_hit_radius)
 }
-
 
 /// Wave residual honesty: Ranger flashbang ScatterRadius peels (**4**).
 pub fn honesty_ranger_flashbang_scatter_ok() -> bool {
     use crate::game_logic::weapon_bootstrap::host_scatter_radius_for_weapon_name;
     let base = host_scatter_radius_for_weapon_name(RANGER_FLASHBANG_WEAPON);
-    (FLASHBANG_SCATTER_RADIUS - 4.0).abs() < 0.01
-        && (base - 4.0).abs() < 0.01
-        && {
-            let (sc, applied) =
-                ranger_flashbang_scatter_aim(Vec3::new(0.0, 0.0, 0.0), 3);
-            applied && sc.length() <= FLASHBANG_SCATTER_RADIUS + 0.01
-        }
+    (FLASHBANG_SCATTER_RADIUS - 4.0).abs() < 0.01 && (base - 4.0).abs() < 0.01 && {
+        let (sc, applied) = ranger_flashbang_scatter_aim(Vec3::new(0.0, 0.0, 0.0), 3);
+        applied && sc.length() <= FLASHBANG_SCATTER_RADIUS + 0.01
+    }
 }
 
 pub fn honesty_ranger_residual_pack_ok() -> bool {
@@ -448,10 +440,10 @@ mod tests {
         // Same seed is deterministic.
         let (sc2, _) = ranger_flashbang_scatter_aim(aim, 31);
         assert_eq!(sc, sc2);
-    
+
         assert!(ranger_flashbang_scatter_misses(67, 0.5));
         assert!(!ranger_flashbang_scatter_misses(67, 100.0));
-}
+    }
     use std::collections::HashSet;
 
     #[test]
@@ -484,7 +476,11 @@ mod tests {
         assert!((w.reload_time - (3.0 / 30.0)).abs() < 0.01);
         assert_eq!(w.ammo, Some(3));
         assert_eq!(w.clip_size, RANGER_RIFLE_CLIP_SIZE);
-        assert!((w.clip_reload_time - delay_frames_to_reload_secs(RANGER_RIFLE_CLIP_RELOAD_FRAMES)).abs() < 0.01);
+        assert!(
+            (w.clip_reload_time - delay_frames_to_reload_secs(RANGER_RIFLE_CLIP_RELOAD_FRAMES))
+                .abs()
+                < 0.01
+        );
         assert!(!w.can_target_air && w.can_target_ground);
     }
 
@@ -553,5 +549,4 @@ mod tests {
         Object::consume_ammo_on_fire(&mut w, t + clip - shot);
         assert_eq!(w.ammo, Some(2), "refilled clip then spent one");
     }
-
 }

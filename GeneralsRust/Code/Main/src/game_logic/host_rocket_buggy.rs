@@ -327,16 +327,9 @@ pub fn honesty_rocket_buggy_body_residual_ok() -> bool {
 /// Combined Wave 63 Rocket Buggy residual honesty pack.
 
 /// Apply BuggyRocketWeapon ScatterRadiusVsInfantry residual to aim.
-pub fn rocket_buggy_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(BUGGY_ROCKET_WEAPON, target_is_infantry);
+pub fn rocket_buggy_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(BUGGY_ROCKET_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = BUGGY_SCATTER_VS_INFANTRY;
     }
@@ -358,8 +351,7 @@ pub fn honesty_rocket_buggy_scatter_vs_infantry_ok() -> bool {
         && (vs_up - 20.0).abs() < 0.01
         && ground.abs() < 0.01
         && {
-            let (sc, applied) =
-                rocket_buggy_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            let (sc, applied) = rocket_buggy_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
             applied && sc.length() <= BUGGY_SCATTER_VS_INFANTRY + 0.01
         }
 }
@@ -386,11 +378,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= BUGGY_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(rocket_buggy_scatter_misses_infantry(true, 67, 0.5));
         assert!(!rocket_buggy_scatter_misses_infantry(true, 67, 100.0));
         assert!(!rocket_buggy_scatter_misses_infantry(false, 67, 0.5));
-}
+    }
 
     #[test]
     fn rocket_buggy_name_matrix() {

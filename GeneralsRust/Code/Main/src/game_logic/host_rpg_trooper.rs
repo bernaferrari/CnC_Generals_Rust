@@ -26,8 +26,8 @@
 //! - Not network AP / RPG replication (network deferred)
 
 use super::Weapon;
-use glam::Vec3;
 use crate::game_logic::host_red_guard::delay_frames_to_reload_secs;
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const RPG_LOGIC_FPS: f32 = 30.0;
@@ -297,14 +297,8 @@ pub fn honesty_rpg_body_residual_ok() -> bool {
 /// Combined Wave 60 RPG Trooper residual honesty pack.
 
 /// Apply TunnelDefenderRocketWeapon ScatterRadiusVsInfantry residual to aim.
-pub fn rpg_trooper_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
+pub fn rpg_trooper_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
     let mut scatter =
         host_effective_scatter_radius(TUNNEL_DEFENDER_ROCKET_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
@@ -329,7 +323,6 @@ pub fn rpg_trooper_scatter_misses_infantry(
     }
     scatter_misses_intended_target(RPG_TROOPER_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
-
 
 /// Wave residual honesty: RPG Trooper ScatterRadiusVsInfantry peels.
 pub fn honesty_rpg_trooper_scatter_vs_infantry_ok() -> bool {
@@ -368,11 +361,11 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= RPG_TROOPER_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(rpg_trooper_scatter_misses_infantry(true, 29, 0.5));
         assert!(!rpg_trooper_scatter_misses_infantry(true, 29, 100.0));
         assert!(!rpg_trooper_scatter_misses_infantry(false, 29, 0.5));
-}
+    }
     use std::collections::HashSet;
 
     #[test]

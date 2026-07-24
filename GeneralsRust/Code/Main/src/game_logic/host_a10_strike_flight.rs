@@ -109,11 +109,7 @@ impl HostA10StrikeFlightRegistry {
                 // two missiles per interval residual
                 for k in 0..A10_ITEMS_PER_DROP {
                     let side = if k == 0 { -6.0 } else { 6.0 };
-                    out.push(Vec3::new(
-                        target.x + along,
-                        0.0,
-                        target.z + lateral + side,
-                    ));
+                    out.push(Vec3::new(target.x + along, 0.0, target.z + lateral + side));
                 }
             }
         }
@@ -185,11 +181,8 @@ pub fn honesty_a10_strike_flight_residual_ok() -> bool {
         && A10_DROP_DELAY_FRAMES == 15
         && A10_ITEMS_PER_DROP == 2
         && A10_NUM_BONES == 6
-        && HostA10StrikeFlightRegistry::formation_targets(
-            Vec3::ZERO,
-            A10StrikeScienceTier::Level1,
-        )
-        .len()
+        && HostA10StrikeFlightRegistry::formation_targets(Vec3::ZERO, A10StrikeScienceTier::Level1)
+            .len()
             == 6
         && {
             let mut reg = HostA10StrikeFlightRegistry::new();

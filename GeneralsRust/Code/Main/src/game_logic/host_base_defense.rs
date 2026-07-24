@@ -102,8 +102,8 @@
 //! - Not network base-defense replication (network deferred)
 
 use super::{ObjectId, Weapon};
-use glam::Vec3;
 use crate::game_logic::host_gattling_tank::{GattlingFireLevel, GATTLING_CHAIN_GUN_DAMAGE_MULT};
+use glam::Vec3;
 use std::collections::HashSet;
 
 /// Retail Patriot primary weapon template name.
@@ -442,18 +442,10 @@ pub fn honesty_stinger_site_body_residual_ok() -> bool {
         && STINGER_SITE_VISION_RANGE > STINGER_SITE_SHROUD_CLEARING_RANGE
 }
 
-
 /// Apply PatriotMissileWeapon ScatterRadiusVsInfantry residual to aim.
-pub fn patriot_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(PATRIOT_PRIMARY_WEAPON, target_is_infantry);
+pub fn patriot_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(PATRIOT_PRIMARY_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = PATRIOT_SCATTER_RADIUS_VS_INFANTRY;
     }
@@ -474,11 +466,7 @@ pub fn patriot_scatter_misses_infantry(
     if !target_is_infantry {
         return false;
     }
-    scatter_misses_intended_target(
-        PATRIOT_SCATTER_RADIUS_VS_INFANTRY,
-        seed,
-        target_hit_radius,
-    )
+    scatter_misses_intended_target(PATRIOT_SCATTER_RADIUS_VS_INFANTRY, seed, target_hit_radius)
 }
 
 /// Wave residual honesty: Patriot ScatterRadiusVsInfantry peels (**10**).
@@ -492,23 +480,15 @@ pub fn honesty_patriot_scatter_vs_infantry_ok() -> bool {
         && ((vs_air - 10.0).abs() < 0.01 || vs_air <= 0.0)
         && ground.abs() < 0.01
         && {
-            let (sc, applied) =
-                patriot_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            let (sc, applied) = patriot_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
             applied && sc.length() <= PATRIOT_SCATTER_RADIUS_VS_INFANTRY + 0.01
         }
 }
 
 /// Apply StingerMissileWeapon ScatterRadiusVsInfantry residual to aim.
-pub fn stinger_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(STINGER_PRIMARY_WEAPON, target_is_infantry);
+pub fn stinger_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(STINGER_PRIMARY_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = STINGER_SCATTER_RADIUS_VS_INFANTRY;
     }
@@ -541,13 +521,10 @@ pub fn honesty_stinger_scatter_vs_infantry_ok() -> bool {
         && ((vs - 10.0).abs() < 0.01 || vs <= 0.0)
         && ground.abs() < 0.01
         && {
-            let (sc, applied) =
-                stinger_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            let (sc, applied) = stinger_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
             applied && sc.length() <= STINGER_SCATTER_RADIUS_VS_INFANTRY + 0.01
         }
 }
-
-
 
 pub fn honesty_base_defense_residual_pack_ok() -> bool {
     honesty_patriot_laser_punch_through_constants_ok()
@@ -577,7 +554,6 @@ pub fn honesty_base_defense_residual_pack_ok() -> bool {
         && PATRIOT_ASSIST_LASER_LIFETIME_FRAMES == 18
         && honesty_patriot_scatter_vs_infantry_ok()
 }
-
 
 /// C++ LaserUpdate::clientUpdate residual: refresh endpoints from live objects
 /// and advance W3DLaserDraw ScrollRate residual. Missing/dead `to` applies
@@ -1794,11 +1770,8 @@ pub fn supw_emp_scatter_aim(
     target_is_infantry: bool,
     seed: u32,
 ) -> (glam::Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(SUPW_EMP_BLAST_WEAPON, target_is_infantry);
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(SUPW_EMP_BLAST_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = SUPW_EMP_SCATTER_VS_INFANTRY;
     }
@@ -1806,10 +1779,7 @@ pub fn supw_emp_scatter_aim(
         return (aim, false);
     }
     let off = scatter_aim_offset(seed, scatter);
-    (
-        glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z),
-        true,
-    )
+    (glam::Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
 }
 
 /// Whether SupW EMP residual misses intended infantry via ScatterRadiusVsInfantry.
@@ -1824,7 +1794,6 @@ pub fn supw_emp_scatter_misses_infantry(
     }
     scatter_misses_intended_target(SUPW_EMP_SCATTER_VS_INFANTRY, seed, target_hit_radius)
 }
-
 
 /// Retail-ish residual weapon name for known host base-defense templates.
 pub fn primary_weapon_name_for_defense(template_name: &str) -> Option<&'static str> {
@@ -2317,7 +2286,6 @@ mod tests {
         assert!(!patriot_scatter_misses_infantry(false, 31, 0.5));
     }
     use std::collections::HashSet;
-
 
     #[test]
     fn stinger_scatter_vs_infantry_peels() {
@@ -3200,5 +3168,4 @@ mod tests {
         assert!(!supw_emp_scatter_misses_infantry(true, 67, 100.0));
         assert!(!supw_emp_scatter_misses_infantry(false, 67, 0.5));
     }
-
 }

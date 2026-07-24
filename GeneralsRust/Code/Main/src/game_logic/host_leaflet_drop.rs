@@ -248,7 +248,6 @@ pub struct HostLeafletDropRegistry {
     pub containers_dropped: u32,
 }
 
-
 impl HostLeafletDropRegistry {
     pub fn new() -> Self {
         Self {
@@ -404,7 +403,9 @@ impl HostLeafletDropRegistry {
     pub fn honesty_host_path_ok(&self) -> bool {
         self.honesty_activate_ok()
             && self.honesty_disable_ok()
-            && (self.transports_spawned > 0 || self.containers_dropped > 0 || self.activation_count > 0)
+            && (self.transports_spawned > 0
+                || self.containers_dropped > 0
+                || self.activation_count > 0)
     }
 
     pub fn honesty_b52_path_ok(&self) -> bool {

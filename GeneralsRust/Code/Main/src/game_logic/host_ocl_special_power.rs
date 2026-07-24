@@ -187,7 +187,10 @@ pub fn america_command_center_ocl_peels() -> Vec<OclSpecialPowerPeel> {
 }
 
 /// Resolve OCL name: first owned upgrade science, else default.
-pub fn find_ocl_name(peel: &OclSpecialPowerPeel, player_has_science: impl Fn(&str) -> bool) -> &str {
+pub fn find_ocl_name(
+    peel: &OclSpecialPowerPeel,
+    player_has_science: impl Fn(&str) -> bool,
+) -> &str {
     for up in &peel.upgrade_ocl {
         if player_has_science(&up.science) {
             return up.ocl.as_str();
@@ -202,7 +205,8 @@ pub fn peel_for_special_power(power_template: &str) -> Option<&'static OclSpecia
         LazyLock::new(america_command_center_ocl_peels);
     let key = power_template.to_ascii_lowercase();
     PEELS.iter().find(|p| {
-        p.special_power_template.eq_ignore_ascii_case(power_template)
+        p.special_power_template
+            .eq_ignore_ascii_case(power_template)
             || p.special_power_template.to_ascii_lowercase().contains(&key)
             || key.contains(&p.special_power_template.to_ascii_lowercase())
     })
@@ -306,7 +310,6 @@ pub fn default_map_extents() -> (f32, f32, f32, f32) {
         RESIDUAL_MAP_EXTENT_MAX_Z,
     )
 }
-
 
 /// DeliverPayload residual peel from ObjectCreationList.ini.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -579,8 +582,7 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
                 maxz,
             )
             .expect("drone");
-            (plan.creation_coord.y - 300.0).abs() < 0.1
-                && plan.ocl_name == "SUPERWEAPON_SpyDrone"
+            (plan.creation_coord.y - 300.0).abs() < 0.1 && plan.ocl_name == "SUPERWEAPON_SpyDrone"
         }
         && deliver_payload_for_ocl("SUPERWEAPON_DaisyCutter")
             .map(|d| d.transport == "AmericaJetB52" && d.payload == "DaisyCutterBomb")
@@ -588,12 +590,9 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
         && create_object_for_ocl("SUPERWEAPON_SpyDrone")
             .map(|c| c.object_names[0] == "AmericaVehicleSpyDrone")
             .unwrap_or(false)
-        && special_power_template_for_host_kind("DaisyCutter")
-            == Some("SuperweaponDaisyCutter")
-        && ocl_execute_mode_for_template("SuperweaponLeafletDrop")
-            == OclExecuteMode::TransportOnly
-        && ocl_execute_mode_for_template("SuperweaponDaisyCutter")
-            == OclExecuteMode::FullDeliver
+        && special_power_template_for_host_kind("DaisyCutter") == Some("SuperweaponDaisyCutter")
+        && ocl_execute_mode_for_template("SuperweaponLeafletDrop") == OclExecuteMode::TransportOnly
+        && ocl_execute_mode_for_template("SuperweaponDaisyCutter") == OclExecuteMode::FullDeliver
 }
 
 #[cfg(test)]

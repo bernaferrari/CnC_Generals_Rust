@@ -582,7 +582,6 @@ impl HostParadropRegistry {
     pub fn honesty_cargo_plane_path_ok(&self) -> bool {
         self.transports_spawned > 0 && self.parachutes_dropped > 0
     }
-
 }
 
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).

@@ -148,15 +148,14 @@ pub fn is_fire_base_template(template_name: &str) -> bool {
 
 /// Whether residual fire should apply Fire Base residual path.
 
-
 /// ScaleWeaponSpeed residual: lob speed proportional to shot distance.
 pub fn fire_base_scaled_weapon_speed(from: Vec3, to: Vec3) -> f32 {
     let dx = to.x - from.x;
     let dz = to.z - from.z;
     let dist = (dx * dx + dz * dz).sqrt();
     let t = (dist / FIRE_BASE_RANGE).clamp(0.0, 1.0);
-    let speed = FIRE_BASE_MIN_WEAPON_SPEED
-        + (FIRE_BASE_PROJECTILE_SPEED - FIRE_BASE_MIN_WEAPON_SPEED) * t;
+    let speed =
+        FIRE_BASE_MIN_WEAPON_SPEED + (FIRE_BASE_PROJECTILE_SPEED - FIRE_BASE_MIN_WEAPON_SPEED) * t;
     speed.clamp(FIRE_BASE_MIN_WEAPON_SPEED, FIRE_BASE_PROJECTILE_SPEED)
 }
 
@@ -293,24 +292,17 @@ pub fn honesty_fire_base_body_residual_ok() -> bool {
 
 /// Combined Wave 63 Fire Base residual honesty pack.
 pub fn honesty_fire_base_residual_pack_ok() -> bool {
-    honesty_fire_base_weapon_residual_ok() && honesty_fire_base_body_residual_ok()
+    honesty_fire_base_weapon_residual_ok()
+        && honesty_fire_base_body_residual_ok()
         && honesty_fire_base_scatter_vs_infantry_ok()
 }
-
 
 /// Apply FireBaseHowitzerGun ScatterRadiusVsInfantry residual to aim point.
 ///
 /// C++ Weapon::fireWeapon scatter only vs infantry targets. Deterministic seed.
-pub fn fire_base_scatter_aim(
-    aim: Vec3,
-    target_is_infantry: bool,
-    seed: u32,
-) -> (Vec3, bool) {
-    use crate::game_logic::weapon_bootstrap::{
-        host_effective_scatter_radius, scatter_aim_offset,
-    };
-    let mut scatter =
-        host_effective_scatter_radius(FIRE_BASE_HOWITZER_WEAPON, target_is_infantry);
+pub fn fire_base_scatter_aim(aim: Vec3, target_is_infantry: bool, seed: u32) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{host_effective_scatter_radius, scatter_aim_offset};
+    let mut scatter = host_effective_scatter_radius(FIRE_BASE_HOWITZER_WEAPON, target_is_infantry);
     if target_is_infantry && scatter <= 0.0 {
         scatter = FIRE_BASE_SCATTER_VS_INFANTRY;
     }
@@ -363,11 +355,11 @@ mod tests {
         assert!((sc.x - aim.x).abs() > 0.01 || (sc.z - aim.z).abs() > 0.01);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d <= FIRE_BASE_SCATTER_VS_INFANTRY + 0.01);
-    
+
         assert!(fire_base_scatter_misses_infantry(true, 17, 0.5));
         assert!(!fire_base_scatter_misses_infantry(true, 17, 100.0));
         assert!(!fire_base_scatter_misses_infantry(false, 17, 0.5));
-}
+    }
 
     #[test]
     fn fire_base_name_matrix() {
