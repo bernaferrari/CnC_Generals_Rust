@@ -162,11 +162,24 @@ pub struct ScudMissileTick {
     pub ignition_fx: bool,
 }
 
+/// Scheduled ClipSize staggered spawn residual.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingScudMissileSpawn {
+    pub spawn_frame: u32,
+    pub source_id: u32,
+    pub team_ordinal: u8,
+    pub launch: Vec3,
+    pub target: Vec3,
+    pub missile_index: u32,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostScudStormMissileFlightRegistry {
     pub launched: u32,
     pub grounded: u32,
     pub ignition_fx: u32,
+    pub pending: Vec<PendingScudMissileSpawn>,
+    pub scheduled: u32,
 }
 
 impl HostScudStormMissileFlightRegistry {
@@ -178,6 +191,47 @@ impl HostScudStormMissileFlightRegistry {
     }
     pub fn record_launch(&mut self, n: u32) {
         self.launched = self.launched.saturating_add(n);
+    }
+    pub fn schedule_wave(
+        &mut self,
+        activate_frame: u32,
+        source_id: u32,
+        team_ordinal: u8,
+        launch: Vec3,
+        targets: &[Vec3],
+    ) {
+        use crate::game_logic::special_power_strikes::{
+            scud_delay_between_frames, SCUD_STORM_PRE_ATTACK_FRAMES,
+        };
+        let mut frame = activate_frame.saturating_add(SCUD_STORM_PRE_ATTACK_FRAMES);
+        for (i, target) in targets.iter().enumerate() {
+            if i > 0 {
+                frame = frame.saturating_add(scud_delay_between_frames(i as u32));
+            }
+            self.pending.push(PendingScudMissileSpawn {
+                spawn_frame: frame,
+                source_id,
+                team_ordinal,
+                launch,
+                target: *target,
+                missile_index: i as u32,
+            });
+            self.scheduled = self.scheduled.saturating_add(1);
+        }
+    }
+    /// Drain pending spawns due on or before `frame`.
+    pub fn take_due_spawns(&mut self, frame: u32) -> Vec<PendingScudMissileSpawn> {
+        let mut due = Vec::new();
+        let mut keep = Vec::new();
+        for p in self.pending.drain(..) {
+            if p.spawn_frame <= frame {
+                due.push(p);
+            } else {
+                keep.push(p);
+            }
+        }
+        self.pending = keep;
+        due
     }
     pub fn record_ground(&mut self) {
         self.grounded = self.grounded.saturating_add(1);
@@ -195,6 +249,15 @@ pub fn honesty_scud_storm_missile_flight_residual_ok() -> bool {
         && SCUD_STORM_MISSILE_OBJECT == "ScudStormMissile"
         && SCUD_STORM_MISSILE_IGNITION_FX == "FX_ScudStormIgnition"
         && scud_storm_points(Vec3::ZERO).len() == 9
+        && {
+            let mut reg = HostScudStormMissileFlightRegistry::new();
+            let pts = scud_storm_points(Vec3::new(100.0, 0.0, 0.0));
+            reg.schedule_wave(0, 1, 0, Vec3::ZERO, &pts);
+            reg.pending.len() == 9
+                && reg.pending[0].spawn_frame
+                    == crate::game_logic::special_power_strikes::SCUD_STORM_PRE_ATTACK_FRAMES
+                && reg.pending[1].spawn_frame > reg.pending[0].spawn_frame
+        }
         && {
             let mut d = HostScudStormMissileFlightData::start(
                 Vec3::new(0.0, 0.0, 0.0),

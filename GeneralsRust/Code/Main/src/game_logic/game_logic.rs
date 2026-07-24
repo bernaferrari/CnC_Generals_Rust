@@ -27494,6 +27494,9 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             SCUD_STORM_PRIMARY_RADIUS, SCUD_STORM_SECONDARY_RADIUS,
         };
 
+        // ClipSize staggered launches residual.
+        self.spawn_due_scud_storm_missiles();
+
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -31529,17 +31532,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         true
     }
 
-    /// Spawn live ScudStormMissile objects on scatter points with ballistic residual.
+    /// Schedule ClipSize-staggered ScudStormMissile ballistic spawns (scatter table).
     pub fn spawn_scud_storm_missile_flight(
         &mut self,
         source_id: ObjectId,
         target: Vec3,
     ) -> u32 {
-        use crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightData;
-        use crate::game_logic::special_power_strikes::{
-            scud_storm_points, SCUD_STORM_MISSILE_OBJECT,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
+        use crate::game_logic::special_power_strikes::scud_storm_points;
 
         let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
         let launch = self
@@ -31547,6 +31546,22 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             .get(&source_id)
             .map(|o| o.get_position())
             .unwrap_or(target);
+        let points = scud_storm_points(target);
+        let before = self.scud_storm_missile_flight_reg.scheduled;
+        let _ = team;
+        self.scud_storm_missile_flight_reg.schedule_wave(
+            self.frame,
+            source_id.0,
+            0,
+            launch,
+            &points,
+        );
+        self.scud_storm_missile_flight_reg.scheduled.saturating_sub(before)
+    }
+
+    fn ensure_scud_storm_missile_template(&mut self) {
+        use crate::game_logic::special_power_strikes::SCUD_STORM_MISSILE_OBJECT;
+        use crate::game_logic::{KindOf, ThingTemplate};
         if !self.templates.contains_key(SCUD_STORM_MISSILE_OBJECT) {
             let mut t = ThingTemplate::new(SCUD_STORM_MISSILE_OBJECT);
             t.set_health(10000.0)
@@ -31555,25 +31570,43 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             self.templates
                 .insert(SCUD_STORM_MISSILE_OBJECT.to_string(), t);
         }
-        let points = scud_storm_points(target);
+    }
+
+    fn spawn_due_scud_storm_missiles(&mut self) {
+        use crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightData;
+        use crate::game_logic::special_power_strikes::SCUD_STORM_MISSILE_OBJECT;
+
+        let due = self
+            .scud_storm_missile_flight_reg
+            .take_due_spawns(self.frame);
+        if due.is_empty() {
+            return;
+        }
+        self.ensure_scud_storm_missile_template();
         let mut n = 0u32;
-        for (i, pt) in points.into_iter().enumerate() {
-            let Some(mid) = self.create_object(SCUD_STORM_MISSILE_OBJECT, team, launch) else {
+        for p in due {
+            let team = self
+                .objects
+                .get(&ObjectId(p.source_id))
+                .map(|o| o.team)
+                .unwrap_or(Team::Neutral);
+            let Some(mid) =
+                self.create_object(SCUD_STORM_MISSILE_OBJECT, team, p.launch)
+            else {
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&mid) {
-                o.producer_id = Some(source_id);
+                o.producer_id = Some(ObjectId(p.source_id));
                 o.scud_storm_missile_flight = Some(HostScudStormMissileFlightData::start(
-                    launch,
-                    pt,
-                    i as u32,
-                    Some(source_id.0),
+                    p.launch,
+                    p.target,
+                    p.missile_index,
+                    Some(p.source_id),
                 ));
             }
             n = n.saturating_add(1);
         }
         self.scud_storm_missile_flight_reg.record_launch(n);
-        n
     }
 
     /// C++ ObjectCreationList::create residual after OCLSpecialPower plan.
@@ -77324,14 +77357,21 @@ mod tests {
             storm_id,
             Vec3::new(100.0, 0.0, 0.0)
         ));
-        assert!(logic.scud_storm_missile_flight_reg.launched >= 9);
-        for f in 0..500 {
+        assert!(logic.scud_storm_missile_flight_reg.scheduled >= 9);
+        assert_eq!(logic.scud_storm_missile_flight_reg.launched, 0);
+        for f in 0..800 {
             logic.frame = f;
             logic.update_scud_storm_missile_flights();
-            if logic.scud_storm_missile_flight_reg.grounded >= 1 {
+            if logic.scud_storm_missile_flight_reg.grounded >= 1
+                && logic.scud_storm_missile_flight_reg.launched >= 9
+            {
                 break;
             }
         }
+        assert!(
+            logic.scud_storm_missile_flight_reg.launched >= 9,
+            "all 9 missiles should launch after stagger"
+        );
         assert!(logic.scud_storm_missile_flight_reg.grounded >= 1);
         let hp1 = logic.find_object(foe).map(|o| o.health.current).unwrap_or(0.0);
         assert!(
