@@ -6778,6 +6778,10 @@ pub struct HostSpecialPowerStrikeRegistry {
     next_orbit_id: u32,
     /// Orbit fields spawned this frame (honesty / presentation drain).
     orbit_spawned_this_frame: Vec<u32>,
+    /// SpectreHowitzerShell Object spawn requests this frame (source, team, impact pos).
+    howitzer_shell_spawns_this_frame: Vec<(ObjectId, super::Team, Vec3)>,
+    /// Honesty: SpectreHowitzerShell GameLogic objects spawned.
+    howitzer_shell_objects_spawned: u32,
     /// Lifetime count of orbit fields spawned (survives prune; honesty).
     orbit_fields_spawned_total: u32,
     /// Lifetime orbit damage applications (honesty after field expiry).
@@ -6845,6 +6849,8 @@ impl HostSpecialPowerStrikeRegistry {
             orbit_fields: Vec::new(),
             next_orbit_id: 1,
             orbit_spawned_this_frame: Vec::new(),
+            howitzer_shell_spawns_this_frame: Vec::new(),
+            howitzer_shell_objects_spawned: 0,
             orbit_fields_spawned_total: 0,
             orbit_damage_applications_total: 0,
             beam_fields: Vec::new(),
@@ -6884,8 +6890,11 @@ impl HostSpecialPowerStrikeRegistry {
         self.toxin_damage_applications_total = 0;
         self.orbit_fields.clear();
         self.orbit_spawned_this_frame.clear();
+        self.howitzer_shell_spawns_this_frame.clear();
         self.next_orbit_id = 1;
         self.orbit_fields_spawned_total = 0;
+        self.howitzer_shell_objects_spawned = 0;
+        self.howitzer_shell_spawns_this_frame.clear();
         self.orbit_damage_applications_total = 0;
         self.beam_fields.clear();
         self.beam_spawned_this_frame.clear();
@@ -6906,6 +6915,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.radiation_spawned_this_frame.clear();
         self.toxin_spawned_this_frame.clear();
         self.orbit_spawned_this_frame.clear();
+        self.howitzer_shell_spawns_this_frame.clear();
         self.beam_spawned_this_frame.clear();
         self.remnant_spawned_this_frame.clear();
     }
@@ -6955,6 +6965,35 @@ impl HostSpecialPowerStrikeRegistry {
 
     pub fn orbit_spawned_this_frame(&self) -> &[u32] {
         &self.orbit_spawned_this_frame
+    }
+
+    pub fn orbit_fields_mut(&mut self) -> &mut [HostSpectreOrbitField] {
+        &mut self.orbit_fields
+    }
+
+    pub fn howitzer_shell_spawns_this_frame(
+        &self,
+    ) -> &[(ObjectId, super::Team, Vec3)] {
+        &self.howitzer_shell_spawns_this_frame
+    }
+
+    pub fn take_howitzer_shell_spawns_this_frame(
+        &mut self,
+    ) -> Vec<(ObjectId, super::Team, Vec3)> {
+        std::mem::take(&mut self.howitzer_shell_spawns_this_frame)
+    }
+
+    pub fn howitzer_shell_objects_spawned(&self) -> u32 {
+        self.howitzer_shell_objects_spawned
+    }
+
+    pub fn honesty_howitzer_shell_object_spawn_ok(&self) -> bool {
+        self.howitzer_shell_objects_spawned > 0
+    }
+
+    pub fn record_howitzer_shell_object_spawn(&mut self) {
+        self.howitzer_shell_objects_spawned =
+            self.howitzer_shell_objects_spawned.saturating_add(1);
     }
 
     /// Allocator cursor for next Particle Uplink beam field id (save/load).
@@ -8725,6 +8764,7 @@ impl HostSpecialPowerStrikeRegistry {
     ) {
         // Apply ContinuousFireCoast cool-down before arming new shots this frame.
         self.apply_orbit_coast_cooldown(current_frame);
+        let mut shell_spawn_evt: Option<(ObjectId, super::Team, Vec3)> = None;
         if let Some(field) = self.orbit_fields.iter_mut().find(|f| f.id == field_id) {
             field.total_damage_applied += total_damage;
             field.damage_applications += applications;
@@ -8738,10 +8778,20 @@ impl HostSpecialPowerStrikeRegistry {
                 let interval = spectre_howitzer_interval_frames(field.howitzer_consecutive);
                 field.next_tick_frame = current_frame.saturating_add(interval);
                 field.howitzer_ticks = field.howitzer_ticks.saturating_add(1);
-                // SpectreHowitzerShell projectile residual honesty (not full Object).
+                // SpectreHowitzerShell projectile residual + Object spawn request.
                 // Retail: ProjectileObject=SpectreHowitzerShell, FireFX, detonation
                 // FX, FireSound, HeightDie InitialDelay pad-safe loft residual.
                 field.howitzer_shells_spawned = field.howitzer_shells_spawned.saturating_add(1);
+                let off = spectre_howitzer_offset(field.howitzer_ticks.saturating_sub(1));
+                shell_spawn_evt = Some((
+                    field.source_object,
+                    field.source_team,
+                    Vec3::new(
+                        field.position.x + off.x,
+                        field.position.y + 80.0,
+                        field.position.z + off.z,
+                    ),
+                ));
                 field.howitzer_shell_fire_fx = field.howitzer_shell_fire_fx.saturating_add(1);
                 field.howitzer_shell_detonation_fx =
                     field.howitzer_shell_detonation_fx.saturating_add(1);
@@ -8900,6 +8950,9 @@ impl HostSpecialPowerStrikeRegistry {
             self.orbit_damage_applications_total = self
                 .orbit_damage_applications_total
                 .saturating_add(applications);
+        }
+        if let Some(evt) = shell_spawn_evt {
+            self.howitzer_shell_spawns_this_frame.push(evt);
         }
     }
 
