@@ -1147,6 +1147,9 @@ pub struct GameLogic {
     ocl_special_power_reg: crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry,
     /// C++ ObjectCreationList CreateDebris disposition residual.
     ocl_create_debris_reg: crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisRegistry,
+    /// C++ OCL FireWeaponNugget + AttackNugget residual.
+    ocl_fire_weapon_attack_reg:
+        crate::game_logic::host_ocl_fire_weapon_attack::HostOclFireWeaponAttackRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2828,6 +2831,8 @@ impl GameLogic {
             smart_bomb_target_homing_reg: crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry::new(),
             ocl_special_power_reg: crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry::new(),
             ocl_create_debris_reg: crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisRegistry::new(),
+            ocl_fire_weapon_attack_reg:
+                crate::game_logic::host_ocl_fire_weapon_attack::HostOclFireWeaponAttackRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3292,6 +3297,7 @@ impl GameLogic {
         self.smart_bomb_target_homing_reg.clear();
         self.ocl_special_power_reg.clear();
         self.ocl_create_debris_reg.clear();
+        self.ocl_fire_weapon_attack_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -27306,6 +27312,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_smart_bomb_target_homing::honesty_smart_bomb_target_homing_residual_ok()
     }
 
+    pub fn honesty_ocl_fire_weapon_attack_ok(&self) -> bool {
+        crate::game_logic::host_ocl_fire_weapon_attack::honesty_ocl_fire_weapon_attack_residual_ok()
+    }
+
     pub fn honesty_ocl_create_debris_ok(&self) -> bool {
         crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok()
             && (self.ocl_create_debris_reg.plans > 0 || self.ocl_create_debris_reg.debris_spawned == 0)
@@ -31092,6 +31102,84 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             out.push(id);
         }
         out
+    }
+
+    /// C++ FireWeaponNugget::create residual — spawn projectile template toward target.
+    pub fn execute_ocl_fire_weapon(
+        &mut self,
+        ocl_or_weapon: &str,
+        source_id: ObjectId,
+        primary: Vec3,
+        secondary: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_ocl_fire_weapon_attack::fire_weapon_plan_for_ocl;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let plan = fire_weapon_plan_for_ocl(ocl_or_weapon)?;
+        self.ocl_fire_weapon_attack_reg
+            .record_fire_weapon(&plan.weapon_name);
+        let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
+        if !self.templates.contains_key(&plan.projectile_template) {
+            let mut t = ThingTemplate::new(&plan.projectile_template);
+            t.set_health(100.0)
+                .add_kind_of(KindOf::Projectile)
+                .add_kind_of(KindOf::Aircraft);
+            self.templates.insert(plan.projectile_template.clone(), t);
+        }
+        // Spawn at primary (launcher) residual; smart-bomb course toward secondary.
+        let id = self.create_object(&plan.projectile_template, team, primary)?;
+        if let Some(o) = self.objects.get_mut(&id) {
+            o.producer_id = Some(source_id);
+            let yaw = (secondary.z - primary.z).atan2(secondary.x - primary.x);
+            o.set_orientation(yaw);
+            // Loft residual height.
+            let mut p = o.get_position();
+            p.y = p.y.max(80.0);
+            o.set_position(p);
+            let _ = o.set_smart_bomb_target(secondary);
+            // Initial velocity toward target residual.
+            let dx = secondary.x - primary.x;
+            let dz = secondary.z - primary.z;
+            let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+            o.movement.velocity = glam::Vec3::new(dx / dist * 25.0, 5.0, dz / dist * 25.0);
+        }
+        self.ocl_fire_weapon_attack_reg.record_projectile();
+        Some(id)
+    }
+
+    /// C++ AttackNugget::create residual — multi-shot attack position + delivery decal.
+    pub fn execute_ocl_attack(
+        &mut self,
+        ocl_name: &str,
+        source_id: ObjectId,
+        target: Vec3,
+    ) -> bool {
+        use crate::game_logic::host_ocl_fire_weapon_attack::attack_plan_for_ocl;
+
+        let plan = match attack_plan_for_ocl(ocl_name) {
+            Some(p) => p,
+            None => return false,
+        };
+        self.ocl_fire_weapon_attack_reg
+            .record_attack(plan.number_of_shots);
+        // FireWeaponPower-style multi-shot attack residual on source.
+        if let Some(o) = self.objects.get_mut(&source_id) {
+            let _ = o.activate_fire_weapon_power(Some((target.x, target.z)));
+            if let Some(req) = o.fire_weapon_power.as_mut() {
+                req.shots_remaining = plan.number_of_shots.max(1);
+                req.target_x = target.x;
+                req.target_z = target.z;
+                req.has_location = true;
+            }
+            // Attack target location residual.
+            o.target_location = Some(target);
+        }
+        // C++ RadiusDecalUpdate delivery decal residual.
+        if plan.delivery_decal_radius > 0.0 {
+            let _ = self.create_delivery_radius_decal(source_id, target);
+            self.ocl_fire_weapon_attack_reg.record_decal();
+        }
+        true
     }
 
     /// C++ ObjectCreationList::create residual after OCLSpecialPower plan.
@@ -46652,6 +46740,30 @@ fn update_scud_poison_zones(&mut self) {
             )
         {
             let _ = self.execute_ocl_special_power(tmpl, source_object, target_position);
+        }
+        // C++ OCL FireWeaponNugget / AttackNugget residual (Neutron / Cruise / ScudStorm).
+        if let Some(nugget) =
+            crate::game_logic::host_ocl_fire_weapon_attack::ocl_nugget_for_host_kind(kind.label())
+        {
+            use crate::game_logic::host_ocl_fire_weapon_attack::OclNuggetKind;
+            match nugget {
+                OclNuggetKind::FireWeapon(ocl) => {
+                    let primary = self
+                        .objects
+                        .get(&source_object)
+                        .map(|o| o.get_position())
+                        .unwrap_or(target_position);
+                    let _ = self.execute_ocl_fire_weapon(
+                        ocl,
+                        source_object,
+                        primary,
+                        target_position,
+                    );
+                }
+                OclNuggetKind::Attack(ocl) => {
+                    let _ = self.execute_ocl_attack(ocl, source_object, target_position);
+                }
+            }
         }
         // CarpetBomb faction residual (America / AirForce / China payload matrix).
         if kind == HostSuperweaponKind::CarpetBomb {
@@ -76569,6 +76681,58 @@ mod tests {
         assert!(logic.ocl_create_debris_reg.debris_spawned >= 3);
         assert!(logic.ocl_create_debris_reg.flying_forces >= 1);
         assert!(crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok());
+    }
+
+    #[test]
+    fn ocl_fire_weapon_neutron_projectile() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut silo = crate::game_logic::ThingTemplate::new("ChinaNuclearMissileLauncher");
+        silo.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic
+            .templates
+            .insert("ChinaNuclearMissileLauncher".into(), silo);
+        let id = logic
+            .create_object(
+                "ChinaNuclearMissileLauncher",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("silo");
+        let proj = logic
+            .execute_ocl_fire_weapon(
+                "SUPERWEAPON_NeutronMissile",
+                id,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(400.0, 0.0, 400.0),
+            )
+            .expect("neutron proj");
+        let p = logic.find_object(proj).unwrap();
+        assert!(p.template_name.contains("NeutronMissile"));
+        assert!(logic.ocl_fire_weapon_attack_reg.projectiles_spawned >= 1);
+        assert!(logic.honesty_ocl_fire_weapon_attack_ok());
+    }
+
+    #[test]
+    fn ocl_attack_scud_storm_shots() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::GLA);
+        let mut storm = crate::game_logic::ThingTemplate::new("GLAScudStorm");
+        storm.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("GLAScudStorm".into(), storm);
+        let id = logic
+            .create_object("GLAScudStorm", Team::GLA, Vec3::new(10.0, 0.0, 10.0))
+            .expect("storm");
+        assert!(logic.execute_ocl_attack(
+            "SUPERWEAPON_ScudStorm",
+            id,
+            Vec3::new(300.0, 0.0, 300.0)
+        ));
+        assert_eq!(logic.ocl_fire_weapon_attack_reg.last_attack_shots, 9);
+        let o = logic.find_object(id).unwrap();
+        assert!(o.fire_weapon_power.as_ref().map(|r| r.shots_remaining >= 9).unwrap_or(false));
     }
 
     #[test]
