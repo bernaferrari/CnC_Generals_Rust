@@ -9,6 +9,7 @@ pub mod host_active_shroud_upgrade;
 pub mod host_prone_update;
 pub mod host_radius_decal_update;
 pub mod host_checkpoint_update;
+pub mod host_spectre_gunship_deployment;
 pub mod host_float_update;
 pub mod host_ai_decision_log;
 pub mod host_ai_mood_log;

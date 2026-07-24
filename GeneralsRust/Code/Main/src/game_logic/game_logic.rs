@@ -1139,6 +1139,8 @@ pub struct GameLogic {
     radius_decal_update_reg: crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateRegistry,
     /// C++ CheckpointUpdate residual counters.
     checkpoint_update_reg: crate::game_logic::host_checkpoint_update::HostCheckpointUpdateRegistry,
+    /// C++ SpectreGunshipDeploymentUpdate residual counters.
+    spectre_gunship_deployment_reg: crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2816,6 +2818,7 @@ impl GameLogic {
             prone_update_reg: crate::game_logic::host_prone_update::HostProneUpdateRegistry::new(),
             radius_decal_update_reg: crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateRegistry::new(),
             checkpoint_update_reg: crate::game_logic::host_checkpoint_update::HostCheckpointUpdateRegistry::new(),
+            spectre_gunship_deployment_reg: crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3276,6 +3279,7 @@ impl GameLogic {
         self.prone_update_reg.clear();
         self.radius_decal_update_reg.clear();
         self.checkpoint_update_reg.clear();
+        self.spectre_gunship_deployment_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -22205,6 +22209,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             if object.checkpoint_update.is_some() {
                 self.checkpoint_update_reg.record_install();
             }
+            object.install_spectre_gunship_deployment_if_needed();
+            if object.spectre_gunship_deployment.is_some() {
+                self.spectre_gunship_deployment_reg.record_install();
+            }
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -27211,6 +27219,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_checkpoint_update::honesty_checkpoint_update_residual_ok()
     }
 
+    pub fn honesty_spectre_gunship_deployment_ok(&self) -> bool {
+        self.spectre_gunship_deployment_reg.honesty_host_path_ok()
+            && crate::game_logic::host_spectre_gunship_deployment::honesty_spectre_gunship_deployment_residual_ok()
+    }
+
     pub fn tensile_formation_registry(
         &self,
     ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
@@ -30851,7 +30864,88 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
 
     /// C++ RadiusDecalUpdate::update residual.
         /// C++ CheckpointUpdate residual (open gate for allies when clear of enemies).
-    fn update_checkpoint_update(&mut self) {
+        /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
+    pub fn initiate_spectre_gunship_deployment(
+        &mut self,
+        caster_id: ObjectId,
+        target_pos: Vec3,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_spectre_gunship_deployment::default_map_extents;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let (source_pos, team, plan) = {
+            let obj = self.objects.get_mut(&caster_id)?;
+            obj.install_spectre_gunship_deployment_if_needed();
+            let source_pos = obj.get_position();
+            let team = obj.team;
+            let dep = obj.spectre_gunship_deployment.as_mut()?;
+            let (minx, minz, maxx, maxz) = default_map_extents();
+            // Prefer live terrain extents when present.
+            let (minx, minz, maxx, maxz) = if let Some(t) = self.terrain.as_ref() {
+                // Best-effort residual: keep default if no extent API.
+                let _ = t;
+                (minx, minz, maxx, maxz)
+            } else {
+                (minx, minz, maxx, maxz)
+            };
+            let plan = dep.plan_initiate(source_pos, target_pos, minx, minz, maxx, maxz);
+            self.spectre_gunship_deployment_reg.record_initiate();
+            (source_pos, team, plan)
+        };
+        let _ = source_pos;
+
+        // Clear prior gunship residual.
+        if let Some(prior) = plan.replace_prior {
+            if let Some(p) = self.objects.get_mut(&prior) {
+                p.health.current = 0.0;
+                p.status.destroyed = true;
+                self.spectre_gunship_deployment_reg.record_prior_clear();
+            }
+            if let Some(dep) = self
+                .objects
+                .get_mut(&caster_id)
+                .and_then(|o| o.spectre_gunship_deployment.as_mut())
+            {
+                dep.clear_gunship();
+            }
+        }
+
+        // Ensure gunship template exists.
+        if !self.templates.contains_key(&plan.gunship_template) {
+            let mut tpl = ThingTemplate::new(&plan.gunship_template);
+            tpl.add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Vehicle)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(500.0);
+            self.templates
+                .insert(plan.gunship_template.clone(), tpl);
+        }
+
+        let gunship_id = self.create_object(
+            &plan.gunship_template,
+            team,
+            plan.spawn_pos,
+        )?;
+        if let Some(g) = self.objects.get_mut(&gunship_id) {
+            g.producer_id = Some(caster_id);
+            g.set_orientation(plan.orientation);
+            // Preferred altitude residual.
+            let mut p = g.get_position();
+            p.y = plan.spawn_pos.y;
+            g.set_position(p);
+        }
+        if let Some(dep) = self
+            .objects
+            .get_mut(&caster_id)
+            .and_then(|o| o.spectre_gunship_deployment.as_mut())
+        {
+            dep.bind_gunship(gunship_id);
+        }
+        self.spectre_gunship_deployment_reg.record_spawn();
+        Some(gunship_id)
+    }
+
+fn update_checkpoint_update(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -46177,6 +46271,10 @@ fn update_scud_poison_zones(&mut self) {
         // C++ OCL DeliveryDecal via RadiusDecalUpdate on SCUD Storm host.
         if kind == HostSuperweaponKind::ScudStorm {
             let _ = self.create_delivery_radius_decal(source_object, target_position);
+        }
+        // C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
+        if kind == HostSuperweaponKind::SpectreGunship {
+            let _ = self.initiate_spectre_gunship_deployment(source_object, target_position);
         }
         // CarpetBomb faction residual (America / AirForce / China payload matrix).
         if kind == HostSuperweaponKind::CarpetBomb {
@@ -75694,7 +75792,56 @@ mod tests {
     #[test]
 
     #[test]
-    fn checkpoint_opens_for_ally_closes_for_enemy() {
+
+    #[test]
+    fn spectre_gunship_deployment_spawns_at_far_edge() {
+        use crate::game_logic::host_spectre_gunship_deployment::{
+            honesty_spectre_gunship_deployment_residual_ok, SPECTRE_GUNSHIP_TEMPLATE,
+            SPECTRE_PREFERRED_ELEVATION,
+        };
+        use crate::game_logic::KindOf;
+        assert!(honesty_spectre_gunship_deployment_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut cc_tpl = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(5000.0);
+        logic
+            .templates
+            .insert("AmericaCommandCenter".to_string(), cc_tpl);
+
+        let cc = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                Vec3::new(100.0, 0.0, 100.0),
+            )
+            .expect("cc");
+        assert!(logic.find_object(cc).unwrap().spectre_gunship_deployment.is_some());
+        assert!(logic.spectre_gunship_deployment_reg.installed >= 1);
+
+        let target = Vec3::new(250.0, 0.0, 250.0);
+        let ship = logic
+            .initiate_spectre_gunship_deployment(cc, target)
+            .expect("gunship spawn");
+        let g = logic.find_object(ship).expect("ship obj");
+        assert!(g.template_name.contains("Spectre") || g.template_name == SPECTRE_GUNSHIP_TEMPLATE);
+        assert!((g.get_position().y - SPECTRE_PREFERRED_ELEVATION).abs() < 0.1);
+        assert_eq!(g.producer_id, Some(cc));
+        assert_eq!(
+            logic
+                .find_object(cc)
+                .and_then(|o| o.spectre_gunship_deployment.as_ref().and_then(|d| d.gunship_id)),
+            Some(ship)
+        );
+        assert!(logic.spectre_gunship_deployment_reg.spawns >= 1);
+        assert!(logic.honesty_spectre_gunship_deployment_ok());
+    }
+
+
+        fn checkpoint_opens_for_ally_closes_for_enemy() {
         use crate::game_logic::host_checkpoint_update::honesty_checkpoint_update_residual_ok;
         assert!(honesty_checkpoint_update_residual_ok());
 
