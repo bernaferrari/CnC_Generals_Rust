@@ -25,6 +25,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full SpecialAbilityUpdate flee-after / MaxSpecialObjects=8 list / attach bones
+//! - TankHunterMissile projectile flight residual closed (MissileAI peels + splash)
 //! - Not full ScatterRadiusVsInfantry / projectile exhaust FX matrix
 //! - Not full HordeUpdate RubOffRadius honorary-member matrix
 //! - Not Fanaticism infantry-general nationalism branch
@@ -71,6 +72,15 @@ pub const TANK_HUNTER_DAMAGE_TYPE: &str = "INFANTRY_MISSILE";
 pub const TANK_HUNTER_DEATH_TYPE: &str = "EXPLODED";
 /// Retail ProjectileObject residual.
 pub const TANK_HUNTER_PROJECTILE: &str = "TankHunterMissile";
+/// Retail TankHunterMissile MaxHealth residual.
+pub const TANK_HUNTER_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// Retail MissileAIUpdate FuelLifetime 1250ms → 38 frames @ 30 FPS.
+pub const TANK_HUNTER_MISSILE_FUEL_MS: u32 = 1_250;
+pub const TANK_HUNTER_MISSILE_FUEL_FRAMES: u32 = 38;
+/// Retail MissileAIUpdate InitialVelocity residual (dist/sec).
+pub const TANK_HUNTER_MISSILE_INITIAL_VELOCITY: f32 = 150.0;
+/// Retail DistanceToTravelBeforeTurning residual.
+pub const TANK_HUNTER_MISSILE_TURN_DISTANCE: f32 = 20.0;
 /// Retail FireFX residual.
 pub const TANK_HUNTER_FIRE_FX: &str = "FX_BuggyMissileIgnition";
 /// Retail ProjectileDetonationFX residual.
@@ -323,6 +333,8 @@ pub fn honesty_tank_hunter_weapon_residual_ok() -> bool {
         && TANK_HUNTER_DAMAGE_TYPE == "INFANTRY_MISSILE"
         && TANK_HUNTER_DEATH_TYPE == "EXPLODED"
         && TANK_HUNTER_PROJECTILE == "TankHunterMissile"
+        && TANK_HUNTER_MISSILE_FUEL_FRAMES == 38
+        && (TANK_HUNTER_MISSILE_INITIAL_VELOCITY - 150.0).abs() < 0.01
         && TANK_HUNTER_FIRE_FX == "FX_BuggyMissileIgnition"
         && TANK_HUNTER_DETONATION_FX == "WeaponFX_RocketBuggyMissileDetonation"
         && TANK_HUNTER_CLIP_SIZE == 0
