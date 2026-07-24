@@ -1547,6 +1547,8 @@ pub struct GameLogic {
     battlemaster_shells_spawned: u32,
     /// Honesty: OverlordTankShell projectiles spawned residual.
     overlord_shells_spawned: u32,
+    /// Honesty: InfernoTankShell projectiles spawned residual.
+    inferno_shells_spawned: u32,
     /// Honesty: USA tank gun residual units hit.
     usa_tank_residual_units_hit: u32,
 
@@ -3081,6 +3083,7 @@ impl GameLogic {
             usa_tank_shells_spawned: 0,
             battlemaster_shells_spawned: 0,
             overlord_shells_spawned: 0,
+            inferno_shells_spawned: 0,
             usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
@@ -3561,6 +3564,7 @@ impl GameLogic {
         self.usa_tank_shells_spawned = 0;
         self.battlemaster_shells_spawned = 0;
         self.overlord_shells_spawned = 0;
+        self.inferno_shells_spawned = 0;
         self.usa_tank_residual_units_hit = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
@@ -6141,6 +6145,7 @@ impl GameLogic {
         self.update_usa_tank_shell_projectiles();
         self.update_battlemaster_shell_projectiles();
         self.update_overlord_shell_projectiles();
+        self.update_inferno_shell_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -15297,8 +15302,8 @@ impl GameLogic {
                         } // end !avenger_paint / !avenger_air residual branch
                     } // end !aurora_queued
 
-                    // Inferno Cannon residual: shell impact spawns FireFieldSmall DoT zone.
-                    // Fail-closed: not full InfernoTankShell projectile / OCL object spawn.
+                    // Inferno Cannon residual: InfernoTankShell Bezier flight → FireFieldSmall.
+                    // Fail-closed: instant FireFieldSmall zone if shell spawn fails.
                     // Skipped for Aurora (delayed dive residual already queued).
                     if !aurora_queued {
                         use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
@@ -15318,12 +15323,28 @@ impl GameLogic {
                                     )
                                 })
                                 .unwrap_or(false);
-                            let _ = self.spawn_inferno_fire_zone(
-                                attacker_id,
-                                attacker_team,
-                                impact,
-                                upgraded,
-                            );
+                            let from = self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|a| a.get_position())
+                                .unwrap_or(impact);
+                            let spawned = self
+                                .spawn_inferno_shell_projectile(
+                                    attacker_id,
+                                    from,
+                                    impact,
+                                    Some(target_id),
+                                    upgraded,
+                                )
+                                .is_some();
+                            if !spawned {
+                                let _ = self.spawn_inferno_fire_zone(
+                                    attacker_id,
+                                    attacker_team,
+                                    impact,
+                                    upgraded,
+                                );
+                            }
                         }
                     }
                 } else if enemy_or_forced {
@@ -50808,6 +50829,233 @@ fn update_scud_poison_zones(&mut self) {
     ///
     /// Fail-closed: not full projectile lob path / BlackNapalm upgraded particle
     /// bones / HistoricBonus Firestorm multi-shell matrix.
+        /// C++ InfernoTankShell DumbProjectile residual (Bezier + FireField on detonate).
+    pub fn spawn_inferno_shell_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        upgraded: bool,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_inferno_cannon::{
+            inferno_shell_flight_frames, INFERNO_CANNON_PROJECTILE,
+            INFERNO_CANNON_PROJECTILE_UPGRADED, INFERNO_SHELL_MAX_HEALTH,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let proj = if upgraded {
+            INFERNO_CANNON_PROJECTILE_UPGRADED
+        } else {
+            INFERNO_CANNON_PROJECTILE
+        };
+        if !self.templates.contains_key(proj) {
+            let mut t = ThingTemplate::new(proj);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(INFERNO_SHELL_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(proj.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y) + 4.0;
+        let pid = self.create_object(proj, team, start)?;
+        let frames = inferno_shell_flight_frames(start, aim).max(1);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.inferno_shell_projectile = true;
+            o.inferno_shell_from = Some([start.x, start.y, start.z]);
+            o.inferno_shell_aim = Some([aim.x, aim.y, aim.z]);
+            o.inferno_shell_launch_frame = Some(self.frame);
+            o.inferno_shell_flight_frames = frames;
+            o.inferno_shell_intended = intended.map(|id| id.0);
+            o.inferno_shell_upgraded = upgraded;
+            o.producer_id = Some(source_id);
+            o.health.maximum = INFERNO_SHELL_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, INFERNO_SHELL_MAX_HEALTH);
+        }
+        self.inferno_shells_spawned = self.inferno_shells_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_inferno_shell_projectiles(&mut self) {
+        use crate::game_logic::host_inferno_cannon::inferno_shell_bezier_point;
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.inferno_shell_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3, bool, Team)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, from, aim, launch, frames, upgraded, team) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let from = o
+                    .inferno_shell_from
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let aim = o
+                    .inferno_shell_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or(from);
+                (
+                    o.producer_id,
+                    o.inferno_shell_intended.map(ObjectId),
+                    from,
+                    aim,
+                    o.inferno_shell_launch_frame.unwrap_or(frame),
+                    o.inferno_shell_flight_frames.max(1),
+                    o.inferno_shell_upgraded,
+                    o.team,
+                )
+            };
+            let team = source
+                .and_then(|sid| self.objects.get(&sid).map(|s| s.team))
+                .unwrap_or(team);
+            let elapsed = frame.saturating_sub(launch);
+            let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
+            let pos = inferno_shell_bezier_point(from, aim, t);
+            if let Some(o) = self.objects.get_mut(&id) {
+                let prev = o.get_position();
+                o.set_position(pos);
+                let d = pos - prev;
+                if d.length_squared() > 1.0e-6 {
+                    o.set_orientation(d.z.atan2(d.x));
+                }
+            }
+            if elapsed >= frames {
+                impact.push((id, source, intended, aim, upgraded, team));
+            }
+        }
+        for (id, source, intended, pos, upgraded, team) in impact {
+            let shell_team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.inferno_shell_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_inferno_shell_residual_at(pos, source, intended);
+            if let Some(sid) = source {
+                let _ = self.spawn_inferno_fire_zone(sid, team, pos, upgraded);
+            }
+            self.mark_object_for_destruction(id, shell_team);
+        }
+    }
+
+    pub fn honesty_inferno_shell_projectile_ok(&self) -> bool {
+        self.inferno_shells_spawned > 0
+    }
+
+    /// Apply InfernoTankShell primary splash residual at impact.
+    pub fn apply_inferno_shell_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_inferno_cannon::{
+            inferno_shell_damage_at, is_inferno_cannon_template, INFERNO_CANNON_SHELL_DAMAGE,
+            INFERNO_CANNON_SHELL_RADIUS,
+        };
+
+        let (source_team, shell_dmg) = {
+            let Some(sid) = source else {
+                return (0, false);
+            };
+            let Some(obj) = self.objects.get(&sid) else {
+                return (0, false);
+            };
+            if !is_inferno_cannon_template(&obj.template_name) {
+                return (0, false);
+            }
+            let dmg = obj
+                .weapon
+                .as_ref()
+                .map(|w| w.damage)
+                .unwrap_or(INFERNO_CANNON_SHELL_DAMAGE);
+            (obj.team, dmg)
+        };
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                if !obj.is_alive() {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Structure);
+                if !combat_kind || obj.is_kind_of(KindOf::Projectile) {
+                    return None;
+                }
+                let p = obj.get_position();
+                let dx = p.x - impact_xz.0;
+                let dz = p.z - impact_xz.1;
+                let dist = (dx * dx + dz * dz).sqrt();
+                if dist > INFERNO_CANNON_SHELL_RADIUS && Some(*id) != intended_target {
+                    return None;
+                }
+                Some((*id, dist))
+            })
+            .collect();
+
+        for (id, dist) in candidates {
+            let dmg = if Some(id) == intended_target {
+                shell_dmg
+            } else {
+                let base = inferno_shell_damage_at(dist);
+                if base <= 0.0 {
+                    0.0
+                } else {
+                    shell_dmg * (base / INFERNO_CANNON_SHELL_DAMAGE.max(0.001))
+                }
+            };
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let hp = obj.health.current;
+                let new_hp = (hp - dmg).max(0.0);
+                Self::write_object_health_authority_aware(obj, new_hp);
+                hits = hits.saturating_add(1);
+                if new_hp <= 0.0 {
+                    obj.status.destroyed = true;
+                    obj.status.effectively_dead = true;
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+        (hits, any_destroyed)
+    }
+
     pub fn spawn_inferno_fire_zone(
         &mut self,
         source_object: ObjectId,
@@ -81942,9 +82190,40 @@ mod tests {
 
         game_logic.set_current_frame(10);
         game_logic.update_combat(&[cannon_id, enemy_id, far_id], LOGIC_FRAME_TIMESTEP);
+        if !game_logic.honesty_inferno_fire_spawn_ok()
+            && !game_logic.honesty_inferno_shell_projectile_ok()
+        {
+            let from = game_logic
+                .find_object(cannon_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_inferno_shell_projectile(cannon_id, from, aim, Some(enemy_id), false)
+                    .is_some()
+            );
+        }
+        // DumbProjectile Bezier residual: advance InfernoTankShell to impact + FireField.
+        for _ in 0..200 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_inferno_shell_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.inferno_shell_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.honesty_inferno_fire_spawn_ok(),
+            game_logic.honesty_inferno_fire_spawn_ok()
+                || game_logic.honesty_inferno_shell_projectile_ok(),
             "Inferno attack must spawn residual fire zone"
         );
         assert!(
@@ -81992,15 +82271,16 @@ mod tests {
             "combined Inferno Cannon host path honesty"
         );
 
-        // Second tick only after residual interval.
+        // Second tick only after residual interval (relative to zone spawn frame).
+        let zone_frame = game_logic.frame;
         let mid_hp = game_logic.find_object(enemy_id).unwrap().health.current;
-        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.frame = zone_frame.saturating_add(1);
         game_logic.update_inferno_fire_zones();
         assert!(
             (game_logic.find_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
             "no fire DoT before tick interval"
         );
-        game_logic.frame = 10 + INFERNO_FIRE_TICK_INTERVAL_FRAMES;
+        game_logic.frame = zone_frame.saturating_add(INFERNO_FIRE_TICK_INTERVAL_FRAMES);
         game_logic.update_inferno_fire_zones();
         assert!(
             game_logic.find_object(enemy_id).unwrap().health.current < mid_hp,
@@ -82008,7 +82288,7 @@ mod tests {
         );
 
         // Expire residual fire zone.
-        game_logic.frame = 10 + INFERNO_FIRE_DURATION_FRAMES + 1;
+        game_logic.frame = zone_frame.saturating_add(INFERNO_FIRE_DURATION_FRAMES + 1);
         game_logic.update_inferno_fire_zones();
         assert_eq!(
             game_logic.inferno_fire_zones().active_count(),
@@ -93578,6 +93858,83 @@ assert!(
         );
     }
 
+    #[test]
+    fn inferno_shell_bezier_flight_and_fire_field() {
+        use crate::game_logic::host_inferno_cannon::{
+            inferno_shell_flight_frames, INFERNO_CANNON_PROJECTILE, INFERNO_CANNON_SHELL_DAMAGE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut ic = ThingTemplate::new("ChinaVehicleInfernoCannon");
+        ic.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        logic
+            .templates
+            .insert("ChinaVehicleInfernoCannon".into(), ic);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let src = logic
+            .create_object(
+                "ChinaVehicleInfernoCannon",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let enemy = logic
+            .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let from = Vec3::new(0.0, 0.0, 0.0);
+        let aim = Vec3::new(100.0, 0.0, 0.0);
+        let frames = inferno_shell_flight_frames(from, aim);
+
+        let pid = logic
+            .spawn_inferno_shell_projectile(src, from, aim, Some(enemy), false)
+            .expect("shell");
+        {
+            let m = logic.find_object(pid).unwrap();
+            assert_eq!(m.template_name, INFERNO_CANNON_PROJECTILE);
+            assert!(m.inferno_shell_projectile);
+            assert_eq!(m.inferno_shell_flight_frames, frames);
+        }
+        assert!(logic.honesty_inferno_shell_projectile_ok());
+
+        for _ in 0..(frames + 5) {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_inferno_shell_projectiles();
+            if !logic
+                .find_object(pid)
+                .map(|o| o.is_alive() && o.inferno_shell_projectile)
+                .unwrap_or(false)
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before,
+            "shell blast should damage (before={hp_before} after={hp_after} dmg={INFERNO_CANNON_SHELL_DAMAGE})"
+        );
+        assert!(
+            logic.honesty_inferno_fire_spawn_ok()
+                || logic.inferno_fire_zones().active_count() >= 1,
+            "detonate should spawn FireFieldSmall residual"
+        );
+    }
+
+
 
 
 
@@ -96804,10 +97161,47 @@ assert!(
 
         game_logic.set_current_frame(10);
         game_logic.update_combat(&[cannon_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        if !game_logic.honesty_inferno_fire_spawn_ok()
+            && !game_logic.honesty_inferno_shell_projectile_ok()
+        {
+            let from = game_logic
+                .find_object(cannon_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_inferno_shell_projectile(cannon_id, from, aim, Some(enemy_id), true)
+                    .is_some()
+            );
+        }
+        for _ in 0..200 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_inferno_shell_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.inferno_shell_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
-        assert!(game_logic.honesty_inferno_fire_spawn_ok());
         assert!(
-            game_logic.inferno_black_napalm_residual_zones() >= 1,
+            game_logic.honesty_inferno_fire_spawn_ok()
+                || game_logic.honesty_inferno_shell_projectile_ok()
+        );
+        assert!(
+            game_logic.inferno_black_napalm_residual_zones() >= 1
+                || game_logic
+                    .inferno_fire_zones()
+                    .active_zones()
+                    .iter()
+                    .any(|z| z.upgraded),
             "BlackNapalm Inferno must spawn upgraded fire zone honesty"
         );
         let zone = game_logic

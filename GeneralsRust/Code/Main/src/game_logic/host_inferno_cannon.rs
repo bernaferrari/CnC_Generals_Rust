@@ -23,7 +23,7 @@
 //! - Honesty: `honesty_inferno_cannon_residual_pack_ok` + layer honesty tests.
 //!
 //! Fail-closed honesty:
-//! - Not full InfernoTankShell DumbProjectileBehavior bezier lob path
+//! - InfernoTankShell DumbProjectile Bezier flight residual closed (50/150, 20%/90%)
 //! - Not full FireWeaponWhenDeadBehavior / OCL_FireFieldSmall object spawn
 //! - Not HistoricBonus FirestormSmallCreationWeapon multi-shell matrix
 //! - Not upgraded particle bone attach (InfernoCannonFireUpgraded) matrix
@@ -69,6 +69,18 @@ pub const INFERNO_CANNON_DAMAGE_TYPE: &str = "EXPLOSION";
 pub const INFERNO_CANNON_DEATH_TYPE: &str = "EXPLODED";
 /// Retail InfernoCannonGun ProjectileObject residual.
 pub const INFERNO_CANNON_PROJECTILE: &str = "InfernoTankShell";
+/// Retail InfernoTankShell MaxHealth residual.
+pub const INFERNO_SHELL_MAX_HEALTH: f32 = 100.0;
+/// DumbProjectileBehavior FirstHeight residual.
+pub const INFERNO_SHELL_FIRST_HEIGHT: f32 = 50.0;
+/// DumbProjectileBehavior SecondHeight residual.
+pub const INFERNO_SHELL_SECOND_HEIGHT: f32 = 150.0;
+/// FirstPercentIndent residual (20%).
+pub const INFERNO_SHELL_FIRST_PERCENT_INDENT: f32 = 0.20;
+/// SecondPercentIndent residual (90%).
+pub const INFERNO_SHELL_SECOND_PERCENT_INDENT: f32 = 0.90;
+/// Retail InfernoCannonGun WeaponSpeed residual (dist/sec).
+pub const INFERNO_CANNON_WEAPON_SPEED: f32 = 250.0;
 /// Retail InfernoCannonGunUpgraded ProjectileObject residual.
 pub const INFERNO_CANNON_PROJECTILE_UPGRADED: &str = "InfernoTankShellUpgraded";
 /// Retail InfernoCannonGun FireFX residual.
@@ -142,6 +154,50 @@ pub const INFERNO_FIRE_BURN_AUDIO: &str = "InfernoCannonFire";
 ///
 /// Fail-closed: name residual (not full INI WeaponSet / Artillery style matrix).
 /// Excludes projectile shells (`InfernoTankShell`).
+
+/// Whether residual fire should apply Inferno Cannon shell residual.
+pub fn should_apply_inferno_cannon_residual(is_inferno: bool) -> bool {
+    is_inferno
+}
+
+/// Cubic Bezier residual sample for InfernoTankShell DumbProjectileBehavior.
+pub fn inferno_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * INFERNO_SHELL_FIRST_PERCENT_INDENT
+        + Vec3::Y * INFERNO_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * INFERNO_SHELL_SECOND_PERCENT_INDENT
+        + Vec3::Y * INFERNO_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    p0 * uuu + p1 * (3.0 * uu * t) + p2 * (3.0 * u * tt) + p3 * ttt
+}
+
+/// Flight frame residual from ground distance @ WeaponSpeed 250.
+pub fn inferno_shell_flight_frames(from: Vec3, to: Vec3) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let frames = (dist / (INFERNO_CANNON_WEAPON_SPEED / INFERNO_LOGIC_FPS)).ceil() as u32;
+    frames.clamp(8, 240)
+}
+
+/// Shell primary splash residual at distance.
+pub fn inferno_shell_damage_at(distance: f32) -> f32 {
+    if distance <= INFERNO_CANNON_SHELL_RADIUS {
+        INFERNO_CANNON_SHELL_DAMAGE
+    } else {
+        0.0
+    }
+}
+
 pub fn is_inferno_cannon_template(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     if n == "testinfernocannon" || n == "test_inferno_cannon" {
@@ -418,6 +474,10 @@ pub fn honesty_inferno_cannon_weapon_residual_ok() -> bool {
         && INFERNO_CANNON_DAMAGE_TYPE == "EXPLOSION"
         && INFERNO_CANNON_DEATH_TYPE == "EXPLODED"
         && INFERNO_CANNON_PROJECTILE == "InfernoTankShell"
+        && (INFERNO_SHELL_FIRST_HEIGHT - 50.0).abs() < 0.01
+        && (INFERNO_SHELL_SECOND_HEIGHT - 150.0).abs() < 0.01
+        && (INFERNO_SHELL_FIRST_PERCENT_INDENT - 0.20).abs() < 0.001
+        && (INFERNO_CANNON_WEAPON_SPEED - 250.0).abs() < 0.1
         && INFERNO_CANNON_PROJECTILE_UPGRADED == "InfernoTankShellUpgraded"
         && INFERNO_CANNON_FIRE_FX == "WeaponFX_GenericTankGunNoTracer"
         && INFERNO_CANNON_DETONATION_FX == "WeaponFX_InfernoTankShellDetonation"

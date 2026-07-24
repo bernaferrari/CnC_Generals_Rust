@@ -1282,6 +1282,22 @@ pub struct Object {
     pub overlord_shell_flight_frames: u32,
     #[serde(default)]
     pub overlord_shell_intended: Option<u32>,
+    /// C++ InfernoTankShell DumbProjectile residual.
+    #[serde(default)]
+    pub inferno_shell_projectile: bool,
+    #[serde(default)]
+    pub inferno_shell_from: Option<[f32; 3]>,
+    #[serde(default)]
+    pub inferno_shell_aim: Option<[f32; 3]>,
+    #[serde(default)]
+    pub inferno_shell_launch_frame: Option<u32>,
+    #[serde(default)]
+    pub inferno_shell_flight_frames: u32,
+    #[serde(default)]
+    pub inferno_shell_intended: Option<u32>,
+    /// BlackNapalm upgraded shell residual.
+    #[serde(default)]
+    pub inferno_shell_upgraded: bool,
     /// Nuke shell launch origin residual.
     #[serde(default)]
     pub nuke_shell_from: Option<[f32; 3]>,
@@ -2249,6 +2265,13 @@ impl Object {
             overlord_shell_launch_frame: None,
             overlord_shell_flight_frames: 0,
             overlord_shell_intended: None,
+            inferno_shell_projectile: false,
+            inferno_shell_from: None,
+            inferno_shell_aim: None,
+            inferno_shell_launch_frame: None,
+            inferno_shell_flight_frames: 0,
+            inferno_shell_intended: None,
+            inferno_shell_upgraded: false,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
@@ -2770,6 +2793,13 @@ impl Object {
             overlord_shell_launch_frame: None,
             overlord_shell_flight_frames: 0,
             overlord_shell_intended: None,
+            inferno_shell_projectile: false,
+            inferno_shell_from: None,
+            inferno_shell_aim: None,
+            inferno_shell_launch_frame: None,
+            inferno_shell_flight_frames: 0,
+            inferno_shell_intended: None,
+            inferno_shell_upgraded: false,
             rpg_trooper_missile_projectile: false,
             rpg_trooper_missile_aim: None,
             rpg_trooper_missile_intended: None,
