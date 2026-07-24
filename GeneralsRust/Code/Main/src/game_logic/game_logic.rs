@@ -1296,6 +1296,8 @@ pub struct GameLogic {
     /// Host PointDefenseLaser residual honesty (Paladin / Avenger intercept).
     /// Fail-closed: not full PointDefenseLaserUpdate velocity prediction matrix.
     point_defense_residual_intercepts: u32,
+    /// Honesty: PointDefenseLaserBeam objects spawned on intercept residual.
+    point_defense_laser_beams_spawned: u32,
     /// Per-carrier next ready frame for residual PDL shot delay.
     point_defense_next_ready_frame: HashMap<ObjectId, u32>,
 
@@ -2926,6 +2928,7 @@ impl GameLogic {
             gps_scramblers: crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry::new(),
             base_defense_residual_fires: 0,
             point_defense_residual_intercepts: 0,
+            point_defense_laser_beams_spawned: 0,
             point_defense_next_ready_frame: HashMap::new(),
             avenger: crate::game_logic::host_avenger::HostAvengerRegistry::new(),
             neutron_shell_residual_blasts: 0,
@@ -3396,6 +3399,7 @@ impl GameLogic {
         self.cleanup_areas.clear();
         self.base_defense_residual_fires = 0;
         self.point_defense_residual_intercepts = 0;
+        self.point_defense_laser_beams_spawned = 0;
         self.point_defense_next_ready_frame.clear();
         self.avenger.clear();
         self.neutron_shell_residual_blasts = 0;
@@ -6039,6 +6043,7 @@ impl GameLogic {
         // Host PointDefenseLaser residual: Paladin / Avenger / King Raptor intercept missiles.
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
         self.update_point_defense_intercept();
+        self.update_point_defense_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
         // Activation is event-driven via DoSpecialPower (no continuous field).
@@ -31421,6 +31426,92 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     ///
     /// Fail-closed: not full PointDefenseLaserUpdate velocity prediction,
     /// TERTIARY WeaponStore allocate, or laser drawable path.
+    /// C++ PointDefenseLaserBeam ThingFactory Object residual (95ms LifetimeUpdate).
+    pub fn spawn_point_defense_laser_beam(
+        &mut self,
+        carrier_id: ObjectId,
+        carrier_template: &str,
+        from: glam::Vec3,
+        to: glam::Vec3,
+        to_id: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_point_defense::{
+            pdl_laser_beam_name, PDL_LASER_BEAM_LIFETIME_FRAMES, PDL_LASER_BEAM_MAX_HEALTH,
+        };
+        use crate::game_logic::host_weapon_laser::ResidualWeaponLaser;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let beam_name = pdl_laser_beam_name(carrier_template);
+        if !self.templates.contains_key(beam_name) {
+            let mut t = ThingTemplate::new(beam_name);
+            t.add_kind_of(KindOf::Immobile)
+                .set_health(PDL_LASER_BEAM_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates.insert(beam_name.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&carrier_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mid = glam::Vec3::new(
+            (from.x + to.x) * 0.5,
+            (from.y + to.y) * 0.5 + 5.0,
+            (from.z + to.z) * 0.5,
+        );
+        let bid = self.create_object(beam_name, team, mid)?;
+        let expires = self.frame.saturating_add(PDL_LASER_BEAM_LIFETIME_FRAMES.max(1));
+        if let Some(o) = self.objects.get_mut(&bid) {
+            o.point_defense_laser_beam = true;
+            o.producer_id = Some(carrier_id);
+            o.point_defense_laser_beam_expires_frame = Some(expires);
+            o.health.maximum = PDL_LASER_BEAM_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, PDL_LASER_BEAM_MAX_HEALTH);
+        }
+        self.weapon_lasers.push(ResidualWeaponLaser::new(
+            beam_name,
+            carrier_id,
+            to_id,
+            (from.x, from.y, from.z),
+            (to.x, to.y, to.z),
+            self.frame,
+        ));
+        self.point_defense_laser_beams_spawned =
+            self.point_defense_laser_beams_spawned.saturating_add(1);
+        Some(bid)
+    }
+
+    pub fn update_point_defense_laser_beam_objects(&mut self) {
+        let frame = self.frame;
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.point_defense_laser_beam {
+                    if let Some(exp) = o.point_defense_laser_beam_expires_frame {
+                        if exp <= frame {
+                            return Some(*id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+        for id in due {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.point_defense_laser_beam = false;
+            }
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
+    pub fn honesty_point_defense_laser_beam_ok(&self) -> bool {
+        self.point_defense_laser_beams_spawned > 0
+    }
+
     pub fn update_point_defense_intercept(&mut self) {
         use crate::game_logic::host_point_defense::{
             intercept_priority, is_point_defense_carrier, is_primary_intercept_target,
@@ -31559,6 +31650,14 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             intercepts_this_pass = intercepts_this_pass.saturating_add(1);
             self.point_defense_residual_intercepts =
                 self.point_defense_residual_intercepts.saturating_add(1);
+            // C++ Weapon::createLaser / PointDefenseLaserBeam Lifetime residual.
+            let _ = self.spawn_point_defense_laser_beam(
+                carrier_id,
+                &template_name,
+                carrier_pos,
+                impact_pos,
+                Some(target_id),
+            );
             // AI attack authority: PDL discharge records fire-intent for GameWorld last-writer.
             if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                 if let Some(carrier) = self.objects.get_mut(&carrier_id) {
@@ -65505,6 +65604,55 @@ mod tests {
     }
 
     #[test]
+    fn point_defense_intercept_spawns_laser_beam_object() {
+        use crate::game_logic::host_point_defense::{
+            PDL_LASER_BEAM_DEFAULT, PDL_LASER_BEAM_LIFETIME_FRAMES,
+        };
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut paladin = crate::game_logic::ThingTemplate::new("AmericaTankPaladin");
+        paladin.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("AmericaTankPaladin".into(), paladin);
+        let mut missile = crate::game_logic::ThingTemplate::new("ScudStormMissile");
+        missile
+            .add_kind_of(KindOf::Projectile)
+            .set_health(50.0);
+        logic.templates.insert("ScudStormMissile".into(), missile);
+        let carrier = logic
+            .create_object("AmericaTankPaladin", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let threat = logic
+            .create_object("ScudStormMissile", Team::GLA, Vec3::new(30.0, 20.0, 0.0))
+            .unwrap();
+        // Force ready and run intercept.
+        logic.point_defense_next_ready_frame.insert(carrier, 0);
+        logic.frame = 1;
+        logic.update_point_defense_intercept();
+        assert!(
+            logic.point_defense_residual_intercepts >= 1,
+            "PDL must intercept residual missile"
+        );
+        assert!(logic.honesty_point_defense_laser_beam_ok());
+        assert!(logic.point_defense_laser_beams_spawned >= 1);
+        let beam = logic
+            .get_objects()
+            .values()
+            .find(|o| o.point_defense_laser_beam)
+            .expect("PDL beam object");
+        assert_eq!(beam.template_name, PDL_LASER_BEAM_DEFAULT);
+        let bid = beam.id;
+        assert!(logic.point_defense_laser_beams_spawned >= 1);
+        logic.frame = logic.frame.saturating_add(PDL_LASER_BEAM_LIFETIME_FRAMES + 2);
+        logic.update_point_defense_laser_beam_objects();
+        assert!(
+            logic
+                .find_object(bid)
+                .map(|o| !o.is_alive() || o.status.destroyed)
+                .unwrap_or(true)
+        );
+    }
+
     fn particle_cannon_spawns_connector_laser_objects() {
         use crate::game_logic::special_power_strikes::{
             PARTICLE_CONNECTOR_INTENSE_LASER, PARTICLE_CONNECTOR_MEDIUM_LASER,
