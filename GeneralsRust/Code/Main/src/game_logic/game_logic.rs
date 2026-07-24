@@ -1533,6 +1533,8 @@ pub struct GameLogic {
     tomahawk_scatter_applied: u32,
     /// Honesty: RocketBuggyMissile projectiles spawned residual.
     rocket_buggy_missiles_spawned: u32,
+    /// Honesty: Rocket Buggy ScatterRadiusVsInfantry aim offsets applied.
+    rocket_buggy_scatter_applied: u32,
     /// Honesty: NeutronCannonShell projectiles spawned residual.
     neutron_shells_spawned: u32,
     /// Honesty: TunnelDefenderMissile / RPG projectiles spawned residual.
@@ -3132,6 +3134,7 @@ impl GameLogic {
             tomahawk_missiles_spawned: 0,
             tomahawk_scatter_applied: 0,
             rocket_buggy_missiles_spawned: 0,
+            rocket_buggy_scatter_applied: 0,
             neutron_shells_spawned: 0,
             rpg_trooper_missiles_spawned: 0,
             rpg_trooper_scatter_applied: 0,
@@ -3641,6 +3644,7 @@ impl GameLogic {
         self.tomahawk_missiles_spawned = 0;
         self.tomahawk_scatter_applied = 0;
         self.rocket_buggy_missiles_spawned = 0;
+        self.rocket_buggy_scatter_applied = 0;
         self.neutron_shells_spawned = 0;
         self.rpg_trooper_missiles_spawned = 0;
         self.rpg_trooper_scatter_applied = 0;
@@ -33012,6 +33016,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: Rocket Buggy long-range rocket residual fired.
     pub fn honesty_rocket_buggy_ok(&self) -> bool {
         self.rocket_buggy_residual_fires > 0
+            || self.rocket_buggy_missiles_spawned > 0
+            || self.rocket_buggy_scatter_applied > 0
+    }
+
+    /// Residual honesty: Rocket Buggy ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_rocket_buggy_scatter_ok(&self) -> bool {
+        self.rocket_buggy_scatter_applied > 0
     }
 
     pub fn rocket_buggy_residual_fires(&self) -> u32 {
@@ -34247,6 +34258,28 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on BuggyRocketWeapon vs infantry (**20**).
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) =
+            crate::game_logic::host_rocket_buggy::rocket_buggy_scatter_aim(
+                aim,
+                target_is_infantry,
+                seed,
+            );
+        if scattered {
+            self.rocket_buggy_scatter_applied =
+                self.rocket_buggy_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 8.0;
         let pid = self.create_object(BUGGY_MISSILE_PROJECTILE, team, start)?;
@@ -123325,6 +123358,93 @@ assert!(
             .objects
             .get(&shell2)
             .and_then(|o| o.tomahawk_missile_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
+    }
+
+
+    #[test]
+    fn rocket_buggy_missile_scatters_vs_infantry() {
+        use crate::game_logic::host_rocket_buggy::BUGGY_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut b_tpl = ThingTemplate::new("GLAVehicleRocketBuggy");
+        b_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        logic
+            .templates
+            .insert("GLAVehicleRocketBuggy".to_string(), b_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let buggy = logic
+            .create_object(
+                "GLAVehicleRocketBuggy",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("buggy");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(200.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 6.0, 0.0);
+        let shell = logic
+            .spawn_rocket_buggy_missile_projectile(buggy, from, aim, Some(inf))
+            .expect("missile");
+        assert!(logic.honesty_rocket_buggy_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.rocket_buggy_missile_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= BUGGY_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut v_tpl = ThingTemplate::new("AmericaTankCrusader");
+        v_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), v_tpl);
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(250.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.rocket_buggy_scatter_applied;
+        let shell2 = logic
+            .spawn_rocket_buggy_missile_projectile(
+                buggy,
+                from,
+                glam::Vec3::new(250.0, 0.0, 0.0),
+                Some(tank),
+            )
+            .expect("missile2");
+        assert_eq!(logic.rocket_buggy_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.rocket_buggy_missile_aim)
             .expect("aim2");
         assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
