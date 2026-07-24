@@ -8,12 +8,14 @@
 //! - Weapon FINAL SupW_FuelBombDetonationWeapon (900 / r70) or DaisyCutterDetonationWeapon (2000 / r100)
 //!
 //! Residual playability slice:
-//! - Install on gas templates spawned from CreateObjectDie
+//! - Install on gas templates spawned from CreateObjectDie OCL residual
 //! - Tick delay → midpoint flame pulse → final detonation area damage
 //! - Destroy gas object after final
+//! - AirF_AuroraBombGas / SupW_AuroraFuelAirGas object spawn residual closed via
+//!   Host Aurora FuelAir impact path
 //!
 //! Fail-closed: not full SlowDeath probability matrix / particle destroy-at-height /
-//! tree fire propagation beyond flame weapon residual.
+//! tree fire propagation beyond flame weapon residual / HeightDie 40 vs 15 matrix.
 
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -38,6 +40,14 @@ pub const SUPW_FUEL_BOMB_RADIUS: f32 = 70.0;
 pub const DAISY_DETONATION_WEAPON: &str = "DaisyCutterDetonationWeapon";
 pub const DAISY_DETONATION_DAMAGE: f32 = 2000.0;
 pub const DAISY_DETONATION_RADIUS: f32 = 100.0;
+/// Retail AirF_AuroraBombDetonationWeapon residual (AirF_AuroraBombGas FINAL).
+pub const AIRF_AURORA_BOMB_DETONATION_WEAPON: &str = "AirF_AuroraBombDetonationWeapon";
+pub const AIRF_AURORA_BOMB_DETONATION_DAMAGE: f32 = 1000.0;
+pub const AIRF_AURORA_BOMB_DETONATION_RADIUS: f32 = 100.0;
+/// Retail gas SpecialObject names (CreateObjectDie OCL residual).
+pub const AIRF_AURORA_BOMB_GAS_OBJECT: &str = "AirF_AuroraBombGas";
+pub const SUPW_AURORA_FUEL_AIR_GAS_OBJECT: &str = "SupW_AuroraFuelAirGas";
+pub const FUEL_AIR_GAS_MAX_HEALTH: f32 = 1.0;
 
 pub const FX_INITIAL_IGNITE: &str = "AirF_FX_AuroraBombIgnite";
 pub const FX_FINAL_EXPLOSION: &str = "FX_DaisyCutterFinalExplosion";
@@ -81,7 +91,7 @@ impl HostFuelAirGasSlowDeathData {
             return None;
         }
         let n = template_name.to_ascii_lowercase();
-        // SupW gas uses SupW_FuelBombDetonationWeapon; AirF uses DaisyCutterDetonationWeapon.
+        // SupW gas uses SupW_FuelBombDetonationWeapon; AirF uses AirF_AuroraBombDetonationWeapon.
         let uses_supw = n.contains("supw") || (n.contains("fuelair") && !n.contains("airf"));
         Some(Self::start(now, uses_supw))
     }
@@ -113,10 +123,11 @@ impl HostFuelAirGasSlowDeathData {
                         fx: FX_FINAL_EXPLOSION,
                     }
                 } else {
+                    // AirF_AuroraBombGas FINAL = AirF_AuroraBombDetonationWeapon 1000/r100.
                     FuelAirGasTickEvent::FinalDetonation {
-                        damage: DAISY_DETONATION_DAMAGE,
-                        radius: DAISY_DETONATION_RADIUS,
-                        weapon: DAISY_DETONATION_WEAPON,
+                        damage: AIRF_AURORA_BOMB_DETONATION_DAMAGE,
+                        radius: AIRF_AURORA_BOMB_DETONATION_RADIUS,
+                        weapon: AIRF_AURORA_BOMB_DETONATION_WEAPON,
                         fx: FX_FINAL_EXPLOSION,
                     }
                 }
@@ -193,6 +204,9 @@ pub fn honesty_fuel_air_gas_slow_death_residual_ok() -> bool {
         && (FUEL_AIR_GAS_HEIGHT_DIE - 15.0).abs() < 1e-5
         && (SUPW_FUEL_BOMB_DAMAGE - 900.0).abs() < 0.1
         && (DAISY_DETONATION_DAMAGE - 2000.0).abs() < 0.1
+        && (AIRF_AURORA_BOMB_DETONATION_DAMAGE - 1000.0).abs() < 0.1
+        && AIRF_AURORA_BOMB_GAS_OBJECT == "AirF_AuroraBombGas"
+        && SUPW_AURORA_FUEL_AIR_GAS_OBJECT == "SupW_AuroraFuelAirGas"
         && is_fuel_air_gas_template("SupW_AuroraFuelAirGas")
         && is_fuel_air_gas_template("AirF_AuroraBombGas")
         && !is_fuel_air_gas_template("DaisyCutterBomb")
