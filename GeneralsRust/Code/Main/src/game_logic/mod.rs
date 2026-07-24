@@ -241,6 +241,7 @@ pub mod host_scud_launcher;
 pub mod host_sentry_drone;
 pub mod host_shell_campaign_save_residual_wave106;
 pub mod host_skirmish_map_select_residual_wave115;
+pub mod host_skirmish_slot_config_residual_wave116;
 pub mod host_slave_drones;
 mod host_slow_death;
 pub mod host_sneak_attack;
@@ -1433,4 +1434,10 @@ pub use host_skirmish_map_select_residual_wave115::{
     honesty_skirmish_map_select_names_residual_wave115,
     honesty_skirmish_map_select_nav_steps_residual_wave115,
     honesty_skirmish_map_select_residual_pack_wave115,
+};
+pub use host_skirmish_slot_config_residual_wave116::{
+    honesty_skirmish_slot_combo_names_residual_wave116,
+    honesty_skirmish_slot_config_residual_pack_wave116,
+    honesty_skirmish_slot_nav_commands_residual_wave116,
+    honesty_skirmish_slot_state_residual_wave116,
 };
