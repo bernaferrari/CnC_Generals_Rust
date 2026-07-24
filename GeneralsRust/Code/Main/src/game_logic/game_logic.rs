@@ -1155,6 +1155,9 @@ pub struct GameLogic {
     /// C++ OCL ApplyRandomForceNugget residual.
     ocl_apply_random_force_reg:
         crate::game_logic::host_ocl_apply_random_force::HostOclApplyRandomForceRegistry,
+    /// C++ NeutronMissileUpdate residual counters.
+    neutron_missile_update_reg:
+        crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2841,6 +2844,8 @@ impl GameLogic {
             fuel_air_gas_reg: crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasRegistry::new(),
             ocl_apply_random_force_reg:
                 crate::game_logic::host_ocl_apply_random_force::HostOclApplyRandomForceRegistry::new(),
+            neutron_missile_update_reg:
+                crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3308,6 +3313,7 @@ impl GameLogic {
         self.ocl_fire_weapon_attack_reg.clear();
         self.fuel_air_gas_reg.clear();
         self.ocl_apply_random_force_reg.clear();
+        self.neutron_missile_update_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -6030,6 +6036,7 @@ impl GameLogic {
         self.update_checkpoint_update();
         self.update_smart_bomb_target_homing();
         self.update_fuel_air_gas_slow_death();
+        self.update_neutron_missile_flights();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -27344,6 +27351,64 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     }
 
     /// C++ ApplyRandomForceNugget::create residual on primary (dying) object.
+    /// C++ NeutronMissileUpdate::update residual.
+    pub fn update_neutron_missile_flights(&mut self) {
+        use crate::game_logic::host_neutron_missile_update::NeutronMissileFlightPhase;
+
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.neutron_missile_update.is_some() && o.is_alive())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut destroy = Vec::new();
+        let mut intermediate_hits = 0u32;
+        for id in ids {
+            let (grounded, phase) = {
+                let Some(o) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let pos = o.get_position();
+                let Some(data) = o.neutron_missile_update.as_mut() else {
+                    continue;
+                };
+                let was_inter = data.reached_intermediate;
+                let tick = data.tick(pos, self.frame);
+                if !was_inter && data.reached_intermediate {
+                    intermediate_hits += 1;
+                }
+                let grounded = tick.grounded;
+                let phase = tick.phase;
+                let new_pos = tick.pos;
+                let vel = tick.vel;
+                drop(data);
+                o.set_position(new_pos);
+                o.movement.velocity = vel;
+                if vel.length_squared() > 1e-6 {
+                    let yaw = vel.z.atan2(vel.x);
+                    o.set_orientation(yaw);
+                }
+                (grounded, phase)
+            };
+            if grounded || matches!(phase, NeutronMissileFlightPhase::Dead) {
+                // Impact: fire slow-death / create-object-die residuals then destroy.
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.fire_create_object_die();
+                    o.fire_fx_list_die();
+                }
+                self.apply_pending_create_object_die(id);
+                self.neutron_missile_update_reg.record_ground();
+                destroy.push(id);
+            }
+        }
+        for _ in 0..intermediate_hits {
+            self.neutron_missile_update_reg.record_intermediate();
+        }
+        for id in destroy {
+            self.mark_object_for_destruction(id, None);
+        }
+    }
+
     pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_ocl_apply_random_force::{
             apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
@@ -27362,6 +27427,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         o.set_orientation(o.get_orientation() + spin);
         self.ocl_apply_random_force_reg.record(force);
         true
+    }
+
+    pub fn honesty_neutron_missile_update_ok(&self) -> bool {
+        crate::game_logic::host_neutron_missile_update::honesty_neutron_missile_update_residual_ok()
     }
 
     pub fn honesty_ocl_apply_random_force_ok(&self) -> bool {
@@ -31192,16 +31261,21 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             o.producer_id = Some(source_id);
             let yaw = (secondary.z - primary.z).atan2(secondary.x - primary.x);
             o.set_orientation(yaw);
-            // Loft residual height.
-            let mut p = o.get_position();
-            p.y = p.y.max(80.0);
-            o.set_position(p);
-            let _ = o.set_smart_bomb_target(secondary);
-            // Initial velocity toward target residual.
-            let dx = secondary.x - primary.x;
-            let dz = secondary.z - primary.z;
-            let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-            o.movement.velocity = glam::Vec3::new(dx / dist * 25.0, 5.0, dz / dist * 25.0);
+            // C++ NeutronMissileUpdate loft residual (preferred over flat smart-bomb).
+            o.ensure_neutron_missile_update(secondary, Some(source_id), self.frame);
+            if o.neutron_missile_update.is_some() {
+                self.neutron_missile_update_reg.record_launch();
+            } else {
+                // Non-neutron projectiles: smart-bomb course residual.
+                let mut p = o.get_position();
+                p.y = p.y.max(80.0);
+                o.set_position(p);
+                let _ = o.set_smart_bomb_target(secondary);
+                let dx = secondary.x - primary.x;
+                let dz = secondary.z - primary.z;
+                let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+                o.movement.velocity = glam::Vec3::new(dx / dist * 25.0, 5.0, dz / dist * 25.0);
+            }
         }
         self.ocl_fire_weapon_attack_reg.record_projectile();
         Some(id)
@@ -76946,6 +77020,62 @@ mod tests {
             .any(|o| o.template_name.contains("Debris"));
         assert!(gas, "FuelAir gas should spawn from DaisyCutterBomb CreateObjectDie");
         assert!(debris, "shell debris should spawn");
+    }
+
+
+    #[test]
+    fn neutron_missile_loft_reaches_ground() {
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::China);
+        let mut silo = crate::game_logic::ThingTemplate::new("ChinaNuclearMissileLauncher");
+        silo.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic
+            .templates
+            .insert("ChinaNuclearMissileLauncher".into(), silo);
+        let launcher = logic
+            .create_object(
+                "ChinaNuclearMissileLauncher",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let proj = logic
+            .execute_ocl_fire_weapon(
+                "SUPERWEAPON_NeutronMissile",
+                launcher,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("missile");
+        assert!(
+            logic
+                .find_object(proj)
+                .unwrap()
+                .neutron_missile_update
+                .is_some()
+        );
+        let mut grounded = false;
+        for f in 0..600 {
+            logic.frame = f;
+            logic.update_neutron_missile_flights();
+            if logic.find_object(proj).is_none()
+                || logic
+                    .find_object(proj)
+                    .map(|o| !o.is_alive())
+                    .unwrap_or(true)
+            {
+                grounded = true;
+                break;
+            }
+            if logic.neutron_missile_update_reg.grounded >= 1 {
+                grounded = true;
+                break;
+            }
+        }
+        assert!(grounded, "missile should complete loft/dive");
+        assert!(logic.neutron_missile_update_reg.launched >= 1);
+        assert!(logic.honesty_neutron_missile_update_ok());
     }
 
     #[test]

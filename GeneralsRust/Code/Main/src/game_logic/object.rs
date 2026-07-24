@@ -1050,6 +1050,10 @@ pub struct Object {
     #[serde(default)]
     pub fuel_air_gas_slow_death:
         Option<crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasSlowDeathData>,
+    /// C++ NeutronMissileUpdate residual flight.
+    #[serde(default)]
+    pub neutron_missile_update:
+        Option<crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateData>,
     /// C++ TensileFormationUpdate residual (avalanche chunks).
     #[serde(default)]
     pub tensile_formation: Option<crate::game_logic::host_tensile_formation::HostTensileFormationData>,
@@ -1736,6 +1740,7 @@ impl Object {
             slow_death: None,
             height_die: None,
             fuel_air_gas_slow_death: None,
+            neutron_missile_update: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2120,6 +2125,7 @@ impl Object {
             slow_death: None,
             height_die: None,
             fuel_air_gas_slow_death: None,
+            neutron_missile_update: None,
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
@@ -2918,6 +2924,31 @@ impl Object {
                     ),
                 );
             }
+        }
+    }
+
+
+    /// C++ NeutronMissileUpdate residual install when target known.
+    pub fn ensure_neutron_missile_update(
+        &mut self,
+        target: glam::Vec3,
+        launcher: Option<crate::game_logic::ObjectId>,
+        now: u32,
+    ) {
+        if self.neutron_missile_update.is_some() {
+            return;
+        }
+        let launch = self.get_position();
+        if let Some(data) =
+            crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateData::for_template(
+                &self.template_name,
+                launch,
+                target,
+                launcher.map(|id| id.0),
+                now,
+            )
+        {
+            self.neutron_missile_update = Some(data);
         }
     }
 
