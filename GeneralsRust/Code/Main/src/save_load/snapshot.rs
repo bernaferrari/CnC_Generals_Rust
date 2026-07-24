@@ -180,6 +180,9 @@ pub struct SpecialPowerStrikeRegistrySnapshot {
     /// Lifetime remnant fields spawned (honesty after prune).
     #[serde(default)]
     pub remnant_fields_spawned_total: u32,
+    /// Honesty: ParticleUplinkCannonTrailRemnant objects spawned.
+    #[serde(default)]
+    pub remnant_objects_spawned: u32,
     /// Lifetime remnant damage applications (honesty after prune).
     #[serde(default)]
     pub remnant_damage_applications_total: u32,
@@ -229,6 +232,7 @@ impl Default for SpecialPowerStrikeRegistrySnapshot {
             next_remnant_id: 1,
             remnant_fields: Vec::new(),
             remnant_fields_spawned_total: 0,
+            remnant_objects_spawned: 0,
             remnant_damage_applications_total: 0,
         }
     }
@@ -3629,6 +3633,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 id: 0,
                 source_object: ObjectId(0),
                 source_team: Team::Neutral,
+                object_id: None,
                 position: Vec3::ZERO,
                 spawn_frame: 0,
                 expires_frame: 0,
@@ -3646,6 +3651,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
         )?;
         xfer.xfer_marker_label("RemnantFieldsSpawnedTotal")?;
         xfer.xfer_u32(&mut self.remnant_fields_spawned_total)?;
+        xfer.xfer_marker_label("RemnantObjectsSpawned")?;
+        xfer.xfer_u32(&mut self.remnant_objects_spawned)?;
         xfer.xfer_marker_label("RemnantDamageApplicationsTotal")?;
         xfer.xfer_u32(&mut self.remnant_damage_applications_total)?;
         Ok(())
@@ -3661,6 +3668,8 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleRemnantF
         self.source_object.xfer(xfer)?;
         xfer.xfer_marker_label("SourceTeam")?;
         self.source_team.xfer(xfer)?;
+        xfer.xfer_marker_label("ObjectId")?;
+        xfer_option(xfer, &mut self.object_id, ObjectId(0))?;
         xfer.xfer_marker_label("Position")?;
         self.position.xfer(xfer)?;
         xfer.xfer_marker_label("SpawnFrame")?;
@@ -5338,6 +5347,7 @@ impl SnapshotBuilder {
             next_remnant_id: reg.next_remnant_id(),
             remnant_fields: reg.remnant_fields().to_vec(),
             remnant_fields_spawned_total: reg.remnant_fields_spawned_total(),
+            remnant_objects_spawned: reg.remnant_objects_spawned(),
             remnant_damage_applications_total: reg.remnant_damage_applications_total(),
         })
     }
@@ -5371,6 +5381,7 @@ impl SnapshotBuilder {
                 snapshot.next_remnant_id,
                 snapshot.remnant_fields.clone(),
                 snapshot.remnant_fields_spawned_total,
+                snapshot.remnant_objects_spawned,
                 snapshot.remnant_damage_applications_total,
             );
         Ok(())
