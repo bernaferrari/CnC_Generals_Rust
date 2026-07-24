@@ -29,12 +29,14 @@
 //!
 //! Fail-closed honesty:
 //! - Not full ArmorSet PLAYER_UPGRADE UpgradedTankArmor matrix
-//! - Not full turret recoil / shell projectile bezier path
+//! - GenericTankShell DumbProjectile Bezier flight residual closed (non-laser gun)
+//! - Not full turret recoil drawable matrix
 //! - Not full LaserName / LaserBoneName drawable beam matrix (Lazr residual)
 //! - Not SCIENCE_PaladinTank prereq gate / ProductionUpdate door UI
 //! - Not network composite / tank gun / laser-tank replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const USA_TANKS_LOGIC_FPS: f32 = 30.0;
@@ -62,6 +64,16 @@ pub const USA_TANK_GUN_DAMAGE_TYPE: &str = "ARMOR_PIERCING";
 pub const USA_TANK_GUN_DEATH_TYPE: &str = "NORMAL";
 /// Retail ProjectileObject residual.
 pub const USA_TANK_GUN_PROJECTILE: &str = "GenericTankShell";
+/// Retail GenericTankShell MaxHealth residual.
+pub const USA_SHELL_MAX_HEALTH: f32 = 100.0;
+/// DumbProjectileBehavior FirstHeight residual.
+pub const USA_SHELL_FIRST_HEIGHT: f32 = 10.0;
+/// DumbProjectileBehavior SecondHeight residual.
+pub const USA_SHELL_SECOND_HEIGHT: f32 = 10.0;
+/// FirstPercentIndent residual (50%).
+pub const USA_SHELL_FIRST_PERCENT_INDENT: f32 = 0.50;
+/// SecondPercentIndent residual (90%).
+pub const USA_SHELL_SECOND_PERCENT_INDENT: f32 = 0.90;
 /// Retail FireFX residual.
 pub const USA_TANK_GUN_FIRE_FX: &str = "WeaponFX_GenericTankGunNoTracer";
 /// Retail ProjectileDetonationFX residual.
@@ -282,6 +294,63 @@ pub fn usa_tank_gun_weapon_for_template(template_name: &str) -> Weapon {
 /// Apply Composite Armor residual: +AddMaxHealth current+max (ADD_CURRENT_HEALTH_TOO).
 ///
 /// Returns true when health was increased (first apply residual; idempotent via tag).
+
+
+/// Whether residual fire should apply USA tank gun residual (non-laser).
+pub fn should_apply_usa_tank_gun_residual(template_name: &str) -> bool {
+    (is_crusader_template(template_name) || is_paladin_template(template_name))
+        && !is_laser_general_tank_template(template_name)
+}
+
+/// Splash damage residual at distance (full PrimaryDamage inside radius).
+pub fn usa_tank_gun_splash_damage_at(distance: f32, damage: f32) -> f32 {
+    if distance <= USA_TANK_GUN_PRIMARY_RADIUS {
+        damage
+    } else {
+        0.0
+    }
+}
+
+/// Legal splash target residual.
+pub fn is_legal_usa_tank_splash_target(
+    is_alive: bool,
+    is_attackable: bool,
+    is_projectile: bool,
+    is_self: bool,
+) -> bool {
+    is_alive && is_attackable && !is_projectile && !is_self
+}
+
+/// Cubic Bezier residual sample for GenericTankShell DumbProjectileBehavior.
+pub fn usa_tank_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    let t = t.clamp(0.0, 1.0);
+    let delta = to - from;
+    let p0 = from;
+    let p3 = to;
+    let p1 = from
+        + delta * USA_SHELL_FIRST_PERCENT_INDENT
+        + Vec3::Y * USA_SHELL_FIRST_HEIGHT;
+    let p2 = from
+        + delta * USA_SHELL_SECOND_PERCENT_INDENT
+        + Vec3::Y * USA_SHELL_SECOND_HEIGHT;
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    p0 * uuu + p1 * (3.0 * uu * t) + p2 * (3.0 * u * tt) + p3 * ttt
+}
+
+/// Flight frame residual from ground distance @ weapon speed.
+pub fn usa_tank_shell_flight_frames(from: Vec3, to: Vec3, weapon_speed: f32) -> u32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let dist = (dx * dx + dz * dz).sqrt().max(1.0);
+    let speed = weapon_speed.max(1.0);
+    let frames = (dist / (speed / USA_TANKS_LOGIC_FPS)).ceil() as u32;
+    frames.clamp(4, 180)
+}
+
 pub fn apply_composite_armor_health(max_health: &mut f32, current: &mut f32, maximum: &mut f32) {
     *max_health = max_health.saturating_add_f32(COMPOSITE_ARMOR_ADD_MAX_HEALTH);
     *maximum = maximum.saturating_add_f32(COMPOSITE_ARMOR_ADD_MAX_HEALTH);
@@ -321,6 +390,8 @@ pub fn honesty_usa_tanks_weapon_residual_ok() -> bool {
         && USA_TANK_GUN_DAMAGE_TYPE == "ARMOR_PIERCING"
         && USA_TANK_GUN_DEATH_TYPE == "NORMAL"
         && USA_TANK_GUN_PROJECTILE == "GenericTankShell"
+        && (USA_SHELL_FIRST_HEIGHT - 10.0).abs() < 0.01
+        && (USA_SHELL_SECOND_PERCENT_INDENT - 0.90).abs() < 0.001
         && USA_TANK_GUN_FIRE_FX == "WeaponFX_GenericTankGunNoTracer"
         && USA_TANK_GUN_DETONATION_FX == "WeaponFX_GenericTankShellDetonation"
         && USA_TANK_GUN_CLIP_SIZE == 0
