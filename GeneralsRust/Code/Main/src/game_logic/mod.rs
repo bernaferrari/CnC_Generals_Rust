@@ -132,6 +132,7 @@ pub mod host_faction_skirmish_residual;
 pub mod host_fire_base;
 pub mod host_fire_spread;
 pub mod host_base_regenerate;
+pub mod host_enemy_near;
 mod host_fire_weapon_power;
 mod host_fire_weapon_when_damaged;
 mod host_fire_weapon_when_dead;

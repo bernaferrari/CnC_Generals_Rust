@@ -1123,6 +1123,8 @@ pub struct GameLogic {
     fire_spread_reg: crate::game_logic::host_fire_spread::HostFireSpreadRegistry,
     /// C++ BaseRegenerateUpdate residual counters.
     base_regenerate_reg: crate::game_logic::host_base_regenerate::HostBaseRegenerateRegistry,
+    /// C++ EnemyNearUpdate residual counters.
+    enemy_near_reg: crate::game_logic::host_enemy_near::HostEnemyNearRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
     command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
@@ -2792,6 +2794,7 @@ impl GameLogic {
             status_bits_upgrade_reg: crate::game_logic::host_status_bits_upgrade::HostStatusBitsUpgradeRegistry::new(),
             fire_spread_reg: crate::game_logic::host_fire_spread::HostFireSpreadRegistry::new(),
             base_regenerate_reg: crate::game_logic::host_base_regenerate::HostBaseRegenerateRegistry::new(),
+            enemy_near_reg: crate::game_logic::host_enemy_near::HostEnemyNearRegistry::new(),
             command_button_hunt_reg: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry::new(),
             preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry::new(),
             upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry::new(),
@@ -3244,6 +3247,7 @@ impl GameLogic {
         self.status_bits_upgrade_reg.clear();
         self.fire_spread_reg.clear();
         self.base_regenerate_reg.clear();
+        self.enemy_near_reg.clear();
         self.command_button_hunt_reg.clear();
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
@@ -5958,6 +5962,7 @@ impl GameLogic {
         self.update_tensile_formations();
         self.update_fire_spread();
         self.update_base_regenerate();
+        self.update_enemy_near();
         self.update_nuke_cannon_radiation_zones();
         self.tick_fire_ocl_after_weapon_cooldown();
         self.update_toxin_tractor_poison_zones();
@@ -22063,6 +22068,10 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             if object.base_regenerate.is_some() {
                 self.base_regenerate_reg.record_install();
             }
+            object.install_enemy_near_if_needed();
+            if object.enemy_near.is_some() {
+                self.enemy_near_reg.record_install();
+            }
             if let Some(up) =
                 crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
             {
@@ -27025,6 +27034,11 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             && crate::game_logic::host_base_regenerate::honesty_base_regenerate_residual_ok()
     }
 
+    pub fn honesty_enemy_near_ok(&self) -> bool {
+        self.enemy_near_reg.honesty_host_path_ok()
+            && crate::game_logic::host_enemy_near::honesty_enemy_near_residual_ok()
+    }
+
     pub fn tensile_formation_registry(
         &self,
     ) -> &crate::game_logic::host_tensile_formation::HostTensileFormationRegistry {
@@ -30584,7 +30598,68 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
         /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
         /// C++ BaseRegenerateUpdate residual (structure auto-heal after delay).
-    fn update_base_regenerate(&mut self) {
+        /// C++ EnemyNearUpdate residual (scan vision for enemies → ENEMYNEAR).
+    fn update_enemy_near(&mut self) {
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.enemy_near.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let (team, pos, vision, needs_scan) = {
+                let Some(obj) = self.objects.get(&id) else {
+                    continue;
+                };
+                let Some(en) = obj.enemy_near.as_ref() else {
+                    continue;
+                };
+                (
+                    obj.team,
+                    obj.get_position(),
+                    en.vision_range.max(obj.vision_range),
+                    en.scan_delay == 0,
+                )
+            };
+
+            let enemy_present = if needs_scan {
+                self.enemy_near_reg.record_scan();
+                let mut found = false;
+                for (oid, o) in self.objects.iter() {
+                    if *oid == id || !o.is_alive() {
+                        continue;
+                    }
+                    if !o.is_targetable_by_enemy_of(team) {
+                        continue;
+                    }
+                    let op = o.get_position();
+                    let dx = op.x - pos.x;
+                    let dz = op.z - pos.z;
+                    if (dx * dx + dz * dz).sqrt() <= vision {
+                        found = true;
+                        break;
+                    }
+                }
+                Some(found)
+            } else {
+                None
+            };
+
+            if let Some(obj) = self.objects.get_mut(&id) {
+                if let Some(en) = obj.enemy_near.as_mut() {
+                    let (near, clear) = en.tick(enemy_present);
+                    if near {
+                        self.enemy_near_reg.record_near();
+                    }
+                    if clear {
+                        self.enemy_near_reg.record_clear();
+                    }
+                }
+            }
+        }
+    }
+
+fn update_base_regenerate(&mut self) {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -75160,7 +75235,56 @@ mod tests {
     #[test]
 
     #[test]
-    fn base_regenerate_structure_heals_after_delay() {
+
+    #[test]
+    fn enemy_near_wall_sets_model_condition_on_scan() {
+        use crate::game_logic::host_enemy_near::honesty_enemy_near_residual_ok;
+        assert!(honesty_enemy_near_residual_ok());
+
+        let mut logic = GameLogic::new();
+        let mut wall_tpl = crate::game_logic::ThingTemplate::new("AmericaWallSegment");
+        wall_tpl.set_health(1000.0);
+        logic
+            .templates
+            .insert("AmericaWallSegment".to_string(), wall_tpl);
+        ensure_test_infantry_template(&mut logic);
+
+        let wall = logic
+            .create_object(
+                "AmericaWallSegment",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("wall");
+        {
+            let w = logic.find_object_mut(wall).unwrap();
+            if let Some(en) = w.enemy_near.as_mut() {
+                en.vision_range = 200.0;
+                en.scan_delay = 0;
+            }
+            w.vision_range = 200.0;
+        }
+        assert!(logic.find_object(wall).unwrap().enemy_near.is_some());
+
+        let enemy = logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        let _ = enemy;
+
+        logic.update_enemy_near();
+        assert!(
+            logic
+                .find_object(wall)
+                .and_then(|o| o.enemy_near.as_ref().map(|e| e.enemy_near && e.model_enemy_near))
+                .unwrap_or(false),
+            "enemy in vision must set ENEMYNEAR residual"
+        );
+        assert!(logic.enemy_near_reg.became_near >= 1);
+        assert!(logic.honesty_enemy_near_ok());
+    }
+
+
+        fn base_regenerate_structure_heals_after_delay() {
         use crate::game_logic::host_base_regenerate::{
             honesty_base_regenerate_residual_ok, BASE_REGEN_DELAY_FRAMES,
             BASE_REGEN_HEAL_RATE_FRAMES,
