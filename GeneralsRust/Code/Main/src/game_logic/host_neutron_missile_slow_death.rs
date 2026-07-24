@@ -21,6 +21,8 @@ pub const NEUTRON_SCORCH_MARK_SIZE: f32 = 320.0;
 pub const NEUTRON_DESTRUCTION_DELAY_MS: u32 = 3501;
 pub const NEUTRON_FX_LIST: &str = "FX_Nuke";
 pub const NEUTRON_RADIATION_OCL: &str = "OCL_NukeRadiationField";
+/// SlowDeath MIDPOINT residual for OCL radiation (half of DestructionDelay 3501ms).
+pub const NEUTRON_RADIATION_OCL_DELAY_MS: u32 = 1750;
 /// C++ MODELCONDITION_BURNED bit residual index.
 pub const MC_BIT_BURNED: u32 = 63;
 /// C++ MODELCONDITION_FRONTCRUSHED / BACKCRUSHED residual indices.
@@ -197,6 +199,8 @@ pub struct HostNeutronMissileSlowDeathData {
     pub completed_scorch: [bool; 9],
     pub scorch_placed: bool,
     pub fx_played: bool,
+    /// OCL_NukeRadiationField spawned at SlowDeath midpoint residual.
+    pub radiation_ocl_spawned: bool,
     pub done: bool,
     pub total_damage_applied: f32,
     pub damage_hits: u32,
@@ -216,6 +220,7 @@ impl Default for HostNeutronMissileSlowDeathData {
             completed_scorch: [false; 9],
             scorch_placed: false,
             fx_played: false,
+            radiation_ocl_spawned: false,
             done: false,
             total_damage_applied: 0.0,
             damage_hits: 0,
@@ -241,6 +246,20 @@ impl HostNeutronMissileSlowDeathData {
     pub fn destruction_frame(&self) -> u32 {
         self.activation_frame
             .saturating_add(ms_to_frames(NEUTRON_DESTRUCTION_DELAY_MS))
+    }
+
+    /// C++ SlowDeath MIDPOINT OCL residual (OCL_NukeRadiationField).
+    pub fn take_radiation_ocl_request(&mut self, current_frame: u32) -> bool {
+        if !self.is_active() || self.radiation_ocl_spawned || self.done {
+            return false;
+        }
+        let elapsed = current_frame.saturating_sub(self.activation_frame);
+        if elapsed >= ms_to_frames(NEUTRON_RADIATION_OCL_DELAY_MS) {
+            self.radiation_ocl_spawned = true;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -355,6 +374,16 @@ pub fn plan_neutron_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn radiation_ocl_midpoint_once() {
+        let mut s = HostNeutronMissileSlowDeathData::begin(0);
+        let mid = ms_to_frames(NEUTRON_RADIATION_OCL_DELAY_MS);
+        assert!(!s.take_radiation_ocl_request(mid.saturating_sub(1)));
+        assert!(s.take_radiation_ocl_request(mid));
+        assert!(!s.take_radiation_ocl_request(mid + 10));
+        assert_eq!(NEUTRON_RADIATION_OCL, "OCL_NukeRadiationField");
+    }
 
     #[test]
     fn blast6_full_damage_inside_inner() {

@@ -47279,6 +47279,17 @@ fn update_scud_poison_zones(&mut self) {
             let xz: Vec<(f32, f32)> = objects.iter().map(|(_, x, z, _)| (*x, *z)).collect();
             let (hits, place_scorch, done) = plan_neutron_frame(&mut state, frame, epicenter, &xz);
 
+            // C++ SlowDeath MIDPOINT OCL_NukeRadiationField residual.
+            if state.take_radiation_ocl_request(frame) {
+                self.special_power_strikes.spawn_radiation_field(
+                    meta.source_object,
+                    meta.source_team,
+                    meta.position,
+                    frame,
+                    meta.parent_strike_id,
+                );
+            }
+
             if place_scorch {
                 // Presentation residual: combat particle at epicenter.
                 let _ = self.combat_particles.spawn(
@@ -77092,6 +77103,17 @@ mod tests {
             logic.special_power_strikes.neutron_slow_death_field_count() >= 1
                 || logic.special_power_strikes.neutron_slow_death_spawned_total() >= 1,
             "ground impact should spawn NeutronMissileSlowDeath field"
+        );
+        // Advance SlowDeath midpoint → OCL_NukeRadiationField residual.
+        let rad0 = logic.special_power_strikes.radiation_fields_spawned_total();
+        for _ in 0..60 {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_neutron_slow_death_fields();
+        }
+        assert!(
+            logic.special_power_strikes.radiation_fields_spawned_total() > rad0
+                || !logic.special_power_strikes.radiation_fields().is_empty(),
+            "midpoint should spawn OCL_NukeRadiationField residual"
         );
         assert!(logic.honesty_neutron_missile_update_ok());
     }
