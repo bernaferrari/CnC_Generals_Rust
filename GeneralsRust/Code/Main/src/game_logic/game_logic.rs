@@ -1575,6 +1575,8 @@ pub struct GameLogic {
     overlord_scatter_applied: u32,
     /// Honesty: InfernoTankShell projectiles spawned residual.
     inferno_shells_spawned: u32,
+    /// Honesty: Inferno Cannon ScatterRadiusVsInfantry aim offsets applied.
+    inferno_scatter_applied: u32,
     /// Honesty: MarauderTankShell projectiles spawned residual.
     marauder_shells_spawned: u32,
     /// Honesty: Marauder ScatterRadiusVsInfantry aim offsets applied.
@@ -3159,6 +3161,7 @@ impl GameLogic {
             overlord_shells_spawned: 0,
             overlord_scatter_applied: 0,
             inferno_shells_spawned: 0,
+            inferno_scatter_applied: 0,
             marauder_shells_spawned: 0,
             marauder_scatter_applied: 0,
             fire_base_shells_spawned: 0,
@@ -3671,6 +3674,7 @@ impl GameLogic {
         self.overlord_shells_spawned = 0;
         self.overlord_scatter_applied = 0;
         self.inferno_shells_spawned = 0;
+        self.inferno_scatter_applied = 0;
         self.marauder_shells_spawned = 0;
         self.marauder_scatter_applied = 0;
         self.fire_base_shells_spawned = 0;
@@ -54292,6 +54296,13 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
     /// Combined host path honesty for Inferno Cannon fire residual.
     pub fn honesty_inferno_cannon_ok(&self) -> bool {
         self.inferno_fire_zones.honesty_host_path_ok()
+            || self.inferno_shells_spawned > 0
+            || self.inferno_scatter_applied > 0
+    }
+
+    /// Residual honesty: Inferno Cannon ScatterRadiusVsInfantry applied at least once.
+    pub fn honesty_inferno_scatter_ok(&self) -> bool {
+        self.inferno_scatter_applied > 0
     }
 
     /// Spawn residual FireFieldSmall at Inferno Cannon shell impact.
@@ -54333,6 +54344,27 @@ pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+
+        // C++ ScatterRadiusVsInfantry residual on InfernoCannonGun vs infantry (**30**).
+        let target_is_infantry = intended
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+            source_id.0,
+            intended.map(|id| id.0).unwrap_or(0),
+            self.frame,
+        );
+        let (aim, scattered) =
+            crate::game_logic::host_inferno_cannon::inferno_cannon_scatter_aim(
+                aim,
+                target_is_infantry,
+                seed,
+            );
+        if scattered {
+            self.inferno_scatter_applied = self.inferno_scatter_applied.saturating_add(1);
+        }
+
         let mut start = from;
         start.y = start.y.max(aim.y) + 4.0;
         let pid = self.create_object(proj, team, start)?;
@@ -123697,6 +123729,94 @@ assert!(
             .expect("aim2");
         let d2 = ((aim2[0] - 150.0).powi(2) + aim2[2].powi(2)).sqrt();
         assert!(d2 > 0.01 && d2 <= FLASHBANG_SCATTER_RADIUS + 0.01);
+    }
+
+
+    #[test]
+    fn inferno_shell_scatters_vs_infantry() {
+        use crate::game_logic::host_inferno_cannon::INFERNO_CANNON_SCATTER_VS_INFANTRY;
+
+        let mut logic = GameLogic::new();
+        let mut c_tpl = ThingTemplate::new("ChinaVehicleInfernoCannon");
+        c_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        logic
+            .templates
+            .insert("ChinaVehicleInfernoCannon".to_string(), c_tpl);
+        let mut i_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        i_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), i_tpl);
+
+        let cannon = logic
+            .create_object(
+                "ChinaVehicleInfernoCannon",
+                Team::China,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cannon");
+        let inf = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                glam::Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("inf");
+        let aim = glam::Vec3::new(200.0, 0.0, 0.0);
+        let from = glam::Vec3::new(0.0, 6.0, 0.0);
+        let shell = logic
+            .spawn_inferno_shell_projectile(cannon, from, aim, Some(inf), false)
+            .expect("shell");
+        assert!(logic.honesty_inferno_scatter_ok());
+        let s_aim = logic
+            .objects
+            .get(&shell)
+            .and_then(|o| o.inferno_shell_aim)
+            .expect("aim");
+        let d = ((s_aim[0] - aim.x).powi(2) + (s_aim[2] - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= INFERNO_CANNON_SCATTER_VS_INFANTRY + 0.01);
+
+        let mut v_tpl = ThingTemplate::new("AmericaTankCrusader");
+        v_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), v_tpl);
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                glam::Vec3::new(250.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let before = logic.inferno_scatter_applied;
+        let shell2 = logic
+            .spawn_inferno_shell_projectile(
+                cannon,
+                from,
+                glam::Vec3::new(250.0, 0.0, 0.0),
+                Some(tank),
+                false,
+            )
+            .expect("shell2");
+        assert_eq!(logic.inferno_scatter_applied, before);
+        let aim2 = logic
+            .objects
+            .get(&shell2)
+            .and_then(|o| o.inferno_shell_aim)
+            .expect("aim2");
+        assert!((aim2[0] - 250.0).abs() < 0.01 && aim2[2].abs() < 0.01);
     }
 
 }
