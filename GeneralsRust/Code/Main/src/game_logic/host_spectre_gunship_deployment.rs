@@ -16,6 +16,9 @@
 //! - CreateLocation = CREATE_AT_EDGE_FARTHEST_FROM_TARGET
 //! - GunshipOrbitRadius (on jet) = **250**
 //!
+//! Implements SpecialPowerUpdateInterface residual (see
+//! `host_special_power_update_module`).
+//!
 //! Fail-closed: not full SpectreGunshipUpdate continuous fire / decal pair /
 //! gattling strafe FX / academy stats.
 
