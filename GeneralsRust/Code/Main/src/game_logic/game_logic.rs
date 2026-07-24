@@ -1561,6 +1561,8 @@ pub struct GameLogic {
     missile_defender_missiles_spawned: u32,
     /// Honesty: Missile Defender ScatterRadiusVsInfantry aim offsets applied.
     missile_defender_scatter_applied: u32,
+    /// Honesty: Missile Defender ScatterRadiusVsInfantry residual misses vs infantry.
+    missile_defender_scatter_misses: u32,
     /// Honesty: ScorpionTankShell projectiles spawned residual.
     scorpion_shells_spawned: u32,
     /// Honesty: Scorpion ScatterRadiusVsInfantry aim offsets applied.
@@ -3178,6 +3180,7 @@ impl GameLogic {
             tank_hunter_scatter_applied: 0,
             missile_defender_missiles_spawned: 0,
             missile_defender_scatter_applied: 0,
+            missile_defender_scatter_misses: 0,
             scorpion_shells_spawned: 0,
             scorpion_scatter_applied: 0,
             scorpion_missiles_spawned: 0,
@@ -3703,6 +3706,7 @@ impl GameLogic {
         self.tank_hunter_scatter_applied = 0;
         self.missile_defender_missiles_spawned = 0;
         self.missile_defender_scatter_applied = 0;
+        self.missile_defender_scatter_misses = 0;
         self.scorpion_shells_spawned = 0;
         self.scorpion_scatter_applied = 0;
         self.scorpion_missiles_spawned = 0;
@@ -33879,6 +33883,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: Missile Defender ScatterRadiusVsInfantry applied.
     pub fn honesty_missile_defender_scatter_ok(&self) -> bool {
         self.missile_defender_scatter_applied > 0
+            || self.missile_defender_scatter_misses > 0
     }
 
     pub fn honesty_missile_defender_laser_ok(&self) -> bool {
@@ -44616,6 +44621,39 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             self.missile_defender_scatter_applied =
                 self.missile_defender_scatter_applied.saturating_add(1);
         }
+        // Primary missile only — laser-guided slot has no ScatterRadiusVsInfantry peel.
+        if target_is_infantry && !laser_slot {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_missile_defender::missile_defender_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist
+                        > crate::game_logic::host_missile_defender::MISSILE_DEFENDER_SPLASH_RADIUS
+                    {
+                        self.missile_defender_scatter_misses =
+                            self.missile_defender_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let mut start = from;
         start.y = start.y.max(aim.y) + 6.0;
@@ -44746,7 +44784,8 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         laser_slot: bool,
     ) -> (u32, bool) {
         use crate::game_logic::host_missile_defender::{
-            is_legal_missile_defender_splash_target, missile_defender_splash_damage_at,
+            is_legal_missile_defender_splash_target, missile_defender_scatter_aim,
+            missile_defender_scatter_misses_infantry, missile_defender_splash_damage_at,
             MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_FIRE_AUDIO, MISSILE_DEFENDER_SPLASH_RADIUS,
         };
 
@@ -44766,6 +44805,50 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         let source_team = source
             .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
             .unwrap_or(Team::Neutral);
+
+        // C++ MissileDefenderMissileWeapon ScatterRadiusVsInfantry residual (primary only).
+        let mut impact = impact;
+        let intended_is_infantry = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        if intended_is_infantry && !laser_slot {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source.map(|s| s.0).unwrap_or(0),
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = missile_defender_scatter_aim(impact, true, seed);
+            if scattered {
+                self.missile_defender_scatter_applied =
+                    self.missile_defender_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if missile_defender_scatter_misses_infantry(true, seed, hit_r) {
+                let intended_pos = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position());
+                if let Some(pos) = intended_pos {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > MISSILE_DEFENDER_SPLASH_RADIUS {
+                        self.missile_defender_scatter_misses =
+                            self.missile_defender_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
 
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
@@ -44799,6 +44882,14 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
                     (dx * dx + dz * dz).sqrt()
                 };
                 let is_intended = intended_target == Some(*id);
+                // Scatter miss residual: intended infantry outside splash is not force-hit.
+                if is_intended
+                    && intended_is_infantry
+                    && !laser_slot
+                    && dist > MISSILE_DEFENDER_SPLASH_RADIUS
+                {
+                    return None;
+                }
                 if is_intended || dist <= MISSILE_DEFENDER_SPLASH_RADIUS {
                     Some((*id, dist, is_intended))
                 } else {
@@ -125111,6 +125202,83 @@ assert!(
             .unwrap_or(0.0);
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
     }
+
+    #[test]
+    fn missile_defender_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_missile_defender::{
+            MISSILE_DEFENDER_MISSILE_WEAPON, MISSILE_DEFENDER_SCATTER_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut md_tpl = ThingTemplate::new("AmericaInfantryMissileDefender");
+        md_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_primary_weapon_name(MISSILE_DEFENDER_MISSILE_WEAPON);
+        logic
+            .templates
+            .insert("AmericaInfantryMissileDefender".to_string(), md_tpl);
+
+        let md = logic
+            .create_object(
+                "AmericaInfantryMissileDefender",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("md");
+        if let Some(o) = logic.objects.get_mut(&md) {
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let impact = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
+        let _ = logic.apply_missile_defender_residual_at(impact, Some(md), Some(inf), false);
+        assert!(
+            logic.missile_defender_scatter_applied > 0
+                || logic.missile_defender_scatter_misses > 0
+                || logic.honesty_missile_defender_scatter_ok(),
+            "md scatter residual must peel vs infantry"
+        );
+        assert!((MISSILE_DEFENDER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
+        let (hits, _) =
+            logic.apply_missile_defender_residual_at(impact, Some(md), Some(tank), false);
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
+    }
+
 
 
 
