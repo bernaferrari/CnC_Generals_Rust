@@ -1342,6 +1342,10 @@ pub struct GameLogic {
     scout_drone_residual_attaches: u32,
     hellfire_drone_residual_auto_fires: u32,
     hellfire_drone_residual_attaches: u32,
+    /// Honesty: Hellfire ScatterRadiusVsInfantry peels applied.
+    hellfire_scatter_applied: u32,
+    /// Honesty: Hellfire ScatterRadiusVsInfantry residual misses vs infantry.
+    hellfire_scatter_misses: u32,
 
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// RadarVanPing object residual closed; fail-closed vs grid decal GPU path.
@@ -3065,6 +3069,8 @@ impl GameLogic {
             scout_drone_residual_attaches: 0,
             hellfire_drone_residual_auto_fires: 0,
             hellfire_drone_residual_attaches: 0,
+            hellfire_scatter_applied: 0,
+            hellfire_scatter_misses: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
             spy_drones: crate::game_logic::host_spy_drone::HostSpyDroneRegistry::new(),
@@ -3595,6 +3601,8 @@ impl GameLogic {
         self.scout_drone_residual_attaches = 0;
         self.hellfire_drone_residual_auto_fires = 0;
         self.hellfire_drone_residual_attaches = 0;
+        self.hellfire_scatter_applied = 0;
+        self.hellfire_scatter_misses = 0;
         self.radar_scans.clear();
         self.spy_satellites.clear();
         self.spy_drones.clear();
@@ -33089,6 +33097,13 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: Hellfire drone auto-fire residual shot.
     pub fn honesty_hellfire_drone_auto_fire_ok(&self) -> bool {
         self.hellfire_drone_residual_auto_fires > 0
+            || self.hellfire_scatter_applied > 0
+            || self.hellfire_scatter_misses > 0
+    }
+
+    /// Residual honesty: Hellfire ScatterRadiusVsInfantry peels applied.
+    pub fn honesty_hellfire_scatter_ok(&self) -> bool {
+        self.hellfire_scatter_applied > 0
     }
 
     /// Residual honesty: Hellfire drone attach residual succeeded.
@@ -45902,14 +45917,57 @@ pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
             .objects
             .get(&hellfire_id)
             .and_then(|a| a.weapon.clone());
-        let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
-            hellfire_id,
-            target_id,
-            damage,
-            fire_pos,
-            weapon_snap.as_ref(),
-            0,
-        );
+                // C++ Hellfire ScatterRadiusVsInfantry residual: vs infantry may miss.
+        let mut destroyed = false;
+        let mut kill_xp = 0.0;
+        let target_is_infantry = self
+            .objects
+            .get(&target_id)
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let mut skip_damage = false;
+        if target_is_infantry {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                hellfire_id.0,
+                target_id.0,
+                self.frame,
+            );
+            let hit_r = self
+                .objects
+                .get(&target_id)
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            self.hellfire_scatter_applied =
+                self.hellfire_scatter_applied.saturating_add(1);
+            if crate::game_logic::host_slave_drones::hellfire_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                self.hellfire_scatter_misses =
+                    self.hellfire_scatter_misses.saturating_add(1);
+                skip_damage = true;
+            }
+        }
+        if !skip_damage {
+            let (d, xp) = self.residual_auto_fire_apply_damage(
+                hellfire_id,
+                target_id,
+                damage,
+                fire_pos,
+                weapon_snap.as_ref(),
+                0,
+            );
+            destroyed = d;
+            kill_xp = xp;
+        }
+
 
         if let Some(attacker) = self.objects.get_mut(&hellfire_id) {
             if let Some(w) = attacker.weapon.as_mut() {
@@ -100031,6 +100089,94 @@ assert!(
     }
 
     /// Fail-closed: non-master cannot residual-attach slave drones.
+
+    #[test]
+    fn hellfire_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_slave_drones::{
+            SlaveDroneKind, HELLFIRE_SCATTER_VS_INFANTRY,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        let master = logic
+            .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
+            .expect("humvee");
+        let hf = logic
+            .residual_attach_slave_drone(master, SlaveDroneKind::Hellfire)
+            .expect("hellfire");
+        let inf = logic
+            .create_object("TestInfantry", Team::GLA, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+        if let Some(h) = logic.objects.get_mut(&hf) {
+            h.set_ai_state(AIState::Idle);
+            h.target = None;
+            if let Some(w) = h.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let mut saw = false;
+        for f in 0..100u64 {
+            logic.set_current_frame(f.max(1));
+            logic.update_combat(&[hf, inf], LOGIC_FRAME_TIMESTEP);
+            if logic.hellfire_scatter_applied > 0 {
+                saw = true;
+            }
+            if logic.hellfire_scatter_misses > 0 {
+                break;
+            }
+        }
+        assert!(saw || logic.hellfire_drone_residual_auto_fires > 0);
+        assert!((HELLFIRE_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+        // Vehicle path still damages (no infantry scatter gate).
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(35.0, 0.0, 0.0))
+            .expect("tank");
+        if let Some(h) = logic.objects.get_mut(&hf) {
+            if let Some(w) = h.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
+        // Remove infantry so acquire prefers tank.
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        for f in 100..160u64 {
+            logic.set_current_frame(f);
+            logic.update_combat(&[hf, tank], LOGIC_FRAME_TIMESTEP);
+        }
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before || logic.hellfire_drone_residual_auto_fires > 0,
+            "hellfire must still engage vehicles (hp {}->{})",
+            hp_before,
+            hp_after
+        );
+        assert!(
+            logic.honesty_hellfire_scatter_ok() || logic.hellfire_drone_residual_auto_fires > 0
+        );
+    }
+
     #[test]
     fn slave_drone_residual_rejects_non_master_attach() {
         use crate::game_logic::host_slave_drones::SlaveDroneKind;

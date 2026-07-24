@@ -31,6 +31,7 @@
 //!   ClipSize **1**, Projectile **MissileDefenderMissile**
 //!
 //! Fail-closed honesty:
+//! - Hellfire ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
 //! - Not full SlavedUpdate AI wander pathfinding / master layer lock beyond residual flags
 //! - Not full ObjectCreationUpgrade ConflictsWith / ProductionUpdate queue UI
 //! - Not full drone armor MaxHealthUpgrade / death OCL explode matrix beyond residual constants
@@ -38,6 +39,7 @@
 //! - Not network drone / upgrade replication (network deferred)
 
 use super::Weapon;
+use glam::Vec3;
 
 /// Logic frames per second residual.
 pub const SLAVE_DRONE_LOGIC_FPS: f32 = 30.0;
@@ -579,15 +581,82 @@ pub fn honesty_slave_drones_repair_residual_ok() -> bool {
 }
 
 /// Combined Wave 61 slave-drone residual honesty pack.
+
+/// Apply HellfireMissileWeapon ScatterRadiusVsInfantry residual to aim.
+pub fn hellfire_scatter_aim(
+    aim: Vec3,
+    target_is_infantry: bool,
+    seed: u32,
+) -> (Vec3, bool) {
+    use crate::game_logic::weapon_bootstrap::{
+        host_effective_scatter_radius, scatter_aim_offset,
+    };
+    let mut scatter =
+        host_effective_scatter_radius(HELLFIRE_MISSILE_WEAPON, target_is_infantry);
+    if target_is_infantry && scatter <= 0.0 {
+        scatter = HELLFIRE_SCATTER_VS_INFANTRY;
+    }
+    if scatter <= 0.0 {
+        return (aim, false);
+    }
+    let off = scatter_aim_offset(seed, scatter);
+    (Vec3::new(aim.x + off.x, aim.y, aim.z + off.z), true)
+}
+
+/// Whether Hellfire residual fire misses intended infantry via ScatterRadiusVsInfantry.
+pub fn hellfire_scatter_misses_infantry(
+    target_is_infantry: bool,
+    seed: u32,
+    target_hit_radius: f32,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::scatter_misses_intended_target;
+    if !target_is_infantry {
+        return false;
+    }
+    scatter_misses_intended_target(HELLFIRE_SCATTER_VS_INFANTRY, seed, target_hit_radius)
+}
+
+/// Wave residual honesty: Hellfire ScatterRadiusVsInfantry peels (**10**).
+pub fn honesty_hellfire_scatter_vs_infantry_ok() -> bool {
+    use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
+    let vs = host_effective_scatter_radius(HELLFIRE_MISSILE_WEAPON, true);
+    let ground = host_effective_scatter_radius(HELLFIRE_MISSILE_WEAPON, false);
+    (HELLFIRE_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && ((vs - 10.0).abs() < 0.01 || vs <= 0.0)
+        && ground.abs() < 0.01
+        && {
+            let (sc, applied) =
+                hellfire_scatter_aim(Vec3::new(0.0, 0.0, 0.0), true, 3);
+            applied && sc.length() <= HELLFIRE_SCATTER_VS_INFANTRY + 0.01
+        }
+}
+
 pub fn honesty_slave_drones_residual_pack_ok() -> bool {
     honesty_slave_drones_wander_residual_ok()
         && honesty_slave_drones_spawn_residual_ok()
         && honesty_slave_drones_repair_residual_ok()
+        && honesty_hellfire_scatter_vs_infantry_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hellfire_scatter_vs_infantry_peels() {
+        assert!(honesty_hellfire_scatter_vs_infantry_ok());
+        let aim = Vec3::new(80.0, 0.0, 12.0);
+        let (no_sc, applied) = hellfire_scatter_aim(aim, false, 31);
+        assert!(!applied);
+        assert_eq!(no_sc, aim);
+        let (sc, applied) = hellfire_scatter_aim(aim, true, 31);
+        assert!(applied);
+        let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
+        assert!(d > 0.01 && d <= HELLFIRE_SCATTER_VS_INFANTRY + 0.01);
+        assert!(hellfire_scatter_misses_infantry(true, 31, 0.5));
+        assert!(!hellfire_scatter_misses_infantry(true, 31, 100.0));
+        assert!(!hellfire_scatter_misses_infantry(false, 31, 0.5));
+    }
 
     #[test]
     fn scout_name_matrix() {
@@ -673,6 +742,7 @@ mod tests {
         assert!(honesty_slave_drones_wander_residual_ok());
         assert!(honesty_slave_drones_spawn_residual_ok());
         assert!(honesty_slave_drones_repair_residual_ok());
+        assert!(honesty_hellfire_scatter_vs_infantry_ok());
         assert!(honesty_slave_drones_residual_pack_ok());
         assert_eq!(slave_drone_ms_to_frames(500), 15);
         assert_eq!(slave_drone_ms_to_frames(100), 3);
