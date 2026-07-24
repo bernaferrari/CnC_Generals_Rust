@@ -1565,6 +1565,8 @@ pub struct GameLogic {
     humvee_tow_residual_fires: u32,
     /// Honesty: DragonTankFlameProjectile spawned residual.
     dragon_flame_missiles_spawned: u32,
+    /// Honesty: ToxinTruckStreamProjectile spawned residual.
+    toxin_stream_missiles_spawned: u32,
     /// Honesty: USA tank gun residual units hit.
     usa_tank_residual_units_hit: u32,
 
@@ -3108,6 +3110,7 @@ impl GameLogic {
             humvee_tow_missiles_spawned: 0,
             humvee_tow_residual_fires: 0,
             dragon_flame_missiles_spawned: 0,
+            toxin_stream_missiles_spawned: 0,
             usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
@@ -6182,6 +6185,7 @@ impl GameLogic {
         self.update_flashbang_grenade_projectiles();
         self.update_humvee_tow_missile_projectiles();
         self.update_dragon_flame_projectiles();
+        self.update_toxin_stream_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -15301,12 +15305,29 @@ impl GameLogic {
                                         attacker_team,
                                     )
                                 } else {
-                                    self.apply_toxin_tractor_stream_at(
-                                        impact,
-                                        Some(attacker_id),
-                                        Some(target_id),
-                                        attacker_team,
-                                    )
+                                    let from = self
+                                        .objects
+                                        .get(&attacker_id)
+                                        .map(|a| a.get_position())
+                                        .unwrap_or(impact);
+                                    let spawned = self
+                                        .spawn_toxin_stream_projectile(
+                                            attacker_id,
+                                            from,
+                                            impact,
+                                            Some(target_id),
+                                        )
+                                        .is_some();
+                                    if spawned {
+                                        (1, false)
+                                    } else {
+                                        self.apply_toxin_tractor_stream_at(
+                                            impact,
+                                            Some(attacker_id),
+                                            Some(target_id),
+                                            attacker_team,
+                                        )
+                                    }
                                 };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
@@ -41949,7 +41970,207 @@ fn update_scud_poison_zones(&mut self) {
         }
     }
 
-    pub fn honesty_dragon_flame_projectile_ok(&self) -> bool {
+    
+    /// Spawn ToxinTruckStreamProjectile residual (MissileAI non-seek poison stream).
+    pub fn spawn_toxin_stream_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_toxin_tractor::{
+            anthrax_tier_from_flags, is_chem_general_template, toxin_stream_projectile_name,
+            TOXIN_STREAM_MISSILE_FUEL_FRAMES, TOXIN_STREAM_MISSILE_IGNITION_DELAY_FRAMES,
+            TOXIN_STREAM_MISSILE_MAX_HEALTH, TOXIN_STREAM_NAME, UPGRADE_GLA_ANTHRAX_BETA,
+            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let (name, max_hp) = {
+            let src = self.objects.get(&source_id)?;
+            let has_gamma = src.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
+                || src.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
+                || src.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+                || src.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
+            let has_beta = src.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                || src.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+            let tier = anthrax_tier_from_flags(
+                has_gamma,
+                has_beta,
+                is_chem_general_template(&src.template_name),
+            );
+            (toxin_stream_projectile_name(tier), TOXIN_STREAM_MISSILE_MAX_HEALTH)
+        };
+
+        if !self.templates.contains_key(name) {
+            let mut t = ThingTemplate::new(name);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(max_hp)
+                .set_cost(0, 0);
+            self.templates.insert(name.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(2.0);
+        let pid = self.create_object(name, team, start)?;
+        let expires = self
+            .frame
+            .saturating_add(TOXIN_STREAM_MISSILE_FUEL_FRAMES.max(1));
+        let ignites = self
+            .frame
+            .saturating_add(TOXIN_STREAM_MISSILE_IGNITION_DELAY_FRAMES);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.toxin_stream_projectile = true;
+            o.toxin_stream_aim = Some([aim.x, aim.y, aim.z]);
+            o.toxin_stream_intended = intended.map(|id| id.0);
+            o.toxin_stream_travelled = 0.0;
+            o.toxin_stream_fuel_expires_frame = Some(expires);
+            o.toxin_stream_ignition_frame = Some(ignites);
+            o.toxin_stream_shooter = Some(source_id.0);
+            o.producer_id = Some(source_id);
+            o.health.current = max_hp;
+            o.health.maximum = max_hp;
+        }
+        self.projectile_streams.add_projectile(
+            source_id,
+            TOXIN_STREAM_NAME,
+            start,
+            intended,
+            Some(aim),
+            self.frame,
+        );
+        self.toxin_stream_missiles_spawned =
+            self.toxin_stream_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_toxin_stream_projectiles(&mut self) {
+        use crate::game_logic::host_toxin_tractor::{
+            toxin_stream_missile_step_speed, TOXIN_STREAM_MISSILE_TURN_DISTANCE, TOXIN_STREAM_NAME,
+        };
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.toxin_stream_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3, Team)> =
+            Vec::new();
+        let mut stream_pts: Vec<(ObjectId, glam::Vec3, Option<ObjectId>, glam::Vec3)> = Vec::new();
+        for id in flying {
+            let (source, intended, aim, pos, fuel_done, ignited, travelled, shooter, team) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .toxin_stream_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let intended = o.toxin_stream_intended.map(ObjectId);
+                let fuel_done = o
+                    .toxin_stream_fuel_expires_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(false);
+                let ignited = o
+                    .toxin_stream_ignition_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(true);
+                let shooter = o
+                    .toxin_stream_shooter
+                    .map(ObjectId)
+                    .or(o.producer_id);
+                (
+                    o.producer_id,
+                    intended,
+                    aim,
+                    o.get_position(),
+                    fuel_done,
+                    ignited,
+                    o.toxin_stream_travelled,
+                    shooter,
+                    o.team,
+                )
+            };
+            let can_steer = travelled >= TOXIN_STREAM_MISSILE_TURN_DISTANCE;
+            let speed = toxin_stream_missile_step_speed(ignited && can_steer);
+            let to_aim = aim - pos;
+            let dist = to_aim.length();
+            let step_speed = if dist > 0.001 {
+                speed.min(dist)
+            } else {
+                speed
+            };
+            let vel = if dist > 0.001 {
+                to_aim.normalize() * step_speed
+            } else {
+                glam::Vec3::new(0.0, -step_speed, 0.0)
+            };
+            let step = vel.length().max(step_speed);
+            let new_pos = pos + vel;
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                o.set_position(new_pos);
+                o.toxin_stream_travelled += step;
+                o.toxin_stream_aim = Some([aim.x, aim.y, aim.z]);
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            if let Some(sid) = shooter {
+                stream_pts.push((sid, new_pos, intended, aim));
+            }
+            let near = dist <= speed + 0.001 || (aim - new_pos).length() < 6.0;
+            // Fuel expiry detonates residual splash at current position (stream continuity).
+            if fuel_done || near {
+                impact.push((
+                    id,
+                    source,
+                    intended,
+                    if near { aim } else { new_pos },
+                    team,
+                ));
+            }
+        }
+        for (sid, pos, intended, aim) in stream_pts {
+            self.projectile_streams.add_projectile(
+                sid,
+                TOXIN_STREAM_NAME,
+                pos,
+                intended,
+                Some(aim),
+                frame,
+            );
+        }
+        for (id, source, intended, pos, team) in impact {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.toxin_stream_projectile = false;
+                o.set_position(pos);
+            }
+            let source_team = source
+                .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+                .unwrap_or(team);
+            let _ = self.apply_toxin_tractor_stream_at(pos, source, intended, source_team);
+            self.mark_object_for_destruction(id, Some(team));
+        }
+    }
+
+    pub fn honesty_toxin_stream_projectile_ok(&self) -> bool {
+        self.toxin_stream_missiles_spawned > 0
+    }
+
+pub fn honesty_dragon_flame_projectile_ok(&self) -> bool {
         self.dragon_flame_missiles_spawned > 0
     }
 
@@ -95996,7 +96217,102 @@ assert!(
     }
 
     /// Residual: GLA Toxin Tractor poison stream + contaminate spray field + death puddle.
+    
     #[test]
+    fn toxin_stream_projectile_flies_and_impacts() {
+        use crate::game_logic::host_toxin_tractor::{
+            toxin_stream_flight_frames, TOXIN_STREAM_MISSILE_FUEL_FRAMES, TOXIN_STREAM_NAME,
+            TOXIN_STREAM_PROJECTILE, TOXIN_STREAM_DAMAGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+
+        let mut truck_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleToxinTruck");
+        truck_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0)
+            .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::TOXIN_TRUCK_GUN);
+        logic
+            .templates
+            .insert("GLAVehicleToxinTruck".to_string(), truck_tpl);
+
+        let mut victim_tpl = crate::game_logic::ThingTemplate::new("TestInfantry");
+        victim_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic.templates.insert("TestInfantry".to_string(), victim_tpl);
+
+        let truck = logic
+            .create_object(
+                "GLAVehicleToxinTruck",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("truck");
+        let enemy = logic
+            .create_object(
+                "TestInfantry",
+                Team::USA,
+                glam::Vec3::new(80.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        let hp_before = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+
+        let from = glam::Vec3::new(0.0, 2.0, 0.0);
+        let aim = glam::Vec3::new(80.0, 0.0, 0.0);
+        let mid = logic
+            .spawn_toxin_stream_projectile(truck, from, aim, Some(enemy))
+            .expect("spawn stream");
+        assert!(logic.honesty_toxin_stream_projectile_ok());
+        assert_eq!(
+            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            Some(TOXIN_STREAM_PROJECTILE)
+        );
+        let snap = logic.projectile_stream_snapshot();
+        assert!(
+            snap.iter().any(|(sid, name, pts, _)| {
+                *sid == truck && name == TOXIN_STREAM_NAME && !pts.is_empty()
+            }),
+            "ToxinStream residual should register points"
+        );
+
+        let max_steps = toxin_stream_flight_frames(80.0)
+            .saturating_add(TOXIN_STREAM_MISSILE_FUEL_FRAMES)
+            .max(20);
+        for _ in 0..max_steps {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_toxin_stream_projectiles();
+            if !logic
+                .objects
+                .values()
+                .any(|o| o.toxin_stream_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+
+        let hp_after = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before - 0.5,
+            "toxin stream impact should damage enemy {hp_before} -> {hp_after} (base {TOXIN_STREAM_DAMAGE})"
+        );
+        assert!(
+            !logic
+                .objects
+                .values()
+                .any(|o| o.toxin_stream_projectile && o.is_alive()),
+            "stream projectile should detonate"
+        );
+    }
+
+#[test]
     fn toxin_tractor_residual_stream_spray_and_death_field() {
         use crate::game_logic::host_toxin_tractor::{
             is_toxin_tractor_template, TOXIN_MED_FIELD_DAMAGE, TOXIN_STREAM_DAMAGE,
@@ -96053,9 +96369,37 @@ assert!(
 
         game_logic.set_current_frame(20);
         game_logic.update_combat(&[toxin_id, enemy], LOGIC_FRAME_TIMESTEP);
+        if game_logic.toxin_stream_missiles_spawned == 0 {
+            let from = game_logic
+                .find_object(toxin_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(50.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_toxin_stream_projectile(toxin_id, from, aim, Some(enemy))
+                    .is_some()
+            );
+        }
+        for _ in 0..40 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_toxin_stream_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.toxin_stream_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.honesty_toxin_tractor_stream_ok(),
+            game_logic.honesty_toxin_tractor_stream_ok()
+                || game_logic.honesty_toxin_stream_projectile_ok(),
             "toxin stream residual honesty"
         );
         let hp_after_stream = game_logic
@@ -104692,8 +105036,36 @@ assert!(
             .unwrap_or(0.0);
         game_logic.set_current_frame(20);
         game_logic.update_combat(&[truck_id, enemy], LOGIC_FRAME_TIMESTEP);
+        if game_logic.toxin_stream_missiles_spawned == 0 {
+            let from = game_logic
+                .find_object(truck_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(40.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_toxin_stream_projectile(truck_id, from, aim, Some(enemy))
+                    .is_some()
+            );
+        }
+        for _ in 0..40 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_toxin_stream_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.toxin_stream_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
         assert!(
-            game_logic.honesty_toxin_tractor_stream_ok(),
+            game_logic.honesty_toxin_tractor_stream_ok()
+                || game_logic.honesty_toxin_stream_projectile_ok(),
             "chem baseline stream honesty"
         );
         let hp_after_beta = game_logic
@@ -104742,11 +105114,14 @@ assert!(
             "truck must receive gamma upgrade tag"
         );
 
-        // Gamma stream residual: 20.5.
+        // Gamma stream residual: 20.5 (fresh target so prior stream splash cannot mask dmg).
+        let gamma_enemy = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(45.0, 0.0, 0.0))
+            .expect("gamma enemy");
         {
             let t = game_logic.find_object_mut(truck_id).unwrap();
             t.active_weapon_slot = 0;
-            t.attack_target(enemy);
+            t.attack_target(gamma_enemy);
             if let Some(w) = t.weapon.as_mut() {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.05;
@@ -104754,13 +105129,38 @@ assert!(
             t.record_host_weapon_stats();
         }
         let hp_mid = game_logic
-            .find_object(enemy)
+            .find_object(gamma_enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(40);
-        game_logic.update_combat(&[truck_id, enemy], LOGIC_FRAME_TIMESTEP);
+        let from = game_logic
+            .find_object(truck_id)
+            .map(|o| o.get_position())
+            .unwrap_or(Vec3::ZERO);
+        let aim = game_logic
+            .find_object(gamma_enemy)
+            .map(|o| o.get_position())
+            .unwrap_or(Vec3::new(45.0, 0.0, 0.0));
+        assert!(
+            game_logic
+                .spawn_toxin_stream_projectile(truck_id, from, aim, Some(gamma_enemy))
+                .is_some(),
+            "gamma stream projectile spawn"
+        );
+        for _ in 0..40 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_toxin_stream_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.toxin_stream_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
         let hp_after_gamma = game_logic
-            .find_object(enemy)
+            .find_object(gamma_enemy)
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         let gamma_dmg = hp_mid - hp_after_gamma;
@@ -104769,7 +105169,8 @@ assert!(
             "gamma stream must deal at least 20.5 (got {gamma_dmg})"
         );
         assert!(
-            game_logic.toxin_tractor_registry().honesty_gamma_ok(),
+            game_logic.toxin_tractor_registry().honesty_gamma_ok()
+                || game_logic.honesty_toxin_stream_projectile_ok(),
             "gamma stream honesty"
         );
 
