@@ -469,7 +469,31 @@ pub fn special_power_template_for_host_kind(kind_label: &str) -> Option<&'static
         "A10Strike" => Some("SuperweaponA10ThunderboltMissileStrike"),
         "LeafletDrop" => Some("SuperweaponLeafletDrop"),
         "Paradrop" => Some("SuperweaponParadropAmerica"),
+        "CrateDrop" => Some("SuperweaponCrateDrop"),
+        "SpyDrone" => Some("SpecialPowerSpyDrone"),
         _ => None,
+    }
+}
+
+/// OCL spawn mode residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OclExecuteMode {
+    /// Transport + payload (Daisy / A10 / MOAB).
+    FullDeliver,
+    /// Transport only; host residual owns impact/payload (Leaflet / Paradrop).
+    TransportOnly,
+    /// CreateObject list only (SpyDrone).
+    CreateObject,
+}
+
+pub fn ocl_execute_mode_for_template(power_template: &str) -> OclExecuteMode {
+    let n = power_template.to_ascii_lowercase();
+    if n.contains("leaflet") || n.contains("paradrop") || n.contains("airborne") {
+        OclExecuteMode::TransportOnly
+    } else if n.contains("spydrone") || n.contains("spysatellite") {
+        OclExecuteMode::CreateObject
+    } else {
+        OclExecuteMode::FullDeliver
     }
 }
 
@@ -566,6 +590,10 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
             .unwrap_or(false)
         && special_power_template_for_host_kind("DaisyCutter")
             == Some("SuperweaponDaisyCutter")
+        && ocl_execute_mode_for_template("SuperweaponLeafletDrop")
+            == OclExecuteMode::TransportOnly
+        && ocl_execute_mode_for_template("SuperweaponDaisyCutter")
+            == OclExecuteMode::FullDeliver
 }
 
 #[cfg(test)]
