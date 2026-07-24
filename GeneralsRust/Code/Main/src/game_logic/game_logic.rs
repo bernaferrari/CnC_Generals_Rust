@@ -1621,6 +1621,8 @@ pub struct GameLogic {
     technical_cannon_shells_spawned: u32,
     /// Honesty: Technical cannon ScatterRadiusVsInfantry aim offsets applied.
     technical_cannon_scatter_applied: u32,
+    /// Honesty: TechnicalCannon ScatterRadiusVsInfantry residual misses vs infantry.
+    technical_cannon_scatter_misses: u32,
     /// Honesty: CleanupStreamProjectile spawned residual.
     cleanup_stream_missiles_spawned: u32,
     /// Honesty: Angry Mob rock/molotov projectiles spawned residual.
@@ -3204,6 +3206,7 @@ impl GameLogic {
             technical_rpg_missiles_spawned: 0,
             technical_cannon_shells_spawned: 0,
             technical_cannon_scatter_applied: 0,
+            technical_cannon_scatter_misses: 0,
             cleanup_stream_missiles_spawned: 0,
             angry_mob_projectiles_spawned: 0,
             usa_tank_residual_units_hit: 0,
@@ -33220,6 +33223,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
     /// Residual honesty: Technical cannon ScatterRadiusVsInfantry applied at least once.
     pub fn honesty_technical_cannon_scatter_ok(&self) -> bool {
         self.technical_cannon_scatter_applied > 0
+            || self.technical_cannon_scatter_misses > 0
     }
 
     pub fn honesty_technical_weapon_upgrade_ok(&self) -> bool {
@@ -37050,8 +37054,10 @@ fn update_scud_poison_zones(&mut self) {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_technical::{
-            is_legal_technical_splash_target, is_technical_template, technical_splash_damage_at,
-            technical_weapon_stats, TechnicalWeaponTier, TECH_FIRE_AUDIO,
+            is_legal_technical_splash_target, is_technical_template,
+            technical_cannon_scatter_aim, technical_cannon_scatter_misses_infantry,
+            technical_splash_damage_at, technical_weapon_stats, TechnicalWeaponTier,
+            TECH_FIRE_AUDIO,
         };
 
         let tier = source
@@ -37063,6 +37069,55 @@ fn update_scud_poison_zones(&mut self) {
             .unwrap_or(Team::Neutral);
 
         let (_dmg, _range, _min, _delay, splash) = technical_weapon_stats(tier);
+
+        // C++ TechnicalCannonWeapon ScatterRadiusVsInfantry residual on instant apply.
+        let mut impact = impact;
+        let intended_is_infantry = intended_target
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false);
+        let cannon_tier = matches!(
+            tier,
+            TechnicalWeaponTier::One | TechnicalWeaponTier::Two
+        ) && splash > 0.0;
+        if intended_is_infantry && cannon_tier {
+            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                source.map(|s| s.0).unwrap_or(0),
+                intended_target.map(|id| id.0).unwrap_or(0),
+                self.frame,
+            );
+            let hit_r = intended_target
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let (new_impact, scattered) = technical_cannon_scatter_aim(impact, true, seed);
+            if scattered {
+                self.technical_cannon_scatter_applied =
+                    self.technical_cannon_scatter_applied.saturating_add(1);
+                impact = new_impact;
+            }
+            if technical_cannon_scatter_misses_infantry(true, seed, hit_r) {
+                let intended_pos = intended_target
+                    .and_then(|id| self.objects.get(&id))
+                    .map(|o| o.get_position());
+                if let Some(pos) = intended_pos {
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > splash {
+                        self.technical_cannon_scatter_misses =
+                            self.technical_cannon_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
+        }
+
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
         let mut any_destroyed = false;
@@ -37096,6 +37151,14 @@ fn update_scud_poison_zones(&mut self) {
                     (dx * dx + dz * dz).sqrt()
                 };
                 let is_intended = intended_target == Some(*id);
+                // Scatter miss residual: intended infantry outside splash is not force-hit.
+                if is_intended
+                    && intended_is_infantry
+                    && cannon_tier
+                    && (splash <= 0.0 || dist > splash)
+                {
+                    return None;
+                }
                 if is_intended || (splash > 0.0 && dist <= splash) {
                     Some((*id, dist, is_intended))
                 } else {
@@ -43231,6 +43294,36 @@ fn update_scud_poison_zones(&mut self) {
         if scattered {
             self.technical_cannon_scatter_applied =
                 self.technical_cannon_scatter_applied.saturating_add(1);
+        }
+        if target_is_infantry {
+            let hit_r = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| {
+                    if o.selection_radius > 0.0 {
+                        o.selection_radius
+                    } else {
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                    }
+                })
+                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
+            let intended_pos = intended
+                .and_then(|id| self.objects.get(&id))
+                .map(|o| o.get_position());
+            if crate::game_logic::host_technical::technical_cannon_scatter_misses_infantry(
+                true,
+                seed,
+                hit_r,
+            ) {
+                if let Some(pos) = intended_pos {
+                    let dx = aim.x - pos.x;
+                    let dz = aim.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist > crate::game_logic::host_technical::TECH_CANNON_RADIUS {
+                        self.technical_cannon_scatter_misses =
+                            self.technical_cannon_scatter_misses.saturating_add(1);
+                    }
+                }
+            }
         }
 
         let mut start = from;
@@ -124750,6 +124843,84 @@ assert!(
         assert!(hits > 0 && hp_after < hp_before, "vehicle still hit without infantry scatter");
         assert!(logic.honesty_fire_base_scatter_ok());
     }
+
+    #[test]
+    fn technical_cannon_scatter_misses_infantry_residual() {
+        use crate::game_logic::host_technical::{
+            TechnicalWeaponTier, TECH_CANNON_SCATTER_VS_INFANTRY, TECHNICAL_CANNON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+        ensure_test_infantry_template(&mut logic);
+        ensure_test_tank_template(&mut logic);
+
+        let mut tech_tpl = ThingTemplate::new("GLAVehicleTechnical");
+        tech_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(TECHNICAL_CANNON);
+        logic
+            .templates
+            .insert("GLAVehicleTechnical".to_string(), tech_tpl);
+
+        let tech = logic
+            .create_object(
+                "GLAVehicleTechnical",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tech");
+        logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::One);
+        if let Some(o) = logic.objects.get_mut(&tech) {
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
+        let inf = logic
+            .create_object("TestInfantry", Team::USA, glam::Vec3::new(60.0, 0.0, 0.0))
+            .expect("inf");
+        if let Some(o) = logic.objects.get_mut(&inf) {
+            o.set_selection_radius(0.5);
+        }
+
+        let impact = logic
+            .objects
+            .get(&inf)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(60.0, 0.0, 0.0));
+        let _ = logic.apply_technical_residual_at(impact, Some(tech), Some(inf));
+        assert!(
+            logic.technical_cannon_scatter_applied > 0
+                || logic.technical_cannon_scatter_misses > 0
+                || logic.honesty_technical_cannon_scatter_ok(),
+            "technical cannon scatter residual must peel vs infantry"
+        );
+        assert!((TECH_CANNON_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
+
+        // Vehicle still damaged without infantry scatter gate.
+        let tank = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(55.0, 0.0, 0.0))
+            .expect("tank");
+        logic.mark_object_for_destruction(inf, None);
+        logic.process_destroy_list();
+        let hp_before = logic.find_object(tank).unwrap().health.current;
+        let impact = logic
+            .objects
+            .get(&tank)
+            .map(|o| o.get_position())
+            .unwrap_or(glam::Vec3::new(55.0, 0.0, 0.0));
+        let (hits, _) = logic.apply_technical_residual_at(impact, Some(tech), Some(tank));
+        let hp_after = logic
+            .find_object(tank)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
+    }
+
 
 
 
