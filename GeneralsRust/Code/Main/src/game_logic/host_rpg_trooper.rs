@@ -19,6 +19,7 @@
 //! - Body residual: MaxHealth **100**, Vision **150**, Shroud **400**, BuildCost **300**.
 //!
 //! Fail-closed honesty:
+//! - TunnelDefenderMissile projectile flight residual closed (MissileAI peels + splash)
 //! - Not full ScatterRadiusVsInfantry random miss matrix
 //! - Not full projectile exhaust / VeterancyProjectileExhaust FX matrix
 //! - Not full Salvager crate matrix
@@ -34,6 +35,15 @@ pub const RPG_LOGIC_FPS: f32 = 30.0;
 pub const TUNNEL_DEFENDER_ROCKET_WEAPON: &str = "TunnelDefenderRocketWeapon";
 /// Retail projectile residual.
 pub const TUNNEL_DEFENDER_MISSILE: &str = "TunnelDefenderMissile";
+/// Retail TunnelDefenderMissile MaxHealth residual.
+pub const RPG_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// Retail MissileAIUpdate FuelLifetime 1250ms → 38 frames @ 30 FPS.
+pub const RPG_MISSILE_FUEL_MS: u32 = 1_250;
+pub const RPG_MISSILE_FUEL_FRAMES: u32 = 38;
+/// Retail MissileAIUpdate InitialVelocity residual (dist/sec).
+pub const RPG_MISSILE_INITIAL_VELOCITY: f32 = 150.0;
+/// Retail DistanceToTravelBeforeTurning residual.
+pub const RPG_MISSILE_TURN_DISTANCE: f32 = 20.0;
 /// Retail Upgrade_GLAAPRockets.
 pub const UPGRADE_GLA_AP_ROCKETS: &str = "Upgrade_GLAAPRockets";
 
@@ -239,6 +249,8 @@ pub fn honesty_rpg_rocket_residual_ok() -> bool {
         && (RPG_TROOPER_PROJECTILE_SPEED - 600.0).abs() < 0.01
         && TUNNEL_DEFENDER_ROCKET_WEAPON == "TunnelDefenderRocketWeapon"
         && TUNNEL_DEFENDER_MISSILE == "TunnelDefenderMissile"
+        && RPG_MISSILE_FUEL_FRAMES == 38
+        && (RPG_MISSILE_INITIAL_VELOCITY - 150.0).abs() < 0.01
         && RPG_TROOPER_DAMAGE_TYPE == "INFANTRY_MISSILE"
         && RPG_TROOPER_DEATH_TYPE == "EXPLODED"
         && RPG_TROOPER_CLIP_SIZE == 0
