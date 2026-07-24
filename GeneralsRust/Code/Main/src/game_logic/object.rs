@@ -1170,6 +1170,12 @@ pub struct Object {
     /// Absolute frame when PointDefenseLaserBeam Lifetime residual expires.
     #[serde(default)]
     pub point_defense_laser_beam_expires_frame: Option<u32>,
+    /// C++ MissileDefender SpecialAbilityUpdate SpecialObject = LaserBeam residual.
+    #[serde(default)]
+    pub missile_defender_laser_beam: bool,
+    /// Absolute frame when MD LaserBeam residual expires (prep window).
+    #[serde(default)]
+    pub missile_defender_laser_beam_expires_frame: Option<u32>,
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
@@ -1923,6 +1929,8 @@ impl Object {
             particle_connector_laser_expires_frame: None,
             point_defense_laser_beam: false,
             point_defense_laser_beam_expires_frame: None,
+            missile_defender_laser_beam: false,
+            missile_defender_laser_beam_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -2354,6 +2362,8 @@ impl Object {
             particle_connector_laser_expires_frame: None,
             point_defense_laser_beam: false,
             point_defense_laser_beam_expires_frame: None,
+            missile_defender_laser_beam: false,
+            missile_defender_laser_beam_expires_frame: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,

@@ -27,7 +27,7 @@
 //! - Body residual: MaxHealth **100**, Vision **150**, Shroud **400**, BuildCost **300**.
 //!
 //! Fail-closed honesty:
-//! - Not full SpecialAbilityUpdate LaserBeam special object attach-bone matrix
+//! - LaserBeam SpecialObject residual closed (Muzzle01 attach matrix / WGPU W3DLaserDraw fail-closed)
 //! - Not full ScatterRadiusVsInfantry random miss matrix
 //! - Not full PLAYER_UPGRADE DAMAGE 125% live weapon-bonus apply matrix
 //! - Not network laser-lock replication (network deferred)
@@ -109,6 +109,12 @@ pub const LASER_GUIDED_SPECIAL_OBJECT: &str = "LaserBeam";
 pub const LASER_GUIDED_ATTACH_BONE: &str = "Muzzle01";
 /// Residual laser special initiate voice.
 pub const LASER_GUIDED_INITIATE_AUDIO: &str = "MissileDefenderVoiceAttackLaser";
+/// Residual LaserBeam lifetime while SpecialAbilityUpdate prep runs
+/// (PreparationTime 1000ms + PersistentPrepTime 500ms → 45f @ 30 FPS).
+pub const LASER_GUIDED_BEAM_LIFETIME_FRAMES: u32 =
+    LASER_GUIDED_PREP_FRAMES + LASER_GUIDED_PERSISTENT_PREP_FRAMES;
+/// Retail LaserBeam body residual (presentation Thing; not a combat body).
+pub const LASER_GUIDED_BEAM_MAX_HEALTH: f32 = 1.0;
 /// Retail AutoChooseSources SECONDARY residual (NONE = special-only).
 pub const LASER_GUIDED_AUTO_CHOOSE_SECONDARY_NONE: bool = true;
 
@@ -353,6 +359,8 @@ pub fn honesty_missile_defender_laser_lock_residual_ok() -> bool {
         && LASER_GUIDED_SPECIAL_OBJECT == "LaserBeam"
         && LASER_GUIDED_ATTACH_BONE == "Muzzle01"
         && LASER_GUIDED_INITIATE_AUDIO == "MissileDefenderVoiceAttackLaser"
+        && LASER_GUIDED_BEAM_LIFETIME_FRAMES
+            == LASER_GUIDED_PREP_FRAMES + LASER_GUIDED_PERSISTENT_PREP_FRAMES
         && can_activate_laser_guided(true, true)
         && !can_activate_laser_guided(false, true)
         && laser_guided_in_start_range(200.0)
