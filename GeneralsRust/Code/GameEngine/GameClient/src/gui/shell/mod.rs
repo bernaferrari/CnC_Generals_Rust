@@ -26,8 +26,11 @@ pub use base::{
 
 // Re-export main menu types
 pub use main_menu::{
+    residual_last_campaign_difficulty, simulate_main_menu_campaign_side_button_gadget_selected,
+    simulate_main_menu_campaign_start_residual,
     simulate_main_menu_challenge_button_gadget_selected,
     simulate_main_menu_credits_button_gadget_selected,
+    simulate_main_menu_difficulty_button_gadget_selected,
     simulate_main_menu_load_game_button_gadget_selected,
     simulate_main_menu_multiplayer_button_gadget_selected,
     simulate_main_menu_options_button_gadget_selected,

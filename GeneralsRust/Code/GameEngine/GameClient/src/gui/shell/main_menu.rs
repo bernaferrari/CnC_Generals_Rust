@@ -2224,11 +2224,11 @@ fn simulate_main_menu_button_gadget_selected(
 
     let menu = get_main_menu();
     let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+    // Soft reset: clear one-shot button latch only. Preserve campaign_selected /
+    // show_side / drop_down / launch_challenge so difficulty peels can chain after
+    // campaign-side residual without re-entering shell transitions.
     state.button_pushed = false;
-    state.campaign_selected = false;
     state.dont_allow_transitions = false;
-    state.launch_challenge_menu = false;
-    state.drop_down = DropdownType::Main;
     state.pending_actions.clear();
     state.window_ids = ids.clone();
     let bound_id = resolve_id(&state.window_ids).max(control_id);
@@ -2345,6 +2345,142 @@ pub fn simulate_main_menu_replay_button_gadget_selected() -> bool {
         },
         |state| state.button_pushed,
     )
+}
+
+/// Last difficulty selected by residual campaign peels (host honesty).
+static LAST_RESIDUAL_CAMPAIGN_DIFFICULTY: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(-1);
+
+/// Residual: last campaign difficulty ordinal from residual peels (-1 if none).
+pub fn residual_last_campaign_difficulty() -> Option<GameDifficulty> {
+    match LAST_RESIDUAL_CAMPAIGN_DIFFICULTY.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => Some(GameDifficulty::Easy),
+        1 => Some(GameDifficulty::Normal),
+        2 => Some(GameDifficulty::Hard),
+        _ => None,
+    }
+}
+
+/// Residual: fire retail campaign side button (USA/GLA/China) via state latches.
+/// C++ path: opens difficulty dropdown for the faction.
+pub fn simulate_main_menu_campaign_side_button_gadget_selected(side: ShowSide) -> bool {
+    let (cold_key, resolve, bind): (&str, fn(&WindowIds) -> u32, fn(&mut WindowIds, u32)) =
+        match side {
+            ShowSide::USA => (
+                "MainMenu.wnd:ButtonUSA",
+                |ids| ids.button_usa_id,
+                |ids, v| ids.button_usa_id = v,
+            ),
+            ShowSide::GLA => (
+                "MainMenu.wnd:ButtonGLA",
+                |ids| ids.button_gla_id,
+                |ids, v| ids.button_gla_id = v,
+            ),
+            ShowSide::China => (
+                "MainMenu.wnd:ButtonChina",
+                |ids| ids.button_china_id,
+                |ids, v| ids.button_china_id = v,
+            ),
+            ShowSide::Training => (
+                "MainMenu.wnd:ButtonChallenge",
+                |ids| ids.button_challenge_id,
+                |ids, v| ids.button_challenge_id = v,
+            ),
+            ShowSide::None | ShowSide::Skirmish => return false,
+        };
+
+    simulate_main_menu_button_gadget_selected(
+        cold_key,
+        resolve,
+        bind,
+        move |state| {
+            state.launch_challenge_menu = matches!(side, ShowSide::Training);
+            state.drop_down = DropdownType::Difficulty;
+            state.campaign_selected = true;
+            state.logo_is_shown = false;
+            state.show_logo = false;
+            state.show_side = side;
+            if matches!(side, ShowSide::Training) {
+                // Challenge residual also sets training side (Wave 118 parity).
+                state.show_side = ShowSide::Training;
+            }
+        },
+        move |state| {
+            state.campaign_selected
+                && state.drop_down == DropdownType::Difficulty
+                && state.show_side == side
+        },
+    )
+}
+
+/// Residual: fire retail difficulty button (Easy/Medium/Hard) via state latches.
+/// C++ path: checkCDBeforeCampaign → prepareCampaignGame → setupGameStart.
+/// Host residual skips CD dialog / prefs disk / WM transitions; latches start_game
+/// when a non-challenge campaign side is selected.
+pub fn simulate_main_menu_difficulty_button_gadget_selected(diff: GameDifficulty) -> bool {
+    let (cold_key, resolve, bind): (&str, fn(&WindowIds) -> u32, fn(&mut WindowIds, u32)) =
+        match diff {
+            GameDifficulty::Easy => (
+                "MainMenu.wnd:ButtonEasy",
+                |ids| ids.button_easy_id,
+                |ids, v| ids.button_easy_id = v,
+            ),
+            GameDifficulty::Normal => (
+                "MainMenu.wnd:ButtonMedium",
+                |ids| ids.button_medium_id,
+                |ids, v| ids.button_medium_id = v,
+            ),
+            GameDifficulty::Hard => (
+                "MainMenu.wnd:ButtonHard",
+                |ids| ids.button_hard_id,
+                |ids, v| ids.button_hard_id = v,
+            ),
+        };
+
+    let ok = simulate_main_menu_button_gadget_selected(
+        cold_key,
+        resolve,
+        bind,
+        move |state| {
+            // Difficulty buttons ignore clicks when transitions blocked, except
+            // residual peels force-apply after campaign side residual.
+            state.dont_allow_transitions = true;
+            LAST_RESIDUAL_CAMPAIGN_DIFFICULTY
+                .store(diff as i32, std::sync::atomic::Ordering::Relaxed);
+            if state.launch_challenge_menu {
+                // Challenge: difficulty feeds ChallengeMenu push (not immediate start_game).
+                state.campaign_selected = true;
+                state.button_pushed = false;
+            } else if state.campaign_selected {
+                // Campaign: C++ setupGameStart sets startGame when map is known.
+                // Residual latches start_game without requiring campaign map assets.
+                state.start_game = true;
+                state.button_pushed = false;
+            }
+        },
+        move |state| {
+            if !state.campaign_selected {
+                return false;
+            }
+            if state.launch_challenge_menu {
+                residual_last_campaign_difficulty() == Some(diff)
+            } else {
+                state.start_game && residual_last_campaign_difficulty() == Some(diff)
+            }
+        },
+    );
+    ok
+}
+
+/// Residual: campaign side + difficulty composite (USA/GLA/China + Easy/Normal/Hard).
+pub fn simulate_main_menu_campaign_start_residual(side: ShowSide, diff: GameDifficulty) -> bool {
+    if !matches!(side, ShowSide::USA | ShowSide::GLA | ShowSide::China) {
+        return false;
+    }
+    if !simulate_main_menu_campaign_side_button_gadget_selected(side) {
+        return false;
+    }
+    simulate_main_menu_difficulty_button_gadget_selected(diff)
 }
 
 // Global main menu instance

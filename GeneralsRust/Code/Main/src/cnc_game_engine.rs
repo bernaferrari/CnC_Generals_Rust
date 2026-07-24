@@ -2408,7 +2408,60 @@ impl CnCGameEngine {
                     "china" => "DifficultyChina",
                     _ => "DifficultyUsa",
                 };
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::ShowSide;
+                    let side = match campaign.as_str() {
+                        "challenge" | "training" => ShowSide::Training,
+                        "gla" => ShowSide::GLA,
+                        "china" => ShowSide::China,
+                        _ => ShowSide::USA,
+                    };
+                    wnd_ok =
+                        game_client::gui::simulate_main_menu_campaign_side_button_gadget_selected(
+                            side,
+                        );
+                }
                 self.enter_shell_menu_from_runtime_host(Some(override_screen));
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_difficulty_menu_ok_wnd".into()
+                } else {
+                    "open_difficulty_menu_ok".into()
+                };
+            }
+            "click_campaign_start" => {
+                // Retail MainMenu campaign side + difficulty residual composite.
+                let campaign = args
+                    .get("campaign")
+                    .map(|value| value.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "usa".to_string());
+                let diff_s = args
+                    .get("difficulty")
+                    .map(|value| value.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "normal".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::{GameDifficulty, ShowSide};
+                    let side = match campaign.as_str() {
+                        "gla" => ShowSide::GLA,
+                        "china" => ShowSide::China,
+                        _ => ShowSide::USA,
+                    };
+                    let diff = match diff_s.as_str() {
+                        "easy" => GameDifficulty::Easy,
+                        "hard" => GameDifficulty::Hard,
+                        _ => GameDifficulty::Normal,
+                    };
+                    wnd_ok =
+                        game_client::gui::simulate_main_menu_campaign_start_residual(side, diff);
+                }
+                if wnd_ok {
+                    self.runtime_host_last_gameplay_cmd = "click_campaign_start_ok_wnd".into();
+                } else {
+                    self.runtime_host_last_gameplay_cmd = "click_campaign_start_miss".into();
+                }
             }
             "open_skirmish_menu" => {
                 // Prefer retail MainMenu.wnd:ButtonSkirmish (GBM_SELECTED) residual when
