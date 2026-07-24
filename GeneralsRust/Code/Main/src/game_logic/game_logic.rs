@@ -27672,11 +27672,9 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
         &mut self,
         source_id: ObjectId,
         target: Vec3,
+        tier: crate::game_logic::special_power_strikes::CarpetBombFactionTier,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightData;
-        use crate::game_logic::special_power_strikes::{
-            CarpetBombFactionTier, CARPET_BOMB_TRANSPORT,
-        };
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let team = self.objects.get(&source_id).map(|o| o.team).unwrap_or(Team::Neutral);
@@ -27694,22 +27692,19 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             150.0,
             source_pos.z - dz / dist * 350.0,
         );
-        if !self.templates.contains_key(CARPET_BOMB_TRANSPORT) {
-            let mut t = ThingTemplate::new(CARPET_BOMB_TRANSPORT);
+        let transport = tier.transport();
+        if !self.templates.contains_key(transport) {
+            let mut t = ThingTemplate::new(transport);
             t.set_health(500.0)
                 .add_kind_of(KindOf::Aircraft)
                 .add_kind_of(KindOf::Vehicle);
-            self.templates
-                .insert(CARPET_BOMB_TRANSPORT.to_string(), t);
+            self.templates.insert(transport.to_string(), t);
         }
-        let tid = self.create_object(CARPET_BOMB_TRANSPORT, team, edge)?;
+        let tid = self.create_object(transport, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.producer_id = Some(source_id);
-            o.carpet_bomb_transport = Some(HostCarpetBombFlightData::start(
-                edge,
-                target,
-                CarpetBombFactionTier::America,
-            ));
+            o.carpet_bomb_transport =
+                Some(HostCarpetBombFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }
         self.carpet_bomb_flight_reg.record_transport();
@@ -27717,7 +27712,7 @@ fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_na
             self.frame,
             source_id.0,
             target,
-            CarpetBombFactionTier::America,
+            tier,
         );
         Some(tid)
     }
@@ -47806,9 +47801,28 @@ fn update_scud_poison_zones(&mut self) {
         {
             let _ = self.execute_ocl_special_power(tmpl, source_object, target_position);
         }
-        // C++ CarpetBomb DeliverPayload residual (B52 + staggered CarpetBomb drops).
-        if kind == HostSuperweaponKind::CarpetBomb {
-            let _ = self.spawn_carpet_bomb_flight(source_object, target_position);
+        // C++ CarpetBomb DeliverPayload residual (B52/AirF/China + staggered drops).
+        let carpet_flight_tier = if kind == HostSuperweaponKind::CarpetBomb {
+            use crate::command_system::SpecialPowerType;
+            use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
+            Some(if matches!(
+                *power,
+                SpecialPowerType::EarlyChinaCarpetBomb | SpecialPowerType::NukeChinaCarpetBomb
+            ) {
+                CarpetBombFactionTier::China
+            } else if matches!(*power, SpecialPowerType::AirForceCarpetBomb) {
+                CarpetBombFactionTier::AirForce
+            } else {
+                CarpetBombFactionTier::highest_from_team_and_sciences(
+                    source_team,
+                    sciences.iter().map(|s| s.as_str()),
+                )
+            })
+        } else {
+            None
+        };
+        if let Some(tier) = carpet_flight_tier {
+            let _ = self.spawn_carpet_bomb_flight(source_object, target_position, tier);
         }
         // C++ ArtilleryBarrage DeliverPayload residual (cannon + staggered shells).
         if kind == HostSuperweaponKind::ArtilleryBarrage {
@@ -77970,6 +77984,69 @@ mod tests {
         assert!(logic.honesty_artillery_barrage_flight_ok());
     }
 
+
+    #[test]
+    fn china_carpet_bomb_flight_uses_china_payload() {
+        use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::China);
+        let mut cc = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+        let cc_id = logic
+            .create_object("ChinaCommandCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let transport = logic
+            .spawn_carpet_bomb_flight(
+                cc_id,
+                Vec3::new(200.0, 0.0, 0.0),
+                CarpetBombFactionTier::China,
+            )
+            .expect("china bomber");
+        let name = logic.find_object(transport).unwrap().template_name.clone();
+        assert_eq!(name, "ChinaJetCarpetBomber");
+        assert_eq!(
+            logic.carpet_bomb_flight_reg.bombs_scheduled,
+            CarpetBombFactionTier::China.bomb_count()
+        );
+        for f in 0..400 {
+            logic.frame = f;
+            logic.update_carpet_bomb_flights();
+            if logic.carpet_bomb_flight_reg.impacts >= 1 {
+                break;
+            }
+        }
+        assert!(logic.carpet_bomb_flight_reg.impacts >= 1);
+    }
+
+    #[test]
+    fn airforce_carpet_bomb_flight_uses_airf_payload() {
+        use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
+        use crate::game_logic::KindOf;
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let cc_id = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let transport = logic
+            .spawn_carpet_bomb_flight(
+                cc_id,
+                Vec3::new(200.0, 0.0, 0.0),
+                CarpetBombFactionTier::AirForce,
+            )
+            .expect("airf bomber");
+        let name = logic.find_object(transport).unwrap().template_name.clone();
+        assert_eq!(name, "AirF_AmericaJetB3");
+        assert_eq!(
+            logic.carpet_bomb_flight_reg.bombs_scheduled,
+            CarpetBombFactionTier::AirForce.bomb_count()
+        );
+    }
+
     #[test]
     fn carpet_bomb_flight_drops_payload() {
         use crate::game_logic::KindOf;
@@ -77990,7 +78067,11 @@ mod tests {
             .unwrap();
         let hp0 = logic.find_object(foe).unwrap().health.current;
         let transport = logic
-            .spawn_carpet_bomb_flight(cc_id, Vec3::new(200.0, 0.0, 0.0))
+            .spawn_carpet_bomb_flight(
+                cc_id,
+                Vec3::new(200.0, 0.0, 0.0),
+                crate::game_logic::special_power_strikes::CarpetBombFactionTier::America,
+            )
             .expect("b52");
         assert!(logic.find_object(transport).unwrap().carpet_bomb_transport.is_some());
         assert!(logic.carpet_bomb_flight_reg.bombs_scheduled >= 15);
