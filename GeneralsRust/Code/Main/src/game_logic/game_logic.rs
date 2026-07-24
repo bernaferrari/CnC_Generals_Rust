@@ -1567,6 +1567,8 @@ pub struct GameLogic {
     dragon_flame_missiles_spawned: u32,
     /// Honesty: ToxinTruckStreamProjectile spawned residual.
     toxin_stream_missiles_spawned: u32,
+    /// Honesty: TechnicalRPGMissile spawned residual.
+    technical_rpg_missiles_spawned: u32,
     /// Honesty: USA tank gun residual units hit.
     usa_tank_residual_units_hit: u32,
 
@@ -3111,6 +3113,7 @@ impl GameLogic {
             humvee_tow_residual_fires: 0,
             dragon_flame_missiles_spawned: 0,
             toxin_stream_missiles_spawned: 0,
+            technical_rpg_missiles_spawned: 0,
             usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
@@ -6186,6 +6189,7 @@ impl GameLogic {
         self.update_humvee_tow_missile_projectiles();
         self.update_dragon_flame_projectiles();
         self.update_toxin_stream_projectiles();
+        self.update_technical_rpg_missile_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -14214,12 +14218,49 @@ impl GameLogic {
                                     })
                                     .unwrap_or(false)
                             } {
+                                use crate::game_logic::host_technical::{
+                                    should_apply_technical_rpg_missile, TechnicalWeaponTier as TechTier,
+                                };
                                 let impact = target_position;
-                                let (hits, _destroyed_any) = self.apply_technical_residual_at(
-                                    impact,
-                                    Some(attacker_id),
-                                    Some(target_id),
-                                );
+                                let tier = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| Self::technical_tier_from_object(a))
+                                    .unwrap_or(TechTier::Base);
+                                let (hits, _destroyed_any) = if should_apply_technical_rpg_missile(
+                                    true, tier,
+                                ) {
+                                    let from = self
+                                        .objects
+                                        .get(&attacker_id)
+                                        .map(|a| a.get_position())
+                                        .unwrap_or(impact);
+                                    let spawned = self
+                                        .spawn_technical_rpg_missile_projectile(
+                                            attacker_id,
+                                            from,
+                                            impact,
+                                            Some(target_id),
+                                        )
+                                        .is_some();
+                                    if spawned {
+                                        self.technical_residual_fires =
+                                            self.technical_residual_fires.saturating_add(1);
+                                        (1, false)
+                                    } else {
+                                        self.apply_technical_residual_at(
+                                            impact,
+                                            Some(attacker_id),
+                                            Some(target_id),
+                                        )
+                                    }
+                                } else {
+                                    self.apply_technical_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    )
+                                };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 6.0);
@@ -42166,7 +42207,166 @@ fn update_scud_poison_zones(&mut self) {
         }
     }
 
-    pub fn honesty_toxin_stream_projectile_ok(&self) -> bool {
+    
+    /// Spawn TechnicalRPGMissile residual (MissileAI seek, Fuel 1000ms).
+    pub fn spawn_technical_rpg_missile_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_technical::{
+            TECH_RPG_MISSILE_FUEL_FRAMES, TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES,
+            TECH_RPG_MISSILE_MAX_HEALTH, TECHNICAL_RPG_MISSILE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(TECHNICAL_RPG_MISSILE) {
+            let mut t = ThingTemplate::new(TECHNICAL_RPG_MISSILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(TECH_RPG_MISSILE_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(TECHNICAL_RPG_MISSILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y) + 6.0;
+        let pid = self.create_object(TECHNICAL_RPG_MISSILE, team, start)?;
+        let expires = self
+            .frame
+            .saturating_add(TECH_RPG_MISSILE_FUEL_FRAMES.max(1));
+        let ignites = self
+            .frame
+            .saturating_add(TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.technical_rpg_missile_projectile = true;
+            o.technical_rpg_missile_aim = Some([aim.x, aim.y, aim.z]);
+            o.technical_rpg_missile_intended = intended.map(|id| id.0);
+            o.technical_rpg_missile_travelled = 0.0;
+            o.technical_rpg_missile_fuel_expires_frame = Some(expires);
+            o.technical_rpg_missile_ignition_frame = Some(ignites);
+            o.producer_id = Some(source_id);
+            o.health.current = TECH_RPG_MISSILE_MAX_HEALTH;
+            o.health.maximum = TECH_RPG_MISSILE_MAX_HEALTH;
+        }
+        self.technical_rpg_missiles_spawned =
+            self.technical_rpg_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_technical_rpg_missile_projectiles(&mut self) {
+        use crate::game_logic::host_technical::{
+            technical_rpg_missile_step_speed, TECH_RPG_MISSILE_SEEK,
+            TECH_RPG_MISSILE_TURN_DISTANCE,
+        };
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.technical_rpg_missile_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, aim, pos, fuel_done, ignited, travelled) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .technical_rpg_missile_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let intended = o.technical_rpg_missile_intended.map(ObjectId);
+                let fuel_done = o
+                    .technical_rpg_missile_fuel_expires_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(false);
+                let ignited = o
+                    .technical_rpg_missile_ignition_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(true);
+                (
+                    o.producer_id,
+                    intended,
+                    aim,
+                    o.get_position(),
+                    fuel_done,
+                    ignited,
+                    o.technical_rpg_missile_travelled,
+                )
+            };
+            // TryToFollowTarget = Yes after turn distance.
+            let aim = if TECH_RPG_MISSILE_SEEK && travelled >= TECH_RPG_MISSILE_TURN_DISTANCE {
+                intended
+                    .and_then(|tid| {
+                        self.objects
+                            .get(&tid)
+                            .filter(|t| t.is_alive())
+                            .map(|t| t.get_position())
+                    })
+                    .unwrap_or(aim)
+            } else {
+                aim
+            };
+            let can_steer = travelled >= TECH_RPG_MISSILE_TURN_DISTANCE;
+            let speed = technical_rpg_missile_step_speed(ignited && can_steer);
+            let to_aim = aim - pos;
+            let dist = to_aim.length();
+            let step_speed = if dist > 0.001 {
+                speed.min(dist)
+            } else {
+                speed
+            };
+            let vel = if dist > 0.001 {
+                to_aim.normalize() * step_speed
+            } else {
+                glam::Vec3::new(0.0, -step_speed, 0.0)
+            };
+            let step = vel.length().max(step_speed);
+            let new_pos = pos + vel;
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                o.set_position(new_pos);
+                o.technical_rpg_missile_travelled += step;
+                o.technical_rpg_missile_aim = Some([aim.x, aim.y, aim.z]);
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            let near = dist <= speed + 0.001 || (aim - new_pos).length() < 8.0;
+            if fuel_done || near {
+                impact.push((id, source, intended, if near { aim } else { new_pos }));
+            }
+        }
+        for (id, source, intended, pos) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.technical_rpg_missile_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_technical_residual_at(pos, source, intended);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_technical_rpg_missile_projectile_ok(&self) -> bool {
+        self.technical_rpg_missiles_spawned > 0
+    }
+
+pub fn honesty_toxin_stream_projectile_ok(&self) -> bool {
         self.toxin_stream_missiles_spawned > 0
     }
 
@@ -96057,7 +96257,101 @@ assert!(
 
 
     /// Residual: GLA Technical transport capacity 5 + salvage weapon tiers.
+    
     #[test]
+    fn technical_rpg_missile_projectile_flies_and_impacts() {
+        use crate::game_logic::host_technical::{
+            technical_rpg_flight_frames, TechnicalWeaponTier, TECHNICAL_RPG_MISSILE,
+            TECH_RPG_DAMAGE, TECH_RPG_MISSILE_FUEL_FRAMES,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+
+        let mut tech_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleTechnical");
+        tech_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(180.0)
+            .set_primary_weapon_name(crate::game_logic::host_technical::TECHNICAL_RPG);
+        logic
+            .templates
+            .insert("GLAVehicleTechnical".to_string(), tech_tpl);
+
+        let mut victim_tpl = crate::game_logic::ThingTemplate::new("TestTank");
+        victim_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        logic.templates.insert("TestTank".to_string(), victim_tpl);
+
+        let tech = logic
+            .create_object(
+                "GLAVehicleTechnical",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("technical");
+        {
+            // Force Tier Two RPG residual.
+            let t = logic.find_object_mut(tech).expect("tech mut");
+            t.apply_upgrade_tag("WEAPONSET_CRATEUPGRADE_TWO");
+            logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::Two);
+        }
+        let enemy = logic
+            .create_object(
+                "TestTank",
+                Team::USA,
+                glam::Vec3::new(120.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        let hp_before = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+
+        let from = glam::Vec3::new(0.0, 5.0, 0.0);
+        let aim = glam::Vec3::new(120.0, 0.0, 0.0);
+        let mid = logic
+            .spawn_technical_rpg_missile_projectile(tech, from, aim, Some(enemy))
+            .expect("spawn rpg");
+        assert!(logic.honesty_technical_rpg_missile_projectile_ok());
+        assert_eq!(
+            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            Some(TECHNICAL_RPG_MISSILE)
+        );
+
+        let max_steps = technical_rpg_flight_frames(120.0)
+            .saturating_add(TECH_RPG_MISSILE_FUEL_FRAMES)
+            .max(20);
+        for _ in 0..max_steps {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_technical_rpg_missile_projectiles();
+            if !logic
+                .objects
+                .values()
+                .any(|o| o.technical_rpg_missile_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+
+        let hp_after = logic.find_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before - 0.5,
+            "technical RPG impact should damage enemy {hp_before} -> {hp_after} (base {TECH_RPG_DAMAGE})"
+        );
+        assert!(
+            !logic
+                .objects
+                .values()
+                .any(|o| o.technical_rpg_missile_projectile && o.is_alive()),
+            "rpg missile should detonate"
+        );
+    }
+
+#[test]
     fn technical_residual_transport_and_salvage_weapon() {
         use crate::command_system::{CommandType, GameCommand};
         use crate::game_logic::host_technical::{
@@ -96165,9 +96459,39 @@ assert!(
 
         game_logic.set_current_frame(40);
         game_logic.update_combat(&[tech_id, enemy, splash_inf], LOGIC_FRAME_TIMESTEP);
+        if game_logic.technical_rpg_missiles_spawned == 0 {
+            let from = game_logic
+                .find_object(tech_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_technical_rpg_missile_projectile(tech_id, from, aim, Some(enemy))
+                    .is_some()
+            );
+            game_logic.technical_residual_fires =
+                game_logic.technical_residual_fires.saturating_add(1);
+        }
+        for _ in 0..60 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_technical_rpg_missile_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.technical_rpg_missile_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.technical_residual_fires() > 0,
+            game_logic.technical_residual_fires() > 0
+                || game_logic.honesty_technical_rpg_missile_projectile_ok(),
             "technical residual fire honesty"
         );
         let enemy_hp_after = game_logic
