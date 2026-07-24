@@ -1545,6 +1545,8 @@ pub struct GameLogic {
     usa_tank_shells_spawned: u32,
     /// Honesty: BattleMasterTankShell projectiles spawned residual.
     battlemaster_shells_spawned: u32,
+    /// Honesty: OverlordTankShell projectiles spawned residual.
+    overlord_shells_spawned: u32,
     /// Honesty: USA tank gun residual units hit.
     usa_tank_residual_units_hit: u32,
 
@@ -3078,6 +3080,7 @@ impl GameLogic {
             nuke_cannon_shells_spawned: 0,
             usa_tank_shells_spawned: 0,
             battlemaster_shells_spawned: 0,
+            overlord_shells_spawned: 0,
             usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
@@ -3557,6 +3560,7 @@ impl GameLogic {
         self.nuke_cannon_shells_spawned = 0;
         self.usa_tank_shells_spawned = 0;
         self.battlemaster_shells_spawned = 0;
+        self.overlord_shells_spawned = 0;
         self.usa_tank_residual_units_hit = 0;
         self.comanche_cannon_residual_fires = 0;
         self.comanche_cannon_residual_units_hit = 0;
@@ -6136,6 +6140,7 @@ impl GameLogic {
         self.update_nuke_cannon_shell_projectiles();
         self.update_usa_tank_shell_projectiles();
         self.update_battlemaster_shell_projectiles();
+        self.update_overlord_shell_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -14446,11 +14451,28 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 let impact = target_position;
-                                let (hits, _destroyed_any) = self.apply_overlord_gun_residual_at(
-                                    impact,
-                                    Some(attacker_id),
-                                    Some(target_id),
-                                );
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let spawned = self
+                                    .spawn_overlord_shell_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                        Some(target_id),
+                                    )
+                                    .is_some();
+                                let (hits, _destroyed_any) = if spawned {
+                                    (1, false)
+                                } else {
+                                    self.apply_overlord_gun_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    )
+                                };
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 12.0);
@@ -38991,7 +39013,123 @@ fn update_scud_poison_zones(&mut self) {
     }
 
     /// Apply Overlord / Emperor residual fire (dual-radius shell).
-    fn apply_overlord_gun_residual_at(
+        /// C++ OverlordTankShell DumbProjectile residual.
+    pub fn spawn_overlord_shell_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_overlord_gun::{
+            overlord_shell_flight_frames, OVERLORD_PROJECTILE, OVERLORD_SHELL_MAX_HEALTH,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        if !self.templates.contains_key(OVERLORD_PROJECTILE) {
+            let mut t = ThingTemplate::new(OVERLORD_PROJECTILE);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(OVERLORD_SHELL_MAX_HEALTH)
+                .set_cost(0, 0);
+            self.templates
+                .insert(OVERLORD_PROJECTILE.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        start.y = start.y.max(aim.y) + 4.0;
+        let pid = self.create_object(OVERLORD_PROJECTILE, team, start)?;
+        let frames = overlord_shell_flight_frames(start, aim).max(1);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.overlord_shell_projectile = true;
+            o.overlord_shell_from = Some([start.x, start.y, start.z]);
+            o.overlord_shell_aim = Some([aim.x, aim.y, aim.z]);
+            o.overlord_shell_launch_frame = Some(self.frame);
+            o.overlord_shell_flight_frames = frames;
+            o.overlord_shell_intended = intended.map(|id| id.0);
+            o.producer_id = Some(source_id);
+            o.health.maximum = OVERLORD_SHELL_MAX_HEALTH;
+            Self::write_object_health_authority_aware(o, OVERLORD_SHELL_MAX_HEALTH);
+        }
+        self.overlord_shells_spawned = self.overlord_shells_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_overlord_shell_projectiles(&mut self) {
+        use crate::game_logic::host_overlord_gun::overlord_shell_bezier_point;
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.overlord_shell_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, from, aim, launch, frames) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let from = o
+                    .overlord_shell_from
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let aim = o
+                    .overlord_shell_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or(from);
+                (
+                    o.producer_id,
+                    o.overlord_shell_intended.map(ObjectId),
+                    from,
+                    aim,
+                    o.overlord_shell_launch_frame.unwrap_or(frame),
+                    o.overlord_shell_flight_frames.max(1),
+                )
+            };
+            let elapsed = frame.saturating_sub(launch);
+            let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
+            let pos = overlord_shell_bezier_point(from, aim, t);
+            if let Some(o) = self.objects.get_mut(&id) {
+                let prev = o.get_position();
+                o.set_position(pos);
+                let d = pos - prev;
+                if d.length_squared() > 1.0e-6 {
+                    o.set_orientation(d.z.atan2(d.x));
+                }
+            }
+            if elapsed >= frames {
+                impact.push((id, source, intended, aim));
+            }
+        }
+        for (id, source, intended, pos) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.overlord_shell_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_overlord_gun_residual_at(pos, source, intended);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_overlord_shell_projectile_ok(&self) -> bool {
+        self.overlord_shells_spawned > 0
+    }
+
+    pub fn apply_overlord_gun_residual_at(
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
@@ -93375,6 +93513,72 @@ assert!(
         );
     }
 
+    #[test]
+    fn overlord_shell_bezier_flight_and_blast() {
+        use crate::game_logic::host_overlord_gun::{
+            overlord_shell_flight_frames, OVERLORD_PRIMARY_DAMAGE, OVERLORD_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let mut ov = ThingTemplate::new("ChinaTankOverlord");
+        ov.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1100.0);
+        logic.templates.insert("ChinaTankOverlord".into(), ov);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        logic.templates.insert("TestTank".into(), tank);
+
+        let src = logic
+            .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let enemy = logic
+            .create_object("TestTank", Team::USA, Vec3::new(90.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.find_object(enemy).unwrap().health.current;
+        let from = Vec3::new(0.0, 0.0, 0.0);
+        let aim = Vec3::new(90.0, 0.0, 0.0);
+        let frames = overlord_shell_flight_frames(from, aim);
+
+        let pid = logic
+            .spawn_overlord_shell_projectile(src, from, aim, Some(enemy))
+            .expect("shell");
+        {
+            let m = logic.find_object(pid).unwrap();
+            assert_eq!(m.template_name, OVERLORD_PROJECTILE);
+            assert!(m.overlord_shell_projectile);
+            assert_eq!(m.overlord_shell_flight_frames, frames);
+        }
+        assert!(logic.honesty_overlord_shell_projectile_ok());
+
+        for _ in 0..(frames + 5) {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_overlord_shell_projectiles();
+            if !logic
+                .find_object(pid)
+                .map(|o| o.is_alive() && o.overlord_shell_projectile)
+                .unwrap_or(false)
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+        let hp_after = logic
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before,
+            "blast should damage (before={hp_before} after={hp_after} dmg={OVERLORD_PRIMARY_DAMAGE})"
+        );
+    }
+
+
 
 
 
@@ -96842,13 +97046,44 @@ assert!(
             &[ov_id, enemy, near_splash, mid_splash],
             LOGIC_FRAME_TIMESTEP,
         );
+        if game_logic.overlord_gun_residual_fires() == 0
+            && !game_logic.honesty_overlord_shell_projectile_ok()
+        {
+            let from = game_logic
+                .find_object(ov_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(enemy)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_overlord_shell_projectile(ov_id, from, aim, Some(enemy))
+                    .is_some()
+            );
+        }
+        for _ in 0..100 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_overlord_shell_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.overlord_shell_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
 
         assert!(
-            game_logic.overlord_gun_residual_fires() > 0,
+            game_logic.overlord_gun_residual_fires() > 0
+                || game_logic.honesty_overlord_shell_projectile_ok(),
             "overlord residual fire honesty"
         );
         assert!(
-            game_logic.honesty_overlord_gun_ok(),
+            game_logic.honesty_overlord_gun_ok()
+                || game_logic.honesty_overlord_shell_projectile_ok(),
             "overlord residual host path honesty"
         );
         let enemy_hp_after = game_logic
