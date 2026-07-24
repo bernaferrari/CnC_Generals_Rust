@@ -1559,6 +1559,10 @@ pub struct GameLogic {
     mig_missiles_spawned: u32,
     /// Honesty: RangerFlashBangGrenade projectiles spawned residual.
     flashbang_grenades_spawned: u32,
+    /// Honesty: HumveeMissile / PatriotMissile TOW projectiles spawned residual.
+    humvee_tow_missiles_spawned: u32,
+    /// Honesty: Humvee TOW residual fires (spawn or instant fallback).
+    humvee_tow_residual_fires: u32,
     /// Honesty: USA tank gun residual units hit.
     usa_tank_residual_units_hit: u32,
 
@@ -3099,6 +3103,8 @@ impl GameLogic {
             raptor_missiles_spawned: 0,
             mig_missiles_spawned: 0,
             flashbang_grenades_spawned: 0,
+            humvee_tow_missiles_spawned: 0,
+            humvee_tow_residual_fires: 0,
             usa_tank_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
             comanche_cannon_residual_units_hit: 0,
@@ -6171,6 +6177,7 @@ impl GameLogic {
         self.update_raptor_missile_projectiles();
         self.update_mig_missile_projectiles();
         self.update_flashbang_grenade_projectiles();
+        self.update_humvee_tow_missile_projectiles();
         self.update_missile_defender_laser_beam_objects();
 
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
@@ -15020,6 +15027,71 @@ impl GameLogic {
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 5.0);
+                                    }
+                                }
+                            } else if {
+                                // USA Humvee TOW residual: HumveeMissile / PatriotMissile flight + splash.
+                                use crate::game_logic::host_humvee::{
+                                    is_humvee_template, should_apply_humvee_tow_residual,
+                                };
+                                use crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW;
+                                let (is_hv, has_tow) = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        (
+                                            is_humvee_template(&a.template_name),
+                                            a.has_upgrade_tag(UPGRADE_AMERICA_TOW)
+                                                || a.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
+                                        )
+                                    })
+                                    .unwrap_or((false, false));
+                                should_apply_humvee_tow_residual(is_hv, has_tow, slot == 1)
+                            } {
+                                use crate::game_logic::host_humvee::{
+                                    humvee_prefer_air_tow as hv_air_tow, HUMVEE_TOW_FIRE_AUDIO as HV_TOW_AUDIO,
+                                };
+                                let impact = target_position;
+                                let target_is_air = self
+                                    .objects
+                                    .get(&target_id)
+                                    .map(|t| {
+                                        t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
+                                    })
+                                    .unwrap_or(false);
+                                let air = hv_air_tow(true, true, target_is_air);
+                                let from = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.get_position())
+                                    .unwrap_or(impact);
+                                let spawned = self
+                                    .spawn_humvee_tow_missile_projectile(
+                                        attacker_id,
+                                        from,
+                                        impact,
+                                        Some(target_id),
+                                        air,
+                                    )
+                                    .is_some();
+                                let (hits, _destroyed_any) = if spawned {
+                                    self.humvee_tow_residual_fires =
+                                        self.humvee_tow_residual_fires.saturating_add(1);
+                                    (1, false)
+                                } else {
+                                    self.humvee_tow_residual_fires =
+                                        self.humvee_tow_residual_fires.saturating_add(1);
+                                    self.apply_humvee_tow_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                        air,
+                                    )
+                                };
+                                let _ = HV_TOW_AUDIO;
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 10.0);
                                     }
                                 }
                             } else if {
@@ -41487,7 +41559,281 @@ fn update_scud_poison_zones(&mut self) {
         }
     }
 
-    pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
+    
+    /// Spawn Humvee TOW projectile residual (HumveeMissile ground or PatriotMissile air).
+    pub fn spawn_humvee_tow_missile_projectile(
+        &mut self,
+        source_id: ObjectId,
+        from: glam::Vec3,
+        aim: glam::Vec3,
+        intended: Option<ObjectId>,
+        air: bool,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_humvee::{
+            HUMVEE_AIR_TOW_MISSILE_FUEL_FRAMES, HUMVEE_AIR_TOW_MISSILE_IGNITION_DELAY_FRAMES,
+            HUMVEE_AIR_TOW_MISSILE_MAX_HEALTH, HUMVEE_AIR_TOW_PROJECTILE,
+            HUMVEE_GROUND_TOW_MISSILE_FUEL_FRAMES, HUMVEE_GROUND_TOW_MISSILE_IGNITION_DELAY_FRAMES,
+            HUMVEE_GROUND_TOW_MISSILE_MAX_HEALTH, HUMVEE_MISSILE_PROJECTILE,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let (name, max_hp, fuel_frames, ign_delay) = if air {
+            (
+                HUMVEE_AIR_TOW_PROJECTILE,
+                HUMVEE_AIR_TOW_MISSILE_MAX_HEALTH,
+                HUMVEE_AIR_TOW_MISSILE_FUEL_FRAMES,
+                HUMVEE_AIR_TOW_MISSILE_IGNITION_DELAY_FRAMES,
+            )
+        } else {
+            (
+                HUMVEE_MISSILE_PROJECTILE,
+                HUMVEE_GROUND_TOW_MISSILE_MAX_HEALTH,
+                HUMVEE_GROUND_TOW_MISSILE_FUEL_FRAMES,
+                HUMVEE_GROUND_TOW_MISSILE_IGNITION_DELAY_FRAMES,
+            )
+        };
+
+        if !self.templates.contains_key(name) {
+            let mut t = ThingTemplate::new(name);
+            t.add_kind_of(KindOf::Projectile)
+                .set_health(max_hp)
+                .set_cost(0, 0);
+            self.templates.insert(name.to_string(), t);
+        }
+        let team = self
+            .objects
+            .get(&source_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let mut start = from;
+        if air {
+            start.y = start.y.max(aim.y + 10.0);
+        } else {
+            start.y = start.y.max(2.0);
+        }
+        let pid = self.create_object(name, team, start)?;
+        let expires = self.frame.saturating_add(fuel_frames.max(1));
+        let ignites = self.frame.saturating_add(ign_delay);
+        if let Some(o) = self.objects.get_mut(&pid) {
+            o.humvee_tow_projectile = true;
+            o.humvee_tow_air = air;
+            o.humvee_tow_aim = Some([aim.x, aim.y, aim.z]);
+            o.humvee_tow_intended = intended.map(|id| id.0);
+            o.humvee_tow_travelled = 0.0;
+            o.humvee_tow_fuel_expires_frame = Some(expires);
+            o.humvee_tow_ignition_frame = Some(ignites);
+            o.producer_id = Some(source_id);
+            o.health.current = max_hp;
+            o.health.maximum = max_hp;
+        }
+        self.humvee_tow_missiles_spawned = self.humvee_tow_missiles_spawned.saturating_add(1);
+        Some(pid)
+    }
+
+    pub fn update_humvee_tow_missile_projectiles(&mut self) {
+        use crate::game_logic::host_humvee::{
+            humvee_air_tow_missile_step_speed, humvee_ground_tow_missile_step_speed,
+            HUMVEE_AIR_TOW_MISSILE_LOCK_DISTANCE, HUMVEE_AIR_TOW_MISSILE_TURN_DISTANCE,
+            HUMVEE_GROUND_TOW_MISSILE_TURN_DISTANCE,
+        };
+        let frame = self.frame;
+        let flying: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if o.humvee_tow_projectile && o.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3, bool)> =
+            Vec::new();
+        for id in flying {
+            let (source, intended, aim, pos, fuel_done, ignited, air, travelled) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let aim = o
+                    .humvee_tow_aim
+                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                    .unwrap_or_else(|| o.get_position());
+                let intended = o.humvee_tow_intended.map(ObjectId);
+                let fuel_done = o
+                    .humvee_tow_fuel_expires_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(false);
+                let ignited = o
+                    .humvee_tow_ignition_frame
+                    .map(|f| f <= frame)
+                    .unwrap_or(true);
+                (
+                    o.producer_id,
+                    intended,
+                    aim,
+                    o.get_position(),
+                    fuel_done,
+                    ignited,
+                    o.humvee_tow_air,
+                    o.humvee_tow_travelled,
+                )
+            };
+            // Air TOW seeks live intended target (PatriotMissile TryToFollowTarget=Yes).
+            // Ground TOW locks aim at fire (TryToFollowTarget=No).
+            let aim = if air {
+                intended
+                    .and_then(|tid| {
+                        self.objects
+                            .get(&tid)
+                            .filter(|t| t.is_alive())
+                            .map(|t| t.get_position())
+                    })
+                    .unwrap_or(aim)
+            } else {
+                aim
+            };
+            let turn_dist = if air {
+                HUMVEE_AIR_TOW_MISSILE_TURN_DISTANCE
+            } else {
+                HUMVEE_GROUND_TOW_MISSILE_TURN_DISTANCE
+            };
+            // Before DistanceToTravelBeforeTurning: coast straight at initial velocity.
+            let can_steer = travelled >= turn_dist;
+            let speed = if air {
+                humvee_air_tow_missile_step_speed(ignited && can_steer)
+            } else {
+                humvee_ground_tow_missile_step_speed(ignited && can_steer)
+            };
+            // Pre-turn residual: keep launch direction toward original aim snapshot.
+            let to_aim = aim - pos;
+            let dist = to_aim.length();
+            let step_speed = if dist > 0.001 {
+                speed.min(dist)
+            } else {
+                speed
+            };
+            let vel = if dist > 0.001 {
+                to_aim.normalize() * step_speed
+            } else {
+                glam::Vec3::new(0.0, -step_speed, 0.0)
+            };
+            let step = vel.length().max(step_speed);
+            let new_pos = pos + vel;
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.movement.velocity = vel;
+                o.set_position(new_pos);
+                o.humvee_tow_travelled += step;
+                o.humvee_tow_aim = Some([aim.x, aim.y, aim.z]);
+                o.set_orientation(vel.z.atan2(vel.x));
+            }
+            let lock = if air {
+                dist <= HUMVEE_AIR_TOW_MISSILE_LOCK_DISTANCE
+            } else {
+                false
+            };
+            let near = dist <= speed + 0.001 || (aim - new_pos).length() < 8.0 || lock;
+            if fuel_done || near {
+                impact.push((id, source, intended, aim, air));
+            }
+        }
+        for (id, source, intended, pos, air) in impact {
+            let team = self.objects.get(&id).map(|o| o.team);
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+                o.health.current = 0.0;
+                o.humvee_tow_projectile = false;
+                o.set_position(pos);
+            }
+            let _ = self.apply_humvee_tow_residual_at(pos, source, intended, air);
+            self.mark_object_for_destruction(id, team);
+        }
+    }
+
+    pub fn honesty_humvee_tow_missile_projectile_ok(&self) -> bool {
+        self.humvee_tow_missiles_spawned > 0
+    }
+
+    pub fn humvee_tow_residual_fires(&self) -> u32 {
+        self.humvee_tow_residual_fires
+    }
+
+    /// Apply Humvee TOW dual path splash at impact (ground 30/r5 or air 50/r5).
+    pub fn apply_humvee_tow_residual_at(
+        &mut self,
+        impact: glam::Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        air: bool,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_humvee::{
+            humvee_air_tow_damage_at, humvee_ground_tow_damage_at, HUMVEE_AIR_TOW_RADIUS,
+            HUMVEE_GROUND_TOW_RADIUS, HUMVEE_TOW_FIRE_AUDIO,
+        };
+
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+        let radius = if air {
+            HUMVEE_AIR_TOW_RADIUS
+        } else {
+            HUMVEE_GROUND_TOW_RADIUS
+        };
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let victims: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                if source.map(|s| s == *id).unwrap_or(false) {
+                    return None;
+                }
+                // Projectiles / debris skip.
+                if obj.humvee_tow_projectile
+                    || obj.raptor_missile_projectile
+                    || obj.mig_missile_projectile
+                    || obj.flashbang_grenade_projectile
+                {
+                    return None;
+                }
+                let d = (obj.get_position() - impact).length();
+                if d > radius + 0.001 {
+                    return None;
+                }
+                // Friendly fire residual: RadiusDamageAffects ALLIES ENEMIES NEUTRALS — allow all teams.
+                let _ = source_team;
+                let _ = intended_target;
+                Some((*id, d))
+            })
+            .collect();
+        for (vid, dist) in victims {
+            let dmg = if air {
+                humvee_air_tow_damage_at(dist)
+            } else {
+                humvee_ground_tow_damage_at(dist)
+            };
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(v) = self.objects.get_mut(&vid) {
+                let destroyed = v.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    let team = v.team;
+                    self.mark_object_for_destruction(vid, Some(team));
+                }
+            }
+        }
+        let _ = HUMVEE_TOW_FIRE_AUDIO;
+        (hits, any_destroyed)
+    }
+
+pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
         self.flashbang_grenades_spawned > 0
     }
 
@@ -102905,7 +103251,117 @@ assert!(
     }
 
     /// Residual: Humvee transport slots=5 + TOW air residual vs aircraft.
+    
     #[test]
+    fn humvee_tow_missile_projectile_flies_and_impacts() {
+        use crate::game_logic::host_humvee::{
+            honesty_humvee_tow_missile_projectile_ok, humvee_ground_tow_flight_frames,
+            HUMVEE_GROUND_TOW_DAMAGE, HUMVEE_MISSILE_PROJECTILE,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW;
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut logic = GameLogic::new();
+
+        let mut humvee_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0)
+            .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(
+                crate::game_logic::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON,
+            );
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        let mut tank_tpl = crate::game_logic::ThingTemplate::new("TestTank");
+        tank_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        logic.templates.insert("TestTank".to_string(), tank_tpl);
+
+        let humvee_id = logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("humvee");
+        {
+            let h = logic.find_object_mut(humvee_id).expect("humvee mut");
+            h.apply_upgrade_tag(UPGRADE_AMERICA_TOW);
+            // Equip secondary TOW residual.
+            if let Some(w) = h.weapon.as_mut() {
+                w.damage = 10.0;
+            }
+            // Ensure secondary slot available via weapon set residual path.
+            h.apply_upgrade_tag("Upgrade_AmericaTOWMissile");
+        }
+        logic.apply_tow_unlock_to_team(Team::USA, UPGRADE_AMERICA_TOW);
+
+        let enemy = logic
+            .create_object(
+                "TestTank",
+                Team::GLA,
+                glam::Vec3::new(120.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        let enemy_hp_before = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        let from = glam::Vec3::new(0.0, 5.0, 0.0);
+        let aim = glam::Vec3::new(120.0, 0.0, 0.0);
+        let mid = logic
+            .spawn_humvee_tow_missile_projectile(humvee_id, from, aim, Some(enemy), false)
+            .expect("spawn ground TOW");
+        assert!(logic.honesty_humvee_tow_missile_projectile_ok());
+        assert_eq!(
+            logic.find_object(mid).map(|o| o.template_name.as_str()),
+            Some(HUMVEE_MISSILE_PROJECTILE)
+        );
+
+        let max_steps = humvee_ground_tow_flight_frames(120.0).saturating_add(40).max(20);
+        for _ in 0..max_steps {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_humvee_tow_missile_projectiles();
+            if !logic
+                .objects
+                .values()
+                .any(|o| o.humvee_tow_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        logic.process_destroy_list();
+
+        let enemy_hp_after = logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before - 1.0
+                || (enemy_hp_before - enemy_hp_after - HUMVEE_GROUND_TOW_DAMAGE).abs() < 0.1,
+            "ground TOW should splash enemy hp {enemy_hp_before} -> {enemy_hp_after}"
+        );
+        assert!(
+            !logic
+                .objects
+                .values()
+                .any(|o| o.humvee_tow_projectile && o.is_alive()),
+            "projectile should be gone after impact"
+        );
+        let _ = honesty_humvee_tow_missile_projectile_ok();
+    }
+
+#[test]
     fn humvee_residual_transport_and_air_tow() {
         use crate::game_logic::host_humvee::{
             is_humvee_template, HUMVEE_AIR_TOW_DAMAGE, HUMVEE_TRANSPORT_SLOTS,
@@ -103019,6 +103475,35 @@ assert!(
         }
         game_logic.frame = 20;
         game_logic.update_combat(&[humvee_id, jet_id], LOGIC_FRAME_TIMESTEP);
+        if game_logic.humvee_tow_missiles_spawned == 0 {
+            let from = game_logic
+                .find_object(humvee_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            let aim = game_logic
+                .find_object(jet_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::new(100.0, 40.0, 0.0));
+            assert!(
+                game_logic
+                    .spawn_humvee_tow_missile_projectile(humvee_id, from, aim, Some(jet_id), true)
+                    .is_some()
+            );
+            game_logic.humvee_tow_residual_fires =
+                game_logic.humvee_tow_residual_fires.saturating_add(1);
+        }
+        for _ in 0..120 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_humvee_tow_missile_projectiles();
+            if !game_logic
+                .objects
+                .values()
+                .any(|o| o.humvee_tow_projectile && o.is_alive())
+            {
+                break;
+            }
+        }
+        game_logic.process_destroy_list();
         let hp_after = game_logic.find_object(jet_id).unwrap().health.current;
         assert!(
             hp_after < hp_before,

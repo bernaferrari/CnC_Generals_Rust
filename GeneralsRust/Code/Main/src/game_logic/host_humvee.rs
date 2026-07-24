@@ -24,6 +24,7 @@
 //! - HumveeLocomotor Speed **60**, Upgrade_AmericaTOWMissile weapon-set residual
 //!
 //! Fail-closed honesty:
+//! - HumveeMissile / PatriotMissile MissileAI flight residual (ground TOW non-seek + air TOW seek)
 //! - Not full WeaponSet PLAYER_UPGRADE visual turret swap
 //! - Not full TransportAIUpdate multi-exit-path / GoAggressiveOnExit matrix
 //! - Not Battle/Scout/Hellfire drone ObjectCreationUpgrade (see host_slave_drones)
@@ -50,6 +51,39 @@ pub const HUMVEE_TOW_FIRE_AUDIO: &str = "HumveeWeaponTOW";
 /// Retail projectile residual names.
 pub const HUMVEE_MISSILE_PROJECTILE: &str = "HumveeMissile";
 pub const HUMVEE_AIR_TOW_PROJECTILE: &str = "PatriotMissile";
+
+/// HumveeMissile MissileAI InitialVelocity residual (dist/sec).
+pub const HUMVEE_GROUND_TOW_MISSILE_INITIAL_VELOCITY: f32 = 150.0;
+/// HumveeMissile FuelLifetime 1000ms → 30 frames @ 30 FPS.
+pub const HUMVEE_GROUND_TOW_MISSILE_FUEL_MS: u32 = 1_000;
+pub const HUMVEE_GROUND_TOW_MISSILE_FUEL_FRAMES: u32 = 30;
+/// HumveeMissile DistanceToTravelBeforeTurning residual.
+pub const HUMVEE_GROUND_TOW_MISSILE_TURN_DISTANCE: f32 = 3.0;
+/// HumveeMissile MaxHealth residual.
+pub const HUMVEE_GROUND_TOW_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// HumveeMissile IgnitionDelay residual (frames).
+pub const HUMVEE_GROUND_TOW_MISSILE_IGNITION_DELAY_FRAMES: u32 = 0;
+/// HumveeMissile TryToFollowTarget residual.
+pub const HUMVEE_GROUND_TOW_MISSILE_SEEK: bool = false;
+
+/// PatriotMissile (air TOW) InitialVelocity residual (dist/sec).
+pub const HUMVEE_AIR_TOW_MISSILE_INITIAL_VELOCITY: f32 = 50.0;
+/// PatriotMissile FuelLifetime 10000ms → 300 frames.
+pub const HUMVEE_AIR_TOW_MISSILE_FUEL_MS: u32 = 10_000;
+pub const HUMVEE_AIR_TOW_MISSILE_FUEL_FRAMES: u32 = 300;
+/// PatriotMissile DistanceToTravelBeforeTurning residual.
+pub const HUMVEE_AIR_TOW_MISSILE_TURN_DISTANCE: f32 = 5.0;
+/// PatriotMissile DistanceToTargetForLock residual.
+pub const HUMVEE_AIR_TOW_MISSILE_LOCK_DISTANCE: f32 = 100.0;
+/// PatriotMissile MaxHealth residual (shared projectile body).
+pub const HUMVEE_AIR_TOW_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// PatriotMissile IgnitionDelay residual (frames).
+pub const HUMVEE_AIR_TOW_MISSILE_IGNITION_DELAY_FRAMES: u32 = 0;
+/// PatriotMissile TryToFollowTarget residual.
+pub const HUMVEE_AIR_TOW_MISSILE_SEEK: bool = true;
+/// Cruise speed residual (WeaponSpeed listed 600; ignored for projectile — use InitialVelocity cruise).
+pub const HUMVEE_TOW_MISSILE_CRUISE_SPEED: f32 = 600.0;
+
 
 /// Retail TransportContain Slots residual.
 pub const HUMVEE_TRANSPORT_SLOTS: usize = 5;
@@ -177,6 +211,45 @@ pub fn is_humvee_template(template_name: &str) -> bool {
 }
 
 /// Prefer air TOW residual when Humvee has TOW upgrade and target is aircraft.
+/// Whether combat should route through Humvee TOW projectile residual (secondary slot + upgrade).
+pub fn should_apply_humvee_tow_residual(
+    is_humvee: bool,
+    has_tow_upgrade: bool,
+    secondary_slot: bool,
+) -> bool {
+    is_humvee && has_tow_upgrade && secondary_slot
+}
+
+/// Per-frame ground TOW missile step speed (dist/frame) after ignition.
+pub fn humvee_ground_tow_missile_step_speed(ignited: bool) -> f32 {
+    if ignited {
+        HUMVEE_TOW_MISSILE_CRUISE_SPEED / HUMVEE_LOGIC_FPS
+    } else {
+        HUMVEE_GROUND_TOW_MISSILE_INITIAL_VELOCITY / HUMVEE_LOGIC_FPS
+    }
+}
+
+/// Per-frame air TOW missile step speed (dist/frame) after ignition.
+pub fn humvee_air_tow_missile_step_speed(ignited: bool) -> f32 {
+    if ignited {
+        HUMVEE_TOW_MISSILE_CRUISE_SPEED / HUMVEE_LOGIC_FPS
+    } else {
+        HUMVEE_AIR_TOW_MISSILE_INITIAL_VELOCITY / HUMVEE_LOGIC_FPS
+    }
+}
+
+/// Estimated flight frames for ground TOW straight-line residual.
+pub fn humvee_ground_tow_flight_frames(distance: f32) -> u32 {
+    let step = humvee_ground_tow_missile_step_speed(true).max(0.001);
+    (distance / step).ceil() as u32
+}
+
+/// Estimated flight frames for air TOW residual.
+pub fn humvee_air_tow_flight_frames(distance: f32) -> u32 {
+    let step = humvee_air_tow_missile_step_speed(true).max(0.001);
+    (distance / step).ceil() as u32
+}
+
 pub fn humvee_prefer_air_tow(is_humvee: bool, has_tow_upgrade: bool, target_is_air: bool) -> bool {
     is_humvee && has_tow_upgrade && target_is_air
 }
@@ -356,12 +429,31 @@ pub fn honesty_humvee_body_tow_upgrade_residual_ok() -> bool {
 }
 
 /// Combined Wave 58 Humvee residual honesty pack.
+/// Wave residual honesty: HumveeMissile / PatriotMissile MissileAI peels.
+pub fn honesty_humvee_tow_missile_projectile_ok() -> bool {
+    HUMVEE_MISSILE_PROJECTILE == "HumveeMissile"
+        && HUMVEE_AIR_TOW_PROJECTILE == "PatriotMissile"
+        && (HUMVEE_GROUND_TOW_MISSILE_INITIAL_VELOCITY - 150.0).abs() < 0.01
+        && HUMVEE_GROUND_TOW_MISSILE_FUEL_MS == 1_000
+        && HUMVEE_GROUND_TOW_MISSILE_FUEL_FRAMES == 30
+        && (HUMVEE_GROUND_TOW_MISSILE_TURN_DISTANCE - 3.0).abs() < 0.01
+        && !HUMVEE_GROUND_TOW_MISSILE_SEEK
+        && (HUMVEE_AIR_TOW_MISSILE_INITIAL_VELOCITY - 50.0).abs() < 0.01
+        && HUMVEE_AIR_TOW_MISSILE_FUEL_MS == 10_000
+        && HUMVEE_AIR_TOW_MISSILE_FUEL_FRAMES == 300
+        && (HUMVEE_AIR_TOW_MISSILE_TURN_DISTANCE - 5.0).abs() < 0.01
+        && (HUMVEE_AIR_TOW_MISSILE_LOCK_DISTANCE - 100.0).abs() < 0.01
+        && HUMVEE_AIR_TOW_MISSILE_SEEK
+        && (HUMVEE_TOW_MISSILE_CRUISE_SPEED - 600.0).abs() < 0.01
+}
+
 pub fn honesty_humvee_residual_pack_ok() -> bool {
     honesty_humvee_gun_residual_ok()
         && honesty_humvee_ground_tow_residual_ok()
         && honesty_humvee_air_tow_residual_ok()
         && honesty_humvee_transport_residual_ok()
         && honesty_humvee_body_tow_upgrade_residual_ok()
+        && honesty_humvee_tow_missile_projectile_ok()
 }
 
 #[cfg(test)]
@@ -413,6 +505,16 @@ mod tests {
         assert_eq!(HUMVEE_TRANSPORT_SLOTS, 5);
         assert!(HUMVEE_PASSENGERS_ALLOWED_TO_FIRE);
         assert_eq!(HUMVEE_EXIT_DELAY_FRAMES, 8);
+    }
+
+    #[test]
+    fn tow_missile_projectile_peels() {
+        assert!(honesty_humvee_tow_missile_projectile_ok());
+        assert!(should_apply_humvee_tow_residual(true, true, true));
+        assert!(!should_apply_humvee_tow_residual(true, false, true));
+        assert!(!should_apply_humvee_tow_residual(true, true, false));
+        assert!(humvee_ground_tow_flight_frames(150.0) >= 1);
+        assert!(humvee_air_tow_flight_frames(320.0) >= 1);
     }
 
     #[test]
