@@ -1055,6 +1055,9 @@ pub struct Object {
     /// C++ BaseRegenerateUpdate residual (structure auto-heal).
     #[serde(default)]
     pub base_regenerate: Option<crate::game_logic::host_base_regenerate::HostBaseRegenerateData>,
+    /// C++ EnemyNearUpdate residual (MODELCONDITION_ENEMYNEAR).
+    #[serde(default)]
+    pub enemy_near: Option<crate::game_logic::host_enemy_near::HostEnemyNearData>,
     /// C++ HelicopterSlowDeathBehavior residual.
     #[serde(default)]
     pub helicopter_slow_death:
@@ -1705,6 +1708,7 @@ impl Object {
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
+            enemy_near: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -2079,6 +2083,7 @@ impl Object {
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
+            enemy_near: None,
             helicopter_slow_death: None,
             jet_slow_death: None,
             front_crushed: false,
@@ -3659,6 +3664,18 @@ impl Object {
             crate::game_logic::host_fire_spread::HostFireSpreadData::for_template(&self.template_name)
         {
             self.fire_spread = Some(data);
+        }
+    }
+
+    pub fn install_enemy_near_if_needed(&mut self) {
+        if self.enemy_near.is_some() {
+            return;
+        }
+        if let Some(data) = crate::game_logic::host_enemy_near::HostEnemyNearData::for_template(
+            &self.template_name,
+            self.vision_range,
+        ) {
+            self.enemy_near = Some(data);
         }
     }
 
