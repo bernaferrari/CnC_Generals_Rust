@@ -77,6 +77,13 @@ pub mod game_window_transitions_styles;
 pub mod gui_callbacks;
 pub mod header_template;
 pub mod ime_manager;
+pub use ime_manager::{
+    residual_ime_candidate_count, residual_ime_is_composing, residual_ime_is_enabled,
+    residual_ime_last_action, simulate_ime_candidate_list, simulate_ime_clear_candidates,
+    simulate_ime_disable, simulate_ime_enable, simulate_ime_end_composition,
+    simulate_ime_prepare_composition_cycle, simulate_ime_reset, simulate_ime_result_string,
+    simulate_ime_start_composition, simulate_ime_update_composition, ResidualImeAction,
+};
 pub mod ingame_ui;
 pub mod integrated_ui_system;
 pub mod lan_preferences;

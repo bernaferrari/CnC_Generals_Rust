@@ -210,3 +210,217 @@ thread_local! {
 pub fn get_ime_manager() -> Arc<Mutex<ImeManager>> {
     THE_IME_MANAGER.with(|manager| manager.clone())
 }
+
+/// Residual: last IME action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualImeAction {
+    None = 0,
+    Enable = 1,
+    Disable = 2,
+    StartComposition = 3,
+    UpdateComposition = 4,
+    ResultString = 5,
+    CandidateList = 6,
+    ClearCandidates = 7,
+    EndComposition = 8,
+    Reset = 9,
+}
+
+static RESIDUAL_IME_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_IME_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+static RESIDUAL_IME_COMPOSING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_IME_CANDIDATE_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+fn residual_ime_action_store(action: ResidualImeAction) {
+    RESIDUAL_IME_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn residual_ime_sync_flags(manager: &ImeManager) {
+    RESIDUAL_IME_ENABLED.store(manager.is_enabled(), std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_IME_COMPOSING.store(manager.is_composing(), std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_IME_CANDIDATE_COUNT.store(
+        manager.candidate_count(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+/// Residual: last IME residual action.
+pub fn residual_ime_last_action() -> ResidualImeAction {
+    match RESIDUAL_IME_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualImeAction::Enable,
+        2 => ResidualImeAction::Disable,
+        3 => ResidualImeAction::StartComposition,
+        4 => ResidualImeAction::UpdateComposition,
+        5 => ResidualImeAction::ResultString,
+        6 => ResidualImeAction::CandidateList,
+        7 => ResidualImeAction::ClearCandidates,
+        8 => ResidualImeAction::EndComposition,
+        9 => ResidualImeAction::Reset,
+        _ => ResidualImeAction::None,
+    }
+}
+
+/// Residual: IME enabled latch.
+pub fn residual_ime_is_enabled() -> bool {
+    RESIDUAL_IME_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: IME composing latch.
+pub fn residual_ime_is_composing() -> bool {
+    RESIDUAL_IME_COMPOSING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: candidate count latch.
+pub fn residual_ime_candidate_count() -> usize {
+    RESIDUAL_IME_CANDIDATE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: enable IME without window attach.
+pub fn simulate_ime_enable() -> bool {
+    let manager = get_ime_manager();
+    if let Ok(mut guard) = manager.lock() {
+        guard.enable();
+        residual_ime_sync_flags(&guard);
+        residual_ime_action_store(ResidualImeAction::Enable);
+        return residual_ime_is_enabled();
+    }
+    false
+}
+
+/// Residual: disable IME without window attach.
+pub fn simulate_ime_disable() -> bool {
+    let manager = get_ime_manager();
+    if let Ok(mut guard) = manager.lock() {
+        guard.disable();
+        residual_ime_sync_flags(&guard);
+        residual_ime_action_store(ResidualImeAction::Disable);
+        return !residual_ime_is_enabled();
+    }
+    false
+}
+
+/// Residual: start composition without OS IME.
+pub fn simulate_ime_start_composition() -> bool {
+    let manager = get_ime_manager();
+    if let Ok(mut guard) = manager.lock() {
+        if !guard.service_ime_message(ImeMessage::StartComposition) {
+            return false;
+        }
+        residual_ime_sync_flags(&guard);
+        residual_ime_action_store(ResidualImeAction::StartComposition);
+        return residual_ime_is_composing();
+    }
+    false
+}
+
+/// Residual: update composition text without OS IME.
+pub fn simulate_ime_update_composition(text: &str, cursor_pos: usize) -> bool {
+    let manager = get_ime_manager();
+    if let Ok(mut guard) = manager.lock() {
+        if !guard.service_ime_message(ImeMessage::UpdateComposition {
+            text: text.to_string(),
+            cursor_pos,
+        }) {
+            return false;
+        }
+        residual_ime_sync_flags(&guard);
+        residual_ime_action_store(ResidualImeAction::UpdateComposition);
+        return residual_ime_is_composing() && guard.composition_string() == text;
+    }
+    false
+}
+
+/// Residual: commit result string without OS IME.
+pub fn simulate_ime_result_string(text: &str) -> bool {
+    let manager = get_ime_manager();
+    if let Ok(mut guard) = manager.lock() {
+        if !guard.service_ime_message(ImeMessage::ResultString(text.to_string())) {
+            return false;
+        }
+        residual_ime_sync_flags(&guard);
+        residual_ime_action_store(ResidualImeAction::ResultString);
+        return guard.result_string() == text && !residual_ime_is_composing();
+    }
+    false
+}
+
+/// Residual: push candidate list without OS IME.
+pub fn simulate_ime_candidate_list(candidates: &[&str], selected_index: usize) -> bool {
+    let manager = get_ime_manager();
+    if let Ok(mut guard) = manager.lock() {
+        if !guard.service_ime_message(ImeMessage::CandidateList {
+            candidates: candidates.iter().map(|s| (*s).to_string()).collect(),
+            selected_index,
+            page_start: 0,
+            page_size: candidates.len().max(1),
+            index_base: 1,
+        }) {
+            return false;
+        }
+        residual_ime_sync_flags(&guard);
+        residual_ime_action_store(ResidualImeAction::CandidateList);
+        return residual_ime_candidate_count() == candidates.len();
+    }
+    false
+}
+
+/// Residual: clear candidate list without OS IME.
+pub fn simulate_ime_clear_candidates() -> bool {
+    let manager = get_ime_manager();
+    if let Ok(mut guard) = manager.lock() {
+        if !guard.service_ime_message(ImeMessage::ClearCandidateList) {
+            return false;
+        }
+        residual_ime_sync_flags(&guard);
+        residual_ime_action_store(ResidualImeAction::ClearCandidates);
+        return residual_ime_candidate_count() == 0;
+    }
+    false
+}
+
+/// Residual: end composition without OS IME.
+pub fn simulate_ime_end_composition() -> bool {
+    let manager = get_ime_manager();
+    if let Ok(mut guard) = manager.lock() {
+        if !guard.service_ime_message(ImeMessage::EndComposition) {
+            return false;
+        }
+        residual_ime_sync_flags(&guard);
+        residual_ime_action_store(ResidualImeAction::EndComposition);
+        return !residual_ime_is_composing();
+    }
+    false
+}
+
+/// Residual: reset IME manager residual.
+pub fn simulate_ime_reset() -> bool {
+    let manager = get_ime_manager();
+    if let Ok(mut guard) = manager.lock() {
+        guard.reset();
+        residual_ime_sync_flags(&guard);
+        residual_ime_action_store(ResidualImeAction::Reset);
+        return true;
+    }
+    false
+}
+
+/// Residual: enable + composition + candidates composite.
+pub fn simulate_ime_prepare_composition_cycle(text: &str) -> bool {
+    if !simulate_ime_enable() {
+        return false;
+    }
+    if !simulate_ime_start_composition() {
+        return false;
+    }
+    if !simulate_ime_update_composition(text, text.chars().count()) {
+        return false;
+    }
+    if !simulate_ime_candidate_list(&["a", "b", "c"], 0) {
+        return false;
+    }
+    true
+}
