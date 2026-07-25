@@ -93,7 +93,11 @@ pub fn honesty_non_attack_paths_use_order_target_source() -> bool {
             None => return false,
         };
         let body = &prod[i..prod.len().min(i + 3500)];
-        if !body.contains("set_order_target") {
+        // Wave 233: may route through unit_command_*order_target APIs.
+        if !(body.contains("set_order_target")
+            || body.contains("unit_command_stop_moving_order_target")
+            || body.contains("unit_command_set_order_target"))
+        {
             return false;
         }
         // No set_target before path in these bodies.

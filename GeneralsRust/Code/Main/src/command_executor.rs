@@ -472,22 +472,13 @@ impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup player move/stop stealth residual: delay mood auto-acquire until
     /// unstealthed combat stealth units can cloak again.
     fn apply_player_stealth_mood_delay(&mut self, unit_ids: &[ObjectId]) {
+        // Wave 233: stealth mood delay via GameLogic authority API.
         let now = self.game_logic.get_frame();
         for (i, &unit_id) in unit_ids.iter().enumerate() {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            let can_stealth = unit.innate_stealth || unit.stealth_delay_frames > 0;
-            if can_stealth
-                && unit.auto_acquire_when_idle
-                && unit.can_attack()
-                && !unit.status.stealthed
-                && !unit.status.detected
-            {
-                let delay = unit.stealth_delay_frames.max(1);
-                let skew = (i as u32) % 30;
-                unit.next_mood_check_time = now.saturating_add(delay).saturating_add(skew);
-            }
+            let skew = (i as u32) % 30;
+            let _ = self
+                .game_logic
+                .unit_command_apply_stealth_mood_delay(unit_id, now, skew);
         }
     }
 
@@ -707,21 +698,18 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         location: Vec3,
     ) -> CommandResult {
+        // Wave 233: special-power destination override via GameLogic authority API.
         if !location.x.is_finite() || !location.z.is_finite() {
             return CommandResult::InvalidLocation;
         }
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() {
-                continue;
+            if self
+                .game_logic
+                .unit_command_set_special_power_overridable_destination(unit_id, location)
+            {
+                any = true;
             }
-            // Only units with an active / ready special power path accept override.
-            // Host residual: always store; consumers of special power read it.
-            unit.set_special_power_overridable_destination(location, None);
-            any = true;
         }
         if any {
             CommandResult::Success
@@ -739,13 +727,11 @@ impl<'a> CommandExecutor<'a> {
     ) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() {
-                continue;
-            }
-            if unit.set_weapon_set_flag(flag, enabled) {
+            // Wave 233: weapon-set flag via GameLogic authority API.
+            if self
+                .game_logic
+                .unit_command_set_weapon_set_flag(unit_id, flag, enabled)
+            {
                 any = true;
             }
         }
@@ -846,16 +832,10 @@ impl<'a> CommandExecutor<'a> {
             let goal = *unit_wps.last().unwrap();
             let via = &unit_wps[..unit_wps.len().saturating_sub(1)];
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.stop_attack();
-                unit.set_guard_position(None);
-                unit.set_guard_target(None);
-                unit.end_guard_retaliate();
-                // AsTeam keeps formation identity; free follow clears it.
-                if !as_team {
-                    unit.set_formation(0, glam::Vec2::ZERO);
-                }
-            }
+            // Wave 233: waypoint-path prep via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_waypoint_path_prep(unit_id, as_team);
             // C++ AIFollowWaypointPathExact vs smoothed follow residual.
             let ok = if exact {
                 self.game_logic.assign_unit_path_exact(unit_id, goal, via)
@@ -1101,14 +1081,13 @@ impl<'a> CommandExecutor<'a> {
     ) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() {
-                continue;
+            // Wave 233: surrender via GameLogic authority API.
+            if self
+                .game_logic
+                .unit_command_set_surrendered(unit_id, surrendered)
+            {
+                any = true;
             }
-            unit.set_surrendered(surrendered);
-            any = true;
         }
         if any {
             CommandResult::Success
@@ -1274,13 +1253,9 @@ impl<'a> CommandExecutor<'a> {
     /// Pathfind to `goal` then set AI state. Returns false if path assign fails.
     /// Used by Guard/Scatter/Gather/Enter/Construct so units navigate obstacles.
     fn path_to_goal_with_state(&mut self, unit_id: ObjectId, goal: Vec3, state: AIState) -> bool {
-        if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
-            return false;
-        }
-        if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-            unit.set_ai_state(state);
-        }
-        true
+        // Wave 233: path+AI state via GameLogic unit_command_path_with_state.
+        self.game_logic
+            .unit_command_path_with_state(unit_id, goal, state)
     }
 
     /// C++ AIGroup::groupAttackMoveToPosition residual.
@@ -2228,11 +2203,11 @@ impl<'a> CommandExecutor<'a> {
     ) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if !unit.is_alive() {
-                    continue;
-                }
-                unit.set_ai_attitude(attitude);
+            // Wave 233: AI attitude via GameLogic authority API.
+            if self
+                .game_logic
+                .unit_command_set_ai_attitude(unit_id, attitude)
+            {
                 any = true;
             }
         }
@@ -2379,9 +2354,11 @@ impl<'a> CommandExecutor<'a> {
                         .game_logic
                         .get_object(building_id)
                         .map(|b| b.get_position());
-                    if let Some(unit_mut) = self.game_logic.get_object_mut(unit_id) {
-                        unit_mut.set_order_target(Some(building_id));
-                        unit_mut.set_ai_state(AIState::Entering);
+                    // Wave 233: deploy-to-garrison via GameLogic authority API.
+                    if self
+                        .game_logic
+                        .unit_command_order_enter(unit_id, building_id)
+                    {
                         any = true;
                     }
                     if let Some(bpos) = bpos {
@@ -2432,11 +2409,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::Gathering) {
                 any = true;
             }
@@ -2555,9 +2531,10 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidCommand;
             };
             if orientation.abs() > f32::EPSILON {
-                if let Some(b) = self.game_logic.get_object_mut(building_id) {
-                    b.set_orientation(orientation);
-                }
+                // Wave 233: orientation stamp via GameLogic authority API.
+                let _ = self
+                    .game_logic
+                    .unit_command_set_orientation(building_id, orientation);
             }
 
             let _ = self.path_to_goal_with_state(unit_id, location, AIState::Constructing);
@@ -2857,9 +2834,10 @@ impl<'a> CommandExecutor<'a> {
             {
                 continue;
             }
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.set_ai_state(AIState::SpecialAbility);
-            }
+            // Wave 233: special-power AI state via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_set_ai_state(unit_id, AIState::SpecialAbility);
 
             // Host residual: queue superweapon strike that will complete with
             // area damage (DaisyCutter / A10 / ScudStorm / ParticleCannon /
@@ -3272,22 +3250,31 @@ impl<'a> CommandExecutor<'a> {
         weapon_slot: &WeaponSlot,
         target: &WeaponTarget,
     ) -> CommandResult {
+        // Wave 233: weapon fire last-writes via GameLogic unit_command_fire_weapon.
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                match target {
-                    WeaponTarget::Object(target_id) => {
-                        unit.set_target(Some(*target_id));
-                        unit.set_ai_state(AIState::Attacking);
-                    }
-                    WeaponTarget::Location(pos) => {
-                        unit.target_location = Some(*pos);
-                        unit.set_ai_state(AIState::AttackingGround);
+            match target {
+                WeaponTarget::Object(target_id) => {
+                    if self
+                        .game_logic
+                        .unit_command_fire_weapon(unit_id, Some(*target_id), None)
+                    {
+                        debug!(
+                            "Unit {} firing weapon {:?} at {:?}",
+                            unit_id.0, weapon_slot, target
+                        );
                     }
                 }
-                debug!(
-                    "Unit {} firing weapon {:?} at {:?}",
-                    unit_id.0, weapon_slot, target
-                );
+                WeaponTarget::Location(pos) => {
+                    if self
+                        .game_logic
+                        .unit_command_fire_weapon(unit_id, None, Some(*pos))
+                    {
+                        debug!(
+                            "Unit {} firing weapon {:?} at {:?}",
+                            unit_id.0, weapon_slot, target
+                        );
+                    }
+                }
             }
         }
         CommandResult::Success
@@ -3346,17 +3333,17 @@ impl<'a> CommandExecutor<'a> {
             });
             if let Some(previous_container) = previous_container {
                 if previous_container != target_id {
-                    if let Some(container) = self.game_logic.get_object_mut(previous_container) {
-                        container.remove_occupant(unit_id);
-                    }
+                    // Wave 233: remove prior occupant via GameLogic authority API.
+                    let _ = self
+                        .game_logic
+                        .unit_command_remove_occupant(previous_container, unit_id);
                 }
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::Entering) {
                 issued = true;
             }
@@ -3493,9 +3480,10 @@ impl<'a> CommandExecutor<'a> {
 
             if !was_tunnel {
                 if let Some(container_id) = container_id {
-                    if let Some(container) = self.game_logic.get_object_mut(container_id) {
-                        container.remove_occupant(unit_id);
-                    }
+                    // Wave 233: remove occupant via GameLogic authority API.
+                    let _ = self
+                        .game_logic
+                        .unit_command_remove_occupant(container_id, unit_id);
                 }
             }
 
@@ -3583,38 +3571,33 @@ impl<'a> CommandExecutor<'a> {
                 (false, false, false, false, false, false, false, false)
             };
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.stop_moving();
-                unit.set_position(drop_position);
-                unit.set_contained_by(None);
-                unit.set_target(None);
-                unit.set_ai_state(AIState::Idle);
-                unit.set_status_moving(false);
-                unit.set_status_attacking(false);
-                if was_tunnel {
-                    // Counters already recorded in exit_tunnel_network_unit.
-                } else if was_garrisoned {
-                    self.game_logic.record_garrison_residual_exit();
-                } else if was_overlord_bunker {
-                    self.game_logic.record_overlord_bunker_residual_exit();
-                } else if was_battle_bus {
-                    self.game_logic.record_battle_bus_residual_unload();
-                } else if was_technical {
-                    self.game_logic.record_technical_residual_unload();
-                } else if was_combat_chinook {
-                    self.game_logic.record_combat_chinook_residual_unload();
-                } else if was_listening_outpost {
-                    self.game_logic.record_listening_outpost_residual_unload();
-                } else if was_troop_crawler {
-                    self.game_logic.record_troop_crawler_residual_unload();
-                } else if was_transport {
-                    self.game_logic.record_transport_residual_unload();
-                }
-                debug!(
-                    "Unit {} exiting transport/garrison near {:?}",
-                    unit_id.0, drop_position
-                );
+            // Wave 233: exit drop via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_exit_drop(unit_id, drop_position);
+            if was_tunnel {
+                // Counters already recorded in exit_tunnel_network_unit.
+            } else if was_garrisoned {
+                self.game_logic.record_garrison_residual_exit();
+            } else if was_overlord_bunker {
+                self.game_logic.record_overlord_bunker_residual_exit();
+            } else if was_battle_bus {
+                self.game_logic.record_battle_bus_residual_unload();
+            } else if was_technical {
+                self.game_logic.record_technical_residual_unload();
+            } else if was_combat_chinook {
+                self.game_logic.record_combat_chinook_residual_unload();
+            } else if was_listening_outpost {
+                self.game_logic.record_listening_outpost_residual_unload();
+            } else if was_troop_crawler {
+                self.game_logic.record_troop_crawler_residual_unload();
+            } else if was_transport {
+                self.game_logic.record_transport_residual_unload();
             }
+            debug!(
+                "Unit {} exiting transport/garrison near {:?}",
+                unit_id.0, drop_position
+            );
 
             // Refresh armed-riders weapon set after unload residual.
             if let Some(cid) = container_id {
@@ -3723,24 +3706,19 @@ impl<'a> CommandExecutor<'a> {
             if !can {
                 continue;
             }
-            if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
-                obj.pending_evacuate_on_stop = true;
-                obj.pending_exit_after_evacuate = and_exit;
-                obj.set_target(None);
-                obj.set_force_attack(false);
-                obj.set_guard_position(None);
-                obj.set_guard_target(None);
-                obj.end_guard_retaliate();
-            }
+            // Wave 233: pending evacuate prep via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_set_pending_evacuate(unit_id, true, and_exit, true);
             if self.path_to_goal_with_state(unit_id, destination, AIState::Moving) {
                 any = true;
             } else {
                 // Already at dest or path fail — evacuate immediately.
                 let exit = and_exit;
-                if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
-                    obj.pending_evacuate_on_stop = false;
-                    obj.pending_exit_after_evacuate = false;
-                }
+                // Wave 233: clear pending evacuate via GameLogic authority API.
+                let _ = self
+                    .game_logic
+                    .unit_command_set_pending_evacuate(unit_id, false, false, false);
                 if self.game_logic.evacuate_container_now(unit_id, exit) {
                     any = true;
                 }
@@ -3904,10 +3882,8 @@ impl<'a> CommandExecutor<'a> {
                 .get_object(sc_id)
                 .map(|o| o.get_position())
                 .unwrap_or(pos);
-            if let Some(u) = self.game_logic.get_object_mut(unit_id) {
-                u.set_order_target(Some(sc_id));
-                u.set_ai_state(AIState::ReturningResources);
-            }
+            // Wave 233: return-supplies via GameLogic authority API.
+            let _ = self.game_logic.unit_command_return_supplies(unit_id, sc_id);
             if self.path_to_goal_with_state(unit_id, sc_pos, AIState::ReturningResources) {
                 any = true;
             }
@@ -3927,14 +3903,17 @@ impl<'a> CommandExecutor<'a> {
     ) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() {
-                continue;
+            // Wave 233: mine-clearing detail via GameLogic authority API.
+            if self
+                .game_logic
+                .get_object(unit_id)
+                .is_some_and(|u| u.is_alive())
+                && self
+                    .game_logic
+                    .unit_command_set_mine_clearing_detail(unit_id, enabled)
+            {
+                any = true;
             }
-            unit.set_weapon_set_mine_clearing_detail(enabled);
-            any = true;
         }
         if any {
             CommandResult::Success
@@ -3950,6 +3929,7 @@ impl<'a> CommandExecutor<'a> {
         slot: u8,
         lock_type_code: u8,
     ) -> CommandResult {
+        // Wave 233: weapon lock via GameLogic unit_command_set_weapon_lock.
         use crate::game_logic::WeaponLockType;
         let lock_type = match lock_type_code {
             1 => WeaponLockType::LockedTemporarily,
@@ -3958,13 +3938,10 @@ impl<'a> CommandExecutor<'a> {
         };
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() {
-                continue;
-            }
-            if unit.set_weapon_lock(slot, lock_type) {
+            if self
+                .game_logic
+                .unit_command_set_weapon_lock(unit_id, slot, lock_type)
+            {
                 any = true;
             }
         }
@@ -3981,6 +3958,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         lock_type_code: u8,
     ) -> CommandResult {
+        // Wave 233: release weapon lock via GameLogic authority API.
         use crate::game_logic::WeaponLockType;
         let lock_type = match lock_type_code {
             1 => WeaponLockType::LockedTemporarily,
@@ -3988,14 +3966,12 @@ impl<'a> CommandExecutor<'a> {
         };
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() {
-                continue;
+            if self
+                .game_logic
+                .unit_command_release_weapon_lock(unit_id, lock_type)
+            {
+                any = true;
             }
-            unit.release_weapon_lock(lock_type);
-            any = true;
         }
         if any {
             CommandResult::Success
@@ -4011,16 +3987,15 @@ impl<'a> CommandExecutor<'a> {
         name: &str,
         duration_frames: i32,
     ) -> CommandResult {
+        // Wave 233: emoticon via GameLogic unit_command_set_emoticon.
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() {
-                continue;
+            if self
+                .game_logic
+                .unit_command_set_emoticon(unit_id, name, duration_frames)
+            {
+                any = true;
             }
-            unit.set_emoticon(name, duration_frames);
-            any = true;
         }
         if any {
             CommandResult::Success
@@ -4031,29 +4006,14 @@ impl<'a> CommandExecutor<'a> {
 
     /// C++ AIGroup::groupGoProne residual.
     pub(crate) fn execute_go_prone(&mut self, units: &[ObjectId]) -> CommandResult {
+        // Wave 233: go-prone via GameLogic unit_command_go_prone.
         // Retail infantry prone window residual (~2s).
         const PRONE_SECS: f32 = 2.0;
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() {
-                continue;
+            if self.game_logic.unit_command_go_prone(unit_id, PRONE_SECS) {
+                any = true;
             }
-            // C++ go-prone is infantry-oriented (AIUpdate); skip structures / immobile.
-            if unit.is_kind_of(crate::game_logic::KindOf::Structure)
-                || unit.is_kind_of(crate::game_logic::KindOf::Immobile)
-            {
-                continue;
-            }
-            let is_infantry = unit.is_kind_of(crate::game_logic::KindOf::Infantry)
-                || unit.object_type == crate::game_logic::ObjectType::Infantry;
-            if !is_infantry {
-                continue;
-            }
-            unit.go_prone(PRONE_SECS);
-            any = true;
         }
         if any {
             CommandResult::Success
@@ -4143,9 +4103,10 @@ impl<'a> CommandExecutor<'a> {
             let pos = unit.get_position();
             // C++ DozerAIUpdate: setWeaponSetFlag(MINE_CLEARING_DETAIL) while clearing.
             let scan = DOZER_MINE_CLEAR_SCAN_RANGE.max(80.0);
-            if let Some(u) = self.game_logic.get_object_mut(unit_id) {
-                u.set_weapon_set_mine_clearing_detail(true);
-            }
+            // Wave 233: mine-clear detail via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_set_mine_clearing_detail(unit_id, true);
 
             // Pure residual acquire: nearest enemy mine in clear scan range (XZ).
             let mine_cands: Vec<_> = self
@@ -4188,9 +4149,10 @@ impl<'a> CommandExecutor<'a> {
                 .get_object(mine_id)
                 .map(|o| o.get_position())
                 .unwrap_or(pos);
-            if let Some(u) = self.game_logic.get_object_mut(unit_id) {
-                u.set_order_target(Some(mine_id));
-            }
+            // Wave 233: mine order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_set_order_target(unit_id, Some(mine_id));
             if self.path_to_goal_with_state(unit_id, mpos, AIState::Moving) {
                 any = true;
             }
@@ -4219,9 +4181,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_set_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::Docking) {
                 issued = true;
             }
@@ -4245,9 +4208,10 @@ impl<'a> CommandExecutor<'a> {
                 if let Some(target_obj) = self.game_logic.get_object(*target_id) {
                     let target_pos = target_obj.position;
                     for &unit_id in units {
-                        if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                            unit.set_order_target(Some(*target_id));
-                        }
+                        // Wave 233: combat-drop order-target via GameLogic authority API.
+                        let _ = self
+                            .game_logic
+                            .unit_command_set_order_target(unit_id, Some(*target_id));
                         let _ =
                             self.path_to_goal_with_state(unit_id, target_pos, AIState::Entering);
                     }
@@ -4301,9 +4265,10 @@ impl<'a> CommandExecutor<'a> {
             if !can {
                 continue;
             }
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_set_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::Repairing) {
                 any = true;
             }
@@ -4374,9 +4339,10 @@ impl<'a> CommandExecutor<'a> {
                 })
                 .unwrap_or(false);
             if can {
-                if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                    unit.set_order_target(Some(target_id));
-                }
+                // Wave 233: order-target via GameLogic authority API.
+                let _ = self
+                    .game_logic
+                    .unit_command_set_order_target(unit_id, Some(target_id));
                 if self.path_to_goal_with_state(unit_id, target_pos, AIState::SeekingRepair) {
                     any = true;
                 }
@@ -4436,9 +4402,10 @@ impl<'a> CommandExecutor<'a> {
                 })
                 .unwrap_or(false);
             if can {
-                if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                    unit.set_order_target(Some(target_id));
-                }
+                // Wave 233: order-target via GameLogic authority API.
+                let _ = self
+                    .game_logic
+                    .unit_command_set_order_target(unit_id, Some(target_id));
                 if self.path_to_goal_with_state(unit_id, target_pos, AIState::SeekingHealing) {
                     any = true;
                 }
@@ -4454,16 +4421,12 @@ impl<'a> CommandExecutor<'a> {
     fn execute_set_rally_point(&mut self, units: &[ObjectId], location: Vec3) -> CommandResult {
         let mut applied = false;
         for &unit_id in units {
-            if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
-                if let Some(building) = obj.building_data.as_mut() {
-                    building.rally_point = Some(location);
-                    // Wave 200: GameWorld SetRallyPoint last-writer drain.
-                    crate::game_logic::host_rally_log::record(
-                        unit_id,
-                        Some([location.x, location.y, location.z]),
-                    );
-                    applied = true;
-                }
+            // Wave 233: rally point via GameLogic authority API.
+            if self
+                .game_logic
+                .unit_command_set_rally_point(unit_id, location)
+            {
+                applied = true;
             }
         }
         if applied {
@@ -4638,16 +4601,13 @@ impl<'a> CommandExecutor<'a> {
                     crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name);
                 kind.residual_research_frames().max(1) as f32 / 30.0
             };
-            let mut building_queued = false;
-            if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
-                if let Some(building) = obj.building_data.as_mut() {
-                    building_queued = building.add_upgrade_to_queue(
-                        upgrade_name.to_string(),
-                        research_secs,
-                        cost.clone(),
-                    );
-                }
-            }
+            // Wave 233: producer upgrade queue via GameLogic authority API.
+            let building_queued = self.game_logic.unit_command_building_add_upgrade_to_queue(
+                unit_id,
+                upgrade_name,
+                research_secs,
+                cost.clone(),
+            );
             if !building_queued {
                 // Fail-closed: refund player if PRODUCTION_UPGRADE could not be placed.
                 if let Some(player) = self.game_logic.get_player_mut(player_id) {
@@ -4730,17 +4690,12 @@ impl<'a> CommandExecutor<'a> {
         // C++ cancelUpgrade also removes the PRODUCTION_UPGRADE entry from the producer queue.
         let mut removed_from_building = false;
         for &unit_id in units {
-            if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
-                if let Some(building) = obj.building_data.as_mut() {
-                    let before = building.production_queue.len();
-                    building.production_queue.retain(|item| {
-                        !(item.is_upgrade()
-                            && item.template_name.eq_ignore_ascii_case(&upgrade_name))
-                    });
-                    if building.production_queue.len() < before {
-                        removed_from_building = true;
-                    }
-                }
+            // Wave 233: remove producer upgrade queue entry via GameLogic authority API.
+            if self
+                .game_logic
+                .unit_command_building_remove_upgrade_from_queue(unit_id, &upgrade_name)
+            {
+                removed_from_building = true;
             }
         }
         // If player queue was already empty but building still held the entry, treat as success
@@ -4802,11 +4757,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -4863,11 +4817,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -4925,11 +4878,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -5003,11 +4955,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, building_pos, AIState::Capturing) {
                 any = true;
             }
@@ -5061,11 +5012,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -5129,11 +5079,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -5197,11 +5146,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -5267,11 +5215,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -5404,11 +5351,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -5495,11 +5441,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -5581,11 +5526,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -5640,11 +5584,10 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         let target_pos = target.get_position();
-        if let Some(u) = self.game_logic.get_object_mut(unit_id) {
-            // Wave 205: order target last-writes host_attack_log (no AIState force).
-            u.stop_moving();
-            u.set_order_target(Some(target_id));
-        }
+        // Wave 233: stop-moving + order-target via GameLogic authority API.
+        let _ = self
+            .game_logic
+            .unit_command_stop_moving_order_target(unit_id, Some(target_id));
         let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility);
         self.game_logic.queue_pending_special_ability(
             unit_id,
@@ -5670,11 +5613,10 @@ impl<'a> CommandExecutor<'a> {
             return false;
         }
         let target_pos = target.get_position();
-        if let Some(u) = self.game_logic.get_object_mut(unit_id) {
-            // Wave 205: order target last-writes host_attack_log (no AIState force).
-            u.stop_moving();
-            u.set_order_target(Some(target_id));
-        }
+        // Wave 233: stop-moving + order-target via GameLogic authority API.
+        let _ = self
+            .game_logic
+            .unit_command_stop_moving_order_target(unit_id, Some(target_id));
         let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility);
         self.game_logic.queue_pending_special_ability(
             unit_id,
@@ -5710,11 +5652,10 @@ impl<'a> CommandExecutor<'a> {
         }
         let target_pos = target.get_position();
         // Always queue walk-to; plant resolves on reach (StartAbilityRange 5 residual).
-        if let Some(u) = self.game_logic.get_object_mut(unit_id) {
-            // Wave 205: order target last-writes host_attack_log (no AIState force).
-            u.stop_moving();
-            u.set_order_target(Some(target_id));
-        }
+        // Wave 233: stop-moving + order-target via GameLogic authority API.
+        let _ = self
+            .game_logic
+            .unit_command_stop_moving_order_target(unit_id, Some(target_id));
         if !self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
             // If already in range, still queue plant.
             let unit_pos = self
@@ -5790,11 +5731,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 205: order target last-writes host_attack_log (no AIState force).
-                unit.stop_moving();
-                unit.set_order_target(Some(target_id));
-            }
+            // Wave 233: stop-moving + order-target via GameLogic authority API.
+            let _ = self
+                .game_logic
+                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
                 any = true;
@@ -5816,19 +5756,10 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_switch_weapons(&mut self, units: &[ObjectId]) -> CommandResult {
-        use crate::game_logic::WeaponLockType;
+        // Wave 233: switch weapons via GameLogic unit_command_switch_weapons.
         let mut any = false;
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // C++ switch weapons: toggle slot and permanently lock the chosen one
-                // when a secondary exists; otherwise flip active slot residual.
-                let next = unit.active_weapon_slot ^ 1;
-                if unit.weapon_slot(next).is_some() {
-                    let _ = unit.set_weapon_lock(next, WeaponLockType::LockedPermanently);
-                } else {
-                    unit.set_active_weapon_slot(next);
-                }
-                unit.set_ai_state(AIState::SpecialAbility);
+            if self.game_logic.unit_command_switch_weapons(unit_id) {
                 any = true;
             }
         }
