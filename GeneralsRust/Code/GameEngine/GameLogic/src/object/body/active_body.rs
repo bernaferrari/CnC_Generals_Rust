@@ -30,6 +30,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock};
 
+/// Wave 291: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Yellow damage threshold percentage (when fear sounds play)
 #[allow(dead_code)]
 const YELLOW_DAMAGE_PERCENT: f32 = 0.25;
@@ -430,6 +436,11 @@ fn to_ini_damage_type(damage_type: DamageType) -> IniDamageType {
 }
 
 fn snapshot_object_for_damage_fx(object_id: ObjectId) -> Option<DamageFxObjectSnapshot> {
+    // Wave 291: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     if object_id == INVALID_ID {
         return None;
     }
@@ -967,6 +978,11 @@ impl ActiveBody {
 
     /// Resolve an owning object handle if still alive.
     fn get_owner(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 291: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.get_object(self.owner_id)
     }
 
@@ -1049,6 +1065,11 @@ impl ActiveBody {
 
     /// Resolve an owning object handle for external callers.
     pub fn owner_handle(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 291: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.get_object(self.owner_id)
     }
 
@@ -1224,6 +1245,11 @@ impl ActiveBody {
 
 impl BodyModuleInterface for ActiveBody {
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
+        // Wave 291: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.validate_armor_and_damage_fx()?;
 
         // Initialize output values
