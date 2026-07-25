@@ -3199,6 +3199,86 @@ impl CnCGameEngine {
                     "click_loading_screen_miss".into()
                 };
             }
+            "toggle_in_game_chat" => {
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_in_game_chat_toggle();
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "toggle_in_game_chat_ok_wnd".into()
+                } else {
+                    "toggle_in_game_chat_miss".into()
+                };
+            }
+            "click_in_game_chat" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "submit".to_string());
+                let message = args
+                    .get("message")
+                    .cloned()
+                    .unwrap_or_else(|| "gl hf".to_string());
+                let chat_type = args
+                    .get("type")
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .unwrap_or(1);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_in_game_chat_clear_button_gadget_selected,
+                        simulate_in_game_chat_hide, simulate_in_game_chat_prepare_submit,
+                        simulate_in_game_chat_reset, simulate_in_game_chat_set_type,
+                        simulate_in_game_chat_show, simulate_in_game_chat_submit,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "show" => simulate_in_game_chat_show(),
+                        "hide" => simulate_in_game_chat_hide(),
+                        "clear" => simulate_in_game_chat_clear_button_gadget_selected(),
+                        "type" => simulate_in_game_chat_set_type(chat_type),
+                        "reset" => simulate_in_game_chat_reset(),
+                        "prepare_submit" => simulate_in_game_chat_prepare_submit(&message),
+                        _ => simulate_in_game_chat_submit(&message),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_in_game_chat_ok_wnd_{action}")
+                } else {
+                    "click_in_game_chat_miss".into()
+                };
+            }
+            "click_idle_worker" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "select".to_string());
+                let count = args
+                    .get("count")
+                    .and_then(|v| v.parse::<i32>().ok())
+                    .unwrap_or(1);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_idle_worker_button_gadget_selected,
+                        simulate_idle_worker_prepare_select, simulate_idle_worker_select_next,
+                        simulate_idle_worker_set_count,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "count" | "set_count" => simulate_idle_worker_set_count(count),
+                        "next" => simulate_idle_worker_select_next(),
+                        "prepare" | "prepare_select" => simulate_idle_worker_prepare_select(count),
+                        _ => simulate_idle_worker_button_gadget_selected(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_idle_worker_ok_wnd_{action}")
+                } else {
+                    "click_idle_worker_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args

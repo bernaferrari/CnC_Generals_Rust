@@ -952,3 +952,330 @@ mod tests {
         );
     }
 }
+
+/// Residual: last InGameChat action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualInGameChatAction {
+    None = 0,
+    Show = 1,
+    Hide = 2,
+    Toggle = 3,
+    Clear = 4,
+    SetTypeEveryone = 5,
+    SetTypeAllies = 6,
+    SetTypePlayers = 7,
+    Submit = 8,
+    Reset = 9,
+}
+
+static RESIDUAL_CHAT_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_CHAT_ACTIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_CHAT_TYPE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1); // Everyone
+static RESIDUAL_CHAT_TEXT: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+fn residual_chat_action_store(action: ResidualInGameChatAction) {
+    RESIDUAL_CHAT_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last InGameChat residual action.
+pub fn residual_in_game_chat_last_action() -> ResidualInGameChatAction {
+    match RESIDUAL_CHAT_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualInGameChatAction::Show,
+        2 => ResidualInGameChatAction::Hide,
+        3 => ResidualInGameChatAction::Toggle,
+        4 => ResidualInGameChatAction::Clear,
+        5 => ResidualInGameChatAction::SetTypeEveryone,
+        6 => ResidualInGameChatAction::SetTypeAllies,
+        7 => ResidualInGameChatAction::SetTypePlayers,
+        8 => ResidualInGameChatAction::Submit,
+        9 => ResidualInGameChatAction::Reset,
+        _ => ResidualInGameChatAction::None,
+    }
+}
+
+/// Residual: chat active latch (independent of live layout).
+pub fn residual_in_game_chat_is_active() -> bool {
+    RESIDUAL_CHAT_ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: chat type ordinal (0 Allies / 1 Everyone / 2 Players).
+pub fn residual_in_game_chat_type_ordinal() -> u8 {
+    RESIDUAL_CHAT_TYPE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: last chat entry text residual.
+pub fn residual_in_game_chat_text() -> String {
+    RESIDUAL_CHAT_TEXT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+fn with_chat_callbacks_mut<R>(f: impl FnOnce(&mut InGameChatCallbacks) -> R) -> R {
+    let system = get_ingame_ui_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let chat = system.get_chat();
+    let mut chat = chat.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut chat)
+}
+
+fn chat_type_to_ord(t: &InGameChatType) -> u8 {
+    match t {
+        InGameChatType::Allies => 0,
+        InGameChatType::Everyone => 1,
+        InGameChatType::Players => 2,
+    }
+}
+
+fn ord_to_chat_type(ord: u8) -> InGameChatType {
+    match ord {
+        0 => InGameChatType::Allies,
+        2 => InGameChatType::Players,
+        _ => InGameChatType::Everyone,
+    }
+}
+
+/// Residual: bind InGameChat control name keys (no layout load).
+pub fn simulate_in_game_chat_bind_controls() -> bool {
+    let _ = NameKeyGenerator::name_to_key("InGameChat.wnd:ButtonClear");
+    let _ = NameKeyGenerator::name_to_key("InGameChat.wnd:TextEntryChat");
+    let _ = NameKeyGenerator::name_to_key("InGameChat.wnd:StaticTextChatType");
+    let _ = NameKeyGenerator::name_to_key("InGameChat.wnd:ParentInGameChat");
+    true
+}
+
+/// Residual: show chat without layout create / block checks.
+pub fn simulate_in_game_chat_show() -> bool {
+    with_chat_callbacks_mut(|chat| {
+        chat.active = true;
+        RESIDUAL_CHAT_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+        residual_chat_action_store(ResidualInGameChatAction::Show);
+        residual_in_game_chat_is_active()
+    })
+}
+
+/// Residual: hide chat without layout hide.
+pub fn simulate_in_game_chat_hide() -> bool {
+    with_chat_callbacks_mut(|chat| {
+        chat.active = false;
+        RESIDUAL_CHAT_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_chat_action_store(ResidualInGameChatAction::Hide);
+        !residual_in_game_chat_is_active()
+    })
+}
+
+/// Residual: toggle chat residual.
+pub fn simulate_in_game_chat_toggle() -> bool {
+    with_chat_callbacks_mut(|chat| {
+        chat.active = !chat.active;
+        RESIDUAL_CHAT_ACTIVE.store(chat.active, std::sync::atomic::Ordering::Relaxed);
+        residual_chat_action_store(ResidualInGameChatAction::Toggle);
+        true
+    })
+}
+
+/// Residual: ButtonClear without text entry widget.
+pub fn simulate_in_game_chat_clear_button_gadget_selected() -> bool {
+    let _ = simulate_in_game_chat_bind_controls();
+    if let Ok(mut guard) = RESIDUAL_CHAT_TEXT.lock() {
+        guard.clear();
+    } else {
+        RESIDUAL_CHAT_TEXT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+    }
+    // also clear ui saved text residual
+    let state_handle = chat_ui_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    state.saved_text.clear();
+    residual_chat_action_store(ResidualInGameChatAction::Clear);
+    residual_in_game_chat_text().is_empty()
+}
+
+/// Residual: set chat type without label widget update.
+pub fn simulate_in_game_chat_set_type(ord: u8) -> bool {
+    with_chat_callbacks_mut(|chat| {
+        let t = ord_to_chat_type(ord.min(2));
+        let ord_v = chat_type_to_ord(&t);
+        chat.chat_type = t;
+        RESIDUAL_CHAT_TYPE.store(ord_v, std::sync::atomic::Ordering::Relaxed);
+        residual_chat_action_store(match ord_v {
+            0 => ResidualInGameChatAction::SetTypeAllies,
+            2 => ResidualInGameChatAction::SetTypePlayers,
+            _ => ResidualInGameChatAction::SetTypeEveryone,
+        });
+        residual_in_game_chat_type_ordinal() == ord_v
+    })
+}
+
+/// Residual: set entry text without live text entry.
+pub fn simulate_in_game_chat_set_text(text: &str) -> bool {
+    if let Ok(mut guard) = RESIDUAL_CHAT_TEXT.lock() {
+        *guard = text.to_string();
+    } else {
+        *RESIDUAL_CHAT_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = text.to_string();
+    }
+    let state_handle = chat_ui_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    state.saved_text = text.to_string();
+    residual_in_game_chat_text() == text
+}
+
+/// Residual: submit message into local history without network.
+pub fn simulate_in_game_chat_submit(message: &str) -> bool {
+    if message.is_empty() {
+        return false;
+    }
+    with_chat_callbacks_mut(|chat| {
+        chat.receive_network_message(0, message.to_string(), 0, false);
+        if let Ok(mut guard) = RESIDUAL_CHAT_TEXT.lock() {
+            *guard = message.to_string();
+        } else {
+            *RESIDUAL_CHAT_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = message.to_string();
+        }
+        residual_chat_action_store(ResidualInGameChatAction::Submit);
+        true
+    })
+}
+
+/// Residual: reset chat residual.
+pub fn simulate_in_game_chat_reset() -> bool {
+    with_chat_callbacks_mut(|chat| {
+        chat.active = false;
+        chat.chat_type = InGameChatType::Everyone;
+        chat.history.clear();
+        RESIDUAL_CHAT_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_CHAT_TYPE.store(1, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut guard) = RESIDUAL_CHAT_TEXT.lock() {
+            guard.clear();
+        } else {
+            RESIDUAL_CHAT_TEXT
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+        }
+        residual_chat_action_store(ResidualInGameChatAction::Reset);
+        true
+    })
+}
+
+/// Residual: show + Everyone + submit composite.
+pub fn simulate_in_game_chat_prepare_submit(message: &str) -> bool {
+    if !simulate_in_game_chat_bind_controls() {
+        return false;
+    }
+    if !simulate_in_game_chat_show() {
+        return false;
+    }
+    if !simulate_in_game_chat_set_type(1) {
+        return false;
+    }
+    if !simulate_in_game_chat_set_text(message) {
+        return false;
+    }
+    simulate_in_game_chat_submit(message)
+}
+
+// ---------------------------------------------------------------------------
+// IdleWorker residual peels
+// ---------------------------------------------------------------------------
+
+/// Residual: last IdleWorker action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualIdleWorkerAction {
+    None = 0,
+    SetCount = 1,
+    SelectNext = 2,
+    Button = 3,
+}
+
+static RESIDUAL_IDLE_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_IDLE_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+static RESIDUAL_IDLE_INDEX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn residual_idle_action_store(action: ResidualIdleWorkerAction) {
+    RESIDUAL_IDLE_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last IdleWorker residual action.
+pub fn residual_idle_worker_last_action() -> ResidualIdleWorkerAction {
+    match RESIDUAL_IDLE_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualIdleWorkerAction::SetCount,
+        2 => ResidualIdleWorkerAction::SelectNext,
+        3 => ResidualIdleWorkerAction::Button,
+        _ => ResidualIdleWorkerAction::None,
+    }
+}
+
+/// Residual: idle worker count latch.
+pub fn residual_idle_worker_count() -> i32 {
+    RESIDUAL_IDLE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: next idle worker index latch.
+pub fn residual_idle_worker_next_index() -> usize {
+    RESIDUAL_IDLE_INDEX.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn with_idle_worker_mut<R>(f: impl FnOnce(&mut IdleWorkerCallbacks) -> R) -> R {
+    let system = get_ingame_ui_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let idle = system.get_idle_worker();
+    let mut idle = idle.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut idle)
+}
+
+/// Residual: bind IdleWorker control name keys.
+pub fn simulate_idle_worker_bind_controls() -> bool {
+    let _ = NameKeyGenerator::name_to_key("IdleWorker.wnd:ButtonSelectNextIdleWorker");
+    true
+}
+
+/// Residual: set idle worker count without selection.
+pub fn simulate_idle_worker_set_count(count: i32) -> bool {
+    if count < 0 {
+        return false;
+    }
+    with_idle_worker_mut(|idle| {
+        let _ = idle.set_idle_worker_count(count);
+        RESIDUAL_IDLE_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
+        residual_idle_action_store(ResidualIdleWorkerAction::SetCount);
+        residual_idle_worker_count() == count
+    })
+}
+
+/// Residual: cycle next idle worker index residual.
+pub fn simulate_idle_worker_select_next() -> bool {
+    with_idle_worker_mut(|idle| {
+        let count = idle.get_idle_worker_count().max(0) as usize;
+        if count == 0 {
+            idle.next_index = 0;
+        } else {
+            idle.next_index = (idle.next_index + 1) % count;
+        }
+        RESIDUAL_IDLE_INDEX.store(idle.next_index, std::sync::atomic::Ordering::Relaxed);
+        residual_idle_action_store(ResidualIdleWorkerAction::SelectNext);
+        true
+    })
+}
+
+/// Residual: fire IdleWorker button without camera snap.
+pub fn simulate_idle_worker_button_gadget_selected() -> bool {
+    let _ = simulate_idle_worker_bind_controls();
+    residual_idle_action_store(ResidualIdleWorkerAction::Button);
+    let _ = simulate_idle_worker_select_next();
+    residual_idle_action_store(ResidualIdleWorkerAction::Button);
+    true
+}
+
+/// Residual: set count + button composite.
+pub fn simulate_idle_worker_prepare_select(count: i32) -> bool {
+    if !simulate_idle_worker_set_count(count) {
+        return false;
+    }
+    simulate_idle_worker_button_gadget_selected()
+}
