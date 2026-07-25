@@ -2303,6 +2303,10 @@ pub struct PresentationFrame {
     /// World/environment identity for lighting/shell/bounds/heightmap residual.
     /// Prefer this over live `GameLogic` during GPU collect/execute.
     pub world_env: PresentationWorldEnv,
+    /// Objects stamped by the last `overlay_gameworld_shadow` call (0 if none).
+    /// Architecture residual: GameWorld last-writer presentation identity count.
+    #[serde(default)]
+    pub gameworld_overlay_stamped: usize,
 }
 
 impl PresentationFrame {
@@ -3414,6 +3418,7 @@ impl PresentationFrame {
             world_anims,
             dual_tick,
             world_env: PresentationWorldEnv::from_logic(logic),
+            gameworld_overlay_stamped: 0,
         }
     }
 
@@ -5749,6 +5754,7 @@ impl PresentationFrame {
                 }
             }
         }
+        self.gameworld_overlay_stamped = updated;
         updated
     }
 
