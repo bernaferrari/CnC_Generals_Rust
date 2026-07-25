@@ -1043,6 +1043,12 @@ pub enum WorldMutation {
         has_mine_data: bool,
         cheer_timer: f32,
     },
+    /// Host Object formation id/offset residual (CreateFormation).
+    SetFormation {
+        target: EntityId,
+        formation_id: u32,
+        formation_offset: [f32; 2],
+    },
     /// Host crush levels + vision/shroud ranges residual.
     SetCrushVision {
         target: EntityId,
@@ -2469,6 +2475,17 @@ impl GameWorld {
                         e.demo_suicided_detonating = demo_suicided_detonating;
                         e.has_mine_data = has_mine_data;
                         e.cheer_timer = cheer_timer;
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetFormation {
+                    target,
+                    formation_id,
+                    formation_offset,
+                } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.formation_id = formation_id;
+                        e.formation_offset = formation_offset;
                         applied += 1;
                     }
                 }

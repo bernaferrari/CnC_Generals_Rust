@@ -5404,6 +5404,29 @@ impl GameWorldShadow {
         n
     }
 
+    pub fn apply_host_formation_events(
+        &mut self,
+        events: &[crate::game_logic::host_formation_log::HostFormationEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
+                continue;
+            };
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::SetFormation {
+                    target: eid,
+                    formation_id: ev.formation_id,
+                    formation_offset: ev.formation_offset,
+                });
+            n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
     pub fn apply_host_demo_mine_cheer_events(
         &mut self,
         events: &[crate::game_logic::host_demo_mine_cheer_log::HostDemoMineCheerEvent],
@@ -7312,6 +7335,7 @@ pub fn shadow_session_after_host_tick(
     let selection_radius_events = crate::game_logic::host_selection_radius_log::drain();
     let model_condition_events = crate::game_logic::host_model_condition_log::drain();
     let demo_mine_cheer_events = crate::game_logic::host_demo_mine_cheer_log::drain();
+    let formation_events = crate::game_logic::host_formation_log::drain();
     let crush_vision_events = crate::game_logic::host_crush_vision_log::drain();
     let building_type_events = crate::game_logic::host_building_type_log::drain();
     let identity_events = crate::game_logic::host_identity_log::drain();
@@ -7489,6 +7513,7 @@ pub fn shadow_session_after_host_tick(
     let _sr_applied = shadow.apply_host_selection_radius_events(&selection_radius_events);
     let _mc_applied = shadow.apply_host_model_condition_events(&model_condition_events);
     let _dmc_applied = shadow.apply_host_demo_mine_cheer_events(&demo_mine_cheer_events);
+    let _form_applied = shadow.apply_host_formation_events(&formation_events);
     let _cv_applied = shadow.apply_host_crush_vision_events(&crush_vision_events);
     let _bt_applied = shadow.apply_host_building_type_events(&building_type_events);
     let _id_applied = shadow.apply_host_identity_events(&identity_events);

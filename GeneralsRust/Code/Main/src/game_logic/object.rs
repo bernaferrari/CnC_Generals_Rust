@@ -9217,6 +9217,17 @@ impl Object {
         );
     }
 
+    pub fn set_formation(&mut self, formation_id: u32, formation_offset: glam::Vec2) {
+        self.formation_id = formation_id;
+        self.formation_offset = formation_offset;
+        // Wave 204: last-write SetFormation.
+        crate::game_logic::host_formation_log::record(
+            self.id,
+            self.formation_id,
+            [self.formation_offset.x, self.formation_offset.y],
+        );
+    }
+
     pub fn begin_cheer(&mut self, duration_secs: f32, cheer_bit: Option<usize>) {
         self.set_ai_state(AIState::SpecialAbility);
         self.cheer_timer = duration_secs.max(0.0);
