@@ -269,6 +269,7 @@ pub mod host_live_local_team_presentation_only_residual_wave220;
 pub mod host_live_map_load_residual_wave170;
 pub mod host_live_mouse_input_presentation_only_residual_wave236;
 pub mod host_live_object_registry_empty_fastpath_residual_wave247;
+pub mod host_live_open_contain_dual_world_empty_gate_residual_wave261;
 pub mod host_live_os_input_command_path_residual_wave209;
 pub mod host_live_path_guard_authority_api_residual_wave225;
 pub mod host_live_pick_object_presentation_only_residual_wave222;
@@ -2001,6 +2002,12 @@ pub use host_live_object_registry_empty_fastpath_residual_wave247::{
     honesty_live_object_registry_empty_fastpath_nav_commands_residual_wave247,
     honesty_live_object_registry_empty_fastpath_residual_pack_wave247,
     simulate_live_object_registry_empty_fastpath_honesty,
+};
+pub use host_live_open_contain_dual_world_empty_gate_residual_wave261::{
+    honesty_live_open_contain_dual_world_empty_gate_method_names_residual_wave261,
+    honesty_live_open_contain_dual_world_empty_gate_nav_commands_residual_wave261,
+    honesty_live_open_contain_dual_world_empty_gate_residual_pack_wave261,
+    simulate_live_open_contain_dual_world_empty_gate_honesty,
 };
 pub use host_live_os_input_command_path_residual_wave209::{
     honesty_live_os_input_command_path_method_names_residual_wave209,
