@@ -734,9 +734,15 @@ pub fn simulate_main_menu_wnd_prepare_load_honesty() -> bool {
         return false;
     }
     if !h.path_resolved {
+        // Assets unavailable — fail-closed honesty (CI without WindowZH).
         return true;
     }
-    h.wnd_validated && h.named_key_hits == MAIN_MENU_WND_KEY_NAMES_RESIDUAL.len()
+    // When retail assets resolve, require headless WindowManager materialisation
+    // (C++ Shell::push residual). Soft-ok path removed for resolved assets.
+    h.wnd_validated
+        && h.named_key_hits == MAIN_MENU_WND_KEY_NAMES_RESIDUAL.len()
+        && h.window_loaded
+        && h.window_count > 0
 }
 
 #[cfg(test)]
@@ -914,16 +920,24 @@ mod tests {
             "MainMenu.wnd load residual: {}",
             h.detail
         );
-        assert!(simulate_main_menu_wnd_prepare_load_honesty());
+        assert!(
+            simulate_main_menu_wnd_prepare_load_honesty(),
+            "load honesty: {}",
+            h.detail
+        );
         if h.path_resolved && h.wnd_validated {
-            // Prefer materialised windows; soft-ok if WM parse deferred.
-            if h.window_loaded {
-                assert!(
-                    h.window_count > 0,
-                    "loaded MainMenu.wnd must materialise windows: {}",
-                    h.detail
-                );
-            }
+            assert!(
+                h.window_loaded && h.window_count > 0,
+                "resolved MainMenu.wnd must materialise windows: {}",
+                h.detail
+            );
+            // Retail named-child residual count is 63 NAME= lines.
+            assert!(
+                h.window_count >= MAIN_MENU_WND_NAMED_COUNT_RESIDUAL / 2,
+                "window_count={} expected substantial tree: {}",
+                h.window_count,
+                h.detail
+            );
         }
     }
 }
