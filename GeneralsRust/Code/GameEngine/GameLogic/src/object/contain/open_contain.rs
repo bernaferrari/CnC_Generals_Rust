@@ -37,6 +37,12 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 type ObjectId = ObjectID;
 type FirePointMatrix = [[f32; 4]; 3];
 
+/// Wave 261: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 struct ExitPrep {
     owner_id: ObjectID,
     end_pos: Coord3D,
@@ -591,6 +597,11 @@ impl OpenContain {
 
     /// Get the object this module belongs to
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 261: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
@@ -611,6 +622,11 @@ impl OpenContain {
 
     /// Update method called once per frame
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
+        // Wave 261: empty dual-world → sleep none.
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::None);
+        }
+
         self.player_who_entered = PlayerMaskType::none();
         self.monitor_condition_changes()?;
         let countdown = self.door_close_countdown.load(Ordering::Relaxed);
@@ -640,6 +656,11 @@ impl OpenContain {
 
     /// Check art condition changes and redeploy occupants when FIREPOINT bones may have changed.
     pub fn monitor_condition_changes(&mut self) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let owner_id = self.get_object_id();
         if owner_id == crate::common::INVALID_ID {
             return Ok(());
@@ -663,6 +684,11 @@ impl OpenContain {
 
     /// Check if this container is valid for the given object
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
+        // Wave 261: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // Check kind restrictions
         let obj_kind = obj.get_kind_of();
 
@@ -708,6 +734,11 @@ impl OpenContain {
 
     /// Add object to containment
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let owner_id = if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -761,6 +792,11 @@ impl OpenContain {
     }
 
     pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let is_stealth_garrison = TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .and_then(|obj| {
@@ -813,6 +849,11 @@ impl OpenContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -889,6 +930,11 @@ impl OpenContain {
     /// Kill all contained objects.
     /// Matches C++ OpenContain::killAllContained.
     pub fn kill_all_contained(&mut self) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         while let Some(&obj_id) = self.contained_object_ids.first() {
             let obj = TheGameLogic::find_object_by_id(obj_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id));
@@ -909,6 +955,11 @@ impl OpenContain {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         while let Some(&obj_id) = self.contained_object_ids.first() {
             let obj = TheGameLogic::find_object_by_id(obj_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id));
@@ -925,6 +976,11 @@ impl OpenContain {
 
     /// Called when this object starts containing another object
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -958,6 +1014,11 @@ impl OpenContain {
 
     /// Called when removing an object from containment
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1185,6 +1246,11 @@ impl OpenContain {
     }
 
     pub fn get_natural_rally_point(&self) -> Option<Coord3D> {
+        // Wave 261: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let owner_id = self.get_object_id();
         if owner_id == crate::common::INVALID_ID {
             return None;
@@ -1222,6 +1288,11 @@ impl OpenContain {
         obj_type: &ObjectTemplate,
         specific_object: &Object,
     ) -> GameResult<ExitDoorType> {
+        // Wave 261: empty dual-world → no door residual.
+        if dual_world_registry_unavailable() {
+            return Ok(ExitDoorType::NoneAvailable);
+        }
+
         let _ = (obj_type, specific_object);
         if self.module_data.door_open_time > 0 {
             let owner_id = self.get_object_id();
@@ -1338,6 +1409,11 @@ impl OpenContain {
     }
 
     fn prepare_object(&mut self, obj_id: ObjectID, hurry: bool) -> GameResult<Option<ExitPrep>> {
+        // Wave 261: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         self.remove_from_contain(obj_id, false)?;
 
         let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
@@ -1424,6 +1500,11 @@ impl OpenContain {
         obj_id: ObjectID,
         exit_door: ExitDoorType,
     ) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1475,6 +1556,11 @@ impl OpenContain {
     }
 
     pub fn exit_object_in_a_hurry(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1553,6 +1639,11 @@ impl OpenContain {
     }
 
     fn put_obj_at_next_fire_point(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let owner_id = self.get_object_id();
         if owner_id == crate::common::INVALID_ID {
             return Ok(());
@@ -1952,6 +2043,11 @@ impl ContainModuleInterface for OpenContain {
         _spawner: Option<&Object>,
         _spawn: Option<&Object>,
     ) -> ExitDoorType {
+        // Wave 261: empty dual-world → no door residual.
+        if dual_world_registry_unavailable() {
+            return ExitDoorType::NoneAvailable;
+        }
+
         if self.module_data.door_open_time > 0 {
             let owner_id = self.get_object_id();
             if owner_id != crate::common::INVALID_ID {
@@ -1978,6 +2074,11 @@ impl ContainModuleInterface for OpenContain {
         obj_id: ObjectID,
         door: ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1991,6 +2092,11 @@ impl ContainModuleInterface for OpenContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -2013,6 +2119,11 @@ impl ContainModuleInterface for OpenContain {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -2030,6 +2141,11 @@ impl ContainModuleInterface for OpenContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 261: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
