@@ -278,6 +278,7 @@ pub mod host_live_partition_filters_dual_world_empty_gate_residual_wave266;
 pub mod host_live_path_guard_authority_api_residual_wave225;
 pub mod host_live_pathfind_dual_world_empty_gate_residual_wave262;
 pub mod host_live_pick_object_presentation_only_residual_wave222;
+pub mod host_live_player_dual_world_empty_gate_residual_wave268;
 pub mod host_live_player_field_probe_residual_wave240;
 pub mod host_live_player_probe_api_residual_wave238;
 pub mod host_live_player_team_probe_residual_wave239;
@@ -2062,6 +2063,12 @@ pub use host_live_pick_object_presentation_only_residual_wave222::{
     honesty_live_pick_object_presentation_only_nav_commands_residual_wave222,
     honesty_live_pick_object_presentation_only_residual_pack_wave222,
     simulate_live_pick_object_presentation_only_honesty,
+};
+pub use host_live_player_dual_world_empty_gate_residual_wave268::{
+    honesty_live_player_dual_world_empty_gate_method_names_residual_wave268,
+    honesty_live_player_dual_world_empty_gate_nav_commands_residual_wave268,
+    honesty_live_player_dual_world_empty_gate_residual_pack_wave268,
+    simulate_live_player_dual_world_empty_gate_honesty,
 };
 pub use host_live_player_field_probe_residual_wave240::{
     honesty_live_player_field_probe_method_names_residual_wave240,

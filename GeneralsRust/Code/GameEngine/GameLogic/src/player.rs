@@ -97,6 +97,12 @@ pub type ScienceVec = Vec<ScienceType>;
 /// Command source constant for AI commands (matching C++ CMD_FROM_AI)
 pub const CMD_FROM_AI: CommandSourceType = CommandSourceType::FromAi;
 
+/// Wave 268: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Player money/resource management (matching C++ Money class)
 #[derive(Debug, Clone)]
 pub struct PlayerMoney {
@@ -371,6 +377,11 @@ impl PlayerEnergy {
     }
 
     pub fn add_power_bonus(&mut self, obj: ObjectID) {
+        // Wave 268: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(bonus) = crate::object::registry::OBJECT_REGISTRY
             .with_object(obj, |object_guard| {
                 object_guard.get_template().get_energy_bonus()
@@ -384,6 +395,11 @@ impl PlayerEnergy {
     }
 
     pub fn remove_power_bonus(&mut self, obj: ObjectID) {
+        // Wave 268: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(bonus) = crate::object::registry::OBJECT_REGISTRY
             .with_object(obj, |object_guard| {
                 object_guard.get_template().get_energy_bonus()
@@ -1659,6 +1675,11 @@ impl Player {
     /// Add an object to this player's ownership
     /// Matches C++ Player::addObject
     pub fn add_owned_object(&mut self, object_id: ObjectID) {
+        // Wave 268: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !self.owned_objects.contains(&object_id) {
             self.owned_objects.push(object_id);
         }
@@ -1705,6 +1726,11 @@ impl Player {
 
     /// Find a drone owned by this player that was produced by the given object ID.
     pub fn find_drone_id_by_producer_id(&self, producer_id: ObjectID) -> Option<ObjectID> {
+        // Wave 268: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         for object_id in &self.owned_objects {
             let matches = crate::object::registry::OBJECT_REGISTRY
                 .with_object(*object_id, |obj_ref| {
@@ -1724,6 +1750,11 @@ impl Player {
         &self,
         producer_id: ObjectID,
     ) -> Result<Option<Arc<RwLock<Object>>>, String> {
+        // Wave 268: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         Ok(self
             .find_drone_id_by_producer_id(producer_id)
             .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id)))
@@ -1732,6 +1763,11 @@ impl Player {
     /// Remove an object from this player's ownership
     /// Matches C++ Player::removeObject
     pub fn remove_owned_object(&mut self, object_id: ObjectID) {
+        // Wave 268: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.owned_objects.retain(|&id| id != object_id);
 
         let Some((under_construction, power, disabled, is_dozer, idle_dozer)) =
@@ -2170,6 +2206,11 @@ impl Player {
     /// Matches C++ Player::onUnitCreated
     /// ID-first unit/structure creation notification.
     pub fn on_unit_created_id(&mut self, _producer_id: ObjectID, unit_id: ObjectID) {
+        // Wave 268: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let score_keeper = &mut self.score_keeper;
         let academy_stats = &mut self.academy_stats;
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
@@ -2208,6 +2249,11 @@ impl Player {
 
     /// Borrow-first ObjectID variant of [`Self::on_structure_undone`].
     pub fn on_structure_undone_id(&mut self, structure_id: ObjectID) {
+        // Wave 268: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let score_keeper = &mut self.score_keeper;
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(structure_id, |guard| {
             score_keeper.remove_object_built_obj(guard);
@@ -2222,6 +2268,11 @@ impl Player {
         structure_id: ObjectID,
         is_rebuild: Bool,
     ) {
+        // Wave 268: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
 
         let Some(structure) = crate::object::registry::OBJECT_REGISTRY
@@ -2394,6 +2445,11 @@ impl Player {
         spy_on_kind_of: crate::common::KindOfMaskType,
         spying_player_index: PlayerIndex,
     ) {
+        // Wave 268: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         use crate::common::{ALL_KIND_OF, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE};
         use crate::object::registry::OBJECT_REGISTRY;
 
@@ -2427,6 +2483,11 @@ impl Player {
     /// Called when a unit owned by this player is destroyed
     /// Matches C++ Player::onUnitDestroyed
     pub fn on_unit_destroyed_id(&mut self, unit_id: ObjectID, _by_player: Option<PlayerIndex>) {
+        // Wave 268: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let score_keeper = &mut self.score_keeper;
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
             if unit_guard.is_kind_of(KindOf::Structure) {
@@ -2449,6 +2510,11 @@ impl Player {
     /// Called when this player destroys an enemy unit
     /// Matches C++ Player::onEnemyUnitKilled
     pub fn on_enemy_unit_killed_id(&mut self, killed_unit_id: ObjectID) {
+        // Wave 268: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let score_keeper = &mut self.score_keeper;
         let academy_stats = &mut self.academy_stats;
         let _ =
@@ -3163,6 +3229,11 @@ impl Player {
     }
 
     fn can_build_more_of_type(&self, template: &dyn crate::common::ThingTemplate) -> Bool {
+        // Wave 268: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let max_simultaneous = template.get_max_simultaneous_of_type();
         if max_simultaneous == 0 {
             return true;
