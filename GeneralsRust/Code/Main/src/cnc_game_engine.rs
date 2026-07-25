@@ -5844,6 +5844,23 @@ impl CnCGameEngine {
                     format!("click_live_engine_presentation_player_ui_miss_{action}")
                 };
             }
+            "click_live_rmb_presentation_full_classify" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_rmb_presentation_full_classify_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_rmb_presentation_full_classify_residual_pack_wave235(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_rmb_presentation_full_classify_ok_{action}")
+                } else {
+                    format!("click_live_rmb_presentation_full_classify_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -19416,6 +19433,26 @@ impl CnCGameEngine {
                 || crate::game_logic::host_hero_abilities::can_capture_without_upgrade(
                     is_hero, is_lotus,
                 );
+            let can_repair = is_worker
+                || n.contains("dozer")
+                || n.contains("worker")
+                || n.contains("construction");
+            let is_damaged = o.health_max > 0.0 && o.health_current + 0.01 < o.health_max;
+            let is_vehicle = crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Vehicle,
+            ) || o.object_type
+                == crate::presentation_frame::PresentationObjectType::Vehicle;
+            let is_aircraft = crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Aircraft,
+            ) || o.object_type
+                == crate::presentation_frame::PresentationObjectType::Aircraft;
+            let is_infantry = crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Infantry,
+            ) || o.object_type
+                == crate::presentation_frame::PresentationObjectType::Infantry;
             out.push(crate::command_system::PresentationSelectedUnitHint {
                 id,
                 is_alive: true,
@@ -19424,6 +19461,11 @@ impl CnCGameEngine {
                 can_move,
                 can_capture,
                 template_name: o.template_name.clone(),
+                can_repair,
+                is_damaged,
+                is_vehicle,
+                is_aircraft,
+                is_infantry,
             });
         }
         out
@@ -19457,6 +19499,20 @@ impl CnCGameEngine {
             || n.contains("bunker")
             || n.contains("garrison")
             || n.contains("overlord");
+        let is_damaged = o.health_max > 0.0 && o.health_current + 0.01 < o.health_max;
+        let is_friendly = o.team == local && !is_neutral;
+        let provides_heal = n.contains("healpad")
+            || n.contains("heal_pad")
+            || n.contains("hospital")
+            || n.contains("ambulance");
+        let provides_aircraft_repair =
+            n.contains("airfield") || n.contains("helipad") || n.contains("airstrip");
+        let provides_vehicle_repair = n.contains("repair")
+            || n.contains("warfactory")
+            || n.contains("war_factory")
+            || n.contains("armsdealer")
+            || n.contains("propaganda")
+            || provides_aircraft_repair;
         Some(crate::command_system::PresentationTargetHint {
             id,
             is_alive: !o.destroyed && o.health_current > 0.0,
@@ -19469,6 +19525,11 @@ impl CnCGameEngine {
             is_neutral,
             template_name: o.template_name.clone(),
             can_be_entered,
+            is_damaged,
+            is_friendly_of_local: is_friendly,
+            provides_vehicle_repair: is_structure && provides_vehicle_repair,
+            provides_aircraft_repair: is_structure && provides_aircraft_repair,
+            provides_heal: is_structure && provides_heal,
         })
     }
 

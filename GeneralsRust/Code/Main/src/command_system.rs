@@ -690,6 +690,16 @@ pub struct PresentationTargetHint {
     pub is_neutral: bool,
     pub template_name: String,
     pub can_be_entered: bool,
+    /// Wave 235: damaged structure/unit residual for repair/service classification.
+    pub is_damaged: bool,
+    /// Wave 235: ally of local player (same team).
+    pub is_friendly_of_local: bool,
+    /// Wave 235: structure provides vehicle/aircraft repair pad residual.
+    pub provides_vehicle_repair: bool,
+    /// Wave 235: structure provides aircraft repair residual.
+    pub provides_aircraft_repair: bool,
+    /// Wave 235: heal pad / medical residual.
+    pub provides_heal: bool,
 }
 
 /// Wave 229: presentation-frozen selected-unit capability for RMB classification.
@@ -702,6 +712,13 @@ pub struct PresentationSelectedUnitHint {
     pub can_move: bool,
     pub can_capture: bool,
     pub template_name: String,
+    /// Wave 235: dozer/worker repair residual.
+    pub can_repair: bool,
+    /// Wave 235: damaged unit residual (seek repair/heal).
+    pub is_damaged: bool,
+    pub is_vehicle: bool,
+    pub is_aircraft: bool,
+    pub is_infantry: bool,
 }
 
 /// Information needed for command creation from mouse input
@@ -1157,7 +1174,12 @@ impl CommandSystem {
                     &context.selected_presentation,
                     target_id,
                     hint,
-                    game_logic,
+                    // Wave 235: live dual-read only when presentation selection empty.
+                    if context.selected_presentation.is_empty() {
+                        Some(game_logic)
+                    } else {
+                        None
+                    },
                 ) {
                     return cmd;
                 }
@@ -1814,8 +1836,10 @@ impl CommandSystem {
         selected_presentation: &[PresentationSelectedUnitHint],
         target_id: ObjectId,
         hint: &PresentationTargetHint,
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
     ) -> Option<CommandType> {
+        // Wave 235: full InGame RMB classification from presentation freeze when
+        // selected_presentation is non-empty (no live dual-read required).
         if !hint.is_alive {
             return None;
         }
@@ -1825,10 +1849,11 @@ impl CommandSystem {
                     .iter()
                     .any(|u| u.is_alive && u.is_worker);
             }
-            units.iter().any(|&unit_id| {
-                game_logic
-                    .get_object(unit_id)
-                    .is_some_and(|u| u.is_alive() && u.is_worker())
+            game_logic.is_some_and(|gl| {
+                units.iter().any(|&unit_id| {
+                    gl.get_object(unit_id)
+                        .is_some_and(|u| u.is_alive() && u.is_worker())
+                })
             })
         };
         let any_attacker = || {
@@ -1837,10 +1862,11 @@ impl CommandSystem {
                     .iter()
                     .any(|u| u.is_alive && u.can_attack);
             }
-            units.iter().any(|&unit_id| {
-                game_logic
-                    .get_object(unit_id)
-                    .is_some_and(|u| u.is_alive() && u.can_attack())
+            game_logic.is_some_and(|gl| {
+                units.iter().any(|&unit_id| {
+                    gl.get_object(unit_id)
+                        .is_some_and(|u| u.is_alive() && u.can_attack())
+                })
             })
         };
         let any_capturer = || {
@@ -1849,17 +1875,32 @@ impl CommandSystem {
                     .iter()
                     .any(|u| u.is_alive && u.can_capture && u.can_move);
             }
-            units.iter().any(|&unit_id| {
-                game_logic.get_object(unit_id).is_some_and(|u| {
-                    use crate::game_logic::host_hero_abilities::{
-                        can_capture_without_upgrade, is_black_lotus_template,
-                    };
-                    let is_lotus = is_black_lotus_template(&u.template_name);
-                    let is_hero = u.is_kind_of(KindOf::Hero);
-                    u.is_alive()
-                        && u.can_move()
-                        && (u.is_kind_of(KindOf::Infantry)
-                            || can_capture_without_upgrade(is_hero, is_lotus))
+            game_logic.is_some_and(|gl| {
+                units.iter().any(|&unit_id| {
+                    gl.get_object(unit_id).is_some_and(|u| {
+                        use crate::game_logic::host_hero_abilities::{
+                            can_capture_without_upgrade, is_black_lotus_template,
+                        };
+                        let is_lotus = is_black_lotus_template(&u.template_name);
+                        let is_hero = u.is_kind_of(KindOf::Hero);
+                        u.is_alive()
+                            && u.can_move()
+                            && (u.is_kind_of(KindOf::Infantry)
+                                || can_capture_without_upgrade(is_hero, is_lotus))
+                    })
+                })
+            })
+        };
+        let any_repairer = || {
+            if !selected_presentation.is_empty() {
+                return selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.can_repair);
+            }
+            game_logic.is_some_and(|gl| {
+                units.iter().any(|&unit_id| {
+                    gl.get_object(unit_id)
+                        .is_some_and(|u| u.is_alive() && u.can_repair())
                 })
             })
         };
@@ -1890,12 +1931,64 @@ impl CommandSystem {
         {
             return Some(CommandType::ResumeConstruction { target_id });
         }
-        // Enter — prefer host can_enter when object still resolves; else fail-closed.
-        if hint.can_be_entered && !hint.is_enemy_of_local {
-            if let Some(target_obj) = game_logic.get_object(target_id) {
-                if self.can_enter_target(units, target_obj, game_logic) {
-                    return Some(CommandType::Enter { target_id });
-                }
+        // Repair damaged ally structure
+        if hint.is_structure
+            && hint.is_damaged
+            && !hint.under_construction
+            && !hint.sold
+            && (hint.is_friendly_of_local || hint.is_neutral)
+            && any_repairer()
+        {
+            return Some(CommandType::Repair { target_id });
+        }
+        // Enter friendly enterable
+        if hint.can_be_entered && !hint.is_enemy_of_local && !hint.under_construction {
+            let any_mobile = if !selected_presentation.is_empty() {
+                selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.can_move)
+            } else {
+                game_logic.is_some_and(|gl| {
+                    units.iter().any(|&id| {
+                        gl.get_object(id)
+                            .is_some_and(|u| u.is_alive() && u.can_move())
+                    })
+                })
+            };
+            if any_mobile {
+                return Some(CommandType::Enter { target_id });
+            }
+        }
+        // Get healed at heal pad
+        if hint.provides_heal && hint.is_friendly_of_local {
+            let any_injured_infantry = if !selected_presentation.is_empty() {
+                selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.is_damaged && u.is_infantry && u.can_move)
+            } else {
+                false
+            };
+            if any_injured_infantry {
+                return Some(CommandType::GetHealed { target_id });
+            }
+        }
+        // Get repaired at repair pad / war factory / airfield
+        if hint.is_friendly_of_local
+            && (hint.provides_vehicle_repair || hint.provides_aircraft_repair)
+        {
+            let any_damaged_serviceable = if !selected_presentation.is_empty() {
+                selected_presentation.iter().any(|u| {
+                    u.is_alive
+                        && u.is_damaged
+                        && u.can_move
+                        && ((u.is_vehicle && hint.provides_vehicle_repair)
+                            || (u.is_aircraft && hint.provides_aircraft_repair))
+                })
+            } else {
+                false
+            };
+            if any_damaged_serviceable {
+                return Some(CommandType::GetRepaired { target_id });
             }
         }
         None
