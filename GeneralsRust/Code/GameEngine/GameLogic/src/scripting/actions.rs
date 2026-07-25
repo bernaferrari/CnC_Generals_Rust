@@ -35,6 +35,12 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+/// Wave 295: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Script action trait
 #[async_trait]
 pub trait ScriptAction: Send + Sync {
@@ -1736,6 +1742,11 @@ fn resolve_player_name_token(raw: &str) -> String {
 }
 
 fn resolve_named_object_id(name: &str) -> Option<u32> {
+    // Wave 295: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     let tracker = crate::scripting::engine::get_named_object_tracker();
     let mut object_id = tracker.get_object_id(name).ok().flatten();
 
@@ -2375,6 +2386,11 @@ impl ScriptAction for TeamExitBuildingAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let team_name = get_string_param(parameters, "team_name")?;
 
         log::info!("Team '{}' exiting all buildings", team_name);
@@ -3939,6 +3955,11 @@ impl ScriptAction for NamedExitAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let unit_name = get_string_param(parameters, "unit_name")?;
 
         log::info!("Named unit '{}' exiting", unit_name);
@@ -4181,6 +4202,11 @@ impl ScriptAction for PlayerDisableFactoriesAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let player = get_int_param(parameters, "player")?;
 
         log::info!("Disabling factories for player {}", player);
@@ -4251,6 +4277,11 @@ impl ScriptAction for PlayerEnableFactoriesAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let player = get_int_param(parameters, "player")?;
 
         log::info!("Enabling factories for player {}", player);
@@ -4428,6 +4459,11 @@ impl ScriptAction for PlayerGarrisonAllBuildingsAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let player = get_int_param(parameters, "player")?;
 
         log::info!("Player {} garrisoning all buildings", player);
@@ -4619,6 +4655,11 @@ impl ScriptAction for PlayerEvacuateBuildingAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let player = get_int_param(parameters, "player")?;
 
         log::info!("Player {} evacuating all buildings", player);
@@ -5059,6 +5100,11 @@ impl ScriptAction for CameraTrackNamedAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let unit_name = get_string_param(parameters, "unit_name")?;
         let snap = parameters
             .get("snap")
@@ -5712,6 +5758,11 @@ impl ScriptAction for ObjectCreateRadarEventAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let object_name = get_string_param(parameters, "object_name")
             .or_else(|_| get_string_param(parameters, "unit_name"))?;
         let event_type = get_int_param(parameters, "event_type")? as i32;
@@ -6931,6 +6982,11 @@ impl ScriptAction for DamageObjectAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let object_name = get_string_param(parameters, "object")?;
         let damage = get_int_param(parameters, "damage")?;
 
@@ -7012,6 +7068,11 @@ impl ScriptAction for KillObjectAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let object_name = get_string_param(parameters, "object")?;
 
         log::info!("Killing object '{}'", object_name);
@@ -7073,6 +7134,11 @@ impl ScriptAction for HealObjectAction {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
+        // Wave 295: empty dual-world → Success(None).
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptResult::Success(None));
+        }
+
         let object_name = get_string_param(parameters, "object")?;
         let amount = get_int_param(parameters, "amount")?;
 

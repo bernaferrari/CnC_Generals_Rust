@@ -314,6 +314,7 @@ pub mod host_live_rider_change_contain_dual_world_empty_gate_residual_wave277;
 pub mod host_live_rmb_presentation_full_classify_residual_wave235;
 pub mod host_live_rmb_selected_presentation_only_residual_wave229;
 pub mod host_live_rmb_target_presentation_only_residual_wave228;
+pub mod host_live_script_actions_dual_world_empty_gate_residual_wave295;
 pub mod host_live_script_conditions_dual_world_empty_gate_residual_wave271;
 pub mod host_live_script_executor_dual_world_empty_gate_residual_wave284;
 pub mod host_live_selection_commands_presentation_only_residual_wave218;
@@ -2304,6 +2305,12 @@ pub use host_live_rmb_target_presentation_only_residual_wave228::{
     honesty_live_rmb_target_presentation_only_nav_commands_residual_wave228,
     honesty_live_rmb_target_presentation_only_residual_pack_wave228,
     simulate_live_rmb_target_presentation_only_honesty,
+};
+pub use host_live_script_actions_dual_world_empty_gate_residual_wave295::{
+    honesty_live_script_actions_dual_world_empty_gate_method_names_residual_wave295,
+    honesty_live_script_actions_dual_world_empty_gate_nav_commands_residual_wave295,
+    honesty_live_script_actions_dual_world_empty_gate_residual_pack_wave295,
+    simulate_live_script_actions_dual_world_empty_gate_honesty,
 };
 pub use host_live_script_conditions_dual_world_empty_gate_residual_wave271::{
     honesty_live_script_conditions_dual_world_empty_gate_method_names_residual_wave271,
