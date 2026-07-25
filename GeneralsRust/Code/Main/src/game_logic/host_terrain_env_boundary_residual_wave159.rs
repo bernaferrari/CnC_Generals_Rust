@@ -152,7 +152,7 @@ pub fn simulate_terrain_env_boundary_sync_source() -> bool {
     let body = &src[at..src.len().min(at + 1500)];
     let ok = body.contains("Only seed when no presentation is set yet")
         && body.contains("presentation_frame().is_none()")
-        && body.contains("PresentationFrame::build_from_logic")
+        && body.contains("PresentationFrame::build_for_engine")
         && body.contains("set_presentation_frame");
     residual_teb_action_store(ResidualTerrainEnvBoundaryAction::SyncSource);
     ok
