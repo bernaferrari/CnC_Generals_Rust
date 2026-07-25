@@ -140,6 +140,7 @@ pub mod host_combat_cycle;
 pub mod host_combat_sim_residual;
 mod host_command_button_hunt;
 pub mod host_command_button_residual;
+pub mod host_control_bar_materialise_residual_wave165;
 pub mod host_control_bar_print_positions_residual_wave158;
 pub mod host_control_bar_residual_wave133;
 pub mod host_control_bar_resizer_residual_wave147;
@@ -1479,6 +1480,12 @@ pub use host_challenge_menu_residual_wave120::{
     honesty_challenge_menu_control_names_residual_wave120,
     honesty_challenge_menu_nav_commands_residual_wave120,
     honesty_challenge_menu_residual_pack_wave120,
+};
+pub use host_control_bar_materialise_residual_wave165::{
+    honesty_control_bar_materialise_method_names_residual_wave165,
+    honesty_control_bar_materialise_nav_commands_residual_wave165,
+    honesty_control_bar_materialise_residual_pack_wave165,
+    simulate_control_bar_materialise_honesty_wave165,
 };
 pub use host_control_bar_print_positions_residual_wave158::{
     honesty_control_bar_print_names_residual_wave158,

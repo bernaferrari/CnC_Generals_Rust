@@ -2750,6 +2750,14 @@ impl CnCGameEngine {
                             simulate_control_bar_communicator_button_gadget_selected()
                         }
                         "prepare_options" => simulate_control_bar_prepare_options(),
+                        // Wave 165: ControlBar.wnd headless materialise residual.
+                        "resolve" | "validate" => {
+                            crate::gameplay_layout::control_bar_layout_honesty(false)
+                                .shell_residual_ok()
+                        }
+                        "load" | "materialise" => {
+                            crate::game_logic::simulate_control_bar_materialise_honesty_wave165()
+                        }
                         _ => simulate_control_bar_options_button_gadget_selected(),
                     };
                 }
