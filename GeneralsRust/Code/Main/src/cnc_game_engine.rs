@@ -5693,6 +5693,23 @@ impl CnCGameEngine {
                     format!("click_live_path_guard_authority_api_miss_{action}")
                 };
             }
+            "click_live_hotkey_selection_camera_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_hotkey_selection_camera_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_hotkey_selection_camera_presentation_only_residual_pack_wave226(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_hotkey_selection_camera_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_hotkey_selection_camera_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -16620,14 +16637,8 @@ impl CnCGameEngine {
         if !self.camera_tracking_selection {
             return;
         }
-        let ids = if !self.selected_objects.is_empty() {
-            self.selected_objects.clone()
-        } else {
-            self.game_logic
-                .get_player(self.current_player_id)
-                .map(|p| p.selected_objects.clone())
-                .unwrap_or_default()
-        };
+        // Wave 226: selection via presentation-first ui_selected_ids.
+        let ids = self.ui_selected_ids(self.current_player_id);
         if ids.is_empty() {
             return;
         }
@@ -16755,16 +16766,21 @@ impl CnCGameEngine {
 
     /// Retail CAMERA_RESET (KEY_KP5) residual.
     fn reset_camera_view_hotkey(&mut self) {
-        let focus = if let Some(pos) = self
+        // Wave 226: prefer presentation freeze for reset focus (team base / friendlies).
+        let focus = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame
+                .local_team_base_position
+                .or_else(|| {
+                    frame.centroid_of_ids(&frame.alive_selectable_friendly_ids(frame.local_team()))
+                })
+                .unwrap_or(self.camera_target)
+        } else if let Some(pos) = self
             .game_logic
             .get_player(self.current_player_id)
             .and_then(|p| self.game_logic.command_center_position(p.team))
         {
+            // Boot residual only.
             pos
-        } else if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame
-                .centroid_of_ids(&frame.alive_selectable_friendly_ids(frame.local_team()))
-                .unwrap_or(self.camera_target)
         } else {
             self.camera_target
         };
@@ -16922,19 +16938,9 @@ impl CnCGameEngine {
     /// Resume unfinished construction with selected dozers residual (Alt+E).
     fn resume_selected_construction(&mut self) {
         let player_id = self.current_player_id;
-        let selected = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_else(|| self.selected_objects.clone());
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            self.game_logic
-                .get_player(player_id)
-                .map(|p| p.team)
-                .unwrap_or(crate::game_logic::Team::USA)
-        };
+        // Wave 226: selection/team via presentation-first helpers.
+        let selected = self.ui_selected_ids(player_id);
+        let team = self.local_team_for_ui();
         let unfinished: Vec<_> = selected
             .iter()
             .copied()
