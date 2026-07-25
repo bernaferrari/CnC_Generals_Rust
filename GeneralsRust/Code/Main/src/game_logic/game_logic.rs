@@ -61155,6 +61155,18 @@ impl GameLogic {
         self.objects.get_mut(&id)
     }
 
+    /// Wave 227: alive probe without exposing `&Object` to engine dual-read paths.
+    #[inline]
+    pub fn object_is_alive(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.is_alive())
+    }
+
+    /// Wave 227: world position probe without exposing `&Object` to engine dual-read paths.
+    #[inline]
+    pub fn object_position(&self, id: ObjectId) -> Option<glam::Vec3> {
+        self.objects.get(&id).map(|o| o.get_position())
+    }
+
     /// Wave 224: host residual — force-complete an under-construction structure
     /// (train/construct producer path). Authority mutation owned by GameLogic.
     pub fn force_complete_construction(&mut self, id: ObjectId) -> bool {
