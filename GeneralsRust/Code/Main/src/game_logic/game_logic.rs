@@ -28458,7 +28458,8 @@ impl GameLogic {
                 let _ = c.remove_occupant(*pid);
             }
             if let Some(p) = self.objects.get_mut(pid) {
-                p.contained_by = None;
+                // Wave 201: host_contain_log last-writer (do not bypass set_contained_by).
+                p.set_contained_by(None);
                 p.target = None;
                 // Spread slightly so units don't stack.
                 let angle = (i as f32) * 0.9;
@@ -91565,7 +91566,7 @@ mod tests {
             bus.occupants.clear();
         }
         if let Some(r) = game_logic.find_object_mut(rider_id) {
-            r.contained_by = None;
+            r.set_contained_by(None);
         }
         // Advance past ground check + land + empty delay.
         for f in 2..90 {

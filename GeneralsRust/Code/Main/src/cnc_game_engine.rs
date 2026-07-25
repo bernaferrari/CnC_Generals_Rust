@@ -5247,6 +5247,25 @@ impl CnCGameEngine {
                     format!("click_live_command_rally_log_miss_{action}")
                 };
             }
+            "click_live_evacuate_contain_log" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_evacuate_contain_log_honesty()
+                    }
+                    _ => {
+                        crate::game_logic::honesty_live_evacuate_contain_log_residual_pack_wave201()
+                    }
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_evacuate_contain_log_ok_{action}")
+                } else {
+                    format!("click_live_evacuate_contain_log_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -14464,9 +14483,11 @@ impl CnCGameEngine {
         // prefer presentation residual rather than re-querying live GameLogic mid-sync.
         // Only seed when no presentation is set yet (map-load path).
         if render_pipeline.presentation_frame().is_none() {
-            let env_frame = crate::presentation_frame::PresentationFrame::build_from_logic(
+            // Wave 201: single presentation builder (no shadow in this free fn → host residual only).
+            let env_frame = crate::presentation_frame::PresentationFrame::build_for_engine(
                 game_logic,
                 game_logic.get_frame() as u32,
+                None,
             );
             render_pipeline.set_presentation_frame(Some(env_frame));
         }
@@ -20784,7 +20805,9 @@ impl CnCGameEngine {
 
         // Prefer PresentationFrame model_key freeze; live template fallback.
         let mut unique_models: HashSet<String> = HashSet::new();
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(game_logic, 0);
+        // Wave 201: presentation model_key freeze via engine builder (no shadow).
+        let frame =
+            crate::presentation_frame::PresentationFrame::build_for_engine(game_logic, 0, None);
         for key in frame.unique_model_keys() {
             unique_models.insert(key);
         }
