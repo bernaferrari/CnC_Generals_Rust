@@ -1,5 +1,5 @@
 use crate::assets::get_asset_manager;
-use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
+use crate::fow_rendering::ObjectVisibility;
 use crate::game_logic::ObjectId as ObjectID;
 use crate::ui::UiTextureId;
 use anyhow::Result;
@@ -1347,9 +1347,8 @@ impl RenderPipeline {
         let mut fow_filtered = 0usize;
         let mut frustum_culled = 0usize;
         let mut model_missing = 0usize;
-        // Presentation path: no live shroud batch.
+        // Wave 213: presentation FOW only — no live shroud batch / empty map residual.
         let visibility_started = Instant::now();
-        let visibilities: std::collections::HashMap<ObjectID, _> = std::collections::HashMap::new();
         let visibility_elapsed = visibility_started.elapsed();
 
         let view_proj = *projection_matrix * *view_matrix;
@@ -1377,7 +1376,10 @@ impl RenderPipeline {
             alive_objects += 1;
 
             // FOW never-explored skip: presentation path uses snapshot only.
-            let fow_visibility = if let Some(snap_vis) = snapshot_fow {
+            // Wave 213: unit inputs always carry presentation FOW snapshot.
+            let fow_visibility = {
+                let snap_vis =
+                    snapshot_fow.expect("unit_render_inputs always stamp fow_visibility");
                 if !bypass_fow && !snap_vis.should_render() {
                     fow_filtered += 1;
                     trace!(
@@ -1392,20 +1394,6 @@ impl RenderPipeline {
                 } else {
                     snap_vis
                 }
-            } else {
-                if !bypass_fow && !self.should_render_object(object_id) {
-                    fow_filtered += 1;
-                    trace!(
-                        "Skipping object {} - never explored by player {}",
-                        object_id,
-                        self.current_player_id
-                    );
-                    continue;
-                }
-                visibilities
-                    .get(&object_id)
-                    .copied()
-                    .unwrap_or_else(ObjectVisibility::default)
             };
 
             let world_position = world_matrix.w_axis.truncate();
@@ -2257,68 +2245,7 @@ impl RenderPipeline {
         self.current_player_id
     }
 
-    /// Apply FOW visibility to a render object
-    ///
-    /// This function queries the FOWRenderingBridge to get visibility data
-    /// and returns it for use in shader uniforms.
-    ///
-    /// # Arguments
-    ///
-    /// * `object_id` - The object to check visibility for
-    ///
-    /// # Returns
-    ///
-    /// ObjectVisibility with alpha, explored state, and falloff values
-    pub fn apply_fow_visibility_to_render_object(&self, object_id: ObjectID) -> ObjectVisibility {
-        // Query FOW system for this object's visibility to current player
-        let visibility =
-            FOWRenderingBridge::get_object_visibility(self.current_player_id, object_id);
-
-        trace!(
-            "FOW visibility for object {} (player {}): alpha={}, explored={}, falloff={}",
-            object_id,
-            self.current_player_id,
-            visibility.visibility_alpha,
-            visibility.is_explored,
-            visibility.visibility_falloff
-        );
-
-        visibility
-    }
-
-    /// Check if an object should be rendered based on FOW visibility
-    ///
-    /// Objects that have never been seen are not rendered at all.
-    /// Objects that are explored but not currently visible are rendered with darkening.
-    ///
-    /// # Arguments
-    ///
-    /// * `object_id` - The object to check
-    ///
-    /// # Returns
-    ///
-    /// true if the object should be rendered (even if darkened)
-    pub fn should_render_object(&self, object_id: ObjectID) -> bool {
-        FOWRenderingBridge::should_render_object(self.current_player_id, object_id)
-    }
-
-    /// Batch query FOW visibility for multiple objects
-    ///
-    /// More efficient than individual queries when checking many objects.
-    ///
-    /// # Arguments
-    ///
-    /// * `object_ids` - List of objects to check
-    ///
-    /// # Returns
-    ///
-    /// Map of object_id to visibility state
-    pub fn get_batch_fow_visibility(
-        &self,
-        object_ids: &[ObjectID],
-    ) -> std::collections::HashMap<ObjectID, ObjectVisibility> {
-        FOWRenderingBridge::get_all_object_visibilities(self.current_player_id, object_ids)
-    }
+    // Wave 213: live FOW query helpers removed — unit mesh path is presentation snapshot only.
 
     /// Initialize minimap FOW texture renderer
     ///
