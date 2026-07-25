@@ -6890,6 +6890,23 @@ impl CnCGameEngine {
                     format!("click_live_script_actions_dual_world_empty_gate_miss_{action}")
                 };
             }
+            "click_live_special_ability_dual_world_empty_gate" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_special_ability_dual_world_empty_gate_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_special_ability_dual_world_empty_gate_residual_pack_wave296(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_special_ability_dual_world_empty_gate_ok_{action}")
+                } else {
+                    format!("click_live_special_ability_dual_world_empty_gate_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();

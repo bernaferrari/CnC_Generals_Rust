@@ -5,6 +5,7 @@
 
 use crate::common::audio::AudioEventRts;
 use crate::common::{AsciiString, Coord3D, ParticleSystemTemplate};
+
 // use game_engine::ini::IniField;
 use crate::common::science::{ScienceType, SCIENCE_INVALID};
 use crate::common::types::SpecialPowerType as CommonSpecialPowerType;
@@ -13,6 +14,12 @@ use crate::common::types::{
 };
 use crate::object::special_power_module::Waypoint;
 use crate::object::update::special_power_update::SpecialPowerCommandOption;
+
+/// Wave 296: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
 type UpdateSleepTime = crate::modules::UpdateSleepTime;
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = crate::modules::UPDATE_SLEEP_FOREVER;
 const UPDATE_SLEEP_NONE: UpdateSleepTime = crate::modules::UPDATE_SLEEP_NONE;
@@ -547,6 +554,11 @@ impl SpecialAbilityUpdate {
 
     /// Short-lived Arc resolve; prefer `with_object` / `get_object_id`.
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 296: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -669,6 +681,11 @@ impl SpecialAbilityUpdate {
     }
 
     fn init_laser(&mut self, special_object_id: ObjectID, target_id: Option<ObjectID>) -> bool {
+        // Wave 296: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let bone_name = self
             .module_data
             .special_object_attach_to_bone_name
@@ -729,6 +746,11 @@ impl SpecialAbilityUpdate {
     }
 
     fn is_within_start_ability_range(&self) -> bool {
+        // Wave 296: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let mut range = self.module_data.start_ability_range;
         let undersize = PATHFIND_CELL_SIZE_F * 0.25;
         range = (range - undersize).max(0.0);
@@ -791,6 +813,11 @@ impl SpecialAbilityUpdate {
     }
 
     fn is_within_ability_abort_range(&self) -> bool {
+        // Wave 296: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let mut range = self.module_data.start_ability_range;
         let undersize = PATHFIND_CELL_SIZE_F * 0.25;
         range = (range - undersize).max(0.0);
@@ -854,6 +881,11 @@ impl SpecialAbilityUpdate {
     }
 
     fn approach_target(&mut self) -> bool {
+        // Wave 296: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let target_id = self.target_id;
         let target_pos = self.target_pos;
         self.with_object(|obj_guard| {
@@ -1089,6 +1121,11 @@ impl SpecialAbilityUpdate {
     }
 
     fn trigger_ability_effect(&mut self) {
+        // Wave 296: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let template = match self.get_template() {
             Some(t) => t,
             None => return,
