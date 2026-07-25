@@ -4046,6 +4046,9 @@ impl CnCGameEngine {
                         h.shell_residual_ok()
                     }
                     "load" => crate::gameplay_layout::simulate_main_menu_wnd_prepare_load_honesty(),
+                    "materialise" => {
+                        crate::game_logic::simulate_main_menu_wnd_materialise_honesty()
+                    }
                     _ => crate::gameplay_layout::simulate_main_menu_wnd_prepare_honesty(),
                 };
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
