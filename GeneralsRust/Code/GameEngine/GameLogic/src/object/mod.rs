@@ -133,6 +133,13 @@ use crate::object::helper::{
     TempWeaponBonusHelper,
 };
 use crate::object::registry::OBJECT_REGISTRY;
+
+/// Wave 264: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 use crate::object::special_power_types::{SpecialPowerMask, SpecialPowerType};
 use crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeHandle;
 use crate::object::upgrade::status_bits_upgrade::StatusBitsUpgradeHandle;
@@ -1452,6 +1459,11 @@ impl ExitInterface for ExitInterfaceProxy {
         obj_id: ObjectID,
         door: crate::modules::ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1471,6 +1483,11 @@ impl ExitInterface for ExitInterfaceProxy {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1490,6 +1507,11 @@ impl ExitInterface for ExitInterfaceProxy {
         obj_id: ObjectID,
         host_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1554,6 +1576,11 @@ impl ExitInterface for ContainExitInterfaceProxy {
         obj_id: ObjectID,
         door: crate::modules::ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1572,6 +1599,11 @@ impl ExitInterface for ContainExitInterfaceProxy {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1623,6 +1655,11 @@ impl ExitInterface for ModuleExitInterfaceProxy {
         obj_id: ObjectID,
         door: crate::modules::ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1639,6 +1676,11 @@ impl ExitInterface for ModuleExitInterfaceProxy {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1654,6 +1696,11 @@ impl ExitInterface for ModuleExitInterfaceProxy {
         obj_id: ObjectID,
         host_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -3026,11 +3073,21 @@ impl Object {
     }
 
     pub fn get_next_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 264: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         self.next_object_id
             .and_then(|object_id| OBJECT_REGISTRY.get_object(object_id))
     }
 
     pub fn get_prev_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 264: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         self.prev_object_id
             .and_then(|object_id| OBJECT_REGISTRY.get_object(object_id))
     }
@@ -3215,6 +3272,11 @@ impl Object {
     /// Mirrors C++ Object::checkAndDetonateBoobyTrap.
     /// ID-based victim check; prefer over Arc-resolved `&Object` at call sites.
     pub fn check_and_detonate_booby_trap_for_victim_id(&self, victim_id: Option<ObjectID>) -> bool {
+        // Wave 264: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         match victim_id {
             Some(id) if id != INVALID_ID => crate::object::registry::OBJECT_REGISTRY
                 .with_object(id, |victim| {
@@ -4152,6 +4214,11 @@ impl Object {
         &mut self,
         pos: &Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let source_bonus_flags = self.weapon_bonus_condition;
         let container_bonus_flags = self.get_container_id().and_then(|container_id| {
             crate::object::registry::OBJECT_REGISTRY
@@ -4213,6 +4280,11 @@ impl Object {
         slot: WeaponSlotType,
         pos: &Coord3D,
     ) -> Result<(), ObjectError> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let source_bonus_flags = self.weapon_bonus_condition;
         let container_bonus_flags = self.get_container_id().and_then(|container_id| {
             crate::object::registry::OBJECT_REGISTRY
@@ -4592,6 +4664,11 @@ impl Object {
     }
 
     pub fn get_current_victim(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 264: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let victim_id = self.get_current_victim_id()?;
         crate::helpers::TheGameLogic::find_object_by_id(victim_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(victim_id))
@@ -4599,6 +4676,11 @@ impl Object {
 
     /// Get the current victim/target position of this object
     pub fn get_current_victim_pos(&self) -> Option<Coord3D> {
+        // Wave 264: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let victim_id = self.get_current_victim_id()?;
         crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |v| *v.get_position())
     }
@@ -7450,6 +7532,11 @@ impl Object {
     /// - Notifies firing tracker for statistics
     /// - Releases temporary weapon locks if reloaded
     pub fn fire_current_weapon_at_target(&mut self, target: &Object) -> Result<(), ObjectError> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Check if target is valid
         if target.is_destroyed() {
             return Err(ObjectError::TargetInvalid);
@@ -7764,6 +7851,11 @@ impl Object {
     }
 
     pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 264: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let goal_id = self.get_goal_object_id()?;
         crate::helpers::TheGameLogic::find_object_by_id(goal_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
@@ -8191,6 +8283,11 @@ impl Object {
     }
 
     fn look(&mut self) {
+        // Wave 264: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !self.partition_last_look.is_invalid() {
             warn!("Object {} look called without unlook", self.id);
             return;
@@ -9568,6 +9665,11 @@ impl Object {
 
     /// Find live enemy objects within 2D radius using the global partition registry.
     pub fn find_enemy_ids_in_radius(&self, radius: f32) -> Result<Vec<ObjectID>, String> {
+        // Wave 264: empty dual-world → Ok(empty).
+        if dual_world_registry_unavailable() {
+            return Ok(Vec::new());
+        }
+
         let Some(partition) = ThePartitionManager::get() else {
             return Ok(Vec::new());
         };
@@ -9594,6 +9696,11 @@ impl Object {
 
     /// Compatibility wrapper: resolves enemy IDs to handles at the call boundary.
     pub fn find_enemies_in_radius(&self, radius: f32) -> Result<Vec<Arc<RwLock<Object>>>, String> {
+        // Wave 264: empty dual-world → Ok(empty).
+        if dual_world_registry_unavailable() {
+            return Ok(Vec::new());
+        }
+
         let mut enemies = Vec::new();
         for object_id in self.find_enemy_ids_in_radius(radius)? {
             if let Some(object) = registry::OBJECT_REGISTRY.get_object(object_id) {
@@ -10577,6 +10684,11 @@ impl Object {
         target: &Object,
         source: CommandSource,
     ) -> Result<(), String> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         use crate::ai::{AiCommandParams, AiCommandType};
         use crate::commands::command::CommandType;
         use crate::control_bar::get_control_bar_bridge;
@@ -11088,6 +11200,11 @@ impl Object {
     /// * `Ok(())` - Containment handled successfully
     /// * `Err(ObjectError)` - Failed to handle containment
     pub fn on_contained_by(&mut self, container_id: ObjectID) -> Result<(), ObjectError> {
+        // Wave 264: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         use crate::common::types::ObjectStatusMaskType;
         use crate::modules::ContainModuleInterfaceExt;
 
@@ -11348,6 +11465,11 @@ impl Object {
     }
 
     pub fn get_container(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 264: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let container_id = self.get_container_id()?;
         crate::helpers::TheGameLogic::find_object_by_id(container_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(container_id))
@@ -11444,6 +11566,11 @@ impl Object {
     /// * `new_team` - The team to defect to
     /// * `defection_type` - Type of defection (0 = normal)
     pub fn defect(&mut self, new_team: Option<Arc<RwLock<Team>>>, defection_type: u32) {
+        // Wave 264: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ parity: contained units do not defect.
         if self.get_container_id().is_some() {
             return;
@@ -12303,6 +12430,11 @@ impl Object {
     }
 
     pub fn is_hero(&self) -> bool {
+        // Wave 264: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(contain) = self.get_contain() {
             if let Ok(guard) = contain.lock() {
                 for &contained_id in guard.get_contained_objects() {
