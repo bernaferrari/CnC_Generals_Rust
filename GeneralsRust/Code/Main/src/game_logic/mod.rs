@@ -213,6 +213,7 @@ pub mod host_main_menu_buttons_residual_wave118;
 pub mod host_main_menu_campaign_residual_wave119;
 pub mod host_main_menu_layout_residual_wave155;
 pub mod host_main_menu_skirmish_nav_residual_wave114;
+pub mod host_main_menu_wnd_load_residual_wave161;
 pub mod host_main_menu_wnd_residual_wave160;
 pub mod host_map_select_menu_residual_wave132;
 pub mod host_marauder;
@@ -1575,6 +1576,11 @@ pub use host_main_menu_skirmish_nav_residual_wave114::{
     honesty_main_menu_skirmish_names_residual_wave114,
     honesty_main_menu_skirmish_nav_residual_pack_wave114,
     honesty_main_menu_skirmish_nav_steps_residual_wave114,
+};
+pub use host_main_menu_wnd_load_residual_wave161::{
+    honesty_main_menu_wnd_load_method_names_residual_wave161,
+    honesty_main_menu_wnd_load_nav_commands_residual_wave161,
+    honesty_main_menu_wnd_load_residual_pack_wave161,
 };
 pub use host_main_menu_wnd_residual_wave160::{
     honesty_main_menu_wnd_names_residual_wave160,

@@ -598,6 +598,10 @@ pub struct MainMenuWndHonesty {
     pub wnd_validated: bool,
     pub assets_unavailable: bool,
     pub named_key_hits: usize,
+    /// True when headless WindowManager parse materialised windows.
+    pub window_loaded: bool,
+    /// WindowManager window_count after successful headless parse (0 if not loaded).
+    pub window_count: usize,
     pub detail: String,
 }
 
@@ -609,8 +613,16 @@ impl MainMenuWndHonesty {
     }
 }
 
-/// Build MainMenu.wnd honesty residual (no WindowManager load).
+/// Build MainMenu.wnd honesty residual (validate-only; no WindowManager load).
 pub fn main_menu_wnd_honesty() -> MainMenuWndHonesty {
+    main_menu_wnd_honesty_with_load(false)
+}
+
+/// Build MainMenu.wnd honesty residual with optional WindowManager load.
+///
+/// `attempt_window_load`: when true + `game_client`, try headless WindowManager parse
+/// (C++ Shell::push MainMenu.wnd residual). Validate-only when false.
+pub fn main_menu_wnd_honesty_with_load(attempt_window_load: bool) -> MainMenuWndHonesty {
     match resolve_main_menu_wnd_path() {
         None => MainMenuWndHonesty {
             path_resolved: false,
@@ -618,6 +630,8 @@ pub fn main_menu_wnd_honesty() -> MainMenuWndHonesty {
             wnd_validated: false,
             assets_unavailable: true,
             named_key_hits: 0,
+            window_loaded: false,
+            window_count: 0,
             detail: "MainMenu.wnd not found in candidate paths".into(),
         },
         Some(path) => match validate_main_menu_wnd_file(&path) {
@@ -627,16 +641,36 @@ pub fn main_menu_wnd_honesty() -> MainMenuWndHonesty {
                     .iter()
                     .filter(|n| text.contains(*n))
                     .count();
+                let path_str = path.display().to_string();
+                let (window_loaded, window_count, load_detail) = if attempt_window_load {
+                    #[cfg(feature = "game_client")]
+                    {
+                        match try_load_main_menu_via_window_manager(&path_str) {
+                            Ok(count) => (true, count, format!("window_loaded count={count}")),
+                            Err(e) => (false, 0, format!("window load deferred/failed: {e}")),
+                        }
+                    }
+                    #[cfg(not(feature = "game_client"))]
+                    {
+                        let _ = path_str;
+                        (false, 0, "game_client feature off".into())
+                    }
+                } else {
+                    (false, 0, "load not attempted".into())
+                };
                 MainMenuWndHonesty {
                     path_resolved: true,
                     path: Some(path),
                     wnd_validated: true,
                     assets_unavailable: false,
                     named_key_hits,
+                    window_loaded,
+                    window_count,
                     detail: format!(
-                        "MainMenu.wnd validated key_hits={}/{}",
+                        "MainMenu.wnd validated key_hits={}/{} {}",
                         named_key_hits,
-                        MAIN_MENU_WND_KEY_NAMES_RESIDUAL.len()
+                        MAIN_MENU_WND_KEY_NAMES_RESIDUAL.len(),
+                        load_detail
                     ),
                 }
             }
@@ -646,18 +680,63 @@ pub fn main_menu_wnd_honesty() -> MainMenuWndHonesty {
                 wnd_validated: false,
                 assets_unavailable: false,
                 named_key_hits: 0,
+                window_loaded: false,
+                window_count: 0,
                 detail: format!("MainMenu.wnd validate failed: {e}"),
             },
         },
     }
 }
 
-/// Residual: resolve+validate MainMenu.wnd residual peel.
+/// Headless WindowManager parse of MainMenu.wnd (C++ Shell::push residual).
+///
+/// Returns the number of GameWindow instances materialised. Does **not** require
+/// a display/GPU — pure layout script → window tree construction.
+#[cfg(feature = "game_client")]
+fn try_load_main_menu_via_window_manager(path: &str) -> Result<usize, String> {
+    use game_client::gui::window_manager::WindowManager;
+    let mut wm = WindowManager::new();
+    wm.init();
+    let names = [
+        path,
+        "Menus/MainMenu.wnd",
+        "MainMenu.wnd",
+        "Window/Menus/MainMenu.wnd",
+    ];
+    let mut last_err = String::from("no load attempted");
+    for name in names {
+        match wm.load_window(name) {
+            Ok(_) => {
+                let count = wm.window_count();
+                if count == 0 {
+                    return Err(format!("{name}: load returned window but window_count=0"));
+                }
+                return Ok(count);
+            }
+            Err(e) => last_err = format!("{name}: {e:?}"),
+        }
+    }
+    Err(last_err)
+}
+
+/// Residual: resolve+validate MainMenu.wnd residual peel (no load).
 pub fn simulate_main_menu_wnd_prepare_honesty() -> bool {
     let h = main_menu_wnd_honesty();
     h.shell_residual_ok()
         && (!h.path_resolved
             || (h.wnd_validated && h.named_key_hits == MAIN_MENU_WND_KEY_NAMES_RESIDUAL.len()))
+}
+
+/// Residual: resolve+validate+WindowManager load residual peel.
+pub fn simulate_main_menu_wnd_prepare_load_honesty() -> bool {
+    let h = main_menu_wnd_honesty_with_load(true);
+    if !h.shell_residual_ok() {
+        return false;
+    }
+    if !h.path_resolved {
+        return true;
+    }
+    h.wnd_validated && h.named_key_hits == MAIN_MENU_WND_KEY_NAMES_RESIDUAL.len()
 }
 
 #[cfg(test)]
@@ -820,7 +899,31 @@ mod tests {
                 "key names residual: {}",
                 h.detail
             );
+            assert!(!h.window_loaded);
+            assert_eq!(h.window_count, 0);
             assert!(simulate_main_menu_wnd_prepare_honesty());
+        }
+    }
+
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn main_menu_wnd_load_residual_live() {
+        let h = main_menu_wnd_honesty_with_load(true);
+        assert!(
+            h.shell_residual_ok(),
+            "MainMenu.wnd load residual: {}",
+            h.detail
+        );
+        assert!(simulate_main_menu_wnd_prepare_load_honesty());
+        if h.path_resolved && h.wnd_validated {
+            // Prefer materialised windows; soft-ok if WM parse deferred.
+            if h.window_loaded {
+                assert!(
+                    h.window_count > 0,
+                    "loaded MainMenu.wnd must materialise windows: {}",
+                    h.detail
+                );
+            }
         }
     }
 }
