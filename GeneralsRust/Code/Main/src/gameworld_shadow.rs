@@ -7770,33 +7770,56 @@ pub struct GameWorldEntityView {
     pub position: [f32; 3],
     pub orientation: f32,
     pub health: f32,
+    /// Host max HP residual (presentation health bar).
+    pub max_health: f32,
+    /// Team ordinal: 0 USA, 1 China, 2 GLA, 255 Neutral.
+    pub team_ordinal: u8,
+    pub selected: bool,
+    pub destroyed: bool,
+    pub velocity: [f32; 3],
+    pub move_max_speed: f32,
+    pub move_target: Option<[f32; 3]>,
+    pub body_damage_state: u8,
+    pub team_color: [f32; 4],
 }
 
 pub fn presentation_view_from_gameworld(
     world: &GameWorld,
     local_player_index: u8,
 ) -> GameWorldPresentationView {
-    let snap = world.snapshot();
-    let local_supplies = snap
-        .players
-        .iter()
-        .find(|p| p.id.get() == local_player_index)
+    // Prefer live Entity store over thin EntitySummary so observe-path carries
+    // motion/selection/body identity (Wave 191).
+    let local_supplies = world
+        .player(gamelogic::world::PlayerId::from_index(local_player_index))
         .map(|p| p.supplies)
         .unwrap_or(0);
-    let entities = snap
-        .entities
-        .into_iter()
+    let entities = world
+        .world()
+        .entities()
         .map(|e| GameWorldEntityView {
             id: e.id.get(),
-            template: e.template,
+            template: e.template.name.clone(),
             owner: e.owner.map(|o| o.get()),
-            position: e.position,
-            orientation: e.orientation,
+            position: [
+                e.transform.position.x,
+                e.transform.position.y,
+                e.transform.position.z,
+            ],
+            orientation: e.transform.orientation,
             health: e.health,
+            max_health: e.max_health,
+            team_ordinal: e.team_ordinal,
+            selected: e.selected,
+            destroyed: e.destroyed || e.health <= 0.0,
+            velocity: e.velocity,
+            move_max_speed: e.move_max_speed,
+            move_target: e.move_target,
+            body_damage_state: e.body_damage_state,
+            team_color: e.team_color,
         })
         .collect();
     GameWorldPresentationView {
-        frame: snap.frame,
+        frame: world.frame(),
         local_supplies,
         entities,
     }
