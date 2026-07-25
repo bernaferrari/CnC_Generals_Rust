@@ -40,6 +40,12 @@ use game_engine::common::thing::module::{
 };
 use log::warn;
 
+/// Wave 286: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 fn terrain_layer_to_logic_layer(layer: crate::path::PathfindLayerEnum) -> PathfindLayerEnum {
     match layer {
         crate::path::PathfindLayerEnum::Ground => PathfindLayerEnum::Ground,
@@ -542,6 +548,11 @@ impl DumbProjectileBehavior {
         thing: Arc<dyn ModuleThing>,
         module_data: Arc<DumbProjectileBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 286: empty dual-world → missing object.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world registry unavailable".into());
+        }
+
         let module_object = thing
             .as_object()
             .ok_or_else(|| "DumbProjectileBehavior requires an owning object".to_string())?;
@@ -587,6 +598,11 @@ impl DumbProjectileBehavior {
     fn get_object(
         &self,
     ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 286: empty dual-world → missing object.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world registry unavailable".into());
+        }
+
         let id = self.owner_object_id();
         if id == OBJECT_INVALID_ID {
             return Err("DumbProjectileBehavior missing owning object id".into());
@@ -765,6 +781,11 @@ impl DumbProjectileBehavior {
         &mut self,
         pos: &Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 286: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Check object collisions first (matches DumbProjectileBehavior::projectileHandleCollision).
         if let Some(partition) = ThePartitionManager::get() {
             let candidates = partition.get_objects_in_range_boundary_2d(pos, 0.0);
@@ -1076,6 +1097,11 @@ impl DumbProjectileBehavior {
 
 impl UpdateModuleInterface for DumbProjectileBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 286: empty dual-world → sleep none.
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::None);
+        }
+
         let now = self.get_current_frame();
         if self.lifespan_frame != 0 && now >= self.lifespan_frame {
             self.detonate()?;
@@ -1142,6 +1168,11 @@ impl ProjectileUpdateInterface for DumbProjectileBehavior {
     }
 
     fn projectile_now_jammed(&mut self) {
+        // Wave 286: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
             guard.set_model_condition_state(MODELCONDITION_JAMMED);
         });
