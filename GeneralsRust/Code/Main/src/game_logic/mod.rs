@@ -167,6 +167,7 @@ pub mod host_enemy_near;
 pub mod host_enum_table_residual;
 pub mod host_env_contain_residual;
 pub mod host_eva_residual_wave143;
+pub mod host_executable_gameworld_presentation_residual_wave188;
 pub mod host_executable_presentation_boundary_residual_wave176;
 pub mod host_faction_skirmish_residual;
 pub mod host_fire_base;
@@ -1549,6 +1550,12 @@ pub use host_diplomacy_residual_wave129::{
 pub use host_eva_residual_wave143::{
     honesty_eva_message_names_residual_wave143, honesty_eva_nav_commands_residual_wave143,
     honesty_eva_residual_pack_wave143,
+};
+pub use host_executable_gameworld_presentation_residual_wave188::{
+    honesty_executable_gameworld_presentation_method_names_residual_wave188,
+    honesty_executable_gameworld_presentation_nav_commands_residual_wave188,
+    honesty_executable_gameworld_presentation_residual_pack_wave188,
+    simulate_executable_gameworld_presentation_honesty,
 };
 pub use host_executable_presentation_boundary_residual_wave176::{
     honesty_executable_presentation_boundary_method_names_residual_wave176,
