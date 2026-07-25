@@ -878,7 +878,13 @@ impl Player {
             return false;
         }
         self.science_purchase_points -= cost;
-        self.unlock_science(&canonical)
+        // Wave 202: SPP spend must last-write SetPlayerProgress (sciences meta already
+        // records via unlock_science → record_host_sciences).
+        let unlocked = self.unlock_science(&canonical);
+        if unlocked {
+            self.record_host_progress();
+        }
+        unlocked
     }
 
     pub fn has_queued_upgrade(&self, upgrade_name: &str) -> bool {

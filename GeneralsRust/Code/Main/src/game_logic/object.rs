@@ -9216,6 +9216,19 @@ impl Object {
         );
     }
 
+    pub fn begin_cheer(&mut self, duration_secs: f32, cheer_bit: Option<usize>) {
+        self.set_ai_state(AIState::SpecialAbility);
+        self.cheer_timer = duration_secs.max(0.0);
+        if let Some(bit) = cheer_bit {
+            if bit < 128 {
+                self.model_condition_bits |= 1u128 << bit;
+                self.record_host_model_condition();
+            }
+        }
+        // Wave 202: last-write SetDemoMineCheer (cheer_timer residual).
+        self.record_host_demo_mine_cheer();
+    }
+
     pub fn record_host_selection_radius(&self) {
         crate::game_logic::host_selection_radius_log::record(self.id, self.selection_radius);
     }

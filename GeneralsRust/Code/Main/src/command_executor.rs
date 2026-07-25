@@ -6118,11 +6118,8 @@ impl<'a> CommandExecutor<'a> {
                 if !unit.is_alive() {
                     continue;
                 }
-                unit.set_ai_state(AIState::SpecialAbility);
-                unit.cheer_timer = cheer_secs;
-                if let Some(bit) = cheer_bit {
-                    unit.model_condition_bits |= 1u128 << bit;
-                }
+                // Wave 202: begin_cheer logs model_condition + demo_mine_cheer.
+                unit.begin_cheer(cheer_secs, cheer_bit);
                 any = true;
             }
         }
