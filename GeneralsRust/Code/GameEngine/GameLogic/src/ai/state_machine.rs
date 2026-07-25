@@ -128,6 +128,12 @@ pub enum StateExitType {
     Timeout,
 }
 
+/// Wave 267: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// AI State data - contains the actual state information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiStateData {
@@ -513,6 +519,11 @@ impl AiStateMachine {
 
     /// Enter state callback
     fn on_state_enter(&mut self, state: &mut AiStateData) -> Result<(), AiError> {
+        // Wave 267: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         log::debug!(
             "AI {} entering state: {:?}",
             self.owner_id,
@@ -625,6 +636,11 @@ impl AiStateMachine {
 
     /// Exit state callback
     fn on_state_exit(&self, state: &AiStateData, exit_type: StateExitType) -> Result<(), AiError> {
+        // Wave 267: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         log::debug!(
             "AI {} exiting state: {:?} with {:?}",
             self.owner_id,
@@ -699,6 +715,11 @@ impl AiStateMachine {
     /// Update move to state - handle pathfinding and movement
     /// Reference: C++ AIInternalMoveToState::update() from AIStates.cpp line ~2000
     fn update_move_to_state(&self, state: &mut AiStateData) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         const MIN_REPATH_TIME: u32 = 10;
 
         if let Some(goal_obj_id) = state.goal_object {
@@ -968,6 +989,11 @@ impl AiStateMachine {
         &self,
         state: &mut AiStateData,
     ) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         let target_id = state.goal_object.ok_or(AiError::InvalidTarget)?;
 
         let Some((target_dead, target_above, target_pos)) =
@@ -1040,6 +1066,11 @@ impl AiStateMachine {
         &self,
         state: &mut AiStateData,
     ) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         let target_pos = state.goal_position.ok_or(AiError::InvalidTarget)?;
 
         if let Some((attacker_above, attacker_pos)) =
@@ -1150,6 +1181,11 @@ impl AiStateMachine {
         &self,
         state: &mut AiStateData,
     ) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         const ENEMY_SCAN_RATE: i32 = LOGICFRAMES_PER_SECOND as i32;
         let current_frame = self.current_frame();
 
@@ -1208,6 +1244,11 @@ impl AiStateMachine {
 
                     impl PartitionFilter for PolygonFilter {
                         fn allow(&self, obj: ObjectID) -> bool {
+                            // Wave 267: empty dual-world → fail-closed.
+                            if dual_world_registry_unavailable() {
+                                return false;
+                            }
+
                             OBJECT_REGISTRY
                                 .with_object(obj, |target| {
                                     let pos = target.get_position();
@@ -1274,6 +1315,11 @@ impl AiStateMachine {
         &self,
         state: &mut AiStateData,
     ) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         let Some(squad_arc) = state.goal_squad_handle.clone() else {
             return Ok(StateReturnType::StateFailed);
         };
@@ -1401,6 +1447,11 @@ impl AiStateMachine {
         &self,
         state: &mut AiStateData,
     ) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         let Some(goal_id) = state.goal_object else {
             return Ok(StateReturnType::StateFailed);
         };
@@ -1427,6 +1478,11 @@ impl AiStateMachine {
         state: &mut AiStateData,
         target_pos: Coord3D,
     ) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         let Some((owner_pos, owner_orientation, ai)) =
             OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
                 (
@@ -1480,6 +1536,11 @@ impl AiStateMachine {
         &self,
         _state: &mut AiStateData,
     ) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         let result = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
             if owner_guard.is_effectively_dead() {
                 return Ok(StateReturnType::StateFailed);
@@ -1498,10 +1559,20 @@ impl AiStateMachine {
     /// Update guard state - scan for enemies and defend position
     /// Reference: C++ AIGuardInnerState/AIGuardOuterState from AIGuard.cpp
     fn update_guard_state(&self, state: &mut AiStateData) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         struct GuardFlyingOnlyFilter;
 
         impl PartitionFilter for GuardFlyingOnlyFilter {
             fn allow(&self, obj: ObjectID) -> bool {
+                // Wave 267: empty dual-world → fail-closed.
+                if dual_world_registry_unavailable() {
+                    return false;
+                }
+
                 OBJECT_REGISTRY
                     .with_object(obj, |target| {
                         target.is_airborne_target() || target.is_kind_of(KindOf::Aircraft)
@@ -1693,6 +1764,11 @@ impl AiStateMachine {
     }
 
     fn issue_movement_target(&self, state: &mut AiStateData, target: Coord3D) {
+        // Wave 267: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         const TARGET_EPSILON: Real = 0.1;
 
         if let Some(last_target) = state.scratch.last_move_target {
@@ -1724,6 +1800,11 @@ impl AiStateMachine {
     }
 
     fn start_move_sound(&self, state: &mut AiStateData) {
+        // Wave 267: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some((mut start_sound, loop_sound, owner_id)) = OBJECT_REGISTRY
             .with_object(self.owner_id, |owner_guard| {
                 let mut use_damaged = false;
@@ -1774,6 +1855,11 @@ impl AiStateMachine {
     }
 
     fn resolve_current_position(&self, state: &AiStateData) -> Option<Coord3D> {
+        // Wave 267: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         state
             .scratch
             .current_position
@@ -1872,6 +1958,11 @@ impl AiStateMachine {
     }
 
     fn finish_move_state(&self, state: &mut AiStateData) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         if matches!(
             state.state_type,
             AiStateType::MoveAndEvacuate
@@ -1932,6 +2023,11 @@ impl AiStateMachine {
     }
 
     fn release_from_container(&self, owner: &crate::object::Object) {
+        // Wave 267: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(container_id) = owner.get_container_id() {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
                 container_id,
@@ -2124,6 +2220,11 @@ impl AiStateMachine {
         &self,
         state: &mut AiStateData,
     ) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         let result = self.update_move_to_state(state);
         if matches!(
             result,
@@ -2142,6 +2243,11 @@ impl AiStateMachine {
         &self,
         state: &mut AiStateData,
     ) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         // If goal building is destroyed, complete the state.
         if let Some(goal_id) = state.goal_object {
             let dead = OBJECT_REGISTRY
@@ -2161,6 +2267,11 @@ impl AiStateMachine {
         &self,
         state: &mut AiStateData,
     ) -> Result<StateReturnType, AiError> {
+        // Wave 267: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::StateFailed);
+        }
+
         // If no goal object, fail immediately.
         if state.goal_object.is_none() {
             return Ok(StateReturnType::StateFailed);
@@ -2246,6 +2357,11 @@ impl AiStateMachine {
 
     /// Set squad to attack
     pub fn set_goal_squad(&mut self, squad: SquadId) {
+        // Wave 267: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.current_state.goal_squad = Some(squad);
         let mut handle = None;
         if let Some(obj) = get_legacy_object(self.owner_id) {
@@ -2639,6 +2755,11 @@ mod tests {
         position: Coord3D,
         orientation: Real,
     ) -> (Arc<RwLock<Object>>, Arc<Mutex<FaceAiCapture>>) {
+        // Wave 267: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
 
         let mut template = LocomotorTemplate::new(format!("face_test_{id}"));
@@ -2665,6 +2786,11 @@ mod tests {
     }
 
     fn unregister_face_test_object(id: ObjectID) {
+        // Wave 267: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         OBJECT_REGISTRY.unregister_object(id);
     }
 
