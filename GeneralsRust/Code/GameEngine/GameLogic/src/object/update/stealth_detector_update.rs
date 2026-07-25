@@ -26,6 +26,12 @@ use game_engine::common::thing::module::{
 use log::{debug, trace, warn};
 use std::sync::{Arc, Mutex};
 
+/// Wave 297: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 // Helper array of KindOf variants to evaluate masks.
 const KIND_VARIANTS: &[KindOf] = ALL_KIND_OF;
 
@@ -172,6 +178,11 @@ impl StealthedOrStealthGarrisonedFilter {
     #[allow(dead_code)]
     #[allow(dead_code)]
     fn allow(&self, obj: &Object) -> bool {
+        // Wave 297: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // Check if object is stealthed (line 110)
         if obj
             .get_status_bits()
@@ -269,6 +280,11 @@ impl StealthDetectorController {
     /// Perform detection scan
     /// Matches C++ update() lines 123-402
     pub fn update(&mut self, _current_frame: UnsignedInt) -> Result<UpdateSleepTime, String> {
+        // Wave 297: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         let Some((is_dead, under_construction, is_sold, is_contained, self_pos, self_team_id)) =
             OBJECT_REGISTRY.with_object(self.object_id, |self_guard| {
                 (
@@ -328,8 +344,8 @@ impl StealthDetectorController {
         let mut found_someone = false;
 
         // Scan for stealthed objects in range (lines 179-335)
-        // Host path: empty dual-world registry residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 297: empty dual-world residual.
+        if dual_world_registry_unavailable() {
             return Ok(UpdateSleepTime::None);
         }
         let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
@@ -628,6 +644,11 @@ impl StealthDetectorController {
     }
 
     fn get_vision_range(&self) -> Real {
+        // Wave 297: empty dual-world → 0.0.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         // Get vision range from object
         OBJECT_REGISTRY
             .with_object(self.object_id, |guard| guard.get_vision_range())
