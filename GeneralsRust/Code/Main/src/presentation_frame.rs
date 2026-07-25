@@ -4878,6 +4878,28 @@ impl PresentationFrame {
                 obj.destroyed = destroyed;
                 dirty = true;
             }
+            // Wave 189: expand last-writer overlay for motion/selection/body identity.
+            let vel = glam::Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
+            if (obj.velocity - vel).length_squared() > 1e-6 {
+                obj.velocity = vel;
+                dirty = true;
+            }
+            if (obj.move_max_speed - ent.move_max_speed).abs() > 1e-4 && ent.move_max_speed >= 0.0 {
+                obj.move_max_speed = ent.move_max_speed;
+                dirty = true;
+            }
+            if obj.selected != ent.selected {
+                obj.selected = ent.selected;
+                dirty = true;
+            }
+            if obj.team_color != ent.team_color {
+                obj.team_color = ent.team_color;
+                dirty = true;
+            }
+            if obj.body_damage_state != ent.body_damage_state {
+                obj.body_damage_state = ent.body_damage_state;
+                dirty = true;
+            }
             // Identity residual (template/team/type) from shadow — no live dual-read.
             if obj.template_name != ent.template.name {
                 obj.template_name = ent.template.name.clone();
