@@ -443,8 +443,7 @@ impl<'a> CommandExecutor<'a> {
                         destination.z + off.y,
                     );
                     if (goal - expected).length() > 0.5 {
-                        unit.formation_id = 0;
-                        unit.formation_offset = glam::Vec2::ZERO;
+                        unit.set_formation(0, glam::Vec2::ZERO);
                     }
                 }
             }
@@ -706,7 +705,7 @@ impl<'a> CommandExecutor<'a> {
         for (unit_id, _) in movers {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_attack();
-                unit.formation_id = 0;
+                unit.set_formation(0, glam::Vec2::ZERO);
                 unit.set_guard_position(None);
                 unit.set_guard_target(None);
                 unit.end_guard_retaliate();
@@ -875,7 +874,7 @@ impl<'a> CommandExecutor<'a> {
                 unit.end_guard_retaliate();
                 // AsTeam keeps formation identity; free follow clears it.
                 if !as_team {
-                    unit.formation_id = 0;
+                    unit.set_formation(0, glam::Vec2::ZERO);
                 }
             }
             // C++ AIFollowWaypointPathExact vs smoothed follow residual.
@@ -2369,7 +2368,7 @@ impl<'a> CommandExecutor<'a> {
             // Hunt enables auto-acquire while wandering.
             unit.auto_acquire_when_idle = true;
             unit.set_ai_state(AIState::Patrolling);
-            unit.status.moving = false;
+            unit.set_status_moving(false);
             any = true;
         }
         if any {
@@ -6165,13 +6164,43 @@ impl<'a> CommandExecutor<'a> {
         create_new: bool,
         units: &[ObjectId],
     ) -> CommandResult {
-        if let Some(player) = self.game_logic.get_player_mut(player_id) {
-            if create_new {
-                player.selected_objects.clear();
+        // Wave 206: selection last-writes object.select/deselect → host_status_log.
+        if self.game_logic.get_player(player_id).is_none() {
+            return CommandResult::InvalidCommand;
+        }
+        if create_new {
+            // Full replace (includes empty clear): deselect previous + select new.
+            self.game_logic.select_objects(player_id, units.to_vec());
+            return CommandResult::Success;
+        }
+        // Additive selection residual (shift-click style).
+        let player_team = self.game_logic.get_player(player_id).map(|p| p.team);
+        let Some(player_team) = player_team else {
+            return CommandResult::InvalidCommand;
+        };
+        let mut added = Vec::new();
+        for &unit_id in units {
+            let ok = self
+                .game_logic
+                .get_object_mut(unit_id)
+                .map(|obj| {
+                    if obj.team == player_team && obj.is_selectable() {
+                        obj.select();
+                        obj.flash_as_selected();
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false);
+            if ok {
+                added.push(unit_id);
             }
-            for &unit_id in units {
-                if !player.selected_objects.contains(&unit_id) {
-                    player.selected_objects.push(unit_id);
+        }
+        if let Some(player) = self.game_logic.get_player_mut(player_id) {
+            for id in added {
+                if !player.selected_objects.contains(&id) {
+                    player.selected_objects.push(id);
                 }
             }
             CommandResult::Success

@@ -1738,17 +1738,50 @@ impl CommandSystem {
         units: &[ObjectId],
         game_logic: &mut GameLogic,
     ) -> CommandResult {
-        if let Some(player) = game_logic.get_player_mut(player_id) {
-            if create_new {
-                player.selected_objects.clear();
+        // Wave 206: selection last-writes object.select/deselect → host_status_log.
+        if game_logic.get_player(player_id).is_none() {
+            return CommandResult::InvalidCommand;
+        }
+        if create_new {
+            game_logic.select_objects(player_id, units.to_vec());
+            log::debug!(
+                "Player {} selected {} units",
+                player_id,
+                game_logic
+                    .get_player(player_id)
+                    .map(|p| p.selected_objects.len())
+                    .unwrap_or(0)
+            );
+            return CommandResult::Success;
+        }
+        let player_team = game_logic.get_player(player_id).map(|p| p.team);
+        let Some(player_team) = player_team else {
+            return CommandResult::InvalidCommand;
+        };
+        let mut added = Vec::new();
+        for &unit_id in units {
+            let ok = game_logic
+                .get_object_mut(unit_id)
+                .map(|obj| {
+                    if obj.team == player_team && obj.is_selectable() {
+                        obj.select();
+                        obj.flash_as_selected();
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false);
+            if ok {
+                added.push(unit_id);
             }
-
-            for &unit_id in units {
-                if !player.selected_objects.contains(&unit_id) {
-                    player.selected_objects.push(unit_id);
+        }
+        if let Some(player) = game_logic.get_player_mut(player_id) {
+            for id in added {
+                if !player.selected_objects.contains(&id) {
+                    player.selected_objects.push(id);
                 }
             }
-
             log::debug!(
                 "Player {} selected {} units",
                 player_id,
