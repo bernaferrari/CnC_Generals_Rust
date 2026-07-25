@@ -256,6 +256,7 @@ pub mod host_live_presentation_overlay_stamp_residual_wave190;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
 pub mod host_live_presentation_seed_residual_wave171;
 pub mod host_live_selection_commands_presentation_only_residual_wave218;
+pub mod host_live_ui_command_selection_presentation_only_residual_wave219;
 pub mod host_live_ui_helpers_presentation_only_residual_wave215;
 pub mod host_live_ui_producer_presentation_only_residual_wave214;
 pub mod host_loading_screen_residual_wave135;
@@ -1882,6 +1883,12 @@ pub use host_live_selection_commands_presentation_only_residual_wave218::{
     honesty_live_selection_commands_presentation_only_nav_commands_residual_wave218,
     honesty_live_selection_commands_presentation_only_residual_pack_wave218,
     simulate_live_selection_commands_presentation_only_honesty,
+};
+pub use host_live_ui_command_selection_presentation_only_residual_wave219::{
+    honesty_live_ui_command_selection_presentation_only_method_names_residual_wave219,
+    honesty_live_ui_command_selection_presentation_only_nav_commands_residual_wave219,
+    honesty_live_ui_command_selection_presentation_only_residual_pack_wave219,
+    simulate_live_ui_command_selection_presentation_only_honesty,
 };
 pub use host_live_ui_helpers_presentation_only_residual_wave215::{
     honesty_live_ui_helpers_presentation_only_method_names_residual_wave215,
