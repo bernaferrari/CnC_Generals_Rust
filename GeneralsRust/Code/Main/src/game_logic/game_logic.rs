@@ -25248,6 +25248,34 @@ impl GameLogic {
             .unwrap_or(0)
     }
 
+    /// Wave 243: spend build cost without exposing `&mut Player`.
+    #[inline]
+    pub fn try_spend_player_resources(&mut self, id: u32, cost: &Resources) -> bool {
+        let Some(p) = self.players.get_mut(&id) else {
+            return false;
+        };
+        p.spend_resources(cost)
+    }
+
+    /// Wave 243: refund supplies without exposing `&mut Player`.
+    #[inline]
+    pub fn player_refund_supplies(&mut self, id: u32, supplies: u32) {
+        if let Some(p) = self.players.get_mut(&id) {
+            p.resources.supplies = p.resources.supplies.saturating_add(supplies);
+        }
+    }
+
+    /// Wave 243: constructor team probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_team_if_can_construct(&self, id: ObjectId) -> Option<Team> {
+        let obj = self.objects.get(&id)?;
+        if obj.can_construct() {
+            Some(obj.team)
+        } else {
+            None
+        }
+    }
+
     /// Get mutable player by ID
     pub fn get_player_mut(&mut self, player_id: u32) -> Option<&mut Player> {
         self.players.get_mut(&player_id)
@@ -27369,7 +27397,8 @@ impl GameLogic {
         Some(template)
     }
 
-    fn player_id_for_team(&self, team: Team) -> Option<u32> {
+    /// Wave 243: first player id for a team without exposing `&Player`.
+    pub fn player_id_for_team(&self, team: Team) -> Option<u32> {
         self.players
             .values()
             .find(|player| player.team == team)
