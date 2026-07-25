@@ -491,6 +491,175 @@ pub fn format_control_bar_honesty(h: &ControlBarLayoutHonesty) -> String {
     )
 }
 
+// ---------------------------------------------------------------------------
+// Wave 160 residual: MainMenu.wnd resolve/validate (shell boot path)
+// ---------------------------------------------------------------------------
+
+/// Candidate locations for MainMenu.wnd (extracted BIG / WindowZH trees).
+pub const MAIN_MENU_WND_CANDIDATES: &[&str] = &[
+    "windows_game/extracted_big_files/WindowZH/Window/Menus/MainMenu.wnd",
+    "windows_game/extracted_big_files_v2/WindowZH/Window/Menus/MainMenu.wnd",
+    "../windows_game/extracted_big_files/WindowZH/Window/Menus/MainMenu.wnd",
+    "../windows_game/extracted_big_files_v2/WindowZH/Window/Menus/MainMenu.wnd",
+    "Window/Menus/MainMenu.wnd",
+    "Data/Window/Menus/MainMenu.wnd",
+    "Menus/MainMenu.wnd",
+    "MainMenu.wnd",
+];
+
+/// Retail MainMenu.wnd WINDOW node count residual (WindowManager parse tokens).
+pub const MAIN_MENU_WND_WINDOW_TOKEN_COUNT_RESIDUAL: usize = 126;
+
+/// Retail MainMenu.wnd named `MainMenu.wnd:…` residual count.
+pub const MAIN_MENU_WND_NAMED_COUNT_RESIDUAL: usize = 63;
+
+/// Key MainMenu.wnd named-child residual table (shell navigation).
+pub const MAIN_MENU_WND_KEY_NAMES_RESIDUAL: &[&str] = &[
+    "MainMenu.wnd:MainMenuParent",
+    "MainMenu.wnd:ButtonSinglePlayer",
+    "MainMenu.wnd:ButtonMultiplayer",
+    "MainMenu.wnd:ButtonSkirmish",
+    "MainMenu.wnd:ButtonOptions",
+    "MainMenu.wnd:ButtonCredits",
+    "MainMenu.wnd:ButtonExit",
+    "MainMenu.wnd:ButtonUSA",
+    "MainMenu.wnd:ButtonGLA",
+    "MainMenu.wnd:ButtonChina",
+    "MainMenu.wnd:ButtonChallenge",
+    "MainMenu.wnd:ButtonLoadReplay",
+];
+
+/// Resolve MainMenu.wnd path residual (fail-closed if assets missing).
+pub fn resolve_main_menu_wnd_path() -> Option<PathBuf> {
+    for c in MAIN_MENU_WND_CANDIDATES {
+        let p = Path::new(c);
+        if p.is_file() {
+            return Some(p.to_path_buf());
+        }
+    }
+    let prefixes = ["", "../", "../../"];
+    for prefix in prefixes {
+        for c in MAIN_MENU_WND_CANDIDATES {
+            let p = Path::new(prefix).join(c);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// Validate MainMenu.wnd is a non-empty retail shell layout file.
+///
+/// Residual honesty (fail-closed vs full WindowManager parse / shell boot):
+/// - non-empty file with FILE_VERSION / WINDOW / MainMenu tokens
+/// - does **not** claim GUI window tree construction or W3D draw
+pub fn validate_main_menu_wnd_file(path: &Path) -> Result<(), String> {
+    let meta = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;
+    if !meta.is_file() {
+        return Err("not a file".into());
+    }
+    if meta.len() == 0 {
+        return Err("empty layout file".into());
+    }
+    let sample = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
+    if sample.len() < 32 {
+        return Err("layout too small".into());
+    }
+    let text = String::from_utf8_lossy(&sample);
+    let head_len = sample.len().min(4096);
+    let head = String::from_utf8_lossy(&sample[..head_len]);
+    if !head.contains("FILE_VERSION") && !text.contains("FILE_VERSION") {
+        return Err("missing FILE_VERSION".into());
+    }
+    if !head.contains("WINDOW") && !text.contains("WINDOW") {
+        return Err("missing WINDOW block".into());
+    }
+    if !head.contains("MainMenu") && !text.contains("MainMenu") {
+        return Err("missing MainMenu name token".into());
+    }
+    if !text.contains("MainMenu.wnd:MainMenuParent") {
+        return Err("missing MainMenuParent".into());
+    }
+    if !text.contains("MainMenu.wnd:ButtonSinglePlayer") {
+        return Err("missing ButtonSinglePlayer".into());
+    }
+    if !text.contains("LAYOUTINIT") {
+        return Err("missing LAYOUTINIT".into());
+    }
+    Ok(())
+}
+
+/// MainMenu.wnd honesty residual pack (resolve + validate only).
+#[derive(Debug, Clone)]
+pub struct MainMenuWndHonesty {
+    pub path_resolved: bool,
+    pub path: Option<PathBuf>,
+    pub wnd_validated: bool,
+    pub assets_unavailable: bool,
+    pub named_key_hits: usize,
+    pub detail: String,
+}
+
+impl MainMenuWndHonesty {
+    /// Shell residual ok when resolved+validated, or assets honestly unavailable.
+    pub fn shell_residual_ok(&self) -> bool {
+        (self.path_resolved && self.wnd_validated)
+            || (self.assets_unavailable && !self.path_resolved)
+    }
+}
+
+/// Build MainMenu.wnd honesty residual (no WindowManager load).
+pub fn main_menu_wnd_honesty() -> MainMenuWndHonesty {
+    match resolve_main_menu_wnd_path() {
+        None => MainMenuWndHonesty {
+            path_resolved: false,
+            path: None,
+            wnd_validated: false,
+            assets_unavailable: true,
+            named_key_hits: 0,
+            detail: "MainMenu.wnd not found in candidate paths".into(),
+        },
+        Some(path) => match validate_main_menu_wnd_file(&path) {
+            Ok(()) => {
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                let named_key_hits = MAIN_MENU_WND_KEY_NAMES_RESIDUAL
+                    .iter()
+                    .filter(|n| text.contains(*n))
+                    .count();
+                MainMenuWndHonesty {
+                    path_resolved: true,
+                    path: Some(path),
+                    wnd_validated: true,
+                    assets_unavailable: false,
+                    named_key_hits,
+                    detail: format!(
+                        "MainMenu.wnd validated key_hits={}/{}",
+                        named_key_hits,
+                        MAIN_MENU_WND_KEY_NAMES_RESIDUAL.len()
+                    ),
+                }
+            }
+            Err(e) => MainMenuWndHonesty {
+                path_resolved: true,
+                path: Some(path),
+                wnd_validated: false,
+                assets_unavailable: false,
+                named_key_hits: 0,
+                detail: format!("MainMenu.wnd validate failed: {e}"),
+            },
+        },
+    }
+}
+
+/// Residual: resolve+validate MainMenu.wnd residual peel.
+pub fn simulate_main_menu_wnd_prepare_honesty() -> bool {
+    let h = main_menu_wnd_honesty();
+    h.shell_residual_ok()
+        && (!h.path_resolved
+            || (h.wnd_validated && h.named_key_hits == MAIN_MENU_WND_KEY_NAMES_RESIDUAL.len()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -632,6 +801,26 @@ mod tests {
                 validate_control_bar_file(&path).is_ok(),
                 "retail ControlBar.wnd must pass Wave 76 named/font residual validate"
             );
+        }
+    }
+
+    #[test]
+    fn main_menu_wnd_honesty_residual_live() {
+        let h = main_menu_wnd_honesty();
+        assert!(
+            h.shell_residual_ok(),
+            "MainMenu.wnd residual must resolve+validate or report assets unavailable: {}",
+            h.detail
+        );
+        if h.path_resolved {
+            assert!(h.wnd_validated, "{}", h.detail);
+            assert_eq!(
+                h.named_key_hits,
+                MAIN_MENU_WND_KEY_NAMES_RESIDUAL.len(),
+                "key names residual: {}",
+                h.detail
+            );
+            assert!(simulate_main_menu_wnd_prepare_honesty());
         }
     }
 }
