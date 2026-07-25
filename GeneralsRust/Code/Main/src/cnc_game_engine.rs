@@ -3785,6 +3785,40 @@ impl CnCGameEngine {
                     "click_multi_select_miss".into()
                 };
             }
+            "click_credits_roll" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let text = args
+                    .get("text")
+                    .cloned()
+                    .unwrap_or_else(|| "COMMAND & CONQUER".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::credits::{
+                        simulate_credits_add_blank, simulate_credits_add_text,
+                        simulate_credits_init, simulate_credits_is_finished_probe,
+                        simulate_credits_prepare_short_roll, simulate_credits_reset,
+                        simulate_credits_update,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "init" => simulate_credits_init(),
+                        "reset" => simulate_credits_reset(),
+                        "add" => simulate_credits_add_text(&text),
+                        "blank" => simulate_credits_add_blank(),
+                        "update" => simulate_credits_update(),
+                        "finished" => simulate_credits_is_finished_probe(),
+                        _ => simulate_credits_prepare_short_roll(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_credits_roll_ok_wnd_{action}")
+                } else {
+                    "click_credits_roll_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
