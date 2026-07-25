@@ -4664,6 +4664,28 @@ impl CnCGameEngine {
                     format!("click_w3d_main_menu_init_miss_{action}")
                 };
             }
+            "click_start_game_loading" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "source" => crate::game_logic::honesty_start_game_from_ui_loading_source(),
+                    "maps" | "defcon" | "lone_eagle" => {
+                        crate::game_logic::honesty_default_skirmish_map_resolves()
+                            && crate::game_logic::honesty_lone_eagle_map_resolves()
+                    }
+                    "prepare" | "loading" => {
+                        crate::game_logic::simulate_start_game_loading_honesty()
+                    }
+                    _ => crate::game_logic::honesty_start_game_loading_residual_pack_wave169(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_start_game_loading_ok_{action}")
+                } else {
+                    format!("click_start_game_loading_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();

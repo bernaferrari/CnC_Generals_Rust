@@ -298,6 +298,7 @@ pub mod host_special_power_enum_residual;
 pub mod host_spy_drone;
 pub mod host_spy_satellite;
 mod host_squish_collide;
+pub mod host_start_game_loading_residual_wave169;
 pub mod host_status_bits_upgrade;
 mod host_status_damage;
 pub mod host_stealth_fighter;
@@ -1715,6 +1716,13 @@ pub use host_skirmish_slot_config_residual_wave116::{
 pub use host_smudge_residual_wave145::{
     honesty_smudge_method_names_residual_wave145, honesty_smudge_nav_commands_residual_wave145,
     honesty_smudge_residual_pack_wave145,
+};
+pub use host_start_game_loading_residual_wave169::{
+    honesty_default_skirmish_map_resolves, honesty_lone_eagle_map_resolves,
+    honesty_start_game_from_ui_loading_source,
+    honesty_start_game_loading_method_names_residual_wave169,
+    honesty_start_game_loading_nav_commands_residual_wave169,
+    honesty_start_game_loading_residual_pack_wave169, simulate_start_game_loading_honesty,
 };
 pub use host_structure_inventory_residual_wave149::{
     honesty_structure_inventory_command_names_residual_wave149,
