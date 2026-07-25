@@ -5606,6 +5606,25 @@ impl CnCGameEngine {
                     format!("click_live_local_team_presentation_only_miss_{action}")
                 };
             }
+            "click_live_hotkey_move_attack_selection_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_hotkey_move_attack_selection_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_hotkey_move_attack_selection_presentation_only_residual_pack_wave221(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_hotkey_move_attack_selection_presentation_only_ok_{action}")
+                } else {
+                    format!(
+                        "click_live_hotkey_move_attack_selection_presentation_only_miss_{action}"
+                    )
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -5989,18 +6008,11 @@ impl CnCGameEngine {
                     if selected == 0 {
                         self.runtime_host_last_gameplay_cmd = "move_fail_no_selection".into();
                     } else {
-                        // Keep host player selection coherent with engine residual before command.
-                        if self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.selected_objects.is_empty())
-                            .unwrap_or(true)
-                            && !self.selected_objects.is_empty()
-                        {
-                            self.game_logic.select_objects(
-                                self.current_player_id,
-                                self.selected_objects.clone(),
-                            );
+                        // Wave 221: push presentation-first selection into host before move.
+                        let ids = self.ui_selected_ids(self.current_player_id);
+                        if !ids.is_empty() {
+                            self.selected_objects = ids.clone();
+                            self.game_logic.select_objects(self.current_player_id, ids);
                         }
                         self.game_logic
                             .command_move(self.current_player_id, glam::Vec3::new(x, y, z));
@@ -6049,16 +6061,8 @@ impl CnCGameEngine {
                                 .select_objects(self.current_player_id, attackers);
                         }
                     }
-                    let selected = if !self.selected_objects.is_empty() {
-                        self.selected_objects.len()
-                    } else if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        frame.count_selected_friendlies(frame.local_team()) as usize
-                    } else {
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.selected_objects.len())
-                            .unwrap_or(0)
-                    };
+                    // Wave 221: selection count via presentation-first ui_selected_ids.
+                    let selected = self.ui_selected_ids(self.current_player_id).len();
                     if selected == 0 {
                         self.runtime_host_last_gameplay_cmd = "attack_fail_no_selection".into();
                     } else if let Some(team) = team {
@@ -15602,13 +15606,8 @@ impl CnCGameEngine {
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // C++ classic A-key AttackMove residual: arm pending map click.
-                if !self.selected_objects.is_empty()
-                    || self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| !p.selected_objects.is_empty())
-                        .unwrap_or(false)
-                {
+                // Wave 221: selection via presentation-first ui_selected_ids.
+                if !self.ui_selected_ids(self.current_player_id).is_empty() {
                     self.pending_map_command = Some(PendingMapCommand::AttackMove);
                     self.pending_structure_placement = None;
                     self.arm_radius_cursor_for_pending("ATTACK_CONTINUE_AREA");
@@ -15632,24 +15631,12 @@ impl CnCGameEngine {
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // C++ classic T-key ForceAttackGround residual at cursor.
-                if self.selected_objects.is_empty()
-                    && self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.selected_objects.is_empty())
-                        .unwrap_or(true)
-                {
+                // Wave 221: selection via presentation-first ui_selected_ids.
+                let selected = self.ui_selected_ids(self.current_player_id);
+                if selected.is_empty() {
                     // no-op
                 } else {
                     let loc = self.mouse_world_position;
-                    let mut selected = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.selected_objects.clone())
-                        .unwrap_or_default();
-                    if selected.is_empty() {
-                        selected = self.selected_objects.clone();
-                    }
                     self.game_logic
                         .queue_command(crate::command_system::GameCommand {
                             command_type: crate::command_system::CommandType::ForceAttackGround {
