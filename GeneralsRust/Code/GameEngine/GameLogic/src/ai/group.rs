@@ -69,6 +69,12 @@ impl AIGroup {
         }
     }
 
+    /// Wave 253: host-only path has no dual-world factory objects.
+    #[inline]
+    fn dual_world_registry_unavailable() -> bool {
+        OBJECT_REGISTRY.is_empty()
+    }
+
     /// Create new AIGroup with formation manager
     pub fn new_with_formation(id: u32, formation_manager: Arc<Mutex<FormationManager>>) -> Self {
         Self {
@@ -101,6 +107,11 @@ impl AIGroup {
 
     /// Return a snapshot of member IDs without mutating cached state
     pub fn get_all_ids_snapshot(&self) -> Vec<ObjectID> {
+        // Wave 253: empty dual-world registry → no live members resolve.
+        if Self::dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         self.member_list
             .iter()
             .copied()
@@ -130,6 +141,16 @@ impl AIGroup {
     }
 
     fn prune_dead_members(&mut self) {
+        // Wave 253: empty dual-world registry → drop all dual-world member ids.
+        if Self::dual_world_registry_unavailable() {
+            if !self.member_list.is_empty() {
+                self.member_list.clear();
+                self.member_list_size = 0;
+                self.dirty = true;
+            }
+            return;
+        }
+
         self.member_list.retain(|id| OBJECT_REGISTRY.contains(*id));
         self.member_list_size = self.member_list.len();
     }
@@ -223,6 +244,11 @@ impl AIGroup {
 
     /// Check if group contains any objects not owned by the specified player
     pub fn contains_any_objects_not_owned_by_player(&self, owner_player: &Player) -> bool {
+        // Wave 253: empty dual-world → nothing foreign.
+        if self.member_list_size == 0 || Self::dual_world_registry_unavailable() {
+            return false;
+        }
+
         let owner_id = owner_player.get_player_index() as UnsignedInt;
         for &member_id in &self.member_list {
             let foreign = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
@@ -238,6 +264,11 @@ impl AIGroup {
     /// Remove any objects that aren't owned by the player
     /// Returns true if the group was destroyed due to emptiness
     pub fn remove_any_objects_not_owned_by_player(&mut self, owner_player: &Player) -> bool {
+        // Wave 253: empty dual-world → nothing to remove.
+        if self.member_list_size == 0 || Self::dual_world_registry_unavailable() {
+            return false;
+        }
+
         let mut ids_to_remove = Vec::new();
         let owner_id = owner_player.get_player_index() as UnsignedInt;
 
@@ -261,6 +292,11 @@ impl AIGroup {
 
     /// Compute the centroid of the group
     pub fn get_center(&self) -> Option<Coord3D> {
+        // Wave 253: empty dual-world → no member positions.
+        if self.member_list_size == 0 || Self::dual_world_registry_unavailable() {
+            return None;
+        }
+
         let mut count = 0;
         let mut center = Coord3D::new(0.0, 0.0, 0.0);
 
@@ -310,6 +346,11 @@ impl AIGroup {
 
     /// Get min/max bounds and center, returns true if group is in formation
     pub fn get_min_max_and_center(&self) -> Option<(Coord2D, Coord2D, Coord3D, bool)> {
+        // Wave 253: empty dual-world → empty extents.
+        if self.member_list_size == 0 || Self::dual_world_registry_unavailable() {
+            return None;
+        }
+
         let mut count = 0;
         let mut min = Coord2D::new(f32::MAX, f32::MAX);
         let mut max = Coord2D::new(f32::MIN, f32::MIN);
@@ -378,6 +419,12 @@ impl AIGroup {
         center: &Coord3D,
         is_formation: bool,
     ) -> Option<Coord3D> {
+        // Wave 253: empty dual-world → passthrough destination.
+        if Self::dual_world_registry_unavailable() {
+            let _ = (object_id, center, is_formation);
+            return Some(*group_dest);
+        }
+
         let obj = OBJECT_REGISTRY
             .get_object(object_id)
             .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(object_id))?;
@@ -430,6 +477,15 @@ impl AIGroup {
 
     /// Recompute group speed and other properties
     fn recompute(&mut self) {
+        // Wave 253: empty dual-world → no speeds to sample.
+        if Self::dual_world_registry_unavailable() {
+            self.member_list.clear();
+            self.member_list_size = 0;
+            self.speed = 0.0;
+            self.dirty = false;
+            return;
+        }
+
         self.speed = f32::MAX;
         let mut found_any = false;
 
@@ -467,6 +523,11 @@ impl AIGroup {
         add_waypoint: bool,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ AIGroup::groupMoveToPosition — centroid/formation, click-to-gather,
         // held/immobile filters, near-to-far sort, computeIndividualDestination.
         // friend_moveInfantry/Vehicle column paths remain residual (optional fast path).
@@ -628,6 +689,11 @@ impl AIGroup {
         add_waypoint: bool,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         let center = self.get_center().unwrap_or_else(|| *pos);
         let mut movers: Vec<(ObjectID, f32)> = Vec::new();
         for &member_id in &self.member_list {
@@ -674,6 +740,11 @@ impl AIGroup {
     }
 
     pub fn group_move_to_and_evacuate(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -685,6 +756,11 @@ impl AIGroup {
 
     /// Start following the path from the given waypoint (matches C++ AIGroup::groupFollowWaypointPath).
     pub fn group_follow_waypoint_path(&self, way: &Waypoint, cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -696,6 +772,11 @@ impl AIGroup {
 
     /// Start following the path exactly from the given waypoint (matches C++ AIGroup::groupFollowWaypointPathExact).
     pub fn group_follow_waypoint_path_exact(&self, way: &Waypoint, cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -711,6 +792,11 @@ impl AIGroup {
         way: &Waypoint,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -726,6 +812,11 @@ impl AIGroup {
         way: &Waypoint,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -736,6 +827,11 @@ impl AIGroup {
     }
 
     pub fn group_idle(&self, cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -747,6 +843,11 @@ impl AIGroup {
 
     /// Tell all things in the group to toggle overcharge (matches C++ AIGroup::groupToggleOvercharge).
     pub fn group_toggle_overcharge(&self, _cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 let _ = obj_ref.with_overcharge_behavior_interface(|overcharge| {
@@ -764,6 +865,11 @@ impl AIGroup {
         surrender: bool,
         _cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -777,6 +883,11 @@ impl AIGroup {
 
     /// Trigger a group cheer (matches C++ AIGroup::groupCheer).
     pub fn group_cheer(&self, _cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
                 obj_ref.set_special_model_condition_state(
@@ -790,6 +901,11 @@ impl AIGroup {
     /// Pick up a prisoner (matches C++ AIGroup::groupPickUpPrisoner).
     #[cfg(feature = "allow_surrender")]
     pub fn group_pick_up_prisoner(&self, prisoner_id: ObjectID, cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         let prisoner_id = Some(prisoner_id);
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
@@ -808,6 +924,11 @@ impl AIGroup {
     /// Return prisoners to a prison (matches C++ AIGroup::groupReturnToPrison).
     #[cfg(feature = "allow_surrender")]
     pub fn group_return_to_prison(&self, prison_id: ObjectID, cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         let prison_id = Some(prison_id);
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
@@ -830,6 +951,11 @@ impl AIGroup {
         pos: &Coord3D,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -847,6 +973,11 @@ impl AIGroup {
 
     /// Issue a command button (matches C++ AIGroup::groupDoCommandButton).
     pub fn group_do_command_button(&self, button_id: u32, cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 let _ = obj_ref.do_command_button(button_id, cmd_source);
@@ -861,6 +992,11 @@ impl AIGroup {
         pos: &Coord3D,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 let _ = obj_ref.do_command_button_at_position(button_id, pos, cmd_source);
@@ -875,6 +1011,11 @@ impl AIGroup {
         way: &Waypoint,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 let _ = obj_ref.do_command_button_using_waypoints(button_id, way, cmd_source);
@@ -889,6 +1030,11 @@ impl AIGroup {
         target_id: ObjectID,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(target_id, |target_ref| {
                 let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
@@ -904,6 +1050,11 @@ impl AIGroup {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         self.group_attack_object_private(false, victim_id, max_shots_to_fire, cmd_source);
     }
 
@@ -913,6 +1064,11 @@ impl AIGroup {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         self.group_attack_object_private(true, victim_id, max_shots_to_fire, cmd_source);
     }
 
@@ -942,6 +1098,11 @@ impl AIGroup {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -957,6 +1118,11 @@ impl AIGroup {
         guard_mode: GuardMode,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -968,6 +1134,11 @@ impl AIGroup {
 
     /// Try to sell all objects in the group (matches C++ AIGroup::groupSell).
     pub fn group_sell(&self, _cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         let current_frame = TheGameLogic::get_frame();
         for &member_id in &self.member_list {
             let Some(sell_obj) =
@@ -996,6 +1167,11 @@ impl AIGroup {
         guard_mode: GuardMode,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
@@ -1150,6 +1326,11 @@ impl AIGroup {
 
     /// Check if the group is idle
     pub fn is_idle(&self) -> bool {
+        // Wave 253 / C++ empty → true; skip registry walks when dual-world empty.
+        if self.member_list_size == 0 || Self::dual_world_registry_unavailable() {
+            return true;
+        }
+
         // C++ AIGroup::isIdle — all AI members idle or effectively dead; empty → true.
         let mut is_idle = true;
         for &member_id in &self.member_list {
@@ -1171,6 +1352,11 @@ impl AIGroup {
 
     /// Check if the group is busy (explicitly in busy state)
     pub fn is_busy(&self) -> bool {
+        // Wave 253 / C++ empty → true; skip registry walks when dual-world empty.
+        if self.member_list_size == 0 || Self::dual_world_registry_unavailable() {
+            return true;
+        }
+
         // C++ AIGroup::isBusy — all AI members busy and alive; empty → true.
         let mut is_busy = true;
         for &member_id in &self.member_list {
@@ -1290,6 +1476,11 @@ impl AIGroup {
         add_waypoint: bool,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(formation_id) = self.formation_id {
             if let Some(ref manager_arc) = self.formation_manager {
                 if let Ok(mut manager) = manager_arc.try_lock() {
@@ -1307,6 +1498,11 @@ impl AIGroup {
 
     /// Group attack-move: Move to position and engage enemies along the way
     pub fn group_attack_move_to_position(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
+        // Wave 253: empty dual-world / empty group short-circuit.
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
