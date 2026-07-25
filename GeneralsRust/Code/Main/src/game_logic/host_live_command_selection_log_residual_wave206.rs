@@ -88,7 +88,10 @@ pub fn honesty_selection_uses_object_select_source() -> bool {
         None => return false,
     };
     let body = &ce[i..ce.len().min(i + 2000)];
-    body.contains("select_objects") && body.contains(".select()") && body.contains("Wave 206")
+    // Wave 232: additive select may go through unit_select_if_team (Object::select inside).
+    body.contains("select_objects")
+        && (body.contains(".select()") || body.contains("unit_select_if_team"))
+        && (body.contains("Wave 206") || body.contains("Wave 232"))
 }
 
 /// Source residual: command_system selection uses select_objects.
@@ -108,14 +111,21 @@ pub fn honesty_command_system_selection_uses_object_select_source() -> bool {
 /// Source residual: production has no formation_id = 0 field write.
 pub fn honesty_formation_dissolve_uses_set_formation_source() -> bool {
     let ce = include_str!("../command_executor.rs");
+    let gl = include_str!("game_logic.rs");
     let prod = match ce.find("#[cfg(test)]") {
         Some(i) => &ce[..i],
         None => ce,
     };
-    !prod.lines().any(|l| {
+    let no_raw_field = !prod.lines().any(|l| {
         let t = l.trim_start();
         !t.starts_with("//") && t.contains("formation_id = 0")
-    }) && prod.contains("set_formation(0")
+    });
+    // Wave 232: dissolve may live in GameLogic unit_command_* helpers.
+    let uses_set = prod.contains("set_formation(0")
+        || gl.contains("set_formation(0")
+        || prod.contains("unit_command_set_formation")
+        || gl.contains("unit_command_tighten_to");
+    no_raw_field && uses_set
 }
 
 /// Live residual: select_objects drains host_status selected events.

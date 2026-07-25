@@ -61181,6 +61181,7 @@ impl GameLogic {
     }
 
     /// Prepare move: stop attack then assign path (fallback set_destination).
+    /// Wave 230/232: stop attack residual then path or set destination + Moving.
     pub fn unit_command_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
         if !self.unit_can_move(id) {
             return false;
@@ -61204,6 +61205,40 @@ impl GameLogic {
         ok
     }
 
+    /// Wave 232: path with waypoints after stop_attack (executor move_to residual).
+    pub fn unit_command_move_to_waypoints(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+        waypoints: &[glam::Vec3],
+    ) -> bool {
+        if self.objects.get(&id).is_none() {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.stop_attack();
+        }
+        self.assign_unit_path(id, destination, waypoints)
+    }
+
+    /// Wave 232: force-move — stop attack, path, force Moving state.
+    pub fn unit_command_force_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        if self.objects.get(&id).is_none() {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.stop_attack();
+        }
+        if !self.assign_unit_path(id, destination, &[]) {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.set_ai_state(AIState::Moving);
+        }
+        true
+    }
+
+    /// Wave 230/232: attack target (records host attack log).
     pub fn unit_command_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
@@ -61211,11 +61246,14 @@ impl GameLogic {
         if !unit.can_attack() {
             return false;
         }
+        unit.set_force_attack(false);
         unit.set_target(Some(target_id));
+        crate::game_logic::host_attack_log::record(id, Some(target_id));
         unit.set_ai_state(AIState::Attacking);
         true
     }
 
+    /// Wave 230/232: force-attack target (records host attack log).
     pub fn unit_command_force_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
@@ -61224,16 +61262,25 @@ impl GameLogic {
             return false;
         }
         unit.set_target(Some(target_id));
-        unit.set_ai_state(AIState::Attacking);
+        crate::game_logic::host_attack_log::record(id, Some(target_id));
         unit.set_force_attack(true);
+        unit.set_ai_state(AIState::Attacking);
         true
     }
 
+    /// Wave 230/232: full player stop (idle + clear guard/target/force + logs).
     pub fn unit_command_stop(&mut self, id: ObjectId) -> bool {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
         unit.stop();
+        unit.set_target(None);
+        unit.set_force_attack(false);
+        unit.set_guard_position(None);
+        unit.set_guard_target(None);
+        crate::game_logic::host_attack_log::record(id, None);
+        crate::game_logic::host_guard_log::record(id, None, 0, 0.0);
+        unit.end_guard_retaliate();
         unit.set_ai_state(AIState::Idle);
         true
     }
@@ -61256,19 +61303,70 @@ impl GameLogic {
         true
     }
 
-    /// Wave 231: attack-move via path + AttackMoving state.
+    /// Wave 231/232: attack-move via path + AttackMoving state.
     pub fn unit_command_attack_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
-        if !(self.unit_can_move(id) && self.unit_can_attack(id)) {
+        self.unit_command_attack_move_to_ex(id, destination, -1)
+    }
+
+    /// Wave 232: attack-move with max-shots + attack-path flags (executor residual).
+    pub fn unit_command_attack_move_to_ex(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+        max_shots: i32,
+    ) -> bool {
+        let (can_move, can_attack) = match self.objects.get(&id) {
+            Some(unit) => (
+                unit.is_alive() && unit.can_move(),
+                unit.can_attack() || unit.weapon.is_some(),
+            ),
+            None => return false,
+        };
+        if !can_move {
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.stop_attack();
+            unit.set_force_attack(false);
+            unit.set_max_shots_to_fire(max_shots);
         }
         let path_ok = self.assign_unit_path(id, destination, &[]);
-        if let Some(unit) = self.objects.get_mut(&id) {
-            if !path_ok {
+        if !path_ok {
+            if let Some(unit) = self.objects.get_mut(&id) {
                 unit.set_destination(destination);
+            } else {
+                return false;
             }
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            if can_attack {
+                unit.is_attack_path = true;
+                unit.auto_acquire_when_idle = true;
+                unit.set_ai_state(AIState::AttackMoving);
+            } else {
+                unit.is_attack_path = false;
+                unit.set_ai_state(AIState::Moving);
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Wave 232: promote unit onto attack-move path after waypoint follow.
+    pub fn unit_command_promote_attack_path(&mut self, id: ObjectId) -> bool {
+        let can_attack = self
+            .objects
+            .get(&id)
+            .map(|u| u.is_alive() && (u.can_attack() || u.weapon.is_some()))
+            .unwrap_or(false);
+        if !can_attack {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            if let Some(slot) = unit.find_waypoint_following_capable_weapon_slot() {
+                unit.set_active_weapon_slot(slot);
+            }
+            unit.is_attack_path = true;
             unit.set_ai_state(AIState::AttackMoving);
             return true;
         }
@@ -61304,6 +61402,25 @@ impl GameLogic {
         false
     }
 
+    /// Wave 232: dozer construct — path/destination + Constructing AI state.
+    pub fn unit_command_begin_construct(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
+        if self.objects.get(&id).is_none() {
+            return false;
+        }
+        if !self.assign_unit_path(id, location, &[]) {
+            if let Some(unit) = self.objects.get_mut(&id) {
+                unit.set_destination(location);
+            } else {
+                return false;
+            }
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.set_ai_state(AIState::Constructing);
+            return true;
+        }
+        false
+    }
+
     /// Wave 231: additive selection mark on a selectable friendly unit.
     pub fn unit_select_if_team(&mut self, id: ObjectId, player_team: Team) -> bool {
         let Some(obj) = self.objects.get_mut(&id) else {
@@ -61316,6 +61433,296 @@ impl GameLogic {
         } else {
             false
         }
+    }
+
+    /// Wave 232: path after stop_attack; optionally clear formation id (free move).
+    pub fn unit_command_move_clear_formation(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+        clear_formation: bool,
+    ) -> bool {
+        if self.objects.get(&id).is_none() {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.stop_attack();
+        }
+        if !self.assign_unit_path(id, destination, &[]) {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            if clear_formation && unit.formation_id != 0 {
+                unit.set_formation(0, glam::Vec2::ZERO);
+            }
+            unit.set_ai_state(AIState::Moving);
+        }
+        true
+    }
+
+    /// Wave 232: tighten-group prep — stop attack, clear formation/guard, then Moving path.
+    pub fn unit_command_tighten_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        let can = self
+            .objects
+            .get(&id)
+            .map(|u| {
+                u.is_alive()
+                    && u.can_move()
+                    && !u.is_kind_of(KindOf::Immobile)
+                    && !u.is_kind_of(KindOf::Structure)
+            })
+            .unwrap_or(false);
+        if !can {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.stop_attack();
+            unit.set_formation(0, glam::Vec2::ZERO);
+            unit.set_guard_position(None);
+            unit.set_guard_target(None);
+            unit.end_guard_retaliate();
+        }
+        let path_ok = self.assign_unit_path(id, destination, &[]);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            if !path_ok {
+                unit.set_destination(destination);
+            }
+            unit.set_ai_state(AIState::Moving);
+            return true;
+        }
+        false
+    }
+
+    /// Wave 232: stamp formation id + offset (create/dissolve).
+    pub fn unit_command_set_formation(
+        &mut self,
+        id: ObjectId,
+        formation_id: u32,
+        offset: glam::Vec2,
+    ) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        unit.set_formation(formation_id, offset);
+        true
+    }
+
+    /// Wave 232: full guard order (position or object) with radius/mode.
+    /// Returns whether unit accepted the order; caller may still path.
+    pub fn unit_command_guard_full(
+        &mut self,
+        id: ObjectId,
+        position: Option<glam::Vec3>,
+        target: Option<ObjectId>,
+        guard_radius: f32,
+        mode: GuardMode,
+    ) -> bool {
+        let can = self
+            .objects
+            .get(&id)
+            .map(|u| {
+                u.is_alive()
+                    && u.can_move()
+                    && !u.is_kind_of(KindOf::Immobile)
+                    && !u.is_kind_of(KindOf::Structure)
+            })
+            .unwrap_or(false);
+        if !can {
+            return false;
+        }
+        // For object guard, require living target position when provided.
+        let (gpos, gtarget, ai_state) = if let Some(tid) = target {
+            let tpos = self
+                .objects
+                .get(&tid)
+                .filter(|o| o.is_alive())
+                .map(|o| o.get_position());
+            if tpos.is_none() {
+                return false;
+            }
+            (
+                tpos.map(|p| [p.x, p.y, p.z]),
+                tid.0,
+                AIState::GuardingObject,
+            )
+        } else if let Some(pos) = position {
+            (Some([pos.x, pos.y, pos.z]), 0u32, AIState::GuardingArea)
+        } else {
+            return false;
+        };
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.guard_radius = guard_radius;
+            unit.set_guard_mode(mode);
+            unit.set_target(None);
+            unit.set_force_attack(false);
+            unit.end_guard_retaliate();
+            if let Some(tid) = target {
+                unit.guard_position = None;
+                unit.set_guard_target(Some(tid));
+            } else if let Some(pos) = position {
+                unit.set_guard_target(None);
+                unit.set_guard_position(Some(pos));
+            }
+            unit.set_ai_state(ai_state);
+            crate::game_logic::host_guard_log::record(id, gpos, gtarget, guard_radius);
+            crate::game_logic::host_attack_log::record(id, None);
+            return true;
+        }
+        false
+    }
+
+    /// Wave 232: set guard radius only (guard area residual).
+    pub fn unit_command_set_guard_radius(&mut self, id: ObjectId, radius: f32) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        unit.guard_radius = radius;
+        true
+    }
+
+    /// Wave 232: attack-ground with max shots + force flag.
+    pub fn unit_command_attack_ground_ex(
+        &mut self,
+        id: ObjectId,
+        location: glam::Vec3,
+        max_shots: i32,
+    ) -> bool {
+        let can = self
+            .objects
+            .get(&id)
+            .map(|u| {
+                u.is_alive()
+                    && (u.can_attack() || u.weapon.is_some() || u.is_kind_of(KindOf::Structure))
+            })
+            .unwrap_or(false);
+        if !can {
+            // Still allow soft structure residual if alive.
+            let alive = self.objects.get(&id).map(|u| u.is_alive()).unwrap_or(false);
+            if !alive {
+                return false;
+            }
+        }
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !unit.is_alive() {
+            return false;
+        }
+        unit.set_target(None);
+        unit.set_force_attack(true);
+        unit.set_max_shots_to_fire(max_shots);
+        unit.set_target_location(Some(location));
+        unit.set_ai_state(AIState::AttackingGround);
+        true
+    }
+
+    /// Wave 232: hunt/patrol residual.
+    pub fn unit_command_patrol(&mut self, id: ObjectId) -> bool {
+        let can = self
+            .objects
+            .get(&id)
+            .map(|u| {
+                u.is_alive()
+                    && u.can_move()
+                    && !u.is_kind_of(KindOf::Immobile)
+                    && !u.is_kind_of(KindOf::Structure)
+            })
+            .unwrap_or(false);
+        if !can {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.set_target(None);
+            unit.set_force_attack(false);
+            unit.set_guard_position(None);
+            unit.set_guard_target(None);
+            unit.end_guard_retaliate();
+            crate::game_logic::host_guard_log::record(id, None, 0, 0.0);
+            crate::game_logic::host_attack_log::record(id, None);
+            unit.auto_acquire_when_idle = true;
+            unit.set_ai_state(AIState::Patrolling);
+            unit.set_status_moving(false);
+            return true;
+        }
+        false
+    }
+
+    /// Wave 232: cheer model-condition residual.
+    pub fn unit_command_cheer(
+        &mut self,
+        id: ObjectId,
+        cheer_secs: f32,
+        cheer_bit: Option<usize>,
+    ) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !unit.is_alive() {
+            return false;
+        }
+        unit.begin_cheer(cheer_secs, cheer_bit);
+        true
+    }
+
+    /// Wave 232: toggle deployed status for deploy-style units.
+    pub fn unit_command_set_deployed(&mut self, id: ObjectId, deployed: bool) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        unit.set_deployed(deployed);
+        if deployed {
+            unit.set_ai_state(AIState::Idle);
+        }
+        true
+    }
+
+    /// Wave 232: attack nearest of team without force flag (attack-team residual).
+    pub fn unit_command_attack_soft(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !unit.is_alive() {
+            return false;
+        }
+        unit.set_target(Some(target_id));
+        unit.set_force_attack(false);
+        unit.set_ai_state(AIState::Attacking);
+        true
+    }
+
+    /// Wave 232: free group move — stop attack, path, clear formation if goal not offset.
+    pub fn unit_command_move_free(
+        &mut self,
+        id: ObjectId,
+        goal: glam::Vec3,
+        click_destination: glam::Vec3,
+    ) -> bool {
+        if self.objects.get(&id).is_none() {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.stop_attack();
+        }
+        if !self.assign_unit_path(id, goal, &[]) {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            // C++ setFormationID(NO_FORMATION) on free individual move when goal is not
+            // the stamped formation offset destination.
+            if unit.formation_id != 0 {
+                let off = unit.formation_offset;
+                let expected = glam::Vec3::new(
+                    click_destination.x + off.x,
+                    click_destination.y,
+                    click_destination.z + off.y,
+                );
+                if (goal - expected).length() > 0.5 {
+                    unit.set_formation(0, glam::Vec2::ZERO);
+                }
+            }
+            unit.set_ai_state(AIState::Moving);
+        }
+        true
     }
 
     #[inline]

@@ -85,6 +85,18 @@ pub fn honesty_execute_guard_records_source() -> bool {
         None => return false,
     };
     let body = &src[i..src.len().min(i + 3500)];
+    // Wave 232: guard last-writes via unit_command_guard_full (records host_guard_log).
+    if body.contains("unit_command_guard_full") {
+        let gl = include_str!("game_logic.rs");
+        let gi = match gl.find("pub fn unit_command_guard_full") {
+            Some(gi) => gi,
+            None => return false,
+        };
+        let gbody = &gl[gi..gl.len().min(gi + 2500)];
+        return gbody.contains("host_guard_log::record")
+            && gbody.contains("set_guard_position")
+            && gbody.contains("set_guard_target");
+    }
     body.contains("host_guard_log::record")
         && body.contains("set_guard_position")
         && body.contains("set_guard_target")
@@ -96,9 +108,15 @@ pub fn honesty_shadow_drains_guard_log_source() -> bool {
     let gw = include_str!("../gameworld_shadow.rs");
     let stop_i = ce.find("fn execute_stop").unwrap_or(0);
     let stop = &ce[stop_i..ce.len().min(stop_i + 1200)];
-    stop.contains("host_guard_log::record")
-        && gw.contains("host_guard_log::drain")
-        && gw.contains("WorldMutation::SetGuard")
+    // Wave 232: stop clears guard via unit_command_stop (records host_guard_log).
+    let stop_ok = stop.contains("host_guard_log::record")
+        || (stop.contains("unit_command_stop") && {
+            let gl = include_str!("game_logic.rs");
+            let gi = gl.find("pub fn unit_command_stop").unwrap_or(0);
+            let gbody = &gl[gi..gl.len().min(gi + 900)];
+            gbody.contains("host_guard_log::record")
+        });
+    stop_ok && gw.contains("host_guard_log::drain") && gw.contains("WorldMutation::SetGuard")
 }
 
 /// Live residual: guard command latches host_guard_log event.

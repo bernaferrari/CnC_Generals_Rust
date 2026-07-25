@@ -223,6 +223,7 @@ pub mod host_live_command_attack_log_residual_wave197;
 pub mod host_live_command_beacon_note_residual_wave210;
 pub mod host_live_command_cheer_science_log_residual_wave202;
 pub mod host_live_command_deploy_status_log_residual_wave203;
+pub mod host_live_command_executor_authority_api_residual_wave232;
 pub mod host_live_command_formation_log_residual_wave204;
 pub mod host_live_command_guard_log_residual_wave198;
 pub mod host_live_command_non_attack_order_target_residual_wave207;
@@ -1699,6 +1700,12 @@ pub use host_live_command_deploy_status_log_residual_wave203::{
     honesty_live_command_deploy_status_log_nav_commands_residual_wave203,
     honesty_live_command_deploy_status_log_residual_pack_wave203,
     simulate_live_command_deploy_status_log_honesty,
+};
+pub use host_live_command_executor_authority_api_residual_wave232::{
+    honesty_live_command_executor_authority_api_method_names_residual_wave232,
+    honesty_live_command_executor_authority_api_nav_commands_residual_wave232,
+    honesty_live_command_executor_authority_api_residual_pack_wave232,
+    simulate_live_command_executor_authority_api_honesty,
 };
 pub use host_live_command_formation_log_residual_wave204::{
     honesty_live_command_formation_log_method_names_residual_wave204,

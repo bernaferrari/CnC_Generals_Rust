@@ -394,6 +394,7 @@ impl<'a> CommandExecutor<'a> {
     // === Movement Commands ===
 
     pub(crate) fn execute_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
+        // Wave 232: move last-writes via GameLogic unit_command_move_free.
         // C++ groupMoveToPosition: click inside group bounds → tighten (all to point).
         if self.should_tighten_group_move(units, destination) {
             return self.execute_tighten_to_position(units, destination);
@@ -419,33 +420,15 @@ impl<'a> CommandExecutor<'a> {
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.stop_attack();
-            } else {
-                return CommandResult::InvalidTarget;
-            }
-            if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
-                return CommandResult::InvalidCommand;
-            }
-            // C++ groupMoveToPosition clears formation id on free move.
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Keep stamped formation when formation move path used destinations
-                // already offset; free-move / column still clear id so next move
-                // doesn't keep stale offsets after scatter-like pack.
-                // C++ setFormationID(NO_FORMATION) on free individual move.
-                if unit.formation_id != 0 {
-                    // Only clear when destinations were not pure formation offsets:
-                    // formation path keeps id. Detect: goal == dest + offset.
-                    let off = unit.formation_offset;
-                    let expected = glam::Vec3::new(
-                        destination.x + off.x,
-                        destination.y,
-                        destination.z + off.y,
-                    );
-                    if (goal - expected).length() > 0.5 {
-                        unit.set_formation(0, glam::Vec2::ZERO);
-                    }
+            if !self
+                .game_logic
+                .unit_command_move_free(unit_id, goal, destination)
+            {
+                // Distinguish missing unit vs path failure like prior residual.
+                if self.game_logic.get_object(unit_id).is_none() {
+                    return CommandResult::InvalidTarget;
                 }
+                return CommandResult::InvalidCommand;
             }
             moved.push(unit_id);
             debug!("Unit {} moving to {:?}", unit_id.0, goal);
@@ -460,18 +443,17 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> CommandResult {
+        // Wave 232: move last-writes via GameLogic unit_command_move_to_waypoints.
         if waypoints.is_empty() && self.should_tighten_group_move(units, destination) {
             return self.execute_tighten_to_position(units, destination);
         }
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.stop_attack();
-            } else {
-                return CommandResult::InvalidTarget;
-            }
-            if !self.game_logic.assign_unit_path(unit_id, goal, waypoints) {
+            if !self
+                .game_logic
+                .unit_command_move_to_waypoints(unit_id, goal, waypoints)
+            {
                 return CommandResult::InvalidCommand;
             }
             moved.push(unit_id);
@@ -678,6 +660,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> CommandResult {
+        // Wave 232: tighten last-writes via GameLogic unit_command_tighten_to.
         if !destination.x.is_finite() || !destination.z.is_finite() {
             return CommandResult::InvalidLocation;
         }
@@ -703,14 +686,10 @@ impl<'a> CommandExecutor<'a> {
         movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         let mut any = false;
         for (unit_id, _) in movers {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.stop_attack();
-                unit.set_formation(0, glam::Vec2::ZERO);
-                unit.set_guard_position(None);
-                unit.set_guard_target(None);
-                unit.end_guard_retaliate();
-            }
-            if self.path_to_goal_with_state(unit_id, destination, AIState::Moving) {
+            if self
+                .game_logic
+                .unit_command_tighten_to(unit_id, destination)
+            {
                 any = true;
             }
         }
@@ -905,28 +884,14 @@ impl<'a> CommandExecutor<'a> {
         exact: bool,
         as_team: bool,
     ) -> CommandResult {
+        // Wave 232: promote attack-path via GameLogic unit_command_promote_attack_path.
         let path_res = self.execute_follow_waypoint_path(units, waypoints, exact, as_team);
         if !matches!(path_res, CommandResult::Success) {
             return path_res;
         }
         // Promote movers that can attack into AttackMoving + is_attack_path.
         for &unit_id in units {
-            let can_attack = self
-                .game_logic
-                .get_object(unit_id)
-                .map(|u| u.is_alive() && (u.can_attack() || u.weapon.is_some()))
-                .unwrap_or(false);
-            if !can_attack {
-                continue;
-            }
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // C++ findWaypointFollowingCapableWeapon residual for attack-move path.
-                if let Some(slot) = unit.find_waypoint_following_capable_weapon_slot() {
-                    unit.set_active_weapon_slot(slot);
-                }
-                unit.is_attack_path = true;
-                unit.set_ai_state(AIState::AttackMoving);
-            }
+            let _ = self.game_logic.unit_command_promote_attack_path(unit_id);
         }
         CommandResult::Success
     }
@@ -1159,6 +1124,7 @@ impl<'a> CommandExecutor<'a> {
         team_code: u8,
         _max_shots: i32,
     ) -> CommandResult {
+        // Wave 232: attack-team last-writes via unit_command_attack_soft.
         use crate::game_logic::Team;
         let enemy_team = match team_code {
             0 => Team::GLA,
@@ -1195,11 +1161,7 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
             if let Some((tid, _)) = best {
-                // Direct engage residual (don't require full weapon matrix for order).
-                if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                    unit.set_target(Some(tid));
-                    unit.set_force_attack(false);
-                    unit.set_ai_state(AIState::Attacking);
+                if self.game_logic.unit_command_attack_soft(unit_id, tid) {
                     any = true;
                 }
                 let tpos = self.game_logic.get_object(tid).map(|o| o.get_position());
@@ -1329,51 +1291,19 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         max_shots: i32,
     ) -> CommandResult {
+        // Wave 232: attack-move last-writes via GameLogic unit_command_attack_move_to_ex.
         if !destination.x.is_finite() || !destination.z.is_finite() {
             return CommandResult::InvalidLocation;
         }
         let goals = self.group_move_destinations(units, destination);
         let mut any = false;
         for (unit_id, goal) in goals {
-            let (can_move, can_attack) = match self.game_logic.get_object(unit_id) {
-                Some(unit) => (
-                    unit.is_alive() && unit.can_move(),
-                    unit.can_attack() || unit.weapon.is_some(),
-                ),
-                None => continue,
-            };
-            if !can_move {
-                continue;
+            if self
+                .game_logic
+                .unit_command_attack_move_to_ex(unit_id, goal, max_shots)
+            {
+                any = true;
             }
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.stop_attack();
-                unit.set_force_attack(false);
-                unit.set_max_shots_to_fire(max_shots);
-            }
-            if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
-                if !self.path_to_goal_with_state(
-                    unit_id,
-                    goal,
-                    if can_attack {
-                        AIState::AttackMoving
-                    } else {
-                        AIState::Moving
-                    },
-                ) {
-                    continue;
-                }
-            }
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if can_attack {
-                    unit.is_attack_path = true;
-                    unit.auto_acquire_when_idle = true;
-                    unit.set_ai_state(AIState::AttackMoving);
-                } else {
-                    unit.is_attack_path = false;
-                    unit.set_ai_state(AIState::Moving);
-                }
-            }
-            any = true;
         }
         if any {
             CommandResult::Success
@@ -1383,21 +1313,12 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_force_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
+        // Wave 232: force-move via GameLogic unit_command_force_move_to.
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
-            if self.game_logic.get_object(unit_id).is_none() {
-                return CommandResult::InvalidTarget;
-            }
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.stop_attack();
-            }
-            // Force move still pathfinds; threat ignore is AI-state residual, not LOS.
-            if !self.game_logic.assign_unit_path(unit_id, goal, &[]) {
+            if !self.game_logic.unit_command_force_move_to(unit_id, goal) {
                 return CommandResult::InvalidCommand;
-            }
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.set_ai_state(AIState::Moving);
             }
             moved.push(unit_id);
         }
@@ -1430,6 +1351,7 @@ impl<'a> CommandExecutor<'a> {
     // === Combat Commands ===
 
     fn execute_attack(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+        // Wave 232: attack last-writes via GameLogic unit_command_attack.
         let Some(target_team) = self
             .game_logic
             .get_object(target_id)
@@ -1468,12 +1390,7 @@ impl<'a> CommandExecutor<'a> {
 
         let mut any_attacker = false;
         for (unit_id, _) in ordered {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.set_force_attack(false);
-                unit.set_target(Some(target_id));
-                unit.set_ai_state(AIState::Attacking);
-                // Wave 197: GameWorld shadow parity — attack-target last-writer drain.
-                crate::game_logic::host_attack_log::record(unit_id, Some(target_id));
+            if self.game_logic.unit_command_attack(unit_id, target_id) {
                 any_attacker = true;
             }
         }
@@ -1490,6 +1407,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_force_attack(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+        // Wave 232: force-attack last-writes via GameLogic unit_command_force_attack.
         if !self.validate_target_exists(target_id) {
             return CommandResult::InvalidTarget;
         }
@@ -1524,11 +1442,10 @@ impl<'a> CommandExecutor<'a> {
 
         let mut any_attacker = false;
         for (unit_id, _) in ordered {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.set_target(Some(target_id));
-                crate::game_logic::host_attack_log::record(unit_id, Some(target_id));
-                unit.set_force_attack(true);
-                unit.set_ai_state(AIState::Attacking);
+            if self
+                .game_logic
+                .unit_command_force_attack(unit_id, target_id)
+            {
                 any_attacker = true;
             }
         }
@@ -1870,6 +1787,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> CommandResult {
+        // Wave 232: formation move via unit_command_force_move_to.
         if !destination.x.is_finite() || !destination.z.is_finite() {
             return CommandResult::InvalidLocation;
         }
@@ -1894,15 +1812,9 @@ impl<'a> CommandExecutor<'a> {
         let goals = self.group_move_destinations(units, destination);
         let mut any = false;
         for (unit_id, goal) in goals {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.stop_attack();
-            }
-            if self.game_logic.assign_unit_path(unit_id, goal, &[]) {
-                if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                    unit.set_ai_state(AIState::Moving);
-                }
-                any = true;
-            } else if self.path_to_goal_with_state(unit_id, goal, AIState::Moving) {
+            if self.game_logic.unit_command_force_move_to(unit_id, goal)
+                || self.path_to_goal_with_state(unit_id, goal, AIState::Moving)
+            {
                 any = true;
             }
         }
@@ -2061,7 +1973,7 @@ impl<'a> CommandExecutor<'a> {
         radius: f32,
         mode: crate::game_logic::GuardMode,
     ) -> CommandResult {
-        // Host residual: guard position at center; stamp guard_radius from area.
+        // Wave 232: guard area radius last-write via unit_command_set_guard_radius.
         let res = self.execute_guard(
             units,
             &crate::command_system::GuardTarget::Position(center),
@@ -2070,9 +1982,7 @@ impl<'a> CommandExecutor<'a> {
         if matches!(res, CommandResult::Success) {
             let r = radius.max(80.0);
             for &id in units {
-                if let Some(u) = self.game_logic.get_object_mut(id) {
-                    u.guard_radius = r;
-                }
+                let _ = self.game_logic.unit_command_set_guard_radius(id, r);
             }
         }
         res
@@ -2137,6 +2047,7 @@ impl<'a> CommandExecutor<'a> {
         location: Option<Vec3>,
         max_shots: i32,
     ) -> CommandResult {
+        // Wave 232: attack-ground last-writes via unit_command_attack_ground_ex.
         let mut any = false;
         let mut extra_passengers: Vec<ObjectId> = Vec::new();
 
@@ -2176,24 +2087,10 @@ impl<'a> CommandExecutor<'a> {
                 },
             };
 
-            let can = match self.game_logic.get_object(unit_id) {
-                Some(u) if u.is_alive() => {
-                    u.can_attack()
-                        || u.weapon.is_some()
-                        || u.is_kind_of(crate::game_logic::KindOf::Structure)
-                }
-                _ => false,
-            };
-            // Structures/garrisons may still get the order even if can_attack is soft-false.
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if !unit.is_alive() {
-                    continue;
-                }
-                unit.set_target(None);
-                unit.set_force_attack(true);
-                unit.set_max_shots_to_fire(max_shots);
-                unit.set_target_location(Some(attack_pos));
-                unit.set_ai_state(AIState::AttackingGround);
+            if self
+                .game_logic
+                .unit_command_attack_ground_ex(unit_id, attack_pos, max_shots)
+            {
                 any = true;
             }
             // Face/path residual: movable units approach the ground point if far.
@@ -2223,22 +2120,11 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_stop(&mut self, units: &[ObjectId]) -> CommandResult {
+        // Wave 232: stop last-writes via GameLogic unit_command_stop.
         // C++ AIGroup::groupIdle (player stop):
         // aiIdle + stealth combat unit mood delay until stealthed again.
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            unit.stop();
-            unit.set_target(None);
-            unit.set_force_attack(false);
-            // C++ stop clears guard/waypoint residual anchors.
-            unit.set_guard_position(None);
-            unit.set_guard_target(None);
-            crate::game_logic::host_attack_log::record(unit_id, None);
-            crate::game_logic::host_guard_log::record(unit_id, None, 0, 0.0);
-            unit.end_guard_retaliate();
-            unit.set_ai_state(AIState::Idle);
+            let _ = self.game_logic.unit_command_stop(unit_id);
         }
         self.apply_player_stealth_mood_delay(units);
         CommandResult::Success
@@ -2250,9 +2136,9 @@ impl<'a> CommandExecutor<'a> {
         target: &GuardTarget,
         mode: crate::game_logic::GuardMode,
     ) -> CommandResult {
+        // Wave 232: guard last-writes via GameLogic unit_command_guard_full.
         // C++ AIGroup::groupGuardPosition/Object — only units with AI/move;
         // guard radius residual ≈ adjusted vision (getStdGuardRange).
-        // mode = C++ GuardMode (Normal / WithoutPursuit / FlyingUnitsOnly).
         const GUARD_MIN_RADIUS: f32 = 80.0;
         let mut any = false;
         for &unit_id in units {
@@ -2287,40 +2173,19 @@ impl<'a> CommandExecutor<'a> {
             };
 
             let guard_radius = vision.max(weapon_r).max(GUARD_MIN_RADIUS);
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // C++ getStdGuardRange ≈ vision with guard-inner factor; host uses
-                // max(vision, weapon, min radius).
-                unit.guard_radius = guard_radius;
-                unit.set_guard_mode(mode);
-                unit.set_target(None);
-                unit.set_force_attack(false);
-                unit.end_guard_retaliate();
-                match target {
-                    GuardTarget::Position(pos) => {
-                        unit.set_guard_target(None);
-                        unit.set_guard_position(Some(*pos));
-                    }
-                    GuardTarget::Object(target_id) => {
-                        if target_pos.is_none() {
-                            continue;
-                        }
-                        // Object guard: anchor follows target; clear area pin.
-                        unit.guard_position = None;
-                        unit.set_guard_target(Some(*target_id));
-                    }
-                }
-            } else {
+            let (position, obj_target) = match target {
+                GuardTarget::Position(pos) => (Some(*pos), None),
+                GuardTarget::Object(target_id) => (None, Some(*target_id)),
+            };
+            if !self.game_logic.unit_command_guard_full(
+                unit_id,
+                position,
+                obj_target,
+                guard_radius,
+                mode,
+            ) {
                 continue;
             }
-            // Wave 198: GameWorld SetGuard last-writer drain (host_guard_log).
-            let (gpos, gtarget) = match target {
-                GuardTarget::Position(pos) => (Some([pos.x, pos.y, pos.z]), 0u32),
-                GuardTarget::Object(target_id) => {
-                    (target_pos.map(|p| [p.x, p.y, p.z]), target_id.0)
-                }
-            };
-            crate::game_logic::host_guard_log::record(unit_id, gpos, gtarget, guard_radius);
-            crate::game_logic::host_attack_log::record(unit_id, None);
 
             match target {
                 GuardTarget::Position(pos) => {
@@ -2329,8 +2194,6 @@ impl<'a> CommandExecutor<'a> {
                 GuardTarget::Object(_) => {
                     if let Some(pos) = target_pos {
                         let _ = self.path_to_goal_with_state(unit_id, pos, AIState::GuardingObject);
-                    } else if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                        unit.set_ai_state(AIState::GuardingObject);
                     }
                 }
             }
@@ -2344,32 +2207,12 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_patrol(&mut self, units: &[ObjectId]) -> CommandResult {
-        // C++ AIGroup::groupHunt / host Patrol button residual (AI_HUNT).
+        // Wave 232: patrol last-writes via GameLogic unit_command_patrol.
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.get_object_mut(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() || !unit.can_move() {
-                continue;
+            if self.game_logic.unit_command_patrol(unit_id) {
+                any = true;
             }
-            if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
-                || unit.is_kind_of(crate::game_logic::KindOf::Structure)
-            {
-                continue;
-            }
-            unit.set_target(None);
-            unit.set_force_attack(false);
-            unit.set_guard_position(None);
-            unit.set_guard_target(None);
-            unit.end_guard_retaliate();
-            crate::game_logic::host_guard_log::record(unit_id, None, 0, 0.0);
-            crate::game_logic::host_attack_log::record(unit_id, None);
-            // Hunt enables auto-acquire while wandering.
-            unit.auto_acquire_when_idle = true;
-            unit.set_ai_state(AIState::Patrolling);
-            unit.set_status_moving(false);
-            any = true;
         }
         if any {
             CommandResult::Success
@@ -2401,6 +2244,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_scatter(&mut self, units: &[ObjectId]) -> CommandResult {
+        // Wave 232: scatter last-writes via GameLogic unit_command_move_to_moving.
         // C++ AIGroup::groupScatter — far-to-near from group center, push out by
         // 4 * bounding radius along the unit→center vector (host XZ plane).
         let mut movers: Vec<(ObjectId, Vec3, f32)> = Vec::new();
@@ -2452,7 +2296,7 @@ impl<'a> CommandExecutor<'a> {
             }
             let push = 4.0 * radius;
             let dest = Vec3::new(pos.x + dx * push, pos.y, pos.z + dz * push);
-            if self.path_to_goal_with_state(unit_id, dest, AIState::Moving) {
+            if self.game_logic.unit_command_move_to_moving(unit_id, dest) {
                 any = true;
             }
         }
@@ -2507,12 +2351,9 @@ impl<'a> CommandExecutor<'a> {
             .any(|k| name.contains(k));
 
             if looks_deployable && !is_infantry {
-                if let Some(unit_mut) = self.game_logic.get_object_mut(unit_id) {
-                    let next = !is_deployed;
-                    unit_mut.set_deployed(next);
-                    if next {
-                        unit_mut.set_ai_state(AIState::Idle);
-                    }
+                // Wave 232: deploy toggle via GameLogic unit_command_set_deployed.
+                let next = !is_deployed;
+                if self.game_logic.unit_command_set_deployed(unit_id, next) {
                     any = true;
                 }
                 continue;
@@ -6015,6 +5856,7 @@ impl<'a> CommandExecutor<'a> {
     // === Formation Commands ===
 
     pub(crate) fn execute_create_formation(&mut self, units: &[ObjectId]) -> CommandResult {
+        // Wave 232: formation stamp via GameLogic unit_command_set_formation.
         // C++ AIGroup::groupCreateFormation — stamp formation id + offset from
         // centroid. Does NOT path units or enter GuardingArea.
         if units.is_empty() {
@@ -6064,17 +5906,18 @@ impl<'a> CommandExecutor<'a> {
         };
 
         for (unit_id, pos, _) in members {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                // Wave 204: set_formation logs host_formation_log → SetFormation.
-                // C++ offset is XY; host ground is XZ → store as Vec2(x, z).
-                unit.set_formation(new_id, glam::Vec2::new(pos.x - center.x, pos.z - center.z));
-            }
+            let _ = self.game_logic.unit_command_set_formation(
+                unit_id,
+                new_id,
+                glam::Vec2::new(pos.x - center.x, pos.z - center.z),
+            );
         }
 
         CommandResult::Success
     }
 
     pub(crate) fn execute_cheer(&mut self, units: &[ObjectId]) -> CommandResult {
+        // Wave 232: cheer last-writes via GameLogic unit_command_cheer.
         // C++ AIGroup::groupCheer:
         // setSpecialModelConditionState(SPECIAL_CHEERING, LOGICFRAMES_PER_SECOND * 3)
         use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
@@ -6082,12 +5925,10 @@ impl<'a> CommandExecutor<'a> {
         let cheer_bit = model_condition_bit_name_index("SPECIAL_CHEERING");
         let mut any = false;
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if !unit.is_alive() {
-                    continue;
-                }
-                // Wave 202: begin_cheer logs model_condition + demo_mine_cheer.
-                unit.begin_cheer(cheer_secs, cheer_bit);
+            if self
+                .game_logic
+                .unit_command_cheer(unit_id, cheer_secs, cheer_bit)
+            {
                 any = true;
             }
         }
@@ -6169,7 +6010,7 @@ impl<'a> CommandExecutor<'a> {
         create_new: bool,
         units: &[ObjectId],
     ) -> CommandResult {
-        // Wave 206: selection last-writes object.select/deselect → host_status_log.
+        // Wave 232: selection last-writes via select_objects / unit_select_if_team.
         if self.game_logic.get_player(player_id).is_none() {
             return CommandResult::InvalidCommand;
         }
@@ -6185,20 +6026,7 @@ impl<'a> CommandExecutor<'a> {
         };
         let mut added = Vec::new();
         for &unit_id in units {
-            let ok = self
-                .game_logic
-                .get_object_mut(unit_id)
-                .map(|obj| {
-                    if obj.team == player_team && obj.is_selectable() {
-                        obj.select();
-                        obj.flash_as_selected();
-                        true
-                    } else {
-                        false
-                    }
-                })
-                .unwrap_or(false);
-            if ok {
+            if self.game_logic.unit_select_if_team(unit_id, player_team) {
                 added.push(unit_id);
             }
         }
