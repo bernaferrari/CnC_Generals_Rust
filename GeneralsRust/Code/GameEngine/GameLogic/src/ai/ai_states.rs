@@ -149,7 +149,18 @@ impl Default for AIStateMachineContext {
     }
 }
 
+
+/// Wave 254: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 fn out_of_weapon_range_object(context: &AIStateMachineContext) -> bool {
+    // Wave 254: empty dual-world → no owner/target resolve.
+    if dual_world_registry_unavailable() {
+        return false;
+    }
     let Some(target_id) = context.goal_object else {
         return false;
     };
@@ -170,6 +181,10 @@ fn out_of_weapon_range_object(context: &AIStateMachineContext) -> bool {
 }
 
 fn out_of_weapon_range_position(context: &AIStateMachineContext) -> bool {
+    // Wave 254: empty dual-world → no owner resolve.
+    if dual_world_registry_unavailable() {
+        return false;
+    }
     let Some(goal_position) = context.goal_position else {
         return false;
     };
@@ -184,6 +199,10 @@ fn out_of_weapon_range_position(context: &AIStateMachineContext) -> bool {
 }
 
 fn want_to_squish_target(context: &AIStateMachineContext) -> bool {
+    // Wave 254: empty dual-world → no target resolve.
+    if dual_world_registry_unavailable() {
+        return false;
+    }
     let Some(target_id) = context.goal_object else {
         return false;
     };
@@ -221,6 +240,10 @@ fn want_to_squish_target(context: &AIStateMachineContext) -> bool {
 }
 
 fn goal_reached(context: &AIStateMachineContext) -> bool {
+    // Wave 254: empty dual-world → no owner position.
+    if dual_world_registry_unavailable() {
+        return false;
+    }
     let Some(goal_pos) = context.goal_position else {
         return false;
     };
@@ -236,6 +259,10 @@ fn goal_reached(context: &AIStateMachineContext) -> bool {
 }
 
 fn resolve_goal_position(context: &mut AIStateMachineContext) -> Option<Coord3D> {
+    // Wave 254: empty dual-world → keep existing goal_position only.
+    if dual_world_registry_unavailable() {
+        return context.goal_position;
+    }
     if let Some(target_id) = context.goal_object {
         if let Some(pos) = OBJECT_REGISTRY.with_object(target_id, |target| *target.get_position()) {
             context.goal_position = Some(pos);
@@ -359,6 +386,11 @@ impl AIMoveToState {
     }
 
     fn compute_path(&mut self, context: &mut AIStateMachineContext) -> bool {
+        // Wave 254: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(goal_pos) = context.goal_position else {
             return false;
         };
@@ -409,6 +441,11 @@ impl AIState for AIMoveToState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -441,6 +478,11 @@ impl AIMoveOutOfTheWayState {
 
 impl AIState for AIMoveOutOfTheWayState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -461,6 +503,11 @@ impl AIState for AIMoveOutOfTheWayState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(status) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
             if owner.is_effectively_dead() {
                 return Some(None);
@@ -486,6 +533,11 @@ impl AIState for AIMoveOutOfTheWayState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -540,6 +592,11 @@ impl AIMoveAndEvacuateState {
 
 impl AIState for AIMoveAndEvacuateState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(origin) =
             OBJECT_REGISTRY.with_object(context.owner_id, |owner| *owner.get_position())
         else {
@@ -555,6 +612,11 @@ impl AIState for AIMoveAndEvacuateState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some((ret, destroy)) = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             if owner.is_effectively_dead() {
                 return (StateReturnType::Failed, false);
@@ -613,6 +675,11 @@ impl AIState for AIMoveAndDeleteState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(should_destroy) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
             if owner.is_effectively_dead() {
                 return None;
@@ -630,6 +697,11 @@ impl AIState for AIMoveAndDeleteState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -657,6 +729,11 @@ impl AIFollowPathState {
     }
 
     fn set_next_goal(&mut self, context: &mut AIStateMachineContext) -> bool {
+        // Wave 254: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.path_index >= context.goal_path.len() {
             return false;
         }
@@ -701,6 +778,11 @@ impl AIState for AIFollowPathState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -802,6 +884,11 @@ impl AIDeadState {
 
 impl AIState for AIDeadState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -812,6 +899,11 @@ impl AIState for AIDeadState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         match OBJECT_REGISTRY.with_object(context.owner_id, |owner| owner.is_effectively_dead()) {
             None | Some(true) => StateReturnType::Success,
             Some(false) => StateReturnType::Continue,
@@ -819,6 +911,11 @@ impl AIState for AIDeadState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             owner.clear_model_condition_state(ModelConditionFlags::DYING);
         });
@@ -843,6 +940,11 @@ impl AIDockState {
 
 impl AIState for AIDockState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(goal_id) = context.goal_object else {
             return StateReturnType::Failed;
         };
@@ -892,6 +994,11 @@ impl AIState for AIDockState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(mut machine) = self.dock_machine.take() {
             let _ = machine.halt();
         }
@@ -927,6 +1034,11 @@ impl AIEnterState {
 
 impl AIState for AIEnterState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         self.entry_to_clear = INVALID_ID;
         let Some(goal_id) = context.goal_object else {
             return StateReturnType::Failed;
@@ -974,6 +1086,11 @@ impl AIState for AIEnterState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(goal_id) = context.goal_object else {
             return StateReturnType::Failed;
         };
@@ -1028,6 +1145,11 @@ impl AIState for AIEnterState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -1075,6 +1197,11 @@ impl AIExitState {
 
 impl AIState for AIExitState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
             return StateReturnType::Failed;
         };
@@ -1102,6 +1229,11 @@ impl AIState for AIExitState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         match OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_contained_by().is_none())
         {
@@ -1111,6 +1243,11 @@ impl AIState for AIExitState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = OBJECT_REGISTRY.with_object(context.owner_id, |owner_guard| {
             let Some(container_id) = owner_guard.get_contained_by() else {
                 return;
@@ -1147,6 +1284,11 @@ impl AIPickUpCrateState {
 
 impl AIState for AIPickUpCrateState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(goal_id) = context.goal_object else {
             return StateReturnType::Failed;
         };
@@ -1171,6 +1313,11 @@ impl AIState for AIPickUpCrateState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(goal_id) = context.goal_object else {
             return StateReturnType::Success;
         };
@@ -1201,6 +1348,11 @@ impl AIState for AIPickUpCrateState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -1232,6 +1384,11 @@ impl AIAttackSquadState {
 
 impl AIState for AIAttackSquadState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(owner_arc) = get_legacy_object(context.owner_id) else {
             return StateReturnType::Failed;
         };
@@ -1245,6 +1402,11 @@ impl AIState for AIAttackSquadState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(attack_machine) = self.attack_machine.as_mut() else {
             return StateReturnType::Failed;
         };
@@ -1292,6 +1454,11 @@ impl AIHackInternetState {
 
 impl AIState for AIHackInternetState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -1308,6 +1475,11 @@ impl AIState for AIHackInternetState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(status) = OBJECT_REGISTRY.with_object(context.owner_id, |owner_guard| {
             let Some(ai) = owner_guard.get_ai_update_interface() else {
                 return None; // Failed
@@ -1331,6 +1503,11 @@ impl AIState for AIHackInternetState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ HackInternetState::onExit clears MODELCONDITION_FIRING_A on the owner.
         let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             owner.clear_model_condition_state(ModelConditionFlags::FIRING_A);
@@ -1354,6 +1531,11 @@ impl AIFaceObjectState {
 
 impl AIState for AIFaceObjectState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(goal_id) = context.goal_object else {
             return StateReturnType::Failed;
         };
@@ -1402,6 +1584,11 @@ impl AIFacePositionState {
 
 impl AIState for AIFacePositionState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(goal_pos) = context.goal_position else {
             return StateReturnType::Failed;
         };
@@ -1445,6 +1632,11 @@ impl AIRappelIntoState {
 
 impl AIState for AIRappelIntoState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -1469,6 +1661,11 @@ impl AIState for AIRappelIntoState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             owner.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
         });
@@ -1499,6 +1696,11 @@ impl AICombatDropState {
 
 impl AIState for AICombatDropState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -1523,6 +1725,11 @@ impl AIState for AICombatDropState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ ChinookCombatDropState::onExit clears DISABLED_HELD, sets flight status to FLYING,
         // idles any rappellers if the owner died, and expires rope drawables.
         let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
@@ -1547,6 +1754,11 @@ impl AIBusyState {
 
 impl AIState for AIBusyState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -1561,6 +1773,11 @@ impl AIState for AIBusyState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let idle = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner_guard| {
                 owner_guard.get_ai_update_interface().and_then(|ai| {
@@ -1620,6 +1837,11 @@ impl AIExitInstantlyState {
 
 impl AIState for AIExitInstantlyState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(ok) = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             if owner.is_effectively_dead() {
                 return false;
@@ -1642,6 +1864,11 @@ impl AIState for AIExitInstantlyState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = OBJECT_REGISTRY.with_object(context.owner_id, |owner_guard| {
             let Some(container_id) = owner_guard.get_contained_by() else {
                 return;
@@ -1690,6 +1917,11 @@ impl AIState for AIGetRepairedState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(dead) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
             owner.is_effectively_dead()
         }) else {
@@ -1705,6 +1937,11 @@ impl AIState for AIGetRepairedState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ has no AIGetRepairedState class -- GetRepaired delegates to AIDockState/landing states.
         // Destroy any path that may have been computed for the repair depot approach.
         if let Some(ai) = OBJECT_REGISTRY
@@ -1795,6 +2032,11 @@ impl AIAttackState {
 
 impl AIState for AIAttackState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
             return StateReturnType::Failed;
         };
@@ -1855,6 +2097,11 @@ impl AIState for AIAttackState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         // Attack state update logic
         let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
             return StateReturnType::Failed;
@@ -1930,6 +2177,11 @@ impl AIState for AIAttackState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             owner.set_status(
                 ObjectStatusMaskType::from(ObjectStatusTypes::IsAttacking),
@@ -1993,6 +2245,11 @@ impl AIGuardState {
 
 impl AIState for AIGuardState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         self.guard_position = context.goal_position;
         self.guard_object = context.goal_object;
         self.guard_mode = match context.int_value {
@@ -2328,6 +2585,11 @@ impl AIState for AIFollowWaypointPathState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(goal_pos) = context.goal_position else {
             return StateReturnType::Failed;
         };
@@ -2353,6 +2615,11 @@ impl AIState for AIFollowWaypointPathState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -2425,6 +2692,11 @@ impl AIWanderState {
 
 impl AIState for AIWanderState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         self.follow.current_waypoint = context.goal_waypoint;
         self.follow.prior_waypoint = None;
         self.follow.group_offset = Coord2D::new(0.0, 0.0);
@@ -2451,6 +2723,11 @@ impl AIState for AIWanderState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some((can_be_repulsed, vision_range, ai)) =
             OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
                 (
@@ -2500,6 +2777,11 @@ impl AIState for AIWanderState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -2555,6 +2837,11 @@ impl AIWanderInPlaceState {
 
 impl AIState for AIWanderInPlaceState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| {
                 self.origin = *owner.get_position();
@@ -2577,6 +2864,11 @@ impl AIState for AIWanderInPlaceState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some((can_be_repulsed, vision_range, ai)) =
             OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
                 (
@@ -2622,6 +2914,11 @@ impl AIState for AIWanderInPlaceState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -2677,6 +2974,11 @@ impl AIPanicState {
 
 impl AIState for AIPanicState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         self.follow.current_waypoint = context.goal_waypoint;
         self.follow.prior_waypoint = None;
         self.follow.group_offset = Coord2D::new(0.0, 0.0);
@@ -2707,6 +3009,11 @@ impl AIState for AIPanicState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some((can_be_repulsed, vision_range, ai)) =
             OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
                 (
@@ -2756,6 +3063,11 @@ impl AIState for AIPanicState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             owner.clear_model_condition_state(ModelConditionFlags::PANICKING);
         });
@@ -2784,6 +3096,11 @@ impl AIGuardTunnelNetworkState {
 
 impl AIState for AIGuardTunnelNetworkState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         self.guard_mode = match context.int_value {
             0 => GuardMode::Normal,
             1 => GuardMode::GuardWithoutPursuit,
@@ -2856,6 +3173,11 @@ impl AIGuardRetaliateState {
 
 impl AIState for AIGuardRetaliateState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         if let Some(owner_arc) = get_legacy_object(context.owner_id) {
             let mut guard_machine = AIGuardRetaliateMachine::new(Arc::downgrade(&owner_arc));
             if let Some(pos) = context.goal_position {
@@ -2938,6 +3260,11 @@ impl AIHuntState {
 
 impl AIState for AIHuntState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         self.current_target = None;
         self.hunt_machine = None;
 
@@ -2959,6 +3286,11 @@ impl AIState for AIHuntState {
     }
 
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(hunt_machine) = self.hunt_machine.as_mut() else {
             return StateReturnType::Failed;
         };
@@ -3049,6 +3381,11 @@ pub struct AIMoveAndTightenState {
 
 impl AIMoveAndTightenState {
     fn compute_path(&mut self, context: &mut AIStateMachineContext) -> bool {
+        // Wave 254: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(goal_pos) = context.goal_position else {
             return false;
         };
@@ -3138,6 +3475,11 @@ impl AIState for AIMoveAndTightenState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
             .flatten()
@@ -3174,6 +3516,11 @@ impl AIMoveAwayFromRepulsorsState {
     }
 
     fn compute_path(&mut self, context: &mut AIStateMachineContext) -> bool {
+        // Wave 254: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.ok_to_repath_times <= 0 {
             return false;
         }
@@ -3206,6 +3553,11 @@ impl AIMoveAwayFromRepulsorsState {
 
 impl AIState for AIMoveAwayFromRepulsorsState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 254: empty dual-world → fail-closed (no factory owner).
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
             return StateReturnType::Failed;
         };
@@ -3285,6 +3637,11 @@ impl AIState for AIMoveAwayFromRepulsorsState {
     }
 
     fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // Wave 254: empty dual-world → no factory owner/target.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             owner.clear_model_condition_state(ModelConditionFlags::PANICKING);
         });
