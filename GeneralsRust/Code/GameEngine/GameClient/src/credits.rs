@@ -647,3 +647,163 @@ fn parse_color(value: &str) -> Option<Color> {
         a.unwrap_or(255),
     ))
 }
+
+/// Residual: last Credits action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualCreditsAction {
+    None = 0,
+    Init = 1,
+    Reset = 2,
+    AddText = 3,
+    AddBlank = 4,
+    Update = 5,
+    FinishProbe = 6,
+}
+
+static RESIDUAL_CREDITS_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_CREDITS_LINE_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+static RESIDUAL_CREDITS_FINISHED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_CREDITS_FRAMES: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+fn residual_credits_action_store(action: ResidualCreditsAction) {
+    RESIDUAL_CREDITS_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn residual_credits_sync(manager: &CreditsManager) {
+    RESIDUAL_CREDITS_LINE_COUNT.store(
+        manager.credit_lines.len(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    RESIDUAL_CREDITS_FINISHED.store(manager.is_finished, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_CREDITS_FRAMES.store(
+        manager.frames_since_started,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+/// Residual: last Credits residual action.
+pub fn residual_credits_last_action() -> ResidualCreditsAction {
+    match RESIDUAL_CREDITS_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualCreditsAction::Init,
+        2 => ResidualCreditsAction::Reset,
+        3 => ResidualCreditsAction::AddText,
+        4 => ResidualCreditsAction::AddBlank,
+        5 => ResidualCreditsAction::Update,
+        6 => ResidualCreditsAction::FinishProbe,
+        _ => ResidualCreditsAction::None,
+    }
+}
+
+/// Residual: credit line count latch.
+pub fn residual_credits_line_count() -> usize {
+    RESIDUAL_CREDITS_LINE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: finished latch.
+pub fn residual_credits_is_finished() -> bool {
+    RESIDUAL_CREDITS_FINISHED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: frames since started latch.
+pub fn residual_credits_frames_since_started() -> i32 {
+    RESIDUAL_CREDITS_FRAMES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: init credits without INI/fonts load.
+pub fn simulate_credits_init() -> bool {
+    let credits = get_the_credits();
+    let Ok(mut guard) = credits.write() else {
+        return false;
+    };
+    guard.init();
+    residual_credits_sync(&guard);
+    residual_credits_action_store(ResidualCreditsAction::Init);
+    !residual_credits_is_finished()
+}
+
+/// Residual: reset credits residual.
+pub fn simulate_credits_reset() -> bool {
+    let credits = get_the_credits();
+    let Ok(mut guard) = credits.write() else {
+        return false;
+    };
+    guard.reset();
+    residual_credits_sync(&guard);
+    residual_credits_action_store(ResidualCreditsAction::Reset);
+    residual_credits_line_count() == 0 && !residual_credits_is_finished()
+}
+
+/// Residual: add text line residual (Normal style default).
+pub fn simulate_credits_add_text(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    let credits = get_the_credits();
+    let Ok(mut guard) = credits.write() else {
+        return false;
+    };
+    guard.add_text(text);
+    residual_credits_sync(&guard);
+    residual_credits_action_store(ResidualCreditsAction::AddText);
+    residual_credits_line_count() > 0
+}
+
+/// Residual: add blank line residual.
+pub fn simulate_credits_add_blank() -> bool {
+    let credits = get_the_credits();
+    let Ok(mut guard) = credits.write() else {
+        return false;
+    };
+    let before = guard.credit_lines.len();
+    guard.add_blank();
+    residual_credits_sync(&guard);
+    residual_credits_action_store(ResidualCreditsAction::AddBlank);
+    residual_credits_line_count() == before + 1
+}
+
+/// Residual: update credits residual (may no-op without display size).
+pub fn simulate_credits_update() -> bool {
+    let credits = get_the_credits();
+    let Ok(mut guard) = credits.write() else {
+        return false;
+    };
+    guard.update();
+    residual_credits_sync(&guard);
+    residual_credits_action_store(ResidualCreditsAction::Update);
+    true
+}
+
+/// Residual: probe finished residual without forcing complete.
+pub fn simulate_credits_is_finished_probe() -> bool {
+    let credits = get_the_credits();
+    let Ok(guard) = credits.read() else {
+        return false;
+    };
+    let finished = guard.is_finished();
+    residual_credits_sync(&guard);
+    residual_credits_action_store(ResidualCreditsAction::FinishProbe);
+    residual_credits_is_finished() == finished
+}
+
+/// Residual: reset + add title lines + blank composite.
+pub fn simulate_credits_prepare_short_roll() -> bool {
+    if !simulate_credits_reset() {
+        return false;
+    }
+    if !simulate_credits_init() {
+        return false;
+    }
+    if !simulate_credits_add_text("COMMAND & CONQUER") {
+        return false;
+    }
+    if !simulate_credits_add_blank() {
+        return false;
+    }
+    if !simulate_credits_add_text("GENERALS ZERO HOUR") {
+        return false;
+    }
+    residual_credits_line_count() >= 3 && !residual_credits_is_finished()
+}

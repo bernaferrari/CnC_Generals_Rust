@@ -144,6 +144,7 @@ pub mod host_control_bar_resizer_residual_wave147;
 pub mod host_countermeasures;
 mod host_create_object_die;
 pub mod host_credits_menu_residual_wave127;
+pub mod host_credits_roll_residual_wave151;
 mod host_dam_die;
 mod host_defection_helper;
 mod host_defector_special_power;
@@ -1473,6 +1474,10 @@ pub use host_control_bar_resizer_residual_wave147::{
 pub use host_credits_menu_residual_wave127::{
     honesty_credits_menu_control_names_residual_wave127,
     honesty_credits_menu_nav_commands_residual_wave127, honesty_credits_menu_residual_pack_wave127,
+};
+pub use host_credits_roll_residual_wave151::{
+    honesty_credits_nav_commands_residual_wave151, honesty_credits_roll_residual_pack_wave151,
+    honesty_credits_style_method_names_residual_wave151,
 };
 pub use host_difficulty_select_residual_wave134::{
     honesty_difficulty_select_control_names_residual_wave134,
