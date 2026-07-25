@@ -12,6 +12,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
+/// Wave 294: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Victory condition types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VictoryConditionType {
@@ -764,6 +770,11 @@ impl VictoryManager {
         &self,
         context: &ScriptContext,
     ) -> GameLogicResult<f32> {
+        // Wave 294: empty dual-world → Ok(0.0).
+        if dual_world_registry_unavailable() {
+            return Ok(0.0);
+        }
+
         let active_player = context.active_player;
         if !context.game_state.players.is_empty() {
             let enemy_players: Vec<&super::PlayerInfo> = context
@@ -780,8 +791,8 @@ impl VictoryManager {
         }
 
         let enemy_ids: HashSet<u32> = active_player.into_iter().collect();
-        // Host path: dual-world factory empty — do not treat as "all enemies dead".
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 294: empty dual-world residual.
+        if dual_world_registry_unavailable() {
             return Ok(0.0);
         }
         let mut enemy_alive = 0usize;
@@ -815,6 +826,11 @@ impl VictoryManager {
         structures: &[String],
         context: &ScriptContext,
     ) -> GameLogicResult<f32> {
+        // Wave 294: empty dual-world → Ok(0.0).
+        if dual_world_registry_unavailable() {
+            return Ok(0.0);
+        }
+
         if structures.is_empty() {
             return Ok(1.0);
         }
@@ -828,8 +844,8 @@ impl VictoryManager {
             .map(|p| p.id)
             .collect();
 
-        // Host path: empty dual-world registry — no structure residual to score.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 294: empty dual-world residual.
+        if dual_world_registry_unavailable() {
             return Ok(0.0);
         }
         let mut remaining = 0usize;
@@ -923,6 +939,11 @@ impl VictoryManager {
         units: &[u32],
         context: &ScriptContext,
     ) -> GameLogicResult<f32> {
+        // Wave 294: empty dual-world → Ok(0.0).
+        if dual_world_registry_unavailable() {
+            return Ok(0.0);
+        }
+
         if units.is_empty() {
             return Ok(1.0);
         }
@@ -974,8 +995,8 @@ impl VictoryManager {
         }
 
         let active_player = context.active_player;
-        // Host path: empty dual-world registry — nothing built residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 294: empty dual-world residual.
+        if dual_world_registry_unavailable() {
             return Ok(0.0);
         }
         let mut built = 0usize;
@@ -1043,6 +1064,11 @@ impl VictoryManager {
         targets: &[u32],
         _context: &ScriptContext,
     ) -> GameLogicResult<f32> {
+        // Wave 294: empty dual-world → Ok(0.0).
+        if dual_world_registry_unavailable() {
+            return Ok(0.0);
+        }
+
         if targets.is_empty() {
             return Ok(1.0);
         }

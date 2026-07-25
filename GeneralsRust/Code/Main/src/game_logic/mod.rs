@@ -330,6 +330,7 @@ pub mod host_live_ui_command_selection_presentation_only_residual_wave219;
 pub mod host_live_ui_helpers_presentation_only_residual_wave215;
 pub mod host_live_ui_producer_presentation_only_residual_wave214;
 pub mod host_live_unit_dual_world_empty_gate_residual_wave258;
+pub mod host_live_victory_dual_world_empty_gate_residual_wave294;
 pub mod host_live_weapon_dual_world_empty_gate_residual_wave265;
 pub mod host_live_weapon_dual_world_empty_gate_residual_wave289;
 pub mod host_live_world_pick_probe_residual_wave246;
@@ -2399,6 +2400,12 @@ pub use host_live_unit_dual_world_empty_gate_residual_wave258::{
     honesty_live_unit_dual_world_empty_gate_nav_commands_residual_wave258,
     honesty_live_unit_dual_world_empty_gate_residual_pack_wave258,
     simulate_live_unit_dual_world_empty_gate_honesty,
+};
+pub use host_live_victory_dual_world_empty_gate_residual_wave294::{
+    honesty_live_victory_dual_world_empty_gate_method_names_residual_wave294,
+    honesty_live_victory_dual_world_empty_gate_nav_commands_residual_wave294,
+    honesty_live_victory_dual_world_empty_gate_residual_pack_wave294,
+    simulate_live_victory_dual_world_empty_gate_honesty,
 };
 pub use host_live_weapon_dual_world_empty_gate_residual_wave265::{
     honesty_live_weapon_dual_world_empty_gate_method_names_residual_wave265,
