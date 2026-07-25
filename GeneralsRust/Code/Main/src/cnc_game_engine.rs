@@ -3668,6 +3668,52 @@ impl CnCGameEngine {
                     "click_control_bar_resizer_miss".into()
                 };
             }
+            "click_under_construction" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let name = args
+                    .get("name")
+                    .cloned()
+                    .unwrap_or_else(|| "Strategy Center".to_string());
+                let percent = args
+                    .get("percent")
+                    .and_then(|v| v.parse::<i32>().ok())
+                    .unwrap_or(66);
+                let next = args
+                    .get("next")
+                    .and_then(|v| v.parse::<i32>().ok())
+                    .unwrap_or(75);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::control_bar::{
+                        simulate_under_construction_cancel_command_name,
+                        simulate_under_construction_complete, simulate_under_construction_populate,
+                        simulate_under_construction_prepare_cycle,
+                        simulate_under_construction_update_percent,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "populate" => simulate_under_construction_populate(&name, percent),
+                        "update" => {
+                            let _ = simulate_under_construction_update_percent(percent);
+                            true
+                        }
+                        "complete" => simulate_under_construction_complete(),
+                        "cancel" => {
+                            simulate_under_construction_cancel_command_name()
+                                == "Command_CancelConstruction"
+                        }
+                        _ => simulate_under_construction_prepare_cycle(&name, percent, next),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_under_construction_ok_wnd_{action}")
+                } else {
+                    "click_under_construction_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args

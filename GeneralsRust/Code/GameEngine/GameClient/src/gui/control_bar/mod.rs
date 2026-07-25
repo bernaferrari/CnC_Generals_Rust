@@ -52,6 +52,14 @@ pub use control_bar_resizer::{
 pub mod control_bar_scheme;
 pub mod control_bar_structure_inventory;
 pub mod control_bar_under_construction;
+pub use control_bar_under_construction::{
+    format_under_construction_percent_text, residual_under_construction_cancel_visible,
+    residual_under_construction_is_completed, residual_under_construction_last_action,
+    residual_under_construction_percent, simulate_under_construction_cancel_command_name,
+    simulate_under_construction_complete, simulate_under_construction_populate,
+    simulate_under_construction_prepare_cycle, simulate_under_construction_update_percent,
+    ResidualUnderConstructionAction, UNDER_CONSTRUCTION_CANCEL_COMMAND_NAME,
+};
 pub mod multi_select;
 pub mod observer;
 pub mod resizer;
