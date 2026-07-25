@@ -286,6 +286,7 @@ pub mod host_shell_campaign_save_residual_wave106;
 pub mod host_shell_map_residual_wave141;
 pub mod host_shell_skirmish_nav_residual_wave164;
 pub mod host_shell_stack_push_residual_wave163;
+pub mod host_single_authority_combat_honesty_residual_wave173;
 pub mod host_single_player_menu_residual_wave131;
 pub mod host_skirmish_map_select_residual_wave115;
 pub mod host_skirmish_options_wnd_residual_wave166;
@@ -1707,6 +1708,12 @@ pub use host_shell_stack_push_residual_wave163::{
     honesty_shell_stack_push_nav_commands_residual_wave163,
     honesty_shell_stack_push_residual_pack_wave163,
     honesty_show_shell_menu_init_before_push_source, simulate_shell_stack_push_honesty,
+};
+pub use host_single_authority_combat_honesty_residual_wave173::{
+    honesty_single_authority_combat_method_names_residual_wave173,
+    honesty_single_authority_combat_nav_commands_residual_wave173,
+    honesty_single_authority_combat_residual_pack_wave173,
+    simulate_single_authority_combat_honesty,
 };
 pub use host_single_player_menu_residual_wave131::{
     honesty_single_player_menu_control_names_residual_wave131,
