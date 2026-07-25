@@ -3549,6 +3549,40 @@ impl CnCGameEngine {
                     "click_ime_miss".into()
                 };
             }
+            "click_smudge" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let size = args
+                    .get("size")
+                    .and_then(|v| v.parse::<f32>().ok())
+                    .unwrap_or(12.0);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::system::{
+                        simulate_smudge_add, simulate_smudge_add_set,
+                        simulate_smudge_prepare_set_with_smudge, simulate_smudge_remove_first,
+                        simulate_smudge_remove_set, simulate_smudge_reset,
+                        simulate_smudge_set_count_last_frame,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "add_set" => simulate_smudge_add_set(),
+                        "add" => simulate_smudge_add(size, 1.0),
+                        "remove" => simulate_smudge_remove_first(),
+                        "remove_set" => simulate_smudge_remove_set(),
+                        "reset" => simulate_smudge_reset(),
+                        "count" => simulate_smudge_set_count_last_frame(size as i32),
+                        _ => simulate_smudge_prepare_set_with_smudge(size),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_smudge_ok_wnd_{action}")
+                } else {
+                    "click_smudge_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args

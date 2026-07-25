@@ -28,7 +28,13 @@ pub use particle_sys::{
     ParticleSystemTemplate,
 };
 pub use ray_effect::{RayEffect, RayEffectConfig, RayEffectId, RayEffectManager, RayType};
-pub use smudge::{get_smudge_manager, Smudge, SmudgeManager, SmudgeSet, SmudgeSetHandle};
+pub use smudge::{
+    get_smudge_manager, residual_smudge_count, residual_smudge_last_action,
+    residual_smudge_set_count, simulate_smudge_add, simulate_smudge_add_set,
+    simulate_smudge_prepare_set_with_smudge, simulate_smudge_remove_first,
+    simulate_smudge_remove_set, simulate_smudge_reset, simulate_smudge_set_count_last_frame,
+    ResidualSmudgeAction, Smudge, SmudgeManager, SmudgeSet, SmudgeSetHandle,
+};
 
 pub use crate::message_stream::{
     game_message::{Coord3D, GameMessage, GameMessageType},
