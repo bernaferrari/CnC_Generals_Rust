@@ -121,10 +121,13 @@ pub fn honesty_ui_selected_prefers_presentation_source() -> bool {
         return false;
     };
     let pres = body.find("last_presentation_frame");
-    let player = body.find("get_player(player_id)");
-    matches!((pres, player), (Some(p), Some(g)) if p < g)
+    // Wave 240: host residual via player_selected_objects probe (not get_player dual-read).
+    let host = body
+        .find("player_selected_objects(player_id)")
+        .or_else(|| body.find("get_player(player_id)"));
+    matches!((pres, host), (Some(p), Some(h)) if p < h)
         && body.contains("Wave 215")
-        && body.contains("selected_objects")
+        && (body.contains("player_selected_objects") || body.contains("selected_objects"))
 }
 
 /// Live residual: source honesty pack latches.
