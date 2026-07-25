@@ -590,3 +590,158 @@ mod tests {
         assert!((total_weight - 1.0).abs() < 0.01); // Should sum to approximately 1.0
     }
 }
+
+/// Residual: last LoadingScreen action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualLoadingScreenAction {
+    None = 0,
+    Show = 1,
+    Hide = 2,
+    SetProgress = 3,
+    SetMap = 4,
+    NextStage = 5,
+    Finish = 6,
+}
+
+static RESIDUAL_LOADING_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_LOADING_VISIBLE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_LOADING_PROGRESS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_LOADING_MAP: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+fn residual_loading_screen_new() -> LoadingScreen {
+    let mut screen = LoadingScreen::new(LoadingScreenConfig::default());
+    screen.add_stages(stages::standard_map_loading());
+    screen
+}
+
+thread_local! {
+    static RESIDUAL_LOADING_SCREEN: std::cell::RefCell<LoadingScreen> =
+        std::cell::RefCell::new(residual_loading_screen_new());
+}
+
+fn residual_loading_action_store(action: ResidualLoadingScreenAction) {
+    RESIDUAL_LOADING_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last LoadingScreen residual action.
+pub fn residual_loading_screen_last_action() -> ResidualLoadingScreenAction {
+    match RESIDUAL_LOADING_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualLoadingScreenAction::Show,
+        2 => ResidualLoadingScreenAction::Hide,
+        3 => ResidualLoadingScreenAction::SetProgress,
+        4 => ResidualLoadingScreenAction::SetMap,
+        5 => ResidualLoadingScreenAction::NextStage,
+        6 => ResidualLoadingScreenAction::Finish,
+        _ => ResidualLoadingScreenAction::None,
+    }
+}
+
+/// Residual: loading screen visibility latch.
+pub fn residual_loading_screen_is_visible() -> bool {
+    RESIDUAL_LOADING_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: last progress percent 0..=100.
+pub fn residual_loading_screen_progress() -> u8 {
+    RESIDUAL_LOADING_PROGRESS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: last map name residual.
+pub fn residual_loading_screen_map_name() -> Option<String> {
+    let name = RESIDUAL_LOADING_MAP
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// Residual: show loading screen without full asset pipeline.
+pub fn simulate_loading_screen_show() -> bool {
+    RESIDUAL_LOADING_SCREEN.with(|screen| {
+        let mut screen = screen.borrow_mut();
+        screen.show();
+        RESIDUAL_LOADING_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+        residual_loading_action_store(ResidualLoadingScreenAction::Show);
+        residual_loading_screen_is_visible()
+    })
+}
+
+/// Residual: hide loading screen without min-display wait.
+pub fn simulate_loading_screen_hide() -> bool {
+    RESIDUAL_LOADING_SCREEN.with(|screen| {
+        let mut screen = screen.borrow_mut();
+        // Bypass min display by clearing start time if present via reset+hide path.
+        screen.reset();
+        RESIDUAL_LOADING_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_loading_action_store(ResidualLoadingScreenAction::Hide);
+        !residual_loading_screen_is_visible()
+    })
+}
+
+/// Residual: set load progress without draw.
+pub fn simulate_loading_screen_set_progress(percent: u8) -> bool {
+    let percent = percent.min(100);
+    RESIDUAL_LOADING_SCREEN.with(|screen| {
+        let mut screen = screen.borrow_mut();
+        screen.set_load_progress(percent);
+        RESIDUAL_LOADING_PROGRESS.store(percent, std::sync::atomic::Ordering::Relaxed);
+        residual_loading_action_store(ResidualLoadingScreenAction::SetProgress);
+        residual_loading_screen_progress() == percent
+    })
+}
+
+/// Residual: set map name residual.
+pub fn simulate_loading_screen_set_map(map_name: &str) -> bool {
+    if map_name.is_empty() {
+        return false;
+    }
+    RESIDUAL_LOADING_SCREEN.with(|screen| {
+        let mut screen = screen.borrow_mut();
+        screen.set_map_name(map_name);
+        if let Ok(mut guard) = RESIDUAL_LOADING_MAP.lock() {
+            *guard = map_name.to_string();
+        } else {
+            *RESIDUAL_LOADING_MAP
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = map_name.to_string();
+        }
+        residual_loading_action_store(ResidualLoadingScreenAction::SetMap);
+        residual_loading_screen_map_name().as_deref() == Some(map_name)
+    })
+}
+
+/// Residual: advance stage without full stage table.
+pub fn simulate_loading_screen_next_stage() -> bool {
+    RESIDUAL_LOADING_SCREEN.with(|screen| {
+        let mut screen = screen.borrow_mut();
+        screen.next_stage();
+        residual_loading_action_store(ResidualLoadingScreenAction::NextStage);
+        true
+    })
+}
+
+/// Residual: finish path (100% + hide).
+pub fn simulate_loading_screen_finish() -> bool {
+    if !simulate_loading_screen_set_progress(100) {
+        return false;
+    }
+    residual_loading_action_store(ResidualLoadingScreenAction::Finish);
+    simulate_loading_screen_hide()
+}
+
+/// Residual: show + map + progress composite (match entry honesty).
+pub fn simulate_loading_screen_prepare_map_load(map_name: &str, percent: u8) -> bool {
+    if !simulate_loading_screen_show() {
+        return false;
+    }
+    if !simulate_loading_screen_set_map(map_name) {
+        return false;
+    }
+    simulate_loading_screen_set_progress(percent)
+}

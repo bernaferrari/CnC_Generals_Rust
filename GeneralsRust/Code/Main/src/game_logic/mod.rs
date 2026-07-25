@@ -196,6 +196,7 @@ pub mod host_keyboard_options_residual_wave124;
 pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
+pub mod host_loading_screen_residual_wave135;
 pub mod host_main_menu_buttons_residual_wave118;
 pub mod host_main_menu_campaign_residual_wave119;
 pub mod host_main_menu_skirmish_nav_residual_wave114;
@@ -1467,6 +1468,10 @@ pub use host_keyboard_options_residual_wave124::{
     honesty_keyboard_options_control_names_residual_wave124,
     honesty_keyboard_options_nav_commands_residual_wave124,
     honesty_keyboard_options_residual_pack_wave124,
+};
+pub use host_loading_screen_residual_wave135::{
+    honesty_loading_screen_nav_commands_residual_wave135,
+    honesty_loading_screen_residual_pack_wave135, honesty_loading_screen_stages_residual_wave135,
 };
 pub use host_main_menu_buttons_residual_wave118::{
     honesty_main_menu_button_names_residual_wave118,

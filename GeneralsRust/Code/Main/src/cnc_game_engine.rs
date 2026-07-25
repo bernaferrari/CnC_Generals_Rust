@@ -3140,6 +3140,65 @@ impl CnCGameEngine {
                     "click_difficulty_select_miss".into()
                 };
             }
+            "show_loading_screen" => {
+                // Retail loading screen residual show without asset pipeline.
+                let map = args
+                    .get("map")
+                    .cloned()
+                    .unwrap_or_else(|| "Maps/LoneEagle/LoneEagle.map".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok =
+                        game_client::gui::loading_screen::simulate_loading_screen_prepare_map_load(
+                            &map, 0,
+                        );
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "show_loading_screen_ok_wnd".into()
+                } else {
+                    "show_loading_screen_miss".into()
+                };
+            }
+            "click_loading_screen" => {
+                // Retail loading progress/hide/finish residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "progress".to_string());
+                let percent = args
+                    .get("percent")
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .unwrap_or(50);
+                let map = args
+                    .get("map")
+                    .cloned()
+                    .unwrap_or_else(|| "Maps/LoneEagle/LoneEagle.map".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::loading_screen::{
+                        simulate_loading_screen_finish, simulate_loading_screen_hide,
+                        simulate_loading_screen_next_stage,
+                        simulate_loading_screen_prepare_map_load, simulate_loading_screen_set_map,
+                        simulate_loading_screen_set_progress, simulate_loading_screen_show,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "show" => simulate_loading_screen_show(),
+                        "hide" => simulate_loading_screen_hide(),
+                        "map" => simulate_loading_screen_set_map(&map),
+                        "next" | "next_stage" => simulate_loading_screen_next_stage(),
+                        "finish" => simulate_loading_screen_finish(),
+                        "prepare" => simulate_loading_screen_prepare_map_load(&map, percent),
+                        _ => simulate_loading_screen_set_progress(percent),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_loading_screen_ok_wnd_{action}")
+                } else {
+                    "click_loading_screen_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
