@@ -140,6 +140,12 @@ use gamelogic::object::update::{
 use gamelogic::object::Object as GameLogicObject;
 use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 
+/// Wave 269: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Result type for GameClient operations
 pub type GameClientResult<T> = Result<T, GameClientError>;
 
@@ -1537,6 +1543,11 @@ impl GameClient {
     }
 
     fn resolve_drawable_template_name(drawable: &dyn Drawable) -> Option<String> {
+        // Wave 269: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if let Some(name) = drawable.get_template_name() {
             if !name.is_empty() {
                 return Some(name.to_string());
@@ -1682,6 +1693,13 @@ impl GameClient {
         mut drawable: Box<dyn Drawable>,
         template_name: Option<String>,
     ) -> GameClientResult<DrawableId> {
+        // Wave 269: empty dual-world → no factory drawable registration.
+        if dual_world_registry_unavailable() {
+            return Err(GameClientError::InvalidOperation(
+                "dual-world registry unavailable".to_string(),
+            ));
+        }
+
         if let Some(name) = template_name {
             drawable.set_template_name(Some(name));
         } else if drawable.get_template_name().is_none() {
@@ -2414,6 +2432,11 @@ impl GameClient {
         &self,
         object_id: ObjectID,
     ) -> GameClientResult<Option<Arc<RwLock<GameLogicObject>>>> {
+        // Wave 269: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         Ok(OBJECT_REGISTRY.get_object(object_id))
     }
 
