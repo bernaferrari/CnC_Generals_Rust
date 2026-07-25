@@ -53,6 +53,12 @@ use game_engine::common::system::radar::{
     get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
 };
 
+/// Wave 275: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Command execution result
 #[derive(Debug, Clone)]
 pub enum CommandExecutionResult {
@@ -813,6 +819,11 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         let mut target_position = None;
         for i in 0..command.command.get_argument_count() {
             if let Some(crate::commands::command::CommandArgumentType::Location(pos)) =
@@ -2339,6 +2350,11 @@ impl DefaultCommandHandler {
         _command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         let (player_arc, _local_player_arc, is_local_player) = match player_list().read() {
             Ok(list) => {
                 let player = match list.get_player(context.player_id) {
@@ -2477,6 +2493,11 @@ impl DefaultCommandHandler {
     }
 
     fn collect_selected_beacon_positions(&self, player_id: Int) -> Vec<(Int, Coord3D)> {
+        // Wave 275: empty dual-world → no factory objects.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let selected_ids = match player_list().read() {
             Ok(list) => list
                 .get_player(player_id)
@@ -2688,6 +2709,11 @@ impl DefaultCommandHandler {
     }
 
     fn hide_beacon_for_local(&self, beacon_id: crate::common::ObjectID) {
+        // Wave 275: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(modules) = crate::object::registry::OBJECT_REGISTRY
             .with_object(beacon_id, |guard| guard.client_update_modules())
         else {
@@ -3411,6 +3437,11 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         // Matches C++ MSG_SWITCH_WEAPONS: lock chosen weapon slot for the current selection.
         let weapon_slot = command.command.get_argument(0).and_then(|arg| match arg {
             crate::commands::command::CommandArgumentType::Integer(value) => match *value {
@@ -3461,6 +3492,11 @@ impl DefaultCommandHandler {
         &self,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         // Mirrors MSG_EVACUATE / AIGroup::groupEvacuate for the current selection.
         let selection_manager = get_selection_manager();
         let selected = selection_manager
@@ -3535,6 +3571,11 @@ impl DefaultCommandHandler {
         &self,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         // Mirrors MSG_INTERNET_HACK / AIGroup::groupHackInternet for the current selection.
         let selection_manager = get_selection_manager();
         let selected = selection_manager
@@ -3596,6 +3637,11 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         let mut target_object = None;
         let mut target_position = self.extract_command_location(command);
 
@@ -3660,6 +3706,11 @@ impl DefaultCommandHandler {
         context: &mut CommandExecutionContext,
         ai_command: crate::ai::AiCommandType,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         let selection_manager = get_selection_manager();
         let selected = selection_manager
             .read()
@@ -3705,6 +3756,11 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         let Some(object_wanting_to_exit) = self.extract_object_ids(command).first().copied() else {
             return CommandExecutionResult::Failed(AsciiString::from("Exit missing object"));
         };
@@ -3765,6 +3821,11 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         use crate::commands::command::CommandArgumentType;
 
         let upgrade_key = match (
@@ -3821,6 +3882,11 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         use crate::commands::command::CommandArgumentType;
 
         let upgrade_key = match command.command.get_argument(0) {
@@ -3873,6 +3939,11 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         use crate::commands::command::CommandArgumentType;
 
         let template_id = match command.command.get_argument(0) {
@@ -3930,6 +4001,11 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         use crate::commands::command::CommandArgumentType;
 
         let production_or_template_id = match command.command.get_argument(0) {
@@ -3981,6 +4057,11 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         use crate::commands::command::CommandArgumentType;
 
         let target_from_message = match command.command.get_argument(0) {
@@ -4052,6 +4133,11 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         use crate::commands::command::CommandArgumentType;
 
         let cmd_type = command.command.get_type();
@@ -4240,6 +4326,11 @@ impl DefaultCommandHandler {
         _command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
+        // Wave 275: empty dual-world → invalid game state.
+        if dual_world_registry_unavailable() {
+            return CommandExecutionResult::InvalidGameState;
+        }
+
         // Matches C++ MSG_CREATE_FORMATION: toggles a "preserve relative offsets" formation on the
         // currently selected controllable units by assigning a shared FormationID and per-unit offset.
         let selection_manager = get_selection_manager();
