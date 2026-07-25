@@ -709,65 +709,17 @@ impl InputCommandProcessor {
     fn find_object_at_position(&self, game_logic: &GameLogic) -> Option<ObjectId> {
         const BASE_SELECTION_RADIUS: f32 = 50.0;
 
-        // Wave 245: team/selection via player probes (no get_player dual-read).
+        // Wave 246: world pick via GameLogic probe (no caller-side objects dual-walk).
         let player_team = game_logic.player_team(self.current_player_id);
         let has_selected_units = !game_logic
             .player_selected_objects(self.current_player_id)
             .is_empty();
-
-        // Pure residual acquire: priority bands + nearest 3D tiebreak.
-        // Per-object selection radius is applied when building candidates.
-        let origin = self.mouse_world_pos;
-        let cands: Vec<_> = game_logic
-            .objects
-            .iter()
-            .filter_map(|(&id, obj)| {
-                if !obj.is_alive() {
-                    return None;
-                }
-                let pos = obj.get_position();
-                let distance = (pos - origin).length();
-                let radius = BASE_SELECTION_RADIUS.max(obj.selection_radius);
-                if distance > radius {
-                    return None;
-                }
-                // Priority-driven picking:
-                // - command targeting (units selected): prefer enemy attackable, then friendly/selectable.
-                // - pure selection (nothing selected): only own selectable objects.
-                let priority = if has_selected_units {
-                    match player_team {
-                        Some(team) if obj.team != team && obj.is_attackable() => Some(0),
-                        Some(team) if obj.team == team && obj.is_selectable() => Some(1),
-                        _ if obj.is_attackable() => Some(2),
-                        _ if obj.is_selectable() => Some(3),
-                        _ => None,
-                    }
-                } else {
-                    match player_team {
-                        Some(team) if obj.team == team && obj.is_selectable() => Some(0),
-                        Some(_) => None,
-                        None if obj.is_selectable() => Some(0),
-                        None => None,
-                    }
-                };
-                Some(
-                    crate::game_logic::host_residual_acquire::PriorityAcquireCandidate {
-                        id,
-                        position: pos,
-                        is_alive: true,
-                        priority,
-                    },
-                )
-            })
-            .collect();
-        crate::game_logic::host_residual_acquire::pick_best_priority_residual_target(
-            ObjectId(0),
-            origin,
-            (origin.x, origin.z),
-            f32::MAX,
-            cands,
+        game_logic.pick_object_id_at_world(
+            self.mouse_world_pos,
+            player_team,
+            has_selected_units,
+            BASE_SELECTION_RADIUS,
         )
-        .map(|(id, _, _)| id)
     }
 
     /// Get currently selected units for the current player

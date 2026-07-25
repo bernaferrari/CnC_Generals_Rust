@@ -285,6 +285,7 @@ pub mod host_live_selection_query_probe_residual_wave245;
 pub mod host_live_ui_command_selection_presentation_only_residual_wave219;
 pub mod host_live_ui_helpers_presentation_only_residual_wave215;
 pub mod host_live_ui_producer_presentation_only_residual_wave214;
+pub mod host_live_world_pick_probe_residual_wave246;
 pub mod host_loading_screen_residual_wave135;
 pub mod host_main_menu_buttons_residual_wave118;
 pub mod host_main_menu_campaign_residual_wave119;
@@ -2081,6 +2082,11 @@ pub use host_live_ui_producer_presentation_only_residual_wave214::{
     honesty_live_ui_producer_presentation_only_nav_commands_residual_wave214,
     honesty_live_ui_producer_presentation_only_residual_pack_wave214,
     simulate_live_ui_producer_presentation_only_honesty,
+};
+pub use host_live_world_pick_probe_residual_wave246::{
+    honesty_live_world_pick_probe_method_names_residual_wave246,
+    honesty_live_world_pick_probe_nav_commands_residual_wave246,
+    honesty_live_world_pick_probe_residual_pack_wave246, simulate_live_world_pick_probe_honesty,
 };
 pub use host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
