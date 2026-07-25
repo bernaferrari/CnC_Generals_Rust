@@ -64,6 +64,12 @@ use std::sync::{Arc, OnceLock};
 use std::sync::{Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Wave 281: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 struct EngineThingTemplateAdapter {
     inner: Arc<EngineThingTemplate>,
     name: crate::common::AsciiString,
@@ -1135,6 +1141,11 @@ impl TheGameLogic {
     pub fn find_object_by_id(
         id: ObjectID,
     ) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
+        // Wave 281: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.get_object(id)
     }
 
@@ -3535,6 +3546,11 @@ impl ThePartitionManager {
         pos: &Coord3D,
         radius: Real,
     ) -> Vec<crate::common::ObjectID> {
+        // Wave 281: empty dual-world → no objects.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let candidate_ids = if let Ok(logic) = crate::system::game_logic::get_game_logic().lock() {
             logic
                 .partition_manager()
@@ -3588,6 +3604,11 @@ impl ThePartitionManager {
         options: &FindPositionOptions,
         result: &mut Coord3D,
     ) -> bool {
+        // Wave 281: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         const RING_SPACING: Real = 5.0;
         const TWO_PI: Real = std::f32::consts::PI * 2.0;
 
@@ -3830,6 +3851,11 @@ impl ThePartitionManager {
         pos: &Coord3D,
         radius: Real,
     ) -> Vec<crate::common::ObjectID> {
+        // Wave 281: empty dual-world → no objects.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let radius_sqr = radius * radius;
         OBJECT_REGISTRY
             .get_all_objects()
@@ -3864,6 +3890,11 @@ impl ThePartitionManager {
         pos: &Coord3D,
         radius: Real,
     ) -> Vec<crate::common::ObjectID> {
+        // Wave 281: empty dual-world → no objects.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let radius_sqr = radius * radius;
         OBJECT_REGISTRY
             .get_all_objects()
@@ -3900,6 +3931,11 @@ impl ThePartitionManager {
         source: &crate::object::Object,
         radius: Real,
     ) -> Vec<crate::common::ObjectID> {
+        // Wave 281: empty dual-world → no objects.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let radius_sqr = radius * radius;
         let source_pos = source.get_position();
         let source_geom = source.get_geometry_info();
@@ -4258,6 +4294,11 @@ impl crate::common::types::PartitionManagerInterface for ThePartitionManagerBrid
         distance_type: crate::common::types::PartitionDistanceType,
         filters: &[crate::common::types::PartitionFilter],
     ) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
+        // Wave 281: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let partition = ThePartitionManager::get()?;
         let from_pos = from.get_position();
         let candidates = match distance_type {
@@ -4306,6 +4347,11 @@ impl ThePartitionManagerBridge {
         distance_type: crate::common::types::PartitionDistanceType,
         filters: &[crate::common::types::PartitionFilter],
     ) -> Option<ObjectID> {
+        // Wave 281: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let partition = ThePartitionManager::get()?;
         let from_pos = from.get_position();
         let candidates = match distance_type {
@@ -4440,6 +4486,11 @@ impl crate::special_power_module::integration::PartitionManagerInterface
         radius: Real,
         filter: Option<crate::special_power_module::integration::ObjectFilter>,
     ) -> Vec<ObjectID> {
+        // Wave 281: empty dual-world → no objects.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let partition = ThePartitionManager::get();
         let Some(partition) = partition else {
             return Vec::new();
@@ -5620,6 +5671,11 @@ impl TheRadar {
 
     /// Borrow-first ID variant.
     pub fn try_infiltration_event_id(target_id: ObjectID) -> Result<(), GameError> {
+        // Wave 281: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         crate::object::registry::OBJECT_REGISTRY
             .with_object(target_id, |target| {
                 Self::try_infiltration_event_for_object(target)
