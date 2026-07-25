@@ -223,6 +223,7 @@ pub mod host_passengers_fire_upgrade;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 mod host_poisoned_behavior;
+pub mod host_popup_replay_residual_wave130;
 mod host_preorder_create;
 pub mod host_production_buildable_command_residual;
 pub mod host_propaganda;
@@ -1479,6 +1480,10 @@ pub use host_message_box_residual_wave128::{
 pub use host_options_menu_residual_wave126::{
     honesty_options_menu_control_names_residual_wave126,
     honesty_options_menu_nav_commands_residual_wave126, honesty_options_menu_residual_pack_wave126,
+};
+pub use host_popup_replay_residual_wave130::{
+    honesty_popup_replay_control_names_residual_wave130,
+    honesty_popup_replay_nav_commands_residual_wave130, honesty_popup_replay_residual_pack_wave130,
 };
 pub use host_quit_menu_residual_wave123::{
     honesty_quit_menu_control_names_residual_wave123,
