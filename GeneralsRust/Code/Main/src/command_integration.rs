@@ -73,22 +73,13 @@ impl InputCommandProcessor {
     }
 
     fn select_worker_cycle(&mut self, game_logic: &GameLogic, reverse: bool) -> bool {
-        let player = match game_logic.get_player(self.current_player_id) {
-            Some(player) => player,
-            None => return false,
+        // Wave 245: team + worker list via probes (no get_player/get_objects dual-read).
+        let Some(player_team) = game_logic.player_team(self.current_player_id) else {
+            return false;
         };
 
-        let mut workers: Vec<ObjectId> = game_logic
-            .get_objects()
-            .iter()
-            .filter_map(|(&id, obj)| {
-                if obj.team == player.team && obj.is_worker() {
-                    Some(id)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let mut workers: Vec<ObjectId> =
+            game_logic.unit_ids_for_team_where(player_team, |id| game_logic.unit_is_worker(id));
 
         if workers.is_empty() {
             return false;
@@ -102,12 +93,11 @@ impl InputCommandProcessor {
                 .or_default();
 
             if state.last_worker.is_none() {
-                if let Some(selected_id) = player.selected_objects.iter().find_map(|&id| {
-                    game_logic
-                        .get_object(id)
-                        .filter(|obj| obj.is_worker())
-                        .map(|_| id)
-                }) {
+                if let Some(selected_id) = game_logic
+                    .player_selected_objects(self.current_player_id)
+                    .into_iter()
+                    .find(|&id| game_logic.unit_is_worker(id))
+                {
                     state.last_worker = Some(selected_id);
                 }
             }
@@ -134,9 +124,7 @@ impl InputCommandProcessor {
 
             workers[target_index]
         };
-        if self.select_units_matching(game_logic, ModifierKeys::default(), |obj| {
-            obj.id == target_id
-        }) {
+        if self.select_units_matching(game_logic, ModifierKeys::default(), |id| id == target_id) {
             if let Some(state) = self.selection_cycles.get_mut(&self.current_player_id) {
                 state.last_worker = Some(target_id);
             }
@@ -147,22 +135,13 @@ impl InputCommandProcessor {
     }
 
     fn select_unit_cycle(&mut self, game_logic: &GameLogic, reverse: bool) -> bool {
-        let player = match game_logic.get_player(self.current_player_id) {
-            Some(player) => player,
-            None => return false,
+        // Wave 245: team + selectable list via probes (no get_player/get_objects dual-read).
+        let Some(player_team) = game_logic.player_team(self.current_player_id) else {
+            return false;
         };
 
-        let mut units: Vec<ObjectId> = game_logic
-            .get_objects()
-            .iter()
-            .filter_map(|(&id, obj)| {
-                if obj.team == player.team && obj.is_selectable() {
-                    Some(id)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let mut units: Vec<ObjectId> =
+            game_logic.selectable_unit_ids_for_team_where(player_team, |_| true);
 
         if units.is_empty() {
             return false;
@@ -176,8 +155,12 @@ impl InputCommandProcessor {
                 .or_default();
 
             if state.last_unit.is_none() {
-                if let Some(selected_id) = player.selected_objects.first() {
-                    state.last_unit = Some(*selected_id);
+                if let Some(selected_id) = game_logic
+                    .player_selected_objects(self.current_player_id)
+                    .first()
+                    .copied()
+                {
+                    state.last_unit = Some(selected_id);
                 }
             }
 
@@ -203,9 +186,7 @@ impl InputCommandProcessor {
 
             units[target_index]
         };
-        if self.select_units_matching(game_logic, ModifierKeys::default(), |obj| {
-            obj.id == target_id
-        }) {
+        if self.select_units_matching(game_logic, ModifierKeys::default(), |id| id == target_id) {
             if let Some(state) = self.selection_cycles.get_mut(&self.current_player_id) {
                 state.last_unit = Some(target_id);
             }
@@ -216,28 +197,35 @@ impl InputCommandProcessor {
     }
 
     fn select_matching_selected_unit(&mut self, game_logic: &GameLogic) -> bool {
-        let player = match game_logic.get_player(self.current_player_id) {
-            Some(player) => player,
-            None => return false,
-        };
-
-        let target_id = match player.selected_objects.first() {
+        // Wave 245: selection seed via player_selected_objects probe.
+        if !game_logic.player_exists(self.current_player_id) {
+            return false;
+        }
+        let target_id = match game_logic
+            .player_selected_objects(self.current_player_id)
+            .first()
+        {
             Some(id) => *id,
             None => return false,
         };
 
-        let Some(reference) = game_logic.get_object(target_id) else {
+        // Wave 245: similar selection via unit probes (no get_object dual-read).
+        let Some(team) = game_logic.unit_team(target_id) else {
             return false;
         };
-        let template = reference.template_name.clone();
-        self.select_units_matching(game_logic, self.selection_modifier_state(), |obj| {
-            obj.team == reference.team && obj.template_name == template
+        let Some(template) = game_logic.unit_template_name(target_id) else {
+            return false;
+        };
+        self.select_units_matching(game_logic, self.selection_modifier_state(), |id| {
+            game_logic.unit_team(id) == Some(team)
+                && game_logic.unit_template_name(id).as_deref() == Some(template.as_str())
         })
     }
 
     fn select_hero_unit(&mut self, game_logic: &GameLogic) -> bool {
-        self.select_units_matching(game_logic, self.selection_modifier_state(), |obj| {
-            obj.is_hero()
+        // Wave 245: hero selection via unit_is_hero probe.
+        self.select_units_matching(game_logic, self.selection_modifier_state(), |id| {
+            game_logic.unit_is_hero(id)
         })
     }
 
@@ -550,11 +538,9 @@ impl InputCommandProcessor {
                 }
             }
             VirtualKeyCode::W => {
-                if self.select_units_matching(
-                    &*game_logic,
-                    self.selection_modifier_state(),
-                    |obj| obj.object_type == ObjectType::Aircraft,
-                ) {
+                if self.select_units_matching(&*game_logic, self.selection_modifier_state(), |id| {
+                    game_logic.unit_object_type(id) == Some(crate::game_logic::ObjectType::Aircraft)
+                }) {
                     log::debug!("Selected all aircraft");
                 }
             }
@@ -701,8 +687,9 @@ impl InputCommandProcessor {
         predicate: F,
     ) -> bool
     where
-        F: FnMut(&crate::game_logic::Object) -> bool,
+        F: FnMut(crate::game_logic::ObjectId) -> bool,
     {
+        // Wave 245: ObjectId predicates (no &Object dual-read).
         let command_system = get_command_system();
         match command_system.lock() {
             Ok(mut system) => system.select_units_by_predicate(
@@ -722,11 +709,11 @@ impl InputCommandProcessor {
     fn find_object_at_position(&self, game_logic: &GameLogic) -> Option<ObjectId> {
         const BASE_SELECTION_RADIUS: f32 = 50.0;
 
-        let (player_team, has_selected_units) = match game_logic.get_player(self.current_player_id)
-        {
-            Some(player) => (Some(player.team), !player.selected_objects.is_empty()),
-            None => (None, false),
-        };
+        // Wave 245: team/selection via player probes (no get_player dual-read).
+        let player_team = game_logic.player_team(self.current_player_id);
+        let has_selected_units = !game_logic
+            .player_selected_objects(self.current_player_id)
+            .is_empty();
 
         // Pure residual acquire: priority bands + nearest 3D tiebreak.
         // Per-object selection radius is applied when building candidates.
@@ -785,11 +772,8 @@ impl InputCommandProcessor {
 
     /// Get currently selected units for the current player
     fn get_selected_units(&self, game_logic: &GameLogic) -> Vec<ObjectId> {
-        if let Some(player) = game_logic.get_player(self.current_player_id) {
-            player.selected_objects.clone()
-        } else {
-            Vec::new()
-        }
+        // Wave 245: selection via player_selected_objects probe.
+        game_logic.player_selected_objects(self.current_player_id)
     }
 
     /// Reset all input state

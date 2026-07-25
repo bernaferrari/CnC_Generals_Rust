@@ -61393,6 +61393,203 @@ impl GameLogic {
             .is_some_and(|o| o.health.current + 0.01 < o.health.maximum)
     }
 
+    /// Wave 245: dead probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_is_dead(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.health.current <= 0.0)
+    }
+
+    /// Wave 245: sold status without exposing `&Object`.
+    #[inline]
+    pub fn unit_is_sold(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.status.sold)
+    }
+
+    /// Wave 245: resource/harvestable probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_is_resource_target(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| {
+            o.is_kind_of(KindOf::Harvestable)
+                || o.is_kind_of(KindOf::Resource)
+                || o.object_type == ObjectType::Supply
+        })
+    }
+
+    /// Wave 245: can-contain probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_can_contain(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.can_contain())
+    }
+
+    /// Wave 245: medical facility probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_is_medical_facility(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| {
+            if o.building_data
+                .as_ref()
+                .is_some_and(|b| b.building_type == crate::game_logic::BuildingType::HealPad)
+            {
+                return true;
+            }
+            let lower = o.template_name.to_ascii_lowercase();
+            lower.contains("hospital") || lower.contains("healpad") || lower.contains("ambulance")
+        })
+    }
+
+    /// Wave 245: building type probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_building_type(&self, id: ObjectId) -> Option<crate::game_logic::BuildingType> {
+        self.objects
+            .get(&id)
+            .and_then(|o| o.building_data.as_ref().map(|b| b.building_type))
+    }
+
+    /// Wave 245: faction structure probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_is_faction_structure(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.is_faction_structure())
+    }
+
+    /// Wave 245: container has space for one more without exposing `&Object`.
+    #[inline]
+    pub fn unit_has_capacity_for(&self, id: ObjectId, count: usize) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.has_capacity_for(count))
+    }
+
+    /// Wave 245: container contains unit without exposing `&Object`.
+    #[inline]
+    pub fn unit_contains(&self, container: ObjectId, unit: ObjectId) -> bool {
+        self.objects
+            .get(&container)
+            .is_some_and(|o| o.contained_units().contains(&unit))
+    }
+
+    /// Wave 245: container has any occupants without exposing `&Object`.
+    #[inline]
+    pub fn unit_has_occupants(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| !o.contained_units().is_empty())
+    }
+
+    /// Wave 245: overlord bunker infantry-only residual without exposing `&Object`.
+    #[inline]
+    pub fn unit_enter_infantry_only(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| {
+            o.is_kind_of(KindOf::Structure)
+                || (o.is_overlord_style_container() && o.overlord_bunker_slot_capacity() > 0)
+        })
+    }
+
+    /// Wave 245: selectable probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_is_selectable(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.is_selectable())
+    }
+
+    /// Wave 245: object-type probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_object_type(&self, id: ObjectId) -> Option<ObjectType> {
+        self.objects.get(&id).map(|o| o.object_type)
+    }
+
+    /// Wave 245: position probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_position(&self, id: ObjectId) -> Option<glam::Vec3> {
+        self.objects.get(&id).map(|o| o.get_position())
+    }
+
+    /// Wave 245: selectable similar-unit ids (select-similar boot residual).
+    pub fn selectable_similar_unit_ids(
+        &self,
+        team: Team,
+        template_name: &str,
+        object_type: ObjectType,
+        match_object_type: bool,
+    ) -> Vec<ObjectId> {
+        self.objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if obj.team == team
+                    && obj.is_selectable()
+                    && (obj.template_name == template_name
+                        || (match_object_type && obj.object_type == object_type))
+                {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Wave 245: selectable unit ids in world XZ bounds (box-select boot residual).
+    pub fn selectable_unit_ids_in_bounds(
+        &self,
+        team: Team,
+        min_x: f32,
+        max_x: f32,
+        min_z: f32,
+        max_z: f32,
+    ) -> Vec<ObjectId> {
+        self.objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if obj.team != team || !obj.is_selectable() {
+                    return None;
+                }
+                let p = obj.get_position();
+                if p.x >= min_x && p.x <= max_x && p.z >= min_z && p.z <= max_z {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Wave 245: selectable unit ids on a team matching a unit-id predicate.
+    pub fn selectable_unit_ids_for_team_where(
+        &self,
+        team: Team,
+        mut predicate: impl FnMut(ObjectId) -> bool,
+    ) -> Vec<ObjectId> {
+        self.objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if obj.team == team && obj.is_selectable() && predicate(id) {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Wave 245: all unit ids on a team matching a unit-id predicate.
+    pub fn unit_ids_for_team_where(
+        &self,
+        team: Team,
+        mut predicate: impl FnMut(ObjectId) -> bool,
+    ) -> Vec<ObjectId> {
+        self.objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if obj.team == team && predicate(id) {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     #[inline]
     pub fn unit_is_dead_or_missing(&self, id: ObjectId) -> bool {
         match self.objects.get(&id) {

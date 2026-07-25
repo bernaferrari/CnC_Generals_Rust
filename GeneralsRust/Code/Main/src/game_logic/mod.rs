@@ -281,6 +281,7 @@ pub mod host_live_rmb_presentation_full_classify_residual_wave235;
 pub mod host_live_rmb_selected_presentation_only_residual_wave229;
 pub mod host_live_rmb_target_presentation_only_residual_wave228;
 pub mod host_live_selection_commands_presentation_only_residual_wave218;
+pub mod host_live_selection_query_probe_residual_wave245;
 pub mod host_live_ui_command_selection_presentation_only_residual_wave219;
 pub mod host_live_ui_helpers_presentation_only_residual_wave215;
 pub mod host_live_ui_producer_presentation_only_residual_wave214;
@@ -2056,6 +2057,12 @@ pub use host_live_selection_commands_presentation_only_residual_wave218::{
     honesty_live_selection_commands_presentation_only_nav_commands_residual_wave218,
     honesty_live_selection_commands_presentation_only_residual_pack_wave218,
     simulate_live_selection_commands_presentation_only_honesty,
+};
+pub use host_live_selection_query_probe_residual_wave245::{
+    honesty_live_selection_query_probe_method_names_residual_wave245,
+    honesty_live_selection_query_probe_nav_commands_residual_wave245,
+    honesty_live_selection_query_probe_residual_pack_wave245,
+    simulate_live_selection_query_probe_honesty,
 };
 pub use host_live_ui_command_selection_presentation_only_residual_wave219::{
     honesty_live_ui_command_selection_presentation_only_method_names_residual_wave219,
