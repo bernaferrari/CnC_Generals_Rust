@@ -2237,6 +2237,7 @@ impl<'a> CommandExecutor<'a> {
             unit.set_guard_position(None);
             unit.set_guard_target(None);
             crate::game_logic::host_attack_log::record(unit_id, None);
+            crate::game_logic::host_guard_log::record(unit_id, None, 0, 0.0);
             unit.end_guard_retaliate();
             unit.set_ai_state(AIState::Idle);
         }
@@ -2286,10 +2287,11 @@ impl<'a> CommandExecutor<'a> {
                     .map(|o| o.get_position()),
             };
 
+            let guard_radius = vision.max(weapon_r).max(GUARD_MIN_RADIUS);
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 // C++ getStdGuardRange ≈ vision with guard-inner factor; host uses
                 // max(vision, weapon, min radius).
-                unit.guard_radius = vision.max(weapon_r).max(GUARD_MIN_RADIUS);
+                unit.guard_radius = guard_radius;
                 unit.set_guard_mode(mode);
                 unit.set_target(None);
                 unit.set_force_attack(false);
@@ -2311,6 +2313,15 @@ impl<'a> CommandExecutor<'a> {
             } else {
                 continue;
             }
+            // Wave 198: GameWorld SetGuard last-writer drain (host_guard_log).
+            let (gpos, gtarget) = match target {
+                GuardTarget::Position(pos) => (Some([pos.x, pos.y, pos.z]), 0u32),
+                GuardTarget::Object(target_id) => {
+                    (target_pos.map(|p| [p.x, p.y, p.z]), target_id.0)
+                }
+            };
+            crate::game_logic::host_guard_log::record(unit_id, gpos, gtarget, guard_radius);
+            crate::game_logic::host_attack_log::record(unit_id, None);
 
             match target {
                 GuardTarget::Position(pos) => {
@@ -2353,6 +2364,8 @@ impl<'a> CommandExecutor<'a> {
             unit.set_guard_position(None);
             unit.set_guard_target(None);
             unit.end_guard_retaliate();
+            crate::game_logic::host_guard_log::record(unit_id, None, 0, 0.0);
+            crate::game_logic::host_attack_log::record(unit_id, None);
             // Hunt enables auto-acquire while wandering.
             unit.auto_acquire_when_idle = true;
             unit.set_ai_state(AIState::Patrolling);
