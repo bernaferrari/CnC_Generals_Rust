@@ -11,6 +11,7 @@ use crate::object::Object;
 use crate::scripting::engine::get_script_engine;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 /// Internal storage for the registry.
@@ -46,13 +47,22 @@ impl RegistryStore {
 #[derive(Default)]
 pub struct ObjectRegistry {
     store: RwLock<RegistryStore>,
+    /// Wave 247: lock-free empty short-circuit for host/presentation path.
+    /// Kept in sync under the same write lock as map mutations.
+    live_count: AtomicUsize,
 }
 
 impl ObjectRegistry {
+    #[inline]
+    fn set_live_count(&self, n: usize) {
+        self.live_count.store(n, Ordering::Release);
+    }
+
     /// Register a live object handle.
     pub fn register_object(&self, id: ObjectID, object: &Arc<RwLock<Object>>) {
         if let Ok(mut guard) = self.store.write() {
             guard.register(id, object);
+            self.set_live_count(guard.objects.len());
         }
     }
 
@@ -60,6 +70,7 @@ impl ObjectRegistry {
     pub fn unregister_object(&self, id: ObjectID) {
         if let Ok(mut guard) = self.store.write() {
             guard.unregister(id);
+            self.set_live_count(guard.objects.len());
         }
         if let Ok(mut engine_guard) = get_script_engine().try_write() {
             if let Some(engine) = engine_guard.as_mut() {
@@ -70,6 +81,10 @@ impl ObjectRegistry {
 
     /// Retrieve a strong reference to an object by identifier.
     pub fn get_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+        // Wave 247: host path (empty registry) skips RwLock entirely.
+        if self.is_empty() {
+            return None;
+        }
         if let Ok(guard) = self.store.read() {
             guard.get(id)
         } else {
@@ -79,6 +94,10 @@ impl ObjectRegistry {
 
     /// True when `id` is currently registered (no Arc clone).
     pub fn contains(&self, id: ObjectID) -> bool {
+        // Wave 247: host path (empty registry) skips RwLock entirely.
+        if self.is_empty() {
+            return false;
+        }
         if let Ok(guard) = self.store.read() {
             guard.contains(id)
         } else {
@@ -103,16 +122,19 @@ impl ObjectRegistry {
     }
 
     /// Host/presentation path: true when no dual-world factory objects are registered.
+    ///
+    /// Wave 247: lock-free via `live_count` (updated under write lock).
+    #[inline]
     pub fn is_empty(&self) -> bool {
-        if let Ok(guard) = self.store.read() {
-            guard.objects.is_empty()
-        } else {
-            true
-        }
+        self.live_count.load(Ordering::Acquire) == 0
     }
 
     /// Retrieve all registered objects.
     pub fn get_all_objects(&self) -> Vec<Arc<RwLock<Object>>> {
+        // Wave 247: host path short-circuit.
+        if self.is_empty() {
+            return Vec::new();
+        }
         if let Ok(guard) = self.store.read() {
             let mut result: Vec<Arc<RwLock<Object>>> = guard.objects.values().cloned().collect();
             result.sort_by_key(|obj| obj.read().map(|o| o.get_id()).unwrap_or(0));
@@ -124,6 +146,10 @@ impl ObjectRegistry {
 
     /// Object IDs currently registered (no Arc clones).
     pub fn get_all_object_ids(&self) -> Vec<ObjectID> {
+        // Wave 247: host path short-circuit.
+        if self.is_empty() {
+            return Vec::new();
+        }
         if let Ok(guard) = self.store.read() {
             guard.objects.keys().copied().collect()
         } else {
@@ -135,6 +161,7 @@ impl ObjectRegistry {
     pub fn clear(&self) {
         if let Ok(mut guard) = self.store.write() {
             guard.clear();
+            self.set_live_count(0);
         }
     }
 
