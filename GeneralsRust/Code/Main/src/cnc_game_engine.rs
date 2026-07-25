@@ -210,14 +210,26 @@ mod tests {
     fn show_shell_menu_sets_shell_active_for_wnd_residual() {
         let src = include_str!("cnc_game_engine.rs");
         let i = src.find("fn show_shell_menu").expect("show_shell_menu");
-        let body = &src[i..src.len().min(i + 1400)];
+        let body = &src[i..src.len().min(i + 2200)];
+        assert!(
+            body.contains("SubsystemInterface::init"),
+            "show_shell_menu must init Shell before push (TLS starts uninitialized)"
+        );
         assert!(
             body.contains("set_shell_active(true)"),
             "show_shell_menu must set Shell::is_shell_active after MainMenu push"
         );
         assert!(
             body.contains("shell_menu_active = true"),
-            "engine shell_menu_active residual required for status fallback"
+            "engine shell_menu_active residual required after successful stack push"
+        );
+        assert!(
+            body.contains("get_screen_count()"),
+            "show_shell_menu must verify screen stack before latching active"
+        );
+        assert!(
+            !body.contains("will continue without a main menu") || body.contains("screens == 0"),
+            "empty stack must not latch shell_menu_active"
         );
     }
 
@@ -2174,13 +2186,8 @@ impl CnCGameEngine {
             shell_screen_count: {
                 #[cfg(feature = "game_client")]
                 {
-                    let n = game_client::gui::get_shell().get_screen_count() as u32;
-                    // Fail-open residual: engine shell_menu_active means MainMenu was pushed.
-                    if n == 0 && self.shell_menu_active {
-                        1
-                    } else {
-                        n
-                    }
+                    // Honest residual: report actual Shell stack depth only.
+                    game_client::gui::get_shell().get_screen_count() as u32
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -2191,15 +2198,12 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     let mut shell = game_client::gui::get_shell();
-                    let top = shell
+                    // Honest residual: report actual Shell stack top only.
+                    // Do not invent MainMenu.wnd when the stack is empty.
+                    shell
                         .top()
                         .map(|layout| layout.get_filename().to_string())
-                        .unwrap_or_default();
-                    if top.is_empty() && self.shell_menu_active {
-                        "Menus/MainMenu.wnd".to_string()
-                    } else {
-                        top
-                    }
+                        .unwrap_or_default()
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -4055,6 +4059,25 @@ impl CnCGameEngine {
                     format!("click_main_menu_wnd_ok_wnd_{action}")
                 } else {
                     "click_main_menu_wnd_miss".into()
+                };
+            }
+            "click_shell_stack" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "push".to_string());
+                let ok = match action.as_str() {
+                    "init" => crate::game_logic::honesty_show_shell_menu_init_before_push_source(),
+                    "snapshot" => {
+                        crate::game_logic::honesty_shell_snapshot_no_invented_stack_source()
+                    }
+                    "push" | "prepare" => crate::game_logic::simulate_shell_stack_push_honesty(),
+                    _ => crate::game_logic::honesty_shell_stack_push_residual_pack_wave163(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_shell_stack_ok_wnd_{action}")
+                } else {
+                    format!("click_shell_stack_miss_{action}")
                 };
             }
             "click_campaign_start" => {
@@ -6932,6 +6955,13 @@ impl CnCGameEngine {
             }
 
             let mut shell = game_client::gui::get_shell();
+            // C++ TheShell is initialized via SubsystemInterface before GAME_SHELL push.
+            // Thread-local Shell starts uninitialized; push() fails without init.
+            if let Err(e) = game_client::system::SubsystemInterface::init(&mut *shell) {
+                warn!("Failed to init Shell before MainMenu push: {:?}", e);
+                error!("Shell subsystem failed to initialize — the main menu will not be visible.");
+                return;
+            }
             shell.show_shell_map(true);
             let result = if shell.get_screen_count() == 0 {
                 shell.push("Menus/MainMenu.wnd", false)
@@ -6946,24 +6976,30 @@ impl CnCGameEngine {
             if let Err(e) = result {
                 warn!("Failed to activate MainMenu.wnd through Shell: {:?}", e);
                 error!(
-                    "MainMenu.wnd could not be loaded — the main menu will not be visible. \
-                     Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
-                     The game will continue without a main menu."
+                    "MainMenu.wnd could not be loaded — the main menu will not be visible.                      Ensure game assets (BIG archives or extracted Data/) are in the correct path.                      The game will continue without a main menu."
                 );
                 return;
             }
 
-            // C++ Shell::showShell sets m_isShellActive after push.
+            // Only latch shell_menu_active when the stack actually holds a screen.
+            // C++ Shell::showShell sets m_isShellActive after a successful push path.
+            let screens = shell.get_screen_count();
+            if screens == 0 {
+                warn!(
+                    "Shell::push returned Ok but screen stack is empty — not activating shell menu"
+                );
+                return;
+            }
+
             shell.set_shell_active(true);
             self.shell_menu_active = true;
             info!(
                 "Shell menu activated from Menus/MainMenu.wnd (screens={})",
-                shell.get_screen_count()
+                screens
             );
         }
     }
 
-    /// C++ parity: Shell::hideShell() — run top-layout shutdown when leaving Menu state.
     fn hide_shell_menu(&mut self) {
         #[cfg(feature = "game_client")]
         {
