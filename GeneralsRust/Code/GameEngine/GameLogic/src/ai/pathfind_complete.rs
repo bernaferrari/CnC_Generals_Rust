@@ -49,6 +49,12 @@ pub const SURFACE_CLIFF: u32 = 0x04;
 pub const SURFACE_AIR: u32 = 0x08;
 pub const SURFACE_RUBBLE: u32 = 0x10;
 
+/// Wave 262: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Pathfinding request
 #[derive(Debug, Clone)]
 pub struct PathRequest {
@@ -301,6 +307,11 @@ impl BridgeLayer {
 }
 
 fn ignored_obstacle_cells(ignore_obstacle_id: Option<ObjectID>) -> Option<HashSet<GridCoord>> {
+    // Wave 262: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     let object_id = ignore_obstacle_id?;
     if object_id == INVALID_ID {
         return None;
@@ -586,6 +597,11 @@ impl std::fmt::Debug for PathfindingSystem {
 
 impl PathfindingSystem {
     fn object_uses_aircraft_goal_reservations(object_id: ObjectID) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if object_id == INVALID_ID {
             return false;
         }
@@ -790,6 +806,11 @@ impl PathfindingSystem {
     }
 
     pub fn process_queue(&mut self, max_per_frame: usize) -> usize {
+        // Wave 262: empty dual-world → zero.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         // C++: if (!m_isMapReady) return;
         if !self.is_map_ready {
             return 0;
@@ -1841,6 +1862,11 @@ impl PathfindingSystem {
         victim_id: Option<ObjectID>,
         victim_pos: &Coord3D,
     ) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // Global switch TheAI->getAiData()->m_attackUsesLineOfSight
         let los_enabled = crate::ai::THE_AI
             .read()
@@ -1994,6 +2020,11 @@ impl PathfindingSystem {
     }
 
     fn object_container_id(object_id: ObjectID) -> ObjectID {
+        // Wave 262: empty dual-world → invalid id.
+        if dual_world_registry_unavailable() {
+            return INVALID_ID;
+        }
+
         if object_id == INVALID_ID {
             return INVALID_ID;
         }
@@ -2003,6 +2034,11 @@ impl PathfindingSystem {
     }
 
     fn object_slaver_id(object_id: ObjectID) -> ObjectID {
+        // Wave 262: empty dual-world → invalid id.
+        if dual_world_registry_unavailable() {
+            return INVALID_ID;
+        }
+
         if object_id == INVALID_ID {
             return INVALID_ID;
         }
@@ -2525,6 +2561,11 @@ impl PathfindingSystem {
         radius: i32,
         center_in_cell: bool,
     ) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let ignore_cells = ignored_obstacle_cells(request.ignore_obstacle_id);
         let pathfinder = self.pathfinder.lock().unwrap();
         let center_cell = ICoord2D::new(cell.x, cell.y);
@@ -2911,6 +2952,11 @@ impl PathfindingSystem {
         to: &Coord3D,
         ignore_building: ObjectID,
     ) -> Option<(ObjectID, Coord3D, f32)> {
+        // Wave 262: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let mut found = None;
         let _ = self.iterate_cells_along_line_world(
             from,
@@ -3029,6 +3075,11 @@ impl PathfindingSystem {
         ignore_building: ObjectID,
         adjust_to: &mut Coord3D,
     ) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(partition) = ThePartitionManager::get() else {
             return false;
         };
@@ -3131,6 +3182,11 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         path_diameter: i32,
     ) -> i32 {
+        // Wave 262: empty dual-world → zero.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         if path_diameter <= 0 {
             return 0;
         }
@@ -3748,6 +3804,11 @@ impl PathfindingSystem {
     /// Takes a list of grid coordinates and produces a `Path` with world-space
     /// waypoints, terrain layers, and path optimization applied.
     fn object_is_vehicle(object_id: ObjectID) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if object_id == INVALID_ID {
             return false;
         }
@@ -3757,6 +3818,11 @@ impl PathfindingSystem {
     }
 
     fn object_is_idle(object_id: ObjectID) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if object_id == INVALID_ID {
             return false;
         }
@@ -3778,6 +3844,11 @@ impl PathfindingSystem {
 
     /// C++ obj->isKindOf(KINDOF_DOZER).
     fn object_is_dozer(object_id: ObjectID) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if object_id == INVALID_ID {
             return false;
         }
@@ -3788,6 +3859,11 @@ impl PathfindingSystem {
 
     /// C++ locomotorSet.isDownhillOnly() for pathing object.
     fn object_is_downhill_only(object_id: ObjectID) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if object_id == INVALID_ID {
             return false;
         }
@@ -3814,6 +3890,11 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         object_id: ObjectID,
     ) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let pos_unit = {
             let Ok(goals) = self.goal_cells.lock() else {
                 return false;
@@ -4990,6 +5071,11 @@ impl PathfindingSystem {
         blocked_by_ally: bool,
         unit_radius: f32,
     ) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if obj_id == INVALID_ID || path_waypoints.len() < 2 {
             return false;
         }
@@ -5458,6 +5544,11 @@ impl PathfindingSystem {
         is_fence: bool,
         insert: bool,
     ) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let coord = GridCoord::new(cx, cy);
         // C++ m_obstacleIsTransparent from KINDOF_CAN_SEE_THROUGH_STRUCTURE.
         let is_transparent = OBJECT_REGISTRY
@@ -5783,6 +5874,11 @@ impl PathfindingSystem {
     /// Footprint scan of goal/pos occupancy. Populates ally/enemy fixed counts.
     /// Returns false if off-map or blocked by non-AI ally fixed unit.
     pub fn check_for_movement(&self, obj_id: ObjectID, info: &mut CheckMovementInfo) -> bool {
+        // Wave 262: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         info.ally_fixed_count = 0;
         info.ally_moving = false;
         info.ally_goal = false;
@@ -6325,6 +6421,11 @@ impl PathfindingSystem {
         from: &Coord3D,
         destination: &Coord3D,
     ) -> Vec<ObjectID> {
+        // Wave 262: empty dual-world → empty vec.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let mut nudged = Vec::new();
         if obj_id == INVALID_ID {
             return nudged;
