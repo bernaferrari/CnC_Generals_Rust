@@ -36,7 +36,8 @@ pub struct ExecutableSmokeResult {
     /// Always false — not a retail W3D interactive playthrough claim.
     pub playable_claim: bool,
     /// Honest headless vertical slice: WND start residual + InGame + select/move +
-    /// construct + train all accepted. Still not full retail WND playable_claim.
+    /// construct + train + presentation-owned frame (no live GameLogic dual-read).
+    /// Still not full retail WND playable_claim.
     pub host_vertical_slice_ok: bool,
     /// Limited: process reached InGame (or Menu+start attempted) and exited 0.
     pub executable_host_ok: bool,
@@ -2468,12 +2469,18 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     // Never flip retail claim from this harness.
     result.playable_claim = false;
     // Vertical slice honesty (not playable_claim): WND start + InGame + core cmds.
+    // Wave 176: InGame vertical slice also requires presentation-owned frame
+    // with zero live GameLogic dual-reads (immutable presentation boundary).
+    // Soft when display never reached InGame (assets/GPU unavailable).
+    let presentation_boundary_ok = !result.reached_ingame
+        || (result.presentation_frame_ok && result.presentation_live_fallback_ok);
     result.host_vertical_slice_ok = result.skirmish_start_wnd_ok
         && result.reached_ingame
         && result.gameplay_cmd_ok
         && result.construct_cmd_ok
         && result.train_cmd_ok
-        && result.executable_host_ok;
+        && result.executable_host_ok
+        && presentation_boundary_ok;
     result
 }
 
