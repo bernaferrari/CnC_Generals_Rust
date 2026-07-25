@@ -5555,6 +5555,23 @@ impl CnCGameEngine {
                     format!("click_live_cmd_filter_env_presentation_only_miss_{action}")
                 };
             }
+            "click_live_selection_commands_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_selection_commands_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_selection_commands_presentation_only_residual_pack_wave218(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_selection_commands_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_selection_commands_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -5943,22 +5960,8 @@ impl CnCGameEngine {
                     let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(0.0);
-                    // Prefer presentation/engine selection residual; live player roster is boot fallback.
-                    let selected = if !self.selected_objects.is_empty() {
-                        self.selected_objects.len()
-                    } else if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        let n = frame.count_selected_friendlies(frame.local_team()) as usize;
-                        if n > 0 {
-                            n
-                        } else {
-                            frame.selected.len()
-                        }
-                    } else {
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.selected_objects.len())
-                            .unwrap_or(0)
-                    };
+                    // Wave 218: selection count via presentation-first ui_selected_ids.
+                    let selected = self.ui_selected_ids(self.current_player_id).len();
                     if selected == 0 {
                         self.runtime_host_last_gameplay_cmd = "move_fail_no_selection".into();
                     } else {
@@ -6888,14 +6891,8 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "force_attack_fail_not_ingame".into();
                 } else {
                     self.ensure_host_mobile_selection();
-                    let mut selected = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.selected_objects.clone())
-                        .unwrap_or_default();
-                    if selected.is_empty() {
-                        selected = self.selected_objects.clone();
-                    }
+                    // Wave 218: selection via presentation-first ui_selected_ids.
+                    let selected = self.ui_selected_ids(self.current_player_id);
                     if selected.is_empty() {
                         self.runtime_host_last_gameplay_cmd =
                             "force_attack_fail_no_selection".into();
@@ -6932,14 +6929,8 @@ impl CnCGameEngine {
                         "force_attack_object_fail_not_ingame".into();
                 } else {
                     self.ensure_host_mobile_selection();
-                    let mut selected = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.selected_objects.clone())
-                        .unwrap_or_default();
-                    if selected.is_empty() {
-                        selected = self.selected_objects.clone();
-                    }
+                    // Wave 218: selection via presentation-first ui_selected_ids.
+                    let selected = self.ui_selected_ids(self.current_player_id);
                     if selected.is_empty() {
                         self.runtime_host_last_gameplay_cmd =
                             "force_attack_object_fail_no_selection".into();
@@ -6989,12 +6980,8 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "select_all_fail_not_ingame".into();
                 } else {
                     self.select_all_friendly_units();
-                    let n = self.selected_objects.len().max(
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.selected_objects.len())
-                            .unwrap_or(0),
-                    );
+                    // Wave 218: count via presentation-first ui_selected_ids.
+                    let n = self.ui_selected_ids(self.current_player_id).len();
                     self.runtime_host_last_gameplay_cmd = format!("select_all_ok:{}", n);
                 }
             }
@@ -7095,14 +7082,8 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "waypoint_fail_not_ingame".into();
                 } else {
                     self.ensure_host_mobile_selection();
-                    let mut selected = self
-                        .game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.selected_objects.clone())
-                        .unwrap_or_default();
-                    if selected.is_empty() {
-                        selected = self.selected_objects.clone();
-                    }
+                    // Wave 218: selection via presentation-first ui_selected_ids.
+                    let selected = self.ui_selected_ids(self.current_player_id);
                     if selected.is_empty() {
                         self.runtime_host_last_gameplay_cmd = "waypoint_fail_no_selection".into();
                     } else {
@@ -7174,16 +7155,11 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "select_similar_fail_not_ingame".into();
                 } else {
-                    // Seed from current selection or first local mobile.
+                    // Wave 218: seed/count via presentation-first ui_selected_ids.
                     let seed = self
-                        .selected_objects
+                        .ui_selected_ids(self.current_player_id)
                         .first()
                         .copied()
-                        .or_else(|| {
-                            self.game_logic
-                                .get_player(self.current_player_id)
-                                .and_then(|p| p.selected_objects.first().copied())
-                        })
                         .or_else(|| {
                             if let Some(frame) = self.last_presentation_frame.as_ref() {
                                 frame
@@ -7197,12 +7173,7 @@ impl CnCGameEngine {
                         });
                     if let Some(seed) = seed {
                         self.select_similar_units(seed);
-                        let n = self.selected_objects.len().max(
-                            self.game_logic
-                                .get_player(self.current_player_id)
-                                .map(|p| p.selected_objects.len())
-                                .unwrap_or(0),
-                        );
+                        let n = self.ui_selected_ids(self.current_player_id).len();
                         self.runtime_host_last_gameplay_cmd = format!("select_similar_ok:{}", n);
                     } else {
                         self.runtime_host_last_gameplay_cmd = "select_similar_fail_no_seed".into();
@@ -7371,13 +7342,8 @@ impl CnCGameEngine {
                     };
                     self.runtime_host_last_gameplay_cmd = if ok {
                         format!("cancel_production_ok:{}", if all { "all" } else { "head" })
-                    } else if self.selected_objects.is_empty()
-                        && self
-                            .game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.selected_objects.is_empty())
-                            .unwrap_or(true)
-                    {
+                    } else if self.ui_selected_ids(self.current_player_id).is_empty() {
+                        // Wave 218: empty selection via presentation-first ui_selected_ids.
                         "cancel_production_fail_no_selection".into()
                     } else {
                         // Empty queue is a valid residual — command path exercised.
