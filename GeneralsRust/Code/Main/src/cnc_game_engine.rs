@@ -2348,12 +2348,39 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     wnd_ok = game_client::gui::simulate_main_menu_credits_button_gadget_selected();
+                    let _ = game_client::gui::callbacks::simulate_credits_menu_bind_controls();
                 }
                 self.enter_shell_screen_from_runtime_host(Some("Credits"), "Menus/CreditsMenu.wnd");
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
                     "open_credits_ok_wnd".into()
                 } else {
                     "open_credits_ok".into()
+                };
+            }
+            "click_credits_menu" => {
+                // Retail CreditsMenu ESC skip / finished / shutdown residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "skip".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_credits_menu_finished, simulate_credits_menu_prepare_skip,
+                        simulate_credits_menu_shutdown, simulate_credits_menu_skip,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "finished" | "finish" => simulate_credits_menu_finished(),
+                        "shutdown" => simulate_credits_menu_shutdown(),
+                        "prepare_skip" => simulate_credits_menu_prepare_skip(),
+                        _ => simulate_credits_menu_skip(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_credits_menu_ok_wnd_{action}")
+                } else {
+                    "click_credits_menu_miss".into()
                 };
             }
             "open_single_player_menu" => {

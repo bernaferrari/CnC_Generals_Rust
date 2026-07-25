@@ -2251,6 +2251,112 @@ pub fn simulate_options_menu_prepare_accept() -> bool {
     simulate_options_menu_accept_button_gadget_selected()
 }
 
+/// Residual: last CreditsMenu action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualCreditsMenuAction {
+    None = 0,
+    Bind = 1,
+    Skip = 2,
+    Finished = 3,
+    Shutdown = 4,
+}
+
+static RESIDUAL_CREDITS_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_CREDITS_ACTIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn residual_credits_action_store(action: ResidualCreditsMenuAction) {
+    RESIDUAL_CREDITS_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last CreditsMenu residual action.
+pub fn residual_credits_menu_last_action() -> ResidualCreditsMenuAction {
+    match RESIDUAL_CREDITS_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualCreditsMenuAction::Bind,
+        2 => ResidualCreditsMenuAction::Skip,
+        3 => ResidualCreditsMenuAction::Finished,
+        4 => ResidualCreditsMenuAction::Shutdown,
+        _ => ResidualCreditsMenuAction::None,
+    }
+}
+
+/// Residual: CreditsMenu active latch (independent of live layout/audio).
+pub fn residual_credits_menu_is_active() -> bool {
+    RESIDUAL_CREDITS_ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn with_credits_menu_mut<R>(f: impl FnOnce(&mut CreditsMenu) -> R) -> R {
+    let menu = {
+        let manager = get_menu_manager();
+        let guard = manager.read().unwrap_or_else(|e| e.into_inner());
+        guard.get_credits_menu()
+    };
+    let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut menu)
+}
+
+/// Residual: bind CreditsMenu parent control ID (no INI/audio/layout load).
+pub fn simulate_credits_menu_bind_controls() -> bool {
+    with_credits_menu_mut(|menu| {
+        menu.parent_id =
+            NameKeyGenerator::name_to_key("CreditsMenu.wnd:ParentCreditsWindow") as i32;
+        menu.initialized = true;
+        RESIDUAL_CREDITS_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+        residual_credits_action_store(ResidualCreditsMenuAction::Bind);
+        true
+    })
+}
+
+/// Residual: ESC skip path without shell pop.
+pub fn simulate_credits_menu_skip() -> bool {
+    with_credits_menu_mut(|menu| {
+        if !menu.initialized {
+            menu.parent_id =
+                NameKeyGenerator::name_to_key("CreditsMenu.wnd:ParentCreditsWindow") as i32;
+            menu.initialized = true;
+        }
+        RESIDUAL_CREDITS_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_credits_action_store(ResidualCreditsMenuAction::Skip);
+        true
+    })
+}
+
+/// Residual: credits finished path without shell pop.
+pub fn simulate_credits_menu_finished() -> bool {
+    with_credits_menu_mut(|menu| {
+        if !menu.initialized {
+            menu.parent_id =
+                NameKeyGenerator::name_to_key("CreditsMenu.wnd:ParentCreditsWindow") as i32;
+            menu.initialized = true;
+        }
+        RESIDUAL_CREDITS_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_credits_action_store(ResidualCreditsMenuAction::Finished);
+        true
+    })
+}
+
+/// Residual: shutdown latch without audio/layout teardown.
+pub fn simulate_credits_menu_shutdown() -> bool {
+    with_credits_menu_mut(|menu| {
+        menu.initialized = false;
+        menu.parent = None;
+        menu.parent_id = 0;
+        menu.credits = None;
+        RESIDUAL_CREDITS_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_credits_action_store(ResidualCreditsMenuAction::Shutdown);
+        true
+    })
+}
+
+/// Residual: bind + skip composite (MainMenu ButtonCredits exit honesty).
+pub fn simulate_credits_menu_prepare_skip() -> bool {
+    if !simulate_credits_menu_bind_controls() {
+        return false;
+    }
+    simulate_credits_menu_skip()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
