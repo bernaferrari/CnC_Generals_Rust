@@ -1451,8 +1451,8 @@ impl CommandSystem {
         target_id: ObjectId,
         game_logic: &mut GameLogic,
     ) -> CommandResult {
-        // Wave 230: target probe + unit attack via GameLogic APIs.
-        if game_logic.get_object(target_id).is_none() {
+        // Wave 230/244: target probe via unit_exists / unit_is_dead_or_missing (no get_object).
+        if !game_logic.unit_exists(target_id) {
             return CommandResult::InvalidTarget;
         }
         if game_logic.unit_is_dead_or_missing(target_id) {
@@ -1799,17 +1799,23 @@ impl CommandSystem {
         {
             return false;
         }
+        // Wave 244: unit capability probes (no &Object dual-read on selected units).
         for &unit_id in units {
-            let Some(unit) = game_logic.get_object(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() || !unit.can_move() || unit.team == target.team {
+            if !game_logic.unit_is_alive(unit_id) || !game_logic.unit_can_move(unit_id) {
                 continue;
             }
-            let is_lotus = is_black_lotus_template(&unit.template_name);
-            let capture_ability = can_capture_without_upgrade(unit.is_hero(), is_lotus)
-                || (unit.is_kind_of(crate::game_logic::KindOf::Infantry)
-                    && game_logic.team_has_completed_capture_upgrade(unit.team));
+            let Some(unit_team) = game_logic.unit_team(unit_id) else {
+                continue;
+            };
+            if unit_team == target.team {
+                continue;
+            }
+            let template = game_logic.unit_template_name(unit_id).unwrap_or_default();
+            let is_lotus = is_black_lotus_template(&template);
+            let capture_ability =
+                can_capture_without_upgrade(game_logic.unit_is_hero(unit_id), is_lotus)
+                    || (game_logic.unit_is_kind_of(unit_id, crate::game_logic::KindOf::Infantry)
+                        && game_logic.team_has_completed_capture_upgrade(unit_team));
             if capture_ability {
                 return true;
             }
@@ -1824,11 +1830,17 @@ impl CommandSystem {
         target: &Object,
         game_logic: &GameLogic,
     ) -> bool {
+        // Wave 244: unit capability probes (no &Object dual-read on selected units).
+        if target.is_dead() {
+            return false;
+        }
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object(unit_id) {
-                if unit.can_attack() && unit.team != target.team && !target.is_dead() {
-                    return true;
-                }
+            if game_logic.unit_can_attack(unit_id)
+                && game_logic
+                    .unit_team(unit_id)
+                    .is_some_and(|t| t != target.team)
+            {
+                return true;
             }
         }
         false
@@ -1858,11 +1870,11 @@ impl CommandSystem {
                     .iter()
                     .any(|u| u.is_alive && u.is_worker);
             }
+            // Wave 244: boot residual via unit probes (no get_object dual-read).
             game_logic.is_some_and(|gl| {
-                units.iter().any(|&unit_id| {
-                    gl.get_object(unit_id)
-                        .is_some_and(|u| u.is_alive() && u.is_worker())
-                })
+                units
+                    .iter()
+                    .any(|&unit_id| gl.unit_is_alive(unit_id) && gl.unit_is_worker(unit_id))
             })
         };
         let any_attacker = || {
@@ -1871,11 +1883,11 @@ impl CommandSystem {
                     .iter()
                     .any(|u| u.is_alive && u.can_attack);
             }
+            // Wave 244: boot residual via unit probes (no get_object dual-read).
             game_logic.is_some_and(|gl| {
-                units.iter().any(|&unit_id| {
-                    gl.get_object(unit_id)
-                        .is_some_and(|u| u.is_alive() && u.can_attack())
-                })
+                units
+                    .iter()
+                    .any(|&unit_id| gl.unit_is_alive(unit_id) && gl.unit_can_attack(unit_id))
             })
         };
         let any_capturer = || {
@@ -1884,19 +1896,21 @@ impl CommandSystem {
                     .iter()
                     .any(|u| u.is_alive && u.can_capture && u.can_move);
             }
+            // Wave 244: boot residual via unit probes (no get_object dual-read).
             game_logic.is_some_and(|gl| {
                 units.iter().any(|&unit_id| {
-                    gl.get_object(unit_id).is_some_and(|u| {
-                        use crate::game_logic::host_hero_abilities::{
-                            can_capture_without_upgrade, is_black_lotus_template,
-                        };
-                        let is_lotus = is_black_lotus_template(&u.template_name);
-                        let is_hero = u.is_kind_of(KindOf::Hero);
-                        u.is_alive()
-                            && u.can_move()
-                            && (u.is_kind_of(KindOf::Infantry)
-                                || can_capture_without_upgrade(is_hero, is_lotus))
-                    })
+                    use crate::game_logic::host_hero_abilities::{
+                        can_capture_without_upgrade, is_black_lotus_template,
+                    };
+                    if !gl.unit_is_alive(unit_id) || !gl.unit_can_move(unit_id) {
+                        return false;
+                    }
+                    let template = gl.unit_template_name(unit_id).unwrap_or_default();
+                    let is_lotus = is_black_lotus_template(&template);
+                    let is_hero =
+                        gl.unit_is_hero(unit_id) || gl.unit_is_kind_of(unit_id, KindOf::Hero);
+                    gl.unit_is_kind_of(unit_id, KindOf::Infantry)
+                        || can_capture_without_upgrade(is_hero, is_lotus)
                 })
             })
         };
@@ -1906,11 +1920,11 @@ impl CommandSystem {
                     .iter()
                     .any(|u| u.is_alive && u.can_repair);
             }
+            // Wave 244: boot residual via unit probes (no get_object dual-read).
             game_logic.is_some_and(|gl| {
-                units.iter().any(|&unit_id| {
-                    gl.get_object(unit_id)
-                        .is_some_and(|u| u.is_alive() && u.can_repair())
-                })
+                units
+                    .iter()
+                    .any(|&unit_id| gl.unit_is_alive(unit_id) && gl.unit_can_repair(unit_id))
             })
         };
 
@@ -1957,11 +1971,11 @@ impl CommandSystem {
                     .iter()
                     .any(|u| u.is_alive && u.can_move)
             } else {
+                // Wave 244: boot residual via unit probes (no get_object dual-read).
                 game_logic.is_some_and(|gl| {
-                    units.iter().any(|&id| {
-                        gl.get_object(id)
-                            .is_some_and(|u| u.is_alive() && u.can_move())
-                    })
+                    units
+                        .iter()
+                        .any(|&id| gl.unit_is_alive(id) && gl.unit_can_move(id))
                 })
             };
             if any_mobile {
@@ -2018,16 +2032,16 @@ impl CommandSystem {
         if !target_is_resource {
             return false;
         }
-        // Check if any selected unit is a worker/harvester on the same team
+        // Wave 244: unit capability probes (no &Object dual-read on selected units).
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object(unit_id) {
-                if unit.is_worker()
-                    && unit.team == target.team
-                    && unit.is_alive()
-                    && unit.can_move()
-                {
-                    return true;
-                }
+            if game_logic.unit_is_worker(unit_id)
+                && game_logic.unit_is_alive(unit_id)
+                && game_logic.unit_can_move(unit_id)
+                && game_logic
+                    .unit_team(unit_id)
+                    .is_some_and(|t| t == target.team)
+            {
+                return true;
             }
         }
         false
@@ -2046,16 +2060,17 @@ impl CommandSystem {
         {
             return false;
         }
+        // Wave 244: unit capability probes (no &Object dual-read on selected units).
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object(unit_id) {
-                // Dozer / worker residual (can_repair covers builders).
-                if unit.can_repair()
-                    && unit.is_alive()
-                    && unit.can_move()
-                    && (unit.team == target.team || target.team == Team::Neutral)
-                {
-                    return true;
-                }
+            // Dozer / worker residual (can_repair covers builders).
+            if game_logic.unit_can_repair(unit_id)
+                && game_logic.unit_is_alive(unit_id)
+                && game_logic.unit_can_move(unit_id)
+                && game_logic
+                    .unit_team(unit_id)
+                    .is_some_and(|t| t == target.team || target.team == Team::Neutral)
+            {
+                return true;
             }
         }
         false
@@ -2077,11 +2092,14 @@ impl CommandSystem {
         {
             return false;
         }
+        // Wave 244: unit capability probes (no &Object dual-read on selected units).
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object(unit_id) {
-                if unit.can_repair() && (unit.team == target.team || target.team == Team::Neutral) {
-                    return true;
-                }
+            if game_logic.unit_can_repair(unit_id)
+                && game_logic
+                    .unit_team(unit_id)
+                    .is_some_and(|t| t == target.team || target.team == Team::Neutral)
+            {
+                return true;
             }
         }
         false
@@ -2103,21 +2121,25 @@ impl CommandSystem {
         let infantry_only = target.is_kind_of(KindOf::Structure)
             || (target.is_overlord_style_container() && target.overlord_bunker_slot_capacity() > 0);
 
+        // Wave 244: unit capability probes (no &Object dual-read on selected units).
         for &unit_id in units {
-            let Some(unit) = game_logic.get_object(unit_id) else {
+            let Some(unit_team) = game_logic.unit_team(unit_id) else {
                 continue;
             };
 
             if unit_id == target.id
-                || !unit.is_alive()
-                || unit.status.under_construction
-                || !unit.can_move()
-                || unit.is_kind_of(KindOf::Structure)
+                || !game_logic.unit_is_alive(unit_id)
+                || game_logic.unit_under_construction(unit_id)
+                || !game_logic.unit_can_move(unit_id)
+                || game_logic.unit_is_kind_of(unit_id, KindOf::Structure)
             {
                 continue;
             }
 
-            if infantry_only && !unit.is_kind_of(KindOf::Infantry) && !unit.is_hero() {
+            if infantry_only
+                && !game_logic.unit_is_kind_of(unit_id, KindOf::Infantry)
+                && !game_logic.unit_is_hero(unit_id)
+            {
                 continue;
             }
 
@@ -2127,7 +2149,7 @@ impl CommandSystem {
                 continue;
             }
 
-            if target.team != unit.team
+            if target.team != unit_team
                 && target.team != Team::Neutral
                 && (target.is_faction_structure() || target_has_occupants)
             {
@@ -2157,29 +2179,31 @@ impl CommandSystem {
             .map(|b| b.building_type)
             .unwrap_or(BuildingType::CommandCenter);
 
+        // Wave 244: unit capability probes (no &Object dual-read on selected units).
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object(unit_id) {
-                if unit.team != target.team
-                    || !unit.is_alive()
-                    || !unit.can_move()
-                    || !(unit.is_damaged() || unit.is_injured())
-                {
-                    continue;
-                }
+            if !game_logic
+                .unit_team(unit_id)
+                .is_some_and(|t| t == target.team)
+                || !game_logic.unit_is_alive(unit_id)
+                || !game_logic.unit_can_move(unit_id)
+                || !game_logic.unit_needs_service(unit_id)
+            {
+                continue;
+            }
 
-                let can_use_service = match target_building_type {
-                    BuildingType::HealPad => unit.is_kind_of(KindOf::Infantry),
-                    // USA RepairPad + China WarFactory RepairDock residual.
-                    BuildingType::RepairPad | BuildingType::WarFactory => {
-                        unit.is_kind_of(KindOf::Vehicle) && !unit.is_kind_of(KindOf::Aircraft)
-                    }
-                    BuildingType::Airfield => unit.is_kind_of(KindOf::Aircraft),
-                    _ => false,
-                };
-
-                if can_use_service {
-                    return true;
+            let can_use_service = match target_building_type {
+                BuildingType::HealPad => game_logic.unit_is_kind_of(unit_id, KindOf::Infantry),
+                // USA RepairPad + China WarFactory RepairDock residual.
+                BuildingType::RepairPad | BuildingType::WarFactory => {
+                    game_logic.unit_is_kind_of(unit_id, KindOf::Vehicle)
+                        && !game_logic.unit_is_kind_of(unit_id, KindOf::Aircraft)
                 }
+                BuildingType::Airfield => game_logic.unit_is_kind_of(unit_id, KindOf::Aircraft),
+                _ => false,
+            };
+
+            if can_use_service {
+                return true;
             }
         }
         false
