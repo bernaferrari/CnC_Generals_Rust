@@ -3086,10 +3086,58 @@ impl CnCGameEngine {
                         );
                 }
                 self.enter_shell_menu_from_runtime_host(Some(override_screen));
+
+                #[cfg(feature = "game_client")]
+                {
+                    let _ = game_client::gui::callbacks::simulate_difficulty_select_bind_controls();
+                }
                 self.runtime_host_last_gameplay_cmd = if wnd_ok {
                     "open_difficulty_menu_ok_wnd".into()
                 } else {
                     "open_difficulty_menu_ok".into()
+                };
+            }
+            "click_difficulty_select" => {
+                // Retail DifficultySelect Easy/Medium/Hard/Ok/Cancel residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "ok".to_string());
+                let level = args
+                    .get("level")
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .unwrap_or(1);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_difficulty_select_cancel_button_gadget_selected,
+                        simulate_difficulty_select_ok_button_gadget_selected,
+                        simulate_difficulty_select_prepare_ok,
+                        simulate_difficulty_select_radio_easy,
+                        simulate_difficulty_select_radio_hard,
+                        simulate_difficulty_select_radio_medium,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "easy" => simulate_difficulty_select_radio_easy(),
+                        "medium" | "normal" => simulate_difficulty_select_radio_medium(),
+                        "hard" => simulate_difficulty_select_radio_hard(),
+                        "cancel" => simulate_difficulty_select_cancel_button_gadget_selected(),
+                        "prepare_ok" => simulate_difficulty_select_prepare_ok(level),
+                        _ => {
+                            let _ = match level {
+                                0 => simulate_difficulty_select_radio_easy(),
+                                2 => simulate_difficulty_select_radio_hard(),
+                                _ => simulate_difficulty_select_radio_medium(),
+                            };
+                            simulate_difficulty_select_ok_button_gadget_selected()
+                        }
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_difficulty_select_ok_wnd_{action}")
+                } else {
+                    "click_difficulty_select_miss".into()
                 };
             }
             "click_campaign_start" => {
