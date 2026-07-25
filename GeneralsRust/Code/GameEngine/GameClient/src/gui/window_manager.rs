@@ -401,6 +401,11 @@ impl WindowLayout {
     }
 
     /// Destroy all windows in this layout
+    /// Detach all windows from this layout without destroying them.
+    pub fn take_windows(&mut self) -> Vec<Rc<RefCell<GameWindow>>> {
+        std::mem::take(&mut self.windows)
+    }
+
     pub fn destroy_windows(&mut self) {
         let windows = self.windows.clone();
 
@@ -1991,7 +1996,14 @@ impl WindowManager {
 
     /// Remove a layout after destroying its windows.
     pub fn destroy_layout(&mut self, layout: &Rc<RefCell<WindowLayout>>) {
-        layout.borrow_mut().destroy_windows();
+        // Detach windows first, then destroy without holding layout RefCell.
+        // WindowLayout::destroy_windows() re-enters with_window_manager and
+        // flush_destroy_queue may borrow the same layout — that double-borrow
+        // panics (Shell::pop_immediate residual path).
+        let windows = layout.borrow_mut().take_windows();
+        for window in windows {
+            let _ = self.destroy_window(window);
+        }
         self.layouts.retain(|entry| !Rc::ptr_eq(entry, layout));
         self.flush_destroy_queue();
     }
