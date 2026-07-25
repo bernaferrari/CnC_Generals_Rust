@@ -855,3 +855,172 @@ mod tests {
         assert!(!should_submit_beacon_text(true, 2));
     }
 }
+
+/// Residual: last ControlBar action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualControlBarAction {
+    None = 0,
+    Show = 1,
+    Hide = 2,
+    Toggle = 3,
+    Options = 4,
+    IdleWorker = 5,
+    General = 6,
+    Large = 7,
+    PlaceBeacon = 8,
+    DeleteBeacon = 9,
+    ClearBeaconText = 10,
+    Communicator = 11,
+}
+
+static RESIDUAL_CONTROL_BAR_ACTION: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_CONTROL_BAR_VISIBLE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+fn residual_control_bar_action_store(action: ResidualControlBarAction) {
+    RESIDUAL_CONTROL_BAR_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last ControlBar residual action.
+pub fn residual_control_bar_last_action() -> ResidualControlBarAction {
+    match RESIDUAL_CONTROL_BAR_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualControlBarAction::Show,
+        2 => ResidualControlBarAction::Hide,
+        3 => ResidualControlBarAction::Toggle,
+        4 => ResidualControlBarAction::Options,
+        5 => ResidualControlBarAction::IdleWorker,
+        6 => ResidualControlBarAction::General,
+        7 => ResidualControlBarAction::Large,
+        8 => ResidualControlBarAction::PlaceBeacon,
+        9 => ResidualControlBarAction::DeleteBeacon,
+        10 => ResidualControlBarAction::ClearBeaconText,
+        11 => ResidualControlBarAction::Communicator,
+        _ => ResidualControlBarAction::None,
+    }
+}
+
+/// Residual: ControlBar visibility latch (independent of live layout).
+pub fn residual_control_bar_is_visible() -> bool {
+    RESIDUAL_CONTROL_BAR_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn with_control_bar_callbacks_mut<R>(f: impl FnOnce(&mut ControlBarCallbacks) -> R) -> R {
+    let system = get_control_bar_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut callbacks)
+}
+
+/// Residual: bind ControlBar control name keys (no layout load).
+pub fn simulate_control_bar_bind_controls() -> bool {
+    with_control_bar_callbacks_mut(|cb| {
+        cb.button_communicator = NameKeyGenerator::name_to_key("ControlBar.wnd:PopupCommunicator");
+        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonOptions");
+        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker");
+        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonGeneral");
+        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonLarge");
+        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlaceBeacon");
+        let _ = NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent");
+        true
+    })
+}
+
+/// Residual: show ControlBar without animate/layout.
+pub fn simulate_control_bar_show() -> bool {
+    with_control_bar_callbacks_mut(|cb| {
+        cb.state.visible = true;
+        RESIDUAL_CONTROL_BAR_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+        residual_control_bar_action_store(ResidualControlBarAction::Show);
+        residual_control_bar_is_visible()
+    })
+}
+
+/// Residual: hide ControlBar without animate/layout.
+pub fn simulate_control_bar_hide() -> bool {
+    with_control_bar_callbacks_mut(|cb| {
+        cb.state.visible = false;
+        RESIDUAL_CONTROL_BAR_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_control_bar_action_store(ResidualControlBarAction::Hide);
+        !residual_control_bar_is_visible()
+    })
+}
+
+/// Residual: toggle ControlBar visibility without animate.
+pub fn simulate_control_bar_toggle() -> bool {
+    with_control_bar_callbacks_mut(|cb| {
+        cb.state.visible = !cb.state.visible;
+        RESIDUAL_CONTROL_BAR_VISIBLE.store(cb.state.visible, std::sync::atomic::Ordering::Relaxed);
+        residual_control_bar_action_store(ResidualControlBarAction::Toggle);
+        true
+    })
+}
+
+/// Residual: fire ButtonOptions without opening options layout.
+pub fn simulate_control_bar_options_button_gadget_selected() -> bool {
+    let _ = simulate_control_bar_bind_controls();
+    residual_control_bar_action_store(ResidualControlBarAction::Options);
+    true
+}
+
+/// Residual: fire ButtonIdleWorker without idle worker cycle.
+pub fn simulate_control_bar_idle_worker_button_gadget_selected() -> bool {
+    let _ = simulate_control_bar_bind_controls();
+    residual_control_bar_action_store(ResidualControlBarAction::IdleWorker);
+    true
+}
+
+/// Residual: fire ButtonGeneral without generals exp UI.
+pub fn simulate_control_bar_general_button_gadget_selected() -> bool {
+    let _ = simulate_control_bar_bind_controls();
+    residual_control_bar_action_store(ResidualControlBarAction::General);
+    true
+}
+
+/// Residual: fire ButtonLarge without control bar size toggle side effects.
+pub fn simulate_control_bar_large_button_gadget_selected() -> bool {
+    let _ = simulate_control_bar_bind_controls();
+    residual_control_bar_action_store(ResidualControlBarAction::Large);
+    true
+}
+
+/// Residual: fire ButtonPlaceBeacon without pending command set.
+pub fn simulate_control_bar_place_beacon_button_gadget_selected() -> bool {
+    let _ = simulate_control_bar_bind_controls();
+    residual_control_bar_action_store(ResidualControlBarAction::PlaceBeacon);
+    true
+}
+
+/// Residual: fire ButtonDeleteBeacon without multiplayer delete.
+pub fn simulate_control_bar_delete_beacon_button_gadget_selected() -> bool {
+    let _ = simulate_control_bar_bind_controls();
+    residual_control_bar_action_store(ResidualControlBarAction::DeleteBeacon);
+    true
+}
+
+/// Residual: fire ButtonClearBeaconText without edit clear.
+pub fn simulate_control_bar_clear_beacon_text_button_gadget_selected() -> bool {
+    let _ = simulate_control_bar_bind_controls();
+    residual_control_bar_action_store(ResidualControlBarAction::ClearBeaconText);
+    true
+}
+
+/// Residual: fire PopupCommunicator without diplomacy toggle.
+pub fn simulate_control_bar_communicator_button_gadget_selected() -> bool {
+    let _ = simulate_control_bar_bind_controls();
+    residual_control_bar_action_store(ResidualControlBarAction::Communicator);
+    true
+}
+
+/// Residual: show + Options composite (in-game options path honesty).
+pub fn simulate_control_bar_prepare_options() -> bool {
+    if !simulate_control_bar_bind_controls() {
+        return false;
+    }
+    if !simulate_control_bar_show() {
+        return false;
+    }
+    simulate_control_bar_options_button_gadget_selected()
+}
