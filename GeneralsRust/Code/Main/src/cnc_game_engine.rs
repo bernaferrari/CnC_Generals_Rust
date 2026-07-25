@@ -2691,6 +2691,70 @@ impl CnCGameEngine {
                     "click_map_select_menu_miss".into()
                 };
             }
+            "toggle_control_bar" => {
+                // Retail ControlBar show/toggle residual without animate.
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_control_bar_toggle();
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "toggle_control_bar_ok_wnd".into()
+                } else {
+                    "toggle_control_bar_miss".into()
+                };
+            }
+            "click_control_bar" => {
+                // Retail ControlBar Options/Idle/General/Beacon residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "options".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_control_bar_clear_beacon_text_button_gadget_selected,
+                        simulate_control_bar_communicator_button_gadget_selected,
+                        simulate_control_bar_delete_beacon_button_gadget_selected,
+                        simulate_control_bar_general_button_gadget_selected,
+                        simulate_control_bar_hide,
+                        simulate_control_bar_idle_worker_button_gadget_selected,
+                        simulate_control_bar_large_button_gadget_selected,
+                        simulate_control_bar_options_button_gadget_selected,
+                        simulate_control_bar_place_beacon_button_gadget_selected,
+                        simulate_control_bar_prepare_options, simulate_control_bar_show,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "show" => simulate_control_bar_show(),
+                        "hide" => simulate_control_bar_hide(),
+                        "idle" | "idle_worker" => {
+                            simulate_control_bar_idle_worker_button_gadget_selected()
+                        }
+                        "general" => simulate_control_bar_general_button_gadget_selected(),
+                        "large" => simulate_control_bar_large_button_gadget_selected(),
+                        "place_beacon" | "beacon" => {
+                            simulate_control_bar_place_beacon_button_gadget_selected()
+                        }
+                        "delete_beacon" => {
+                            simulate_control_bar_delete_beacon_button_gadget_selected()
+                        }
+                        "clear_beacon" => {
+                            simulate_control_bar_clear_beacon_text_button_gadget_selected()
+                        }
+                        "communicator" | "diplomacy" => {
+                            simulate_control_bar_communicator_button_gadget_selected()
+                        }
+                        "prepare_options" => simulate_control_bar_prepare_options(),
+                        _ => simulate_control_bar_options_button_gadget_selected(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_control_bar_ok_wnd_{action}")
+                } else {
+                    "click_control_bar_miss".into()
+                };
+            }
             "open_single_player_menu" => {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]
