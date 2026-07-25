@@ -247,6 +247,7 @@ pub mod host_red_guard;
 pub mod host_render_terrain_residual;
 pub mod host_repair;
 mod host_replace_object_upgrade;
+pub mod host_replay_control_residual_wave140;
 pub mod host_replay_menu_residual_wave122;
 pub mod host_residual_acquire;
 pub mod host_rng_residual;
@@ -1532,6 +1533,11 @@ pub use host_popup_replay_residual_wave130::{
 pub use host_quit_menu_residual_wave123::{
     honesty_quit_menu_control_names_residual_wave123,
     honesty_quit_menu_nav_commands_residual_wave123, honesty_quit_menu_residual_pack_wave123,
+};
+pub use host_replay_control_residual_wave140::{
+    honesty_replay_control_control_names_residual_wave140,
+    honesty_replay_control_nav_commands_residual_wave140,
+    honesty_replay_control_residual_pack_wave140,
 };
 pub use host_replay_menu_residual_wave122::{
     honesty_replay_menu_control_names_residual_wave122,

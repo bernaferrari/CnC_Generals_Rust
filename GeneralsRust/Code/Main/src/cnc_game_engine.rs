@@ -3358,6 +3358,40 @@ impl CnCGameEngine {
                     "click_popup_communicator_miss".into()
                 };
             }
+            "click_replay_control" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "play".to_string());
+                let position = args
+                    .get("position")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.0);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_replay_control_pause, simulate_replay_control_play,
+                        simulate_replay_control_prepare_play_at, simulate_replay_control_seek,
+                        simulate_replay_control_stop, simulate_replay_control_toggle_fast_forward,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "pause" => simulate_replay_control_pause(),
+                        "stop" => simulate_replay_control_stop(),
+                        "ff" | "fast_forward" => simulate_replay_control_toggle_fast_forward(),
+                        "seek" => simulate_replay_control_seek(position),
+                        "prepare" | "prepare_play" => {
+                            simulate_replay_control_prepare_play_at(position)
+                        }
+                        _ => simulate_replay_control_play(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_replay_control_ok_wnd_{action}")
+                } else {
+                    "click_replay_control_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
