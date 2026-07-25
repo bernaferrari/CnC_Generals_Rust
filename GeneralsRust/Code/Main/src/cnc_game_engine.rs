@@ -3909,6 +3909,23 @@ impl CnCGameEngine {
                     "click_window_video_miss".into()
                 };
             }
+            "click_main_menu_layout" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let wnd_ok = match action.as_str() {
+                    "create" => crate::ui::simulate_main_menu_layout_create(),
+                    "clear" => crate::ui::simulate_main_menu_layout_clear(),
+                    "hit" => crate::ui::simulate_main_menu_layout_hit_test_single_player(),
+                    _ => crate::ui::simulate_main_menu_layout_prepare_default(),
+                };
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_main_menu_layout_ok_wnd_{action}")
+                } else {
+                    "click_main_menu_layout_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args

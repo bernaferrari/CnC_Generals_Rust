@@ -209,6 +209,7 @@ pub mod host_listening_outpost;
 pub mod host_loading_screen_residual_wave135;
 pub mod host_main_menu_buttons_residual_wave118;
 pub mod host_main_menu_campaign_residual_wave119;
+pub mod host_main_menu_layout_residual_wave155;
 pub mod host_main_menu_skirmish_nav_residual_wave114;
 pub mod host_map_select_menu_residual_wave132;
 pub mod host_marauder;
@@ -1547,6 +1548,11 @@ pub use host_main_menu_campaign_residual_wave119::{
     honesty_main_menu_campaign_enums_residual_wave119,
     honesty_main_menu_campaign_nav_commands_residual_wave119,
     honesty_main_menu_campaign_residual_pack_wave119,
+};
+pub use host_main_menu_layout_residual_wave155::{
+    honesty_main_menu_layout_names_residual_wave155,
+    honesty_main_menu_layout_nav_commands_residual_wave155,
+    honesty_main_menu_layout_residual_pack_wave155,
 };
 pub use host_main_menu_skirmish_nav_residual_wave114::{
     honesty_main_menu_skirmish_message_residual_wave114,

@@ -21,6 +21,13 @@ pub mod faction_selection;
 pub mod hud;
 pub mod hud_state;
 pub mod layout_manager;
+pub use layout_manager::{
+    residual_main_menu_layout_button_count, residual_main_menu_layout_element_count,
+    residual_main_menu_layout_last_action, simulate_main_menu_layout_clear,
+    simulate_main_menu_layout_create, simulate_main_menu_layout_hit_test_single_player,
+    simulate_main_menu_layout_prepare_default, ResidualMainMenuLayoutAction, UILayoutManager,
+    MAIN_MENU_LAYOUT_BUTTON_NAMES, MAIN_MENU_LAYOUT_CHROME_NAMES,
+};
 pub mod loading_screen;
 pub mod main_menu;
 pub mod minimap_panel;
