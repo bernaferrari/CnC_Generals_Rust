@@ -22,6 +22,13 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 #[allow(dead_code)]
+
+/// Wave 272: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 type ObjectId = ObjectID;
 
 /// Initial payload configuration
@@ -383,6 +390,11 @@ impl TransportContain {
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 272: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -393,6 +405,11 @@ impl TransportContain {
 
     /// Check if this container is valid for the given object
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
+        // Wave 272: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // Check if object is contained in a zero-slot container (parachute)
         let actual_obj = if let Some(container_id) = obj.get_container_id() {
             let is_zero_slot = crate::object::registry::OBJECT_REGISTRY
@@ -496,6 +513,11 @@ impl TransportContain {
 
     /// Called when this object starts containing another object
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        // Wave 272: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -577,6 +599,11 @@ impl TransportContain {
 
     /// Called when removing an object from containment
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 272: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -650,6 +677,11 @@ impl TransportContain {
 
     /// Update method called once per frame
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
+        // Wave 272: empty dual-world → sleep forever (no factory walks).
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         // Create payload if not already created
         if !self.payload_created {
             self.create_payload()?;
@@ -896,6 +928,11 @@ impl TransportContain {
 
     /// Let riders upgrade weapon set (matches C++ letRidersUpgradeWeaponSet)
     fn let_riders_upgrade_weapon_set(&mut self) -> GameResult<()> {
+        // Wave 272: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Check if this feature is enabled
         if !self.module_data.armed_riders_upgrade_weapon_set {
             return Ok(());
@@ -1023,6 +1060,11 @@ impl TransportContain {
 
     /// Add object to containment
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 272: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if super::should_cancel_containment_after_booby_trap(
             {
                 let id = self.get_object_id();
@@ -1082,6 +1124,11 @@ impl TransportContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
+        // Wave 272: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1317,6 +1364,11 @@ impl ContainModuleInterface for TransportContain {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 272: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1330,6 +1382,11 @@ impl ContainModuleInterface for TransportContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 272: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1354,6 +1411,11 @@ impl ContainModuleInterface for TransportContain {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 272: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let object_ids = self.base.get_contained_object_ids().to_vec();
         for obj_id in object_ids {
             self.remove_from_contain(obj_id, true)?;
@@ -1369,6 +1431,11 @@ impl ContainModuleInterface for TransportContain {
     }
 
     fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 272: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let object_ids = self.base.get_contained_object_ids().to_vec();
         for obj_id in object_ids {
             self.remove_from_contain(obj_id, true)?;
