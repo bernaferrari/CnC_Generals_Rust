@@ -5589,6 +5589,23 @@ impl CnCGameEngine {
                     format!("click_live_ui_command_selection_presentation_only_miss_{action}")
                 };
             }
+            "click_live_local_team_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_local_team_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_local_team_presentation_only_residual_pack_wave220(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_local_team_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_local_team_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -5671,13 +5688,8 @@ impl CnCGameEngine {
                         .cloned()
                         .unwrap_or_else(|| "AmericaInfantryRanger".to_string());
                     // Prefer presentation local team residual (no live player roster).
-                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        Some(frame.local_team())
-                    } else {
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                    };
+                    // Wave 220: team via presentation-first local_team_for_ui.
+                    let team = Some(self.local_team_for_ui());
                     let Some(team) = team else {
                         self.runtime_host_last_gameplay_cmd = "train_fail_no_player".into();
                         return;
@@ -5939,13 +5951,8 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "select_fail_not_ingame".into();
                 } else {
-                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        Some(frame.local_team())
-                    } else {
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                    };
+                    // Wave 220: team via presentation-first local_team_for_ui.
+                    let team = Some(self.local_team_for_ui());
                     let pick = team.and_then(|team| {
                         if let Some(frame) = self.last_presentation_frame.as_ref() {
                             // Presentation-owned mobile identity (no live dual-scan).
@@ -6007,13 +6014,8 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "attack_fail_not_ingame".into();
                 } else {
                     self.runtime_host_last_gameplay_cmd = "attack_begin".into();
-                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        Some(frame.local_team())
-                    } else {
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                    };
+                    // Wave 220: team via presentation-first local_team_for_ui.
+                    let team = Some(self.local_team_for_ui());
                     // Prefer combat-capable mobiles (select_all often arms structures/dozers).
                     if let Some(team) = team {
                         let mut attackers: Vec<_> = self
@@ -6096,13 +6098,8 @@ impl CnCGameEngine {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "sell_fail_not_ingame".into();
                 } else {
-                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        Some(frame.local_team())
-                    } else {
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                    };
+                    // Wave 220: team via presentation-first local_team_for_ui.
+                    let team = Some(self.local_team_for_ui());
                     let Some(team) = team else {
                         self.runtime_host_last_gameplay_cmd = "sell_fail_no_player".into();
                         return;
@@ -6172,13 +6169,8 @@ impl CnCGameEngine {
                         .or_else(|| args.get("upgrade"))
                         .cloned()
                         .unwrap_or_else(|| "UpgradeAmericaRangerCaptureBuilding".to_string());
-                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        Some(frame.local_team())
-                    } else {
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                    };
+                    // Wave 220: team via presentation-first local_team_for_ui.
+                    let team = Some(self.local_team_for_ui());
                     let Some(team) = team else {
                         self.runtime_host_last_gameplay_cmd = "upgrade_fail_no_player".into();
                         return;
@@ -6282,13 +6274,8 @@ impl CnCGameEngine {
                     let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     if self.selected_objects.is_empty() {
                         // pick local mobile (presentation when available)
-                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            Some(frame.local_team())
-                        } else {
-                            self.game_logic
-                                .get_player(self.current_player_id)
-                                .map(|p| p.team)
-                        };
+                        // Wave 220: team via presentation-first local_team_for_ui.
+                        let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
                             let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
                                 frame
@@ -6325,13 +6312,8 @@ impl CnCGameEngine {
                     let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
                     let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(100.0);
                     if self.selected_objects.is_empty() {
-                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            Some(frame.local_team())
-                        } else {
-                            self.game_logic
-                                .get_player(self.current_player_id)
-                                .map(|p| p.team)
-                        };
+                        // Wave 220: team via presentation-first local_team_for_ui.
+                        let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
                             let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
                                 frame
@@ -6366,13 +6348,8 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = "scatter_fail_not_ingame".into();
                 } else {
                     if self.selected_objects.is_empty() {
-                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            Some(frame.local_team())
-                        } else {
-                            self.game_logic
-                                .get_player(self.current_player_id)
-                                .map(|p| p.team)
-                        };
+                        // Wave 220: team via presentation-first local_team_for_ui.
+                        let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
                             let mut ids = if let Some(frame) = self.last_presentation_frame.as_ref()
                             {
@@ -6440,13 +6417,8 @@ impl CnCGameEngine {
                 } else {
                     // Formation is a mobile-unit residual. Drop structures/dozer-only
                     // selections that select_all can leave armed after construct.
-                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        Some(frame.local_team())
-                    } else {
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                    };
+                    // Wave 220: team via presentation-first local_team_for_ui.
+                    let team = Some(self.local_team_for_ui());
                     let mut mobile_sel: Vec<_> = self
                         .selected_objects
                         .iter()
@@ -6568,13 +6540,8 @@ impl CnCGameEngine {
                 } else {
                     // Prefer harvester-like selection; else any mobile.
                     if self.selected_objects.is_empty() {
-                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            Some(frame.local_team())
-                        } else {
-                            self.game_logic
-                                .get_player(self.current_player_id)
-                                .map(|p| p.team)
-                        };
+                        // Wave 220: team via presentation-first local_team_for_ui.
+                        let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
                             let mut ids = if let Some(frame) = self.last_presentation_frame.as_ref()
                             {
@@ -6680,13 +6647,8 @@ impl CnCGameEngine {
                     let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(80.0);
                     // Prefer selected structure producer.
                     if self.selected_objects.is_empty() {
-                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            Some(frame.local_team())
-                        } else {
-                            self.game_logic
-                                .get_player(self.current_player_id)
-                                .map(|p| p.team)
-                        };
+                        // Wave 220: team via presentation-first local_team_for_ui.
+                        let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
                             let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
                                 frame
@@ -6816,13 +6778,8 @@ impl CnCGameEngine {
                 } else {
                     // Prefer power plant selection.
                     if self.selected_objects.is_empty() {
-                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            Some(frame.local_team())
-                        } else {
-                            self.game_logic
-                                .get_player(self.current_player_id)
-                                .map(|p| p.team)
-                        };
+                        // Wave 220: team via presentation-first local_team_for_ui.
+                        let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
                             let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
                                 frame
@@ -6952,13 +6909,8 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd =
                             "force_attack_object_fail_no_selection".into();
                     } else {
-                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            Some(frame.local_team())
-                        } else {
-                            self.game_logic
-                                .get_player(self.current_player_id)
-                                .map(|p| p.team)
-                        };
+                        // Wave 220: team via presentation-first local_team_for_ui.
+                        let team = Some(self.local_team_for_ui());
                         let target_id = if let Some(frame) = self.last_presentation_frame.as_ref() {
                             team.and_then(|t| frame.first_enemy_force_attack_id(t))
                         } else {
@@ -7322,13 +7274,8 @@ impl CnCGameEngine {
                 } else {
                     // Prefer structure selection with a production queue.
                     if self.selected_objects.is_empty() {
-                        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                            Some(frame.local_team())
-                        } else {
-                            self.game_logic
-                                .get_player(self.current_player_id)
-                                .map(|p| p.team)
-                        };
+                        // Wave 220: team via presentation-first local_team_for_ui.
+                        let team = Some(self.local_team_for_ui());
                         if let Some(team) = team {
                             let id = if let Some(frame) = self.last_presentation_frame.as_ref() {
                                 frame
@@ -7421,13 +7368,8 @@ impl CnCGameEngine {
                         .find(|n| self.game_logic.templates.contains_key(**n))
                         .map(|s| (*s).to_string())
                         .unwrap_or(requested);
-                    let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                        Some(frame.local_team())
-                    } else {
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.team)
-                    };
+                    // Wave 220: team via presentation-first local_team_for_ui.
+                    let team = Some(self.local_team_for_ui());
                     let Some(team) = team else {
                         self.runtime_host_last_gameplay_cmd = "construct_fail_no_player".into();
                         return;
@@ -12950,14 +12892,8 @@ impl CnCGameEngine {
             return;
         };
         let loc = self.mouse_world_position;
-        let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.local_team()
-        } else {
-            self.game_logic
-                .get_player(self.current_player_id)
-                .map(|p| p.team)
-                .unwrap_or(crate::game_logic::Team::USA)
-        };
+        // Wave 220: team via presentation-first local_team_for_ui.
+        let team = self.local_team_for_ui();
         // Wave 219: builder identity via presentation-first ui_selected_ids.
         let builder_id = self
             .ui_selected_ids(self.current_player_id)
