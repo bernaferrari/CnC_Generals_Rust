@@ -6153,6 +6153,8 @@ impl<'a> CommandExecutor<'a> {
                 .queue_audio_event(AudioEventRequest::new(translate_audio_event(
                     "Beacon_Removed",
                 )));
+            // Wave 211: keep host beacon list in sync for presentation freeze.
+            self.game_logic.note_beacon_removed_latest();
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
