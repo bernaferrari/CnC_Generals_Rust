@@ -51,6 +51,12 @@ use crate::team::{Team, TeamID};
 use crate::{GameLogicError, GameLogicResult};
 use glam::Vec3;
 
+/// Wave 304: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Object creation flags - matches C++ object creation parameters
 #[derive(Debug, Clone, Copy)]
 pub struct ObjectCreationFlags {
@@ -216,6 +222,11 @@ impl GameObjectInstance {
 
     /// Resolve base Object for the duration of a call (registry / legacy).
     pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 304: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.object_id == INVALID_ID {
             return None;
         }
