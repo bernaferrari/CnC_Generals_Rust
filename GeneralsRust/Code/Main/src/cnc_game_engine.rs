@@ -3429,6 +3429,58 @@ impl CnCGameEngine {
                     "click_shell_map_miss".into()
                 };
             }
+            "click_beacon" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "place".to_string());
+                let player = args
+                    .get("player")
+                    .and_then(|v| v.parse::<i32>().ok())
+                    .unwrap_or(0);
+                let x = args
+                    .get("x")
+                    .and_then(|v| v.parse::<f32>().ok())
+                    .unwrap_or(0.0);
+                let y = args
+                    .get("y")
+                    .and_then(|v| v.parse::<f32>().ok())
+                    .unwrap_or(0.0);
+                let z = args
+                    .get("z")
+                    .and_then(|v| v.parse::<f32>().ok())
+                    .unwrap_or(0.0);
+                let text = args
+                    .get("text")
+                    .cloned()
+                    .unwrap_or_else(|| "beacon".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::system::{
+                        simulate_beacon_drain_notifications, simulate_beacon_place,
+                        simulate_beacon_prepare_place_with_text, simulate_beacon_remove,
+                        simulate_beacon_set_text,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "remove" => simulate_beacon_remove(player, x, y, z),
+                        "text" => simulate_beacon_set_text(player, x, y, z, &text),
+                        "drain" => {
+                            let _ = simulate_beacon_drain_notifications();
+                            true
+                        }
+                        "prepare" | "prepare_text" => {
+                            simulate_beacon_prepare_place_with_text(player, x, y, z, &text)
+                        }
+                        _ => simulate_beacon_place(player, x, y, z, Some(text.as_str())),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_beacon_ok_wnd_{action}")
+                } else {
+                    "click_beacon_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
