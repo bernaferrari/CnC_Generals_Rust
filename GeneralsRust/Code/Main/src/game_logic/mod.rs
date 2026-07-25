@@ -232,6 +232,7 @@ pub mod host_mouse_keyboard_view_residual_wave112;
 pub mod host_multi_select_residual_wave150;
 pub mod host_neutron_missile_slow_death;
 pub mod host_neutron_shell;
+pub mod host_new_game_stream_drain_residual_wave167;
 pub mod host_nuclear_tanks;
 pub mod host_nuke_cannon;
 pub mod host_object_register_drawable_residual_wave104;
@@ -1616,6 +1617,12 @@ pub use host_message_box_residual_wave128::{
 pub use host_multi_select_residual_wave150::{
     honesty_multi_select_method_names_residual_wave150,
     honesty_multi_select_nav_commands_residual_wave150, honesty_multi_select_residual_pack_wave150,
+};
+pub use host_new_game_stream_drain_residual_wave167::{
+    honesty_new_game_stream_method_names_residual_wave167,
+    honesty_new_game_stream_nav_commands_residual_wave167,
+    honesty_new_game_stream_residual_pack_wave167, honesty_new_game_stream_source,
+    simulate_new_game_stream_post_drain_honesty,
 };
 pub use host_ocl_timer_residual_wave146::{
     honesty_ocl_timer_method_names_residual_wave146,
