@@ -1372,37 +1372,19 @@ impl CommandSystem {
         _waypoints: &[Vec3],
         game_logic: &mut GameLogic,
     ) -> CommandResult {
-        // Residual pathfind parity with CommandExecutor::execute_move.
+        // Wave 230: authority mutations via GameLogic unit_command_* APIs.
         let mut all_success = true;
         for &unit_id in units {
-            let can = game_logic
-                .get_object(unit_id)
-                .map(|u| u.can_move())
-                .unwrap_or(false);
-            if !can {
+            if game_logic.unit_command_move_to(unit_id, destination) {
+                log::debug!("Unit {} moving to {:?}", unit_id.0, destination);
+            } else {
                 all_success = false;
-                continue;
             }
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                unit.stop_attack();
-            }
-            if !game_logic.assign_unit_path(unit_id, destination, &[]) {
-                if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                    unit.set_destination(destination);
-                    unit.set_ai_state(AIState::Moving);
-                }
-                all_success = false;
-                continue;
-            }
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                unit.set_ai_state(AIState::Moving);
-            }
-            log::debug!("Unit {} moving to {:?}", unit_id.0, destination);
         }
         if all_success {
             CommandResult::Success
         } else {
-            CommandResult::InvalidTarget
+            CommandResult::CannotMoveToLocation
         }
     }
 
@@ -1413,35 +1395,25 @@ impl CommandSystem {
         target_id: ObjectId,
         game_logic: &mut GameLogic,
     ) -> CommandResult {
-        // Check if target exists and is attackable
-        if let Some(target) = game_logic.get_object(target_id) {
-            if target.is_dead() {
-                return CommandResult::TargetDestroyed;
-            }
-        } else {
+        // Wave 230: target probe + unit attack via GameLogic APIs.
+        if game_logic.get_object(target_id).is_none() {
             return CommandResult::InvalidTarget;
         }
-
+        if game_logic.unit_is_dead_or_missing(target_id) {
+            return CommandResult::TargetDestroyed;
+        }
         let mut all_success = true;
-
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                if unit.can_attack() {
-                    unit.set_target(Some(target_id));
-                    unit.set_ai_state(AIState::Attacking);
-                    log::debug!("Unit {} attacking target {}", unit_id.0, target_id.0);
-                } else {
-                    all_success = false;
-                }
+            if game_logic.unit_command_attack(unit_id, target_id) {
+                log::debug!("Unit {} attacking target {}", unit_id.0, target_id.0);
             } else {
                 all_success = false;
             }
         }
-
         if all_success {
             CommandResult::Success
         } else {
-            CommandResult::InvalidTarget
+            CommandResult::CannotAttackTarget
         }
     }
 
@@ -1493,28 +1465,19 @@ impl CommandSystem {
         target_id: ObjectId,
         game_logic: &mut GameLogic,
     ) -> CommandResult {
-        // Force attack doesn't check relationships - attack anything
+        // Wave 230: force-attack via GameLogic unit_command_force_attack.
         let mut all_success = true;
-
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                if unit.can_attack() {
-                    unit.set_target(Some(target_id));
-                    unit.set_ai_state(AIState::Attacking);
-                    unit.set_force_attack(true);
-                    log::debug!("Unit {} force-attacking target {}", unit_id.0, target_id.0);
-                } else {
-                    all_success = false;
-                }
+            if game_logic.unit_command_force_attack(unit_id, target_id) {
+                log::debug!("Unit {} force-attacking target {}", unit_id.0, target_id.0);
             } else {
                 all_success = false;
             }
         }
-
         if all_success {
             CommandResult::Success
         } else {
-            CommandResult::InvalidTarget
+            CommandResult::CannotAttackTarget
         }
     }
 
@@ -1558,10 +1521,9 @@ impl CommandSystem {
         units: &[ObjectId],
         game_logic: &mut GameLogic,
     ) -> CommandResult {
+        // Wave 230: stop via GameLogic unit_command_stop.
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                unit.stop();
-                unit.set_ai_state(AIState::Idle);
+            if game_logic.unit_command_stop(unit_id) {
                 log::debug!("Unit {} stopped", unit_id.0);
             }
         }
@@ -1690,17 +1652,16 @@ impl CommandSystem {
         target: &GuardTarget,
         game_logic: &mut GameLogic,
     ) -> CommandResult {
+        // Wave 230: guard via GameLogic unit_command_guard_*.
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                match target {
-                    GuardTarget::Position(pos) => {
-                        unit.set_guard_position(Some(*pos));
-                        unit.set_ai_state(AIState::GuardingArea);
+            match target {
+                GuardTarget::Position(pos) => {
+                    if game_logic.unit_command_guard_position(unit_id, *pos) {
                         log::debug!("Unit {} guarding position {:?}", unit_id.0, pos);
                     }
-                    GuardTarget::Object(target_id) => {
-                        unit.set_guard_target(Some(*target_id));
-                        unit.set_ai_state(AIState::GuardingObject);
+                }
+                GuardTarget::Object(target_id) => {
+                    if game_logic.unit_command_guard_object(unit_id, *target_id) {
                         log::debug!("Unit {} guarding object {}", unit_id.0, target_id.0);
                     }
                 }

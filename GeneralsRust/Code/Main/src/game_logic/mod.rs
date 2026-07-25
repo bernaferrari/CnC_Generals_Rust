@@ -231,6 +231,7 @@ pub mod host_live_command_production_construction_log_residual_wave199;
 pub mod host_live_command_rally_log_residual_wave200;
 pub mod host_live_command_selection_log_residual_wave206;
 pub mod host_live_command_sell_deselect_log_residual_wave212;
+pub mod host_live_command_unit_authority_api_residual_wave230;
 pub mod host_live_construct_spawn_pose_authority_api_residual_wave227;
 pub mod host_live_control_group_camera_presentation_only_residual_wave216;
 pub mod host_live_evacuate_contain_log_residual_wave201;
@@ -1743,6 +1744,12 @@ pub use host_live_command_sell_deselect_log_residual_wave212::{
     honesty_live_command_sell_deselect_log_nav_commands_residual_wave212,
     honesty_live_command_sell_deselect_log_residual_pack_wave212,
     simulate_live_command_sell_deselect_log_honesty,
+};
+pub use host_live_command_unit_authority_api_residual_wave230::{
+    honesty_live_command_unit_authority_api_method_names_residual_wave230,
+    honesty_live_command_unit_authority_api_nav_commands_residual_wave230,
+    honesty_live_command_unit_authority_api_residual_pack_wave230,
+    simulate_live_command_unit_authority_api_honesty,
 };
 pub use host_live_construct_spawn_pose_authority_api_residual_wave227::{
     honesty_live_construct_spawn_pose_authority_api_method_names_residual_wave227,

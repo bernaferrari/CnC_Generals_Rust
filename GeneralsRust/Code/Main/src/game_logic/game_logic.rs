@@ -61161,6 +61161,101 @@ impl GameLogic {
         self.objects.get(&id).is_some_and(|o| o.is_alive())
     }
 
+    /// Wave 230: command-system unit mutation APIs (authority owned by GameLogic).
+    #[inline]
+    pub fn unit_can_move(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.can_move())
+    }
+
+    #[inline]
+    pub fn unit_can_attack(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.can_attack())
+    }
+
+    #[inline]
+    pub fn unit_is_dead_or_missing(&self, id: ObjectId) -> bool {
+        match self.objects.get(&id) {
+            Some(o) => !o.is_alive(),
+            None => true,
+        }
+    }
+
+    /// Prepare move: stop attack then assign path (fallback set_destination).
+    pub fn unit_command_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        if !self.unit_can_move(id) {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.stop_attack();
+        }
+        let ok = if self.assign_unit_path(id, destination, &[]) {
+            true
+        } else if let Some(unit) = self.objects.get_mut(&id) {
+            unit.set_destination(destination);
+            true
+        } else {
+            false
+        };
+        if ok {
+            if let Some(unit) = self.objects.get_mut(&id) {
+                unit.set_ai_state(AIState::Moving);
+            }
+        }
+        ok
+    }
+
+    pub fn unit_command_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !unit.can_attack() {
+            return false;
+        }
+        unit.set_target(Some(target_id));
+        unit.set_ai_state(AIState::Attacking);
+        true
+    }
+
+    pub fn unit_command_force_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !unit.can_attack() {
+            return false;
+        }
+        unit.set_target(Some(target_id));
+        unit.set_ai_state(AIState::Attacking);
+        unit.set_force_attack(true);
+        true
+    }
+
+    pub fn unit_command_stop(&mut self, id: ObjectId) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        unit.stop();
+        unit.set_ai_state(AIState::Idle);
+        true
+    }
+
+    pub fn unit_command_guard_position(&mut self, id: ObjectId, pos: glam::Vec3) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        unit.set_guard_position(Some(pos));
+        unit.set_ai_state(AIState::GuardingArea);
+        true
+    }
+
+    pub fn unit_command_guard_object(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        unit.set_guard_target(Some(target_id));
+        unit.set_ai_state(AIState::GuardingObject);
+        true
+    }
+
     /// Wave 227: world position probe without exposing `&Object` to engine dual-read paths.
     #[inline]
     pub fn object_position(&self, id: ObjectId) -> Option<glam::Vec3> {
