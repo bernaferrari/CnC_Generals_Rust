@@ -152,3 +152,92 @@ pub fn snapshot_markers() -> Vec<BeaconMarker> {
         .map(|state| state.markers.clone())
         .unwrap_or_default()
 }
+
+/// Residual: last Beacon display action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualBeaconAction {
+    None = 0,
+    Place = 1,
+    Remove = 2,
+    Text = 3,
+    Drain = 4,
+}
+
+static RESIDUAL_BEACON_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_BEACON_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+fn residual_beacon_action_store(action: ResidualBeaconAction) {
+    RESIDUAL_BEACON_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last Beacon residual action.
+pub fn residual_beacon_last_action() -> ResidualBeaconAction {
+    match RESIDUAL_BEACON_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualBeaconAction::Place,
+        2 => ResidualBeaconAction::Remove,
+        3 => ResidualBeaconAction::Text,
+        4 => ResidualBeaconAction::Drain,
+        _ => ResidualBeaconAction::None,
+    }
+}
+
+/// Residual: current residual marker count (from snapshot).
+pub fn residual_beacon_marker_count() -> usize {
+    RESIDUAL_BEACON_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn residual_beacon_sync_count() {
+    let n = snapshot_markers().len();
+    RESIDUAL_BEACON_COUNT.store(n, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: place beacon without multiplayer/command stream.
+pub fn simulate_beacon_place(player_id: i32, x: f32, y: f32, z: f32, text: Option<&str>) -> bool {
+    record_beacon_placed(player_id, Coord3D { x, y, z }, text.map(|s| s.to_string()));
+    residual_beacon_sync_count();
+    residual_beacon_action_store(ResidualBeaconAction::Place);
+    residual_beacon_marker_count() > 0
+}
+
+/// Residual: remove beacon without multiplayer/command stream.
+pub fn simulate_beacon_remove(player_id: i32, x: f32, y: f32, z: f32) -> bool {
+    record_beacon_removed(player_id, Coord3D { x, y, z });
+    residual_beacon_sync_count();
+    residual_beacon_action_store(ResidualBeaconAction::Remove);
+    true
+}
+
+/// Residual: update beacon text without edit widget.
+pub fn simulate_beacon_set_text(player_id: i32, x: f32, y: f32, z: f32, text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    record_beacon_text(player_id, Coord3D { x, y, z }, text.to_string());
+    residual_beacon_sync_count();
+    residual_beacon_action_store(ResidualBeaconAction::Text);
+    true
+}
+
+/// Residual: drain notifications residual (consumes pending queue).
+pub fn simulate_beacon_drain_notifications() -> usize {
+    let n = drain_notifications().len();
+    residual_beacon_action_store(ResidualBeaconAction::Drain);
+    residual_beacon_sync_count();
+    n
+}
+
+/// Residual: place + text composite.
+pub fn simulate_beacon_prepare_place_with_text(
+    player_id: i32,
+    x: f32,
+    y: f32,
+    z: f32,
+    text: &str,
+) -> bool {
+    if !simulate_beacon_place(player_id, x, y, z, None) {
+        return false;
+    }
+    simulate_beacon_set_text(player_id, x, y, z, text)
+}

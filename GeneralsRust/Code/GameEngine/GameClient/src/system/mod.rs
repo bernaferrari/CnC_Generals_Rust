@@ -16,7 +16,11 @@ pub mod ray_effect;
 pub mod smudge;
 
 pub use anim2_d::{Anim2D, Anim2DCollection, Anim2DStatus};
-pub use beacon_display::{BeaconMarker, BeaconNotification};
+pub use beacon_display::{
+    residual_beacon_last_action, residual_beacon_marker_count, simulate_beacon_drain_notifications,
+    simulate_beacon_place, simulate_beacon_prepare_place_with_text, simulate_beacon_remove,
+    simulate_beacon_set_text, BeaconMarker, BeaconNotification, ResidualBeaconAction,
+};
 pub use debug_display::{DebugDisplay, DebugTextSink};
 pub use debug_displayers::audio_debug_display;
 pub use particle_sys::{

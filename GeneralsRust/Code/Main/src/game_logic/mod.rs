@@ -120,6 +120,7 @@ pub mod host_base_defense;
 pub mod host_base_regenerate;
 pub mod host_battle_bus;
 pub mod host_battlemaster;
+pub mod host_beacon_residual_wave142;
 pub mod host_black_market;
 pub mod host_bomb_truck_detonate;
 pub mod host_bomb_truck_disguise;
@@ -1443,6 +1444,10 @@ impl Default for Weapon {
         }
     }
 }
+pub use host_beacon_residual_wave142::{
+    honesty_beacon_control_names_residual_wave142, honesty_beacon_nav_commands_residual_wave142,
+    honesty_beacon_residual_pack_wave142,
+};
 pub use host_challenge_menu_residual_wave120::{
     honesty_challenge_menu_control_names_residual_wave120,
     honesty_challenge_menu_nav_commands_residual_wave120,
