@@ -24,6 +24,13 @@ pub use projectile_segment_upload::ProjectileSegmentUpload;
 pub mod minimap_renderer;
 pub mod render_item;
 pub mod render_pipeline;
+pub use render_pipeline::{
+    residual_presentation_boundary_last_action, residual_presentation_boundary_ok,
+    simulate_presentation_boundary_cnc_execute_source,
+    simulate_presentation_boundary_collect_source, simulate_presentation_boundary_execute_source,
+    simulate_presentation_boundary_fallback_counter_source,
+    simulate_presentation_boundary_prepare_honesty, ResidualPresentationBoundaryAction,
+};
 pub mod selection_renderer;
 pub mod ui_render_pass;
 pub mod world_anim_layout;
