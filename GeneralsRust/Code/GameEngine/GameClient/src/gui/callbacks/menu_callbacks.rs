@@ -2517,6 +2517,270 @@ pub fn simulate_single_player_menu_prepare_new() -> bool {
     simulate_single_player_menu_new_button_gadget_selected()
 }
 
+/// Residual: last MapSelectMenu action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualMapSelectMenuAction {
+    None = 0,
+    SelectMap = 1,
+    Ok = 2,
+    Back = 3,
+    SoloMaps = 4,
+    MultiplayerMaps = 5,
+    SystemMaps = 6,
+    UserMaps = 7,
+    DifficultyEasy = 8,
+    DifficultyMedium = 9,
+    DifficultyHard = 10,
+}
+
+static RESIDUAL_MAP_SELECT_ACTION: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_MAP_SELECT_DIFFICULTY: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(1);
+static RESIDUAL_MAP_SELECT_MAP: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+fn residual_map_select_action_store(action: ResidualMapSelectMenuAction) {
+    RESIDUAL_MAP_SELECT_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last MapSelectMenu residual action.
+pub fn residual_map_select_menu_last_action() -> ResidualMapSelectMenuAction {
+    match RESIDUAL_MAP_SELECT_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualMapSelectMenuAction::SelectMap,
+        2 => ResidualMapSelectMenuAction::Ok,
+        3 => ResidualMapSelectMenuAction::Back,
+        4 => ResidualMapSelectMenuAction::SoloMaps,
+        5 => ResidualMapSelectMenuAction::MultiplayerMaps,
+        6 => ResidualMapSelectMenuAction::SystemMaps,
+        7 => ResidualMapSelectMenuAction::UserMaps,
+        8 => ResidualMapSelectMenuAction::DifficultyEasy,
+        9 => ResidualMapSelectMenuAction::DifficultyMedium,
+        10 => ResidualMapSelectMenuAction::DifficultyHard,
+        _ => ResidualMapSelectMenuAction::None,
+    }
+}
+
+/// Residual: last difficulty (0 easy / 1 medium / 2 hard).
+pub fn residual_map_select_menu_difficulty() -> i32 {
+    RESIDUAL_MAP_SELECT_DIFFICULTY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: last selected map path/name.
+pub fn residual_map_select_menu_selected_map() -> Option<String> {
+    let name = RESIDUAL_MAP_SELECT_MAP
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+fn with_map_select_menu_mut<R>(f: impl FnOnce(&mut MapSelectMenu) -> R) -> R {
+    let menu = {
+        let manager = get_menu_manager();
+        let guard = manager.read().unwrap_or_else(|e| e.into_inner());
+        guard.get_map_select_menu()
+    };
+    let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut menu)
+}
+
+fn ensure_map_select_control_ids(menu: &mut MapSelectMenu) {
+    if menu.parent_id == 0 {
+        menu.parent_id =
+            NameKeyGenerator::name_to_key("MapSelectMenu.wnd:MapSelectMenuParent") as i32;
+    }
+    if menu.listbox_map_id == 0 {
+        menu.listbox_map_id = NameKeyGenerator::name_to_key("MapSelectMenu.wnd:ListboxMap") as i32;
+    }
+    if menu.button_ok_id == 0 {
+        menu.button_ok_id = NameKeyGenerator::name_to_key("MapSelectMenu.wnd:ButtonOK") as i32;
+    }
+    if menu.button_back_id == 0 {
+        menu.button_back_id = NameKeyGenerator::name_to_key("MapSelectMenu.wnd:ButtonBack") as i32;
+    }
+    if menu.button_single_player_id == 0 {
+        menu.button_single_player_id =
+            NameKeyGenerator::name_to_key("MapSelectMenu.wnd:ButtonSinglePlayer") as i32;
+    }
+    if menu.button_multiplayer_id == 0 {
+        menu.button_multiplayer_id =
+            NameKeyGenerator::name_to_key("MapSelectMenu.wnd:ButtonMultiplayer") as i32;
+    }
+    if menu.radio_easy_id == 0 {
+        menu.radio_easy_id =
+            NameKeyGenerator::name_to_key("MapSelectMenu.wnd:RadioButtonEasyAI") as i32;
+    }
+    if menu.radio_medium_id == 0 {
+        menu.radio_medium_id =
+            NameKeyGenerator::name_to_key("MapSelectMenu.wnd:RadioButtonMediumAI") as i32;
+    }
+    if menu.radio_hard_id == 0 {
+        menu.radio_hard_id =
+            NameKeyGenerator::name_to_key("MapSelectMenu.wnd:RadioButtonHardAI") as i32;
+    }
+    if menu.radio_system_maps_id == 0 {
+        menu.radio_system_maps_id =
+            NameKeyGenerator::name_to_key("MapSelectMenu.wnd:RadioButtonSystemMaps") as i32;
+    }
+    if menu.radio_user_maps_id == 0 {
+        menu.radio_user_maps_id =
+            NameKeyGenerator::name_to_key("MapSelectMenu.wnd:RadioButtonUserMaps") as i32;
+    }
+}
+
+/// Residual: bind MapSelectMenu control IDs (no layout/list populate).
+pub fn simulate_map_select_menu_bind_controls() -> bool {
+    with_map_select_menu_mut(|menu| {
+        ensure_map_select_control_ids(menu);
+        menu.initialized = true;
+        menu.button_pushed = false;
+        menu.is_shutting_down = false;
+        menu.start_game = false;
+        true
+    })
+}
+
+/// Residual: select a map path without live listbox.
+pub fn simulate_map_select_menu_select_map(map_path: &str) -> bool {
+    if map_path.is_empty() {
+        return false;
+    }
+    with_map_select_menu_mut(|menu| {
+        ensure_map_select_control_ids(menu);
+        menu.selected_map = Some(map_path.to_string());
+        if let Ok(mut guard) = RESIDUAL_MAP_SELECT_MAP.lock() {
+            *guard = map_path.to_string();
+        } else {
+            *RESIDUAL_MAP_SELECT_MAP
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = map_path.to_string();
+        }
+        residual_map_select_action_store(ResidualMapSelectMenuAction::SelectMap);
+        residual_map_select_menu_selected_map().as_deref() == Some(map_path)
+    })
+}
+
+/// Residual: set AI difficulty radio (0/1/2) without widgets.
+pub fn simulate_map_select_menu_set_difficulty(difficulty: i32) -> bool {
+    if !(0..=2).contains(&difficulty) {
+        return false;
+    }
+    with_map_select_menu_mut(|menu| {
+        ensure_map_select_control_ids(menu);
+        menu.difficulty = difficulty;
+        RESIDUAL_MAP_SELECT_DIFFICULTY.store(difficulty, std::sync::atomic::Ordering::Relaxed);
+        residual_map_select_action_store(match difficulty {
+            0 => ResidualMapSelectMenuAction::DifficultyEasy,
+            2 => ResidualMapSelectMenuAction::DifficultyHard,
+            _ => ResidualMapSelectMenuAction::DifficultyMedium,
+        });
+        residual_map_select_menu_difficulty() == difficulty
+    })
+}
+
+/// Residual: fire ButtonOK without start_game engine transfer.
+pub fn simulate_map_select_menu_ok_button_gadget_selected() -> bool {
+    with_map_select_menu_mut(|menu| {
+        ensure_map_select_control_ids(menu);
+        if menu.button_pushed {
+            return false;
+        }
+        if menu.selected_map.is_none() && residual_map_select_menu_selected_map().is_none() {
+            // C++ ignores OK with no selection.
+            return false;
+        }
+        if menu.selected_map.is_none() {
+            menu.selected_map = residual_map_select_menu_selected_map();
+        }
+        menu.button_pushed = true;
+        // Do not call start_game(); residual latch only.
+        residual_map_select_action_store(ResidualMapSelectMenuAction::Ok);
+        true
+    })
+}
+
+/// Residual: fire ButtonBack without shell pop.
+pub fn simulate_map_select_menu_back_button_gadget_selected() -> bool {
+    with_map_select_menu_mut(|menu| {
+        ensure_map_select_control_ids(menu);
+        if menu.button_pushed {
+            return false;
+        }
+        menu.button_pushed = true;
+        residual_map_select_action_store(ResidualMapSelectMenuAction::Back);
+        true
+    })
+}
+
+/// Residual: ButtonSinglePlayer map filter residual.
+pub fn simulate_map_select_menu_solo_maps_button_gadget_selected() -> bool {
+    with_map_select_menu_mut(|menu| {
+        ensure_map_select_control_ids(menu);
+        menu.show_solo_maps = true;
+        residual_map_select_action_store(ResidualMapSelectMenuAction::SoloMaps);
+        true
+    })
+}
+
+/// Residual: ButtonMultiplayer map filter residual.
+pub fn simulate_map_select_menu_multiplayer_maps_button_gadget_selected() -> bool {
+    with_map_select_menu_mut(|menu| {
+        ensure_map_select_control_ids(menu);
+        menu.show_solo_maps = false;
+        residual_map_select_action_store(ResidualMapSelectMenuAction::MultiplayerMaps);
+        true
+    })
+}
+
+/// Residual: RadioButtonSystemMaps residual.
+pub fn simulate_map_select_menu_system_maps_radio_selected() -> bool {
+    with_map_select_menu_mut(|menu| {
+        ensure_map_select_control_ids(menu);
+        menu.use_system_maps = true;
+        residual_map_select_action_store(ResidualMapSelectMenuAction::SystemMaps);
+        true
+    })
+}
+
+/// Residual: RadioButtonUserMaps residual.
+pub fn simulate_map_select_menu_user_maps_radio_selected() -> bool {
+    with_map_select_menu_mut(|menu| {
+        ensure_map_select_control_ids(menu);
+        menu.use_system_maps = false;
+        residual_map_select_action_store(ResidualMapSelectMenuAction::UserMaps);
+        true
+    })
+}
+
+/// Residual: clear button_pushed latch.
+pub fn simulate_map_select_menu_clear_button_pushed() -> bool {
+    with_map_select_menu_mut(|menu| {
+        menu.button_pushed = false;
+        menu.start_game = false;
+        true
+    })
+}
+
+/// Residual: select map + medium AI + OK composite (campaign start honesty).
+pub fn simulate_map_select_menu_prepare_ok(map_path: &str) -> bool {
+    if !simulate_map_select_menu_bind_controls() {
+        return false;
+    }
+    let _ = simulate_map_select_menu_clear_button_pushed();
+    if !simulate_map_select_menu_select_map(map_path) {
+        return false;
+    }
+    if !simulate_map_select_menu_set_difficulty(1) {
+        return false;
+    }
+    simulate_map_select_menu_ok_button_gadget_selected()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
