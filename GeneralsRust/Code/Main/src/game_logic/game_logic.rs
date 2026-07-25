@@ -61155,6 +61155,40 @@ impl GameLogic {
         self.objects.get_mut(&id)
     }
 
+    /// Wave 224: host residual — force-complete an under-construction structure
+    /// (train/construct producer path). Authority mutation owned by GameLogic.
+    pub fn force_complete_construction(&mut self, id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        obj.construction_percent = 1.0;
+        obj.status.under_construction = false;
+        obj.health.current = obj.health.maximum;
+        true
+    }
+
+    /// Wave 224: host residual — ensure barracks `building_data` for force-picked
+    /// producers so production queue identity is honest without engine dual-scan.
+    pub fn ensure_barracks_building_data(&mut self, id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        let need_bd = obj.building_data.is_none()
+            || obj
+                .building_data
+                .as_ref()
+                .map(|b| !matches!(b.building_type, BuildingType::Barracks))
+                .unwrap_or(true);
+        let name_ok = obj.template_name.to_ascii_lowercase().contains("barracks")
+            || obj.is_kind_of(KindOf::FSBarracks);
+        if need_bd && name_ok {
+            // Mirror engine residual: stamp Barracks building_data when missing/mismatched.
+            obj.building_data = Some(BuildingData::new(BuildingType::Barracks));
+            return true;
+        }
+        false
+    }
+
     /// Add object to the game world
     pub fn add_object(&mut self, object: Object) -> ObjectId {
         let id = object.id;
