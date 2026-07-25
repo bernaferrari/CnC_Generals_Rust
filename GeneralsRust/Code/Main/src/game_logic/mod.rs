@@ -142,6 +142,7 @@ mod host_command_button_hunt;
 pub mod host_command_button_residual;
 pub mod host_control_bar_residual_wave133;
 pub mod host_control_bar_resizer_residual_wave147;
+pub mod host_control_bar_scheme_residual_wave156;
 pub mod host_countermeasures;
 mod host_create_object_die;
 pub mod host_credits_menu_residual_wave127;
@@ -1479,6 +1480,12 @@ pub use host_control_bar_resizer_residual_wave147::{
     honesty_control_bar_resizer_method_names_residual_wave147,
     honesty_control_bar_resizer_nav_commands_residual_wave147,
     honesty_control_bar_resizer_residual_pack_wave147,
+};
+pub use host_control_bar_scheme_residual_wave156::{
+    honesty_control_bar_scheme_method_names_residual_wave156,
+    honesty_control_bar_scheme_names_residual_wave156,
+    honesty_control_bar_scheme_nav_commands_residual_wave156,
+    honesty_control_bar_scheme_residual_pack_wave156,
 };
 pub use host_credits_menu_residual_wave127::{
     honesty_credits_menu_control_names_residual_wave127,

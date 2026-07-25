@@ -83,6 +83,13 @@ pub mod multi_select;
 pub mod observer;
 pub mod resizer;
 pub mod scheme;
+pub use scheme::{
+    residual_control_bar_scheme_has_current, residual_control_bar_scheme_last_action,
+    residual_control_bar_scheme_loaded_count, simulate_control_bar_scheme_clear,
+    simulate_control_bar_scheme_get_current, simulate_control_bar_scheme_load,
+    simulate_control_bar_scheme_prepare_default, DefaultControlBarSchemeManager,
+    ResidualControlBarSchemeAction, CONTROL_BAR_SCHEME_NAMES_8X6,
+};
 pub mod structure_inventory;
 pub mod under_construction;
 
