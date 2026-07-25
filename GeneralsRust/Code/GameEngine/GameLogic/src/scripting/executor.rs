@@ -54,6 +54,12 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 
+/// Wave 284: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 fn to_radar_coord(pos: &Coord3D) -> game_engine::common::system::radar::Coord3D {
     game_engine::common::system::radar::Coord3D::new(pos.x, pos.y, pos.z)
 }
@@ -2193,6 +2199,11 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
+        // Wave 284: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
         let unit_name = self.get_string_param(action, 0)?;
         let snap_to_unit = self.get_bool_param_optional(action, 1).unwrap_or(false);
 
@@ -4581,6 +4592,11 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
+        // Wave 284: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let min_supplies = self.get_int_param(action, 1)?;
         log::debug!(
@@ -10099,6 +10115,11 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
+        // Wave 284: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
         let unit_name = self.get_string_param(action, 0)?;
         let snap_to_unit = self.get_bool_param_optional(action, 1).unwrap_or(false);
         let play = action.get_parameter(2).map(|p| p.get_real()).unwrap_or(0.0);
@@ -10193,6 +10214,11 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
+        // Wave 284: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
         let object_name = self.get_string_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
         let hold_seconds = action.get_parameter(2).map(|p| p.get_real()).unwrap_or(0.0);
@@ -11203,6 +11229,11 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
+        // Wave 284: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
         let object_name = self.get_string_param(action, 0)?;
         let event_type = self.get_int_param(action, 1)?;
         log::debug!(
@@ -12203,6 +12234,11 @@ impl ScriptActionDispatcher {
         &mut self,
         _action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
+        // Wave 284: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
         // Host path: empty dual-world registry → nothing unmanned to delete.
         if OBJECT_REGISTRY.is_empty() {
             return Ok(ScriptActionResult::Success);
@@ -12602,6 +12638,11 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
+        // Wave 284: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptActionResult::Success);
+        }
+
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let power_name = self.get_string_param(action, 1)?;
         log::debug!(
@@ -16190,6 +16231,11 @@ impl ScriptConditionEvaluator {
         &self,
         condition: &mut Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        // Wave 284: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptConditionResult::False);
+        }
+
         let object_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if '{}' is selected", object_name);
 
@@ -16597,6 +16643,11 @@ impl ScriptConditionEvaluator {
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        // Wave 284: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(ScriptConditionResult::False);
+        }
+
         let type_or_list_name = self.get_condition_string_param(condition, 0)?;
         let player_name = self.get_condition_string_param(condition, 1)?;
         log::debug!(
