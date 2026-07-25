@@ -109,6 +109,8 @@ pub struct ExecutableSmokeResult {
     pub max_gameworld_appended: u32,
     /// Peak gameworld_rebuilt (Wave 194 default GW roster).
     pub max_gameworld_rebuilt: u32,
+    /// InGame observed gameworld_rebuilt>0 at least once (Wave 196).
+    pub gameworld_rebuilt_ok: bool,
     pub select_similar_cmd_ok: bool,
     pub select_on_screen_cmd_ok: bool,
     pub select_structures_cmd_ok: bool,
@@ -211,6 +213,7 @@ impl Default for ExecutableSmokeResult {
             max_gameworld_overlay_stamped: 0,
             max_gameworld_appended: 0,
             max_gameworld_rebuilt: 0,
+            gameworld_rebuilt_ok: false,
             select_similar_cmd_ok: false,
             select_on_screen_cmd_ok: false,
             select_structures_cmd_ok: false,
@@ -265,6 +268,7 @@ struct StatusSnap {
     gameworld_overlay_stamped: u32,
     gameworld_appended: u32,
     gameworld_rebuilt: u32,
+    gameworld_primary_objects: bool,
     shell_screen_count: u32,
     shell_top_wnd: String,
     shell_active: bool,
@@ -322,6 +326,12 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             }
             "gameworld_rebuilt" => {
                 snap.gameworld_rebuilt = v.trim().parse().unwrap_or(0);
+            }
+            "gameworld_primary_objects" => {
+                snap.gameworld_primary_objects = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
             }
             "shell_screen_count" => {
                 snap.shell_screen_count = v.trim().parse().unwrap_or(0);
@@ -694,6 +704,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut max_gameworld_overlay_stamped: u32 = 0;
     let mut max_gameworld_appended: u32 = 0;
     let mut max_gameworld_rebuilt: u32 = 0;
+    let mut saw_gameworld_rebuilt_ok = false;
     let mut presentation_detail = String::new();
     let mut saw_shell_wnd_ok = false;
     let mut shell_wnd_detail = String::new();
@@ -848,6 +859,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                 max_gameworld_appended = max_gameworld_appended.max(snap.gameworld_appended);
             }
             if snap.gameworld_rebuilt > 0 {
+                saw_gameworld_rebuilt_ok = true;
                 max_gameworld_rebuilt = max_gameworld_rebuilt.max(snap.gameworld_rebuilt);
             }
             if snap.presentation_frame_ok || snap.presentation_live_fallback_reads > 0 {
@@ -2404,6 +2416,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.max_gameworld_overlay_stamped = max_gameworld_overlay_stamped;
                         result.max_gameworld_appended = max_gameworld_appended;
                         result.max_gameworld_rebuilt = max_gameworld_rebuilt;
+                        result.gameworld_rebuilt_ok = saw_gameworld_rebuilt_ok;
                         result.shell_wnd_ok = saw_shell_wnd_ok;
                         result.max_render_item_count = max_render_item_count;
                         result.max_render_alive_objects = max_render_alive_objects;
@@ -2548,6 +2561,9 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     // (PresentationFrame last-writer path exercised). Soft if no GW entities.
     let gameworld_overlay_boundary_ok =
         !result.gameworld_presentation_entities_ok || result.gameworld_overlay_stamped_ok;
+    // Wave 196: when GW entities observed on default-on rebuild path, require rebuilt>0.
+    let gameworld_rebuilt_boundary_ok =
+        !result.gameworld_presentation_entities_ok || result.gameworld_rebuilt_ok;
     result.host_vertical_slice_ok = result.skirmish_start_wnd_ok
         && result.reached_ingame
         && result.gameplay_cmd_ok
@@ -2556,7 +2572,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
         && result.executable_host_ok
         && presentation_boundary_ok
         && gameworld_presentation_boundary_ok
-        && gameworld_overlay_boundary_ok;
+        && gameworld_overlay_boundary_ok
+        && gameworld_rebuilt_boundary_ok;
     result
 }
 
@@ -2585,7 +2602,7 @@ fn executable_host_ok_from_residuals(reached_ingame: bool, shell_wnd_ok: bool) -
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} host_vertical_slice={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} gw_overlay_stamp_ok={} gw_appended={} gw_rebuilt={} max_gw_overlay_stamp={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} host_vertical_slice={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} gw_overlay_stamp_ok={} gw_appended={} gw_rebuilt_ok={} gw_rebuilt={} max_gw_overlay_stamp={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -2644,6 +2661,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.max_gameworld_presentation_entities,
         r.gameworld_overlay_stamped_ok,
         r.max_gameworld_appended,
+        r.gameworld_rebuilt_ok,
         r.max_gameworld_rebuilt,
         r.max_gameworld_overlay_stamped,
         r.max_render_item_count,

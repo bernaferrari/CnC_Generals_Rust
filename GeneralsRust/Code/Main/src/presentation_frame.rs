@@ -2315,6 +2315,9 @@ pub struct PresentationFrame {
     /// Fail-closed: opt-in path; not full host cutover / playable_claim.
     #[serde(default)]
     pub gameworld_rebuilt: usize,
+    /// True when objects were rebuilt from GameWorld (Wave 196 engine primary path).
+    #[serde(default)]
+    pub gameworld_primary_objects: bool,
 }
 
 /// Whether presentation object rosters should be rebuilt from GameWorld (Wave 194).
@@ -3445,6 +3448,7 @@ impl PresentationFrame {
             gameworld_overlay_stamped: 0,
             gameworld_appended: 0,
             gameworld_rebuilt: 0,
+            gameworld_primary_objects: false,
         }
     }
 
@@ -6054,6 +6058,7 @@ impl PresentationFrame {
             n += 1;
         }
         self.gameworld_rebuilt = n;
+        self.gameworld_primary_objects = n > 0 || self.gameworld_primary_objects;
         // Overlay last-writer stamps player residual + any fields the sparse builder
         // still defaults (keeps one code path for shadow → presentation identity).
         let _ = self.overlay_gameworld_shadow(shadow);

@@ -2202,6 +2202,11 @@ impl CnCGameEngine {
                 .as_ref()
                 .map(|f| f.gameworld_rebuilt as u32)
                 .unwrap_or(0),
+            gameworld_primary_objects: self
+                .last_presentation_frame
+                .as_ref()
+                .map(|f| f.gameworld_primary_objects)
+                .unwrap_or(false),
             shell_screen_count: {
                 #[cfg(feature = "game_client")]
                 {
@@ -5155,6 +5160,23 @@ impl CnCGameEngine {
                     format!("click_live_presentation_build_for_engine_ok_{action}")
                 } else {
                     format!("click_live_presentation_build_for_engine_miss_{action}")
+                };
+            }
+            "click_live_presentation_rebuilt_vertical_gate" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_presentation_rebuilt_vertical_gate_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_presentation_rebuilt_vertical_gate_residual_pack_wave196(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_presentation_rebuilt_vertical_gate_ok_{action}")
+                } else {
+                    format!("click_live_presentation_rebuilt_vertical_gate_miss_{action}")
                 };
             }
             "save_game" | "quicksave" => {
@@ -19508,6 +19530,8 @@ struct RuntimeHostSnapshot {
     gameworld_appended: u32,
     /// PresentationFrame.gameworld_rebuilt after last rebuild_objects_from_gameworld.
     gameworld_rebuilt: u32,
+    /// PresentationFrame.gameworld_primary_objects residual.
+    gameworld_primary_objects: bool,
     /// Shell screen stack depth residual (retail WND push honesty).
     shell_screen_count: u32,
     /// Top shell layout filename residual (e.g. Menus/MainMenu.wnd).
@@ -19683,6 +19707,7 @@ impl RuntimeHostBridge {
             gameworld_overlay_stamped: 0,
             gameworld_appended: 0,
             gameworld_rebuilt: 0,
+            gameworld_primary_objects: false,
             shell_screen_count: 0,
             shell_top_wnd: String::new(),
             shell_active: false,
@@ -19763,6 +19788,10 @@ impl RuntimeHostBridge {
         payload.push_str(&format!(
             "gameworld_rebuilt={}\n",
             snapshot.gameworld_rebuilt
+        ));
+        payload.push_str(&format!(
+            "gameworld_primary_objects={}\n",
+            snapshot.gameworld_primary_objects
         ));
         payload.push_str(&format!(
             "shell_screen_count={}\n",
