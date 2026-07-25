@@ -2187,6 +2187,11 @@ impl CnCGameEngine {
             victory_label,
             presentation_frame_ok: self.last_presentation_frame.is_some(),
             gameworld_presentation_entities: self.last_gameworld_presentation_entity_count as u32,
+            gameworld_overlay_stamped: self
+                .last_presentation_frame
+                .as_ref()
+                .map(|f| f.gameworld_overlay_stamped as u32)
+                .unwrap_or(0),
             shell_screen_count: {
                 #[cfg(feature = "game_client")]
                 {
@@ -5038,6 +5043,23 @@ impl CnCGameEngine {
                     format!("click_live_presentation_overlay_deepen_ok_{action}")
                 } else {
                     format!("click_live_presentation_overlay_deepen_miss_{action}")
+                };
+            }
+            "click_live_presentation_overlay_stamp" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "field" | "status" | "prepare" => {
+                        crate::game_logic::simulate_live_presentation_overlay_stamp_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_presentation_overlay_stamp_residual_pack_wave190(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_presentation_overlay_stamp_ok_{action}")
+                } else {
+                    format!("click_live_presentation_overlay_stamp_miss_{action}")
                 };
             }
             "save_game" | "quicksave" => {
@@ -19394,6 +19416,8 @@ struct RuntimeHostSnapshot {
     presentation_frame_ok: bool,
     /// GameWorld observe-path presentation entity count (after coupled shadow tick).
     gameworld_presentation_entities: u32,
+    /// PresentationFrame.gameworld_overlay_stamped after last overlay call.
+    gameworld_overlay_stamped: u32,
     /// Shell screen stack depth residual (retail WND push honesty).
     shell_screen_count: u32,
     /// Top shell layout filename residual (e.g. Menus/MainMenu.wnd).
@@ -19566,6 +19590,7 @@ impl RuntimeHostBridge {
             victory_label: String::new(),
             presentation_frame_ok: false,
             gameworld_presentation_entities: 0,
+            gameworld_overlay_stamped: 0,
             shell_screen_count: 0,
             shell_top_wnd: String::new(),
             shell_active: false,
@@ -19634,6 +19659,10 @@ impl RuntimeHostBridge {
         payload.push_str(&format!(
             "gameworld_presentation_entities={}\n",
             snapshot.gameworld_presentation_entities
+        ));
+        payload.push_str(&format!(
+            "gameworld_overlay_stamped={}\n",
+            snapshot.gameworld_overlay_stamped
         ));
         payload.push_str(&format!(
             "shell_screen_count={}\n",
