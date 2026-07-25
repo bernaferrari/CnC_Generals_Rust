@@ -218,6 +218,7 @@ mod host_lifetime_update;
 pub mod host_listening_outpost;
 pub mod host_live_command_attack_log_residual_wave197;
 pub mod host_live_command_cheer_science_log_residual_wave202;
+pub mod host_live_command_deploy_status_log_residual_wave203;
 pub mod host_live_command_guard_log_residual_wave198;
 pub mod host_live_command_production_construction_log_residual_wave199;
 pub mod host_live_command_rally_log_residual_wave200;
@@ -1645,6 +1646,12 @@ pub use host_live_command_cheer_science_log_residual_wave202::{
     honesty_live_command_cheer_science_log_nav_commands_residual_wave202,
     honesty_live_command_cheer_science_log_residual_pack_wave202,
     simulate_live_command_cheer_science_log_honesty,
+};
+pub use host_live_command_deploy_status_log_residual_wave203::{
+    honesty_live_command_deploy_status_log_method_names_residual_wave203,
+    honesty_live_command_deploy_status_log_nav_commands_residual_wave203,
+    honesty_live_command_deploy_status_log_residual_pack_wave203,
+    simulate_live_command_deploy_status_log_honesty,
 };
 pub use host_live_command_guard_log_residual_wave198::{
     honesty_live_command_guard_log_method_names_residual_wave198,

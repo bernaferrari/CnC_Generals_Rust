@@ -4826,7 +4826,8 @@ impl Object {
 
     /// Toggle DeployStyle residual (artillery / missile humvee / etc.).
     pub fn set_deployed(&mut self, deployed: bool) {
-        self.status.deployed = deployed;
+        // Wave 203: status last-writer via host_status_log::record_deployed.
+        self.set_status_deployed(deployed);
         if deployed {
             // Deployed units typically stop locomoting residual.
             self.stop_moving();
