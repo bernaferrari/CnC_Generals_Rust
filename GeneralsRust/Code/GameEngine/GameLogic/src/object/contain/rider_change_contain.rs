@@ -22,6 +22,12 @@ use crate::weapon::WeaponSetType;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
+/// Wave 277: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Configuration data for RiderChangeContain module
 #[derive(Debug, Clone)]
 pub struct RiderChangeContainModuleData {
@@ -541,6 +547,11 @@ mod tests {
     }
 
     fn cleanup_objects(ids: &[ObjectID]) {
+        // Wave 277: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for id in ids {
             OBJECT_REGISTRY.unregister_object(*id);
         }
@@ -1050,6 +1061,11 @@ impl RiderChangeContain {
     }
 
     pub fn add_to_contain(&mut self, rider_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        // Wave 277: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let owner_id = if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1099,6 +1115,11 @@ impl RiderChangeContain {
         rider_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
+        // Wave 277: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
         else {
@@ -1149,6 +1170,11 @@ impl RiderChangeContain {
     }
 
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        // Wave 277: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1234,6 +1260,11 @@ impl RiderChangeContain {
     }
 
     fn evacuate_existing_payload_via_owner_ai(&self) {
+        // Wave 277: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1258,6 +1289,11 @@ impl RiderChangeContain {
     }
 
     fn transfer_selection_to_owner_on_entry(&self, was_selected: bool) {
+        // Wave 277: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !was_selected {
             return;
         }
@@ -1299,6 +1335,11 @@ impl RiderChangeContain {
     }
 
     fn transfer_selection_to_rider_on_exit(&self, rider_id: ObjectID) {
+        // Wave 277: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
         else {
@@ -1369,6 +1410,11 @@ impl RiderChangeContain {
     }
 
     fn has_exit_scuttle_drawables(&self, rider_id: ObjectID) -> bool {
+        // Wave 277: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
         else {
@@ -1391,6 +1437,11 @@ impl RiderChangeContain {
     }
 
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 277: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1506,6 +1557,11 @@ impl RiderChangeContain {
     }
 
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
+        // Wave 277: empty dual-world → sleep forever (no factory walks).
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         if self.scuttled_on_frame != 0 {
             let now = TheGameLogic::get_frame();
             if self.scuttled_on_frame + self.module_data.scuttle_frames <= now {
