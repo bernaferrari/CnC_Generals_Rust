@@ -253,6 +253,7 @@ pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_overlay_stamp_residual_wave190;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
 pub mod host_live_presentation_seed_residual_wave171;
+pub mod host_live_ui_producer_presentation_only_residual_wave214;
 pub mod host_loading_screen_residual_wave135;
 pub mod host_main_menu_buttons_residual_wave118;
 pub mod host_main_menu_campaign_residual_wave119;
@@ -1859,6 +1860,12 @@ pub use host_live_presentation_seed_residual_wave171::{
     honesty_live_presentation_seed_residual_pack_wave171,
     honesty_render_execute_presentation_only_source,
     honesty_seed_presentation_after_match_start_source, simulate_live_presentation_seed_honesty,
+};
+pub use host_live_ui_producer_presentation_only_residual_wave214::{
+    honesty_live_ui_producer_presentation_only_method_names_residual_wave214,
+    honesty_live_ui_producer_presentation_only_nav_commands_residual_wave214,
+    honesty_live_ui_producer_presentation_only_residual_pack_wave214,
+    simulate_live_ui_producer_presentation_only_honesty,
 };
 pub use host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,

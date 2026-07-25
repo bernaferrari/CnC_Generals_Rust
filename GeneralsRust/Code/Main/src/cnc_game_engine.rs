@@ -133,13 +133,16 @@ mod tests {
                 && eng.contains("self.ui_production_queue_head(id)"),
             "UI command filters must call presentation-first helpers"
         );
-        // Force-completed producer pick prefers presentation roster when installed.
+        // Wave 214: force-completed producer pick is presentation-only (no live classify).
         assert!(
-            eng.contains("Force-completed IDs: prefer presentation identity")
-                || eng.contains("force_completed")
-                    && eng.contains("can_produce")
-                    && eng.contains("or_else(|| classify_live"),
-            "force-completed producer pick must prefer presentation before live classify"
+            eng.contains("Wave 214: force-completed IDs classified from presentation freeze only")
+                && eng.contains("force_completed")
+                && eng.contains("can_produce")
+                && eng.contains("no live GameLogic dual-read residual")
+                && eng.contains(
+                    "Wave 214: force-completed IDs classified from presentation freeze only"
+                ),
+            "force-completed producer pick must be presentation-only"
         );
     }
 
@@ -5484,6 +5487,23 @@ impl CnCGameEngine {
                     format!("click_live_presentation_fow_only_miss_{action}")
                 };
             }
+            "click_live_ui_producer_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_ui_producer_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_ui_producer_presentation_only_residual_pack_wave214(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_ui_producer_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_ui_producer_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -5627,34 +5647,6 @@ impl CnCGameEngine {
                     let producer = {
                         let mut barracks: Vec<crate::game_logic::ObjectId> = Vec::new();
                         let mut any: Vec<crate::game_logic::ObjectId> = Vec::new();
-                        let classify_live = |id: crate::game_logic::ObjectId,
-                                             logic: &crate::game_logic::GameLogic,
-                                             team: crate::game_logic::Team|
-                         -> Option<(bool, crate::game_logic::ObjectId)> {
-                            let o = logic.get_object(id)?;
-                            if o.team != team || !o.is_alive() || !o.is_constructed() {
-                                return None;
-                            }
-                            let bd = o.building_data.as_ref();
-                            let is_barracks = o.is_kind_of(crate::game_logic::KindOf::FSBarracks)
-                                || o.template_name.to_ascii_lowercase().contains("barracks")
-                                || bd
-                                    .map(|b| {
-                                        matches!(
-                                            b.building_type,
-                                            crate::game_logic::BuildingType::Barracks
-                                        )
-                                    })
-                                    .unwrap_or(false);
-                            let is_producer = bd.is_some()
-                                || is_barracks
-                                || o.is_kind_of(crate::game_logic::KindOf::FSWarFactory)
-                                || o.is_kind_of(crate::game_logic::KindOf::FSAirfield);
-                            if !is_producer {
-                                return None;
-                            }
-                            Some((is_barracks, id))
-                        };
                         let push = |is_barracks: bool,
                                     id: crate::game_logic::ObjectId,
                                     barracks: &mut Vec<crate::game_logic::ObjectId>,
@@ -5667,9 +5659,8 @@ impl CnCGameEngine {
                                 any.push(id);
                             }
                         };
-                        // Force-completed IDs: prefer presentation identity when installed
-                        // (same-frame completion may not yet be in the frozen roster — then
-                        // fall back to live classify).
+                        // Wave 214: force-completed IDs classified from presentation freeze only
+                        // (no live GameLogic dual-read residual).
                         for id in force_completed.iter().copied() {
                             let classified = if let Some(frame) =
                                 self.last_presentation_frame.as_ref()
@@ -5715,9 +5706,8 @@ impl CnCGameEngine {
                                     }
                                     Some((is_barracks, id))
                                 })
-                                .or_else(|| classify_live(id, &self.game_logic, team))
                             } else {
-                                classify_live(id, &self.game_logic, team)
+                                None
                             };
                             if let Some((is_b, id)) = classified {
                                 push(is_b, id, &mut barracks, &mut any);
