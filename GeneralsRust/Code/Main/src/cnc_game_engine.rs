@@ -5727,6 +5727,23 @@ impl CnCGameEngine {
                     format!("click_live_construct_spawn_pose_authority_api_miss_{action}")
                 };
             }
+            "click_live_rmb_target_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_rmb_target_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_rmb_target_presentation_only_residual_pack_wave228(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_rmb_target_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_rmb_target_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -15344,6 +15361,7 @@ impl CnCGameEngine {
         let context = crate::command_system::MouseCommandContext {
             world_position: clamped,
             target_object,
+            target_presentation: target_object.and_then(|id| self.presentation_target_hint(id)),
             screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
             viewport_size: None,
             world_min: None,
@@ -18539,6 +18557,7 @@ impl CnCGameEngine {
         let context = crate::command_system::MouseCommandContext {
             world_position: mouse_pos,
             target_object,
+            target_presentation: target_object.and_then(|id| self.presentation_target_hint(id)),
             screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
             viewport_size: None,
             world_min: None,
@@ -19001,6 +19020,7 @@ impl CnCGameEngine {
         let context = crate::command_system::MouseCommandContext {
             world_position: self.mouse_world_position,
             target_object: hover,
+            target_presentation: hover.and_then(|id| self.presentation_target_hint(id)),
             screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
             viewport_size: None,
             world_min: None,
@@ -19214,6 +19234,51 @@ impl CnCGameEngine {
     /// Presentation-only world pick. Returns `None` when no snapshot is installed
     /// (no live GameLogic dual-read residual). InGame always seeds
     /// `last_presentation_frame` before input.
+
+    /// Wave 228: build presentation target hint for RMB classification.
+    fn presentation_target_hint(
+        &self,
+        id: crate::game_logic::ObjectId,
+    ) -> Option<crate::command_system::PresentationTargetHint> {
+        let frame = self.last_presentation_frame.as_ref()?;
+        let o = frame.objects.iter().find(|x| x.id == id && !x.destroyed)?;
+        let local = frame.local_team();
+        let is_neutral = o.team == crate::game_logic::Team::Neutral;
+        let is_enemy = o.team != local && !is_neutral;
+        let is_structure = o.object_type
+            == crate::presentation_frame::PresentationObjectType::Building
+            || crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Structure,
+            );
+        let is_resource = crate::presentation_frame::PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::Harvestable,
+        ) || crate::presentation_frame::PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::Resource,
+        ) || o.template_name.to_ascii_lowercase().contains("supply");
+        let n = o.template_name.to_ascii_lowercase();
+        let can_be_entered = n.contains("transport")
+            || n.contains("chinook")
+            || n.contains("bunker")
+            || n.contains("garrison")
+            || n.contains("overlord");
+        Some(crate::command_system::PresentationTargetHint {
+            id,
+            is_alive: !o.destroyed && o.health_current > 0.0,
+            is_structure,
+            is_resource,
+            under_construction: o.under_construction,
+            sold: o.sold,
+            team: o.team,
+            is_enemy_of_local: is_enemy,
+            is_neutral,
+            template_name: o.template_name.clone(),
+            can_be_entered,
+        })
+    }
+
     fn find_object_at_position(&self, position: Vec3, command_context: bool) -> Option<ObjectId> {
         const BASE_SELECTION_RADIUS: f32 = 20.0;
         // Wave 222: presentation-only pick (no GameLogic dual-read residual).
