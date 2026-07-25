@@ -1424,32 +1424,14 @@ impl CommandSystem {
         destination: Vec3,
         game_logic: &mut GameLogic,
     ) -> CommandResult {
-        // Residual pathfind parity with CommandExecutor::execute_attack_move.
+        // Wave 231: attack-move via GameLogic unit_command_attack_move_to.
         let mut all_success = true;
         for &unit_id in units {
-            let ok = game_logic
-                .get_object(unit_id)
-                .map(|u| u.can_move() && u.can_attack())
-                .unwrap_or(false);
-            if !ok {
+            if game_logic.unit_command_attack_move_to(unit_id, destination) {
+                log::debug!("Unit {} attack-moving to {:?}", unit_id.0, destination);
+            } else {
                 all_success = false;
-                continue;
             }
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                unit.stop_attack();
-            }
-            if !game_logic.assign_unit_path(unit_id, destination, &[]) {
-                if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                    unit.set_destination(destination);
-                    unit.set_ai_state(AIState::AttackMoving);
-                }
-                all_success = false;
-                continue;
-            }
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                unit.set_ai_state(AIState::AttackMoving);
-            }
-            log::debug!("Unit {} attack-moving to {:?}", unit_id.0, destination);
         }
         if all_success {
             CommandResult::Success
@@ -1488,26 +1470,19 @@ impl CommandSystem {
         location: Vec3,
         game_logic: &mut GameLogic,
     ) -> CommandResult {
+        // Wave 231: force-attack ground via GameLogic unit_command_attack_ground.
         let mut all_success = true;
-
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                if unit.can_attack() {
-                    unit.set_target_location(Some(location));
-                    unit.set_ai_state(AIState::AttackingGround);
-                    log::debug!(
-                        "Unit {} force-attacking ground at {:?}",
-                        unit_id.0,
-                        location
-                    );
-                } else {
-                    all_success = false;
-                }
+            if game_logic.unit_command_attack_ground(unit_id, location) {
+                log::debug!(
+                    "Unit {} force-attacking ground at {:?}",
+                    unit_id.0,
+                    location
+                );
             } else {
                 all_success = false;
             }
         }
-
         if all_success {
             CommandResult::Success
         } else {
@@ -1536,6 +1511,7 @@ impl CommandSystem {
         units: &[ObjectId],
         game_logic: &mut GameLogic,
     ) -> CommandResult {
+        // Wave 231: scatter goals via unit_position_if_movable + unit_command_move_to_moving.
         if units.is_empty() {
             return CommandResult::InvalidCommand;
         }
@@ -1543,29 +1519,18 @@ impl CommandSystem {
         const BASE_DISTANCE: f32 = 25.0;
         const DISTANCE_VARIATION: f32 = 10.0;
 
-        // Compute scatter goals first (no mut borrow during path assign).
         let mut goals: Vec<(ObjectId, Vec3)> = Vec::new();
         for (index, &unit_id) in units.iter().enumerate() {
-            let Some(unit) = game_logic.get_object(unit_id) else {
+            let Some(origin) = game_logic.unit_position_if_movable(unit_id) else {
                 continue;
             };
-            if !unit.can_move() {
-                continue;
-            }
-            let origin = unit.get_position();
             let angle = ((unit_id.0 as usize + index) as f32 * 0.318_309_87) % TAU;
             let distance = BASE_DISTANCE + (index as f32 % DISTANCE_VARIATION).abs();
             let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * distance;
             goals.push((unit_id, origin + offset));
         }
         for (unit_id, destination) in goals {
-            if !game_logic.assign_unit_path(unit_id, destination, &[]) {
-                if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                    unit.set_destination(destination);
-                }
-            }
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                unit.set_ai_state(AIState::Moving);
+            if game_logic.unit_command_move_to_moving(unit_id, destination) {
                 log::debug!("Unit {} scattering toward {:?}", unit_id.0, destination);
             }
         }
@@ -1579,16 +1544,15 @@ impl CommandSystem {
         units: &[ObjectId],
         game_logic: &mut GameLogic,
     ) -> CommandResult {
+        // Wave 231: formation via unit_position_if_movable + unit_command_move_to_moving.
         if units.is_empty() {
             return CommandResult::InvalidCommand;
         }
 
         let mut movable_units = Vec::new();
         for &unit_id in units {
-            if let Some(unit) = game_logic.get_object(unit_id) {
-                if unit.can_move() {
-                    movable_units.push((unit_id, unit.get_position()));
-                }
+            if let Some(pos) = game_logic.unit_position_if_movable(unit_id) {
+                movable_units.push((unit_id, pos));
             }
         }
 
@@ -1613,13 +1577,7 @@ impl CommandSystem {
             let offset_z = (row - (rows as f32 - 1.0) * 0.5) * spacing;
             let destination = centroid + Vec3::new(offset_x, 0.0, offset_z);
 
-            if !game_logic.assign_unit_path(*unit_id, destination, &[]) {
-                if let Some(unit) = game_logic.get_object_mut(*unit_id) {
-                    unit.set_destination(destination);
-                }
-            }
-            if let Some(unit) = game_logic.get_object_mut(*unit_id) {
-                unit.set_ai_state(AIState::Moving);
+            if game_logic.unit_command_move_to_moving(*unit_id, destination) {
                 log::debug!("Unit {} forming up at {:?}", unit_id.0, destination);
             }
         }
@@ -1748,7 +1706,7 @@ impl CommandSystem {
         units: &[ObjectId],
         game_logic: &mut GameLogic,
     ) -> CommandResult {
-        // Wave 206: selection last-writes object.select/deselect → host_status_log.
+        // Wave 231: selection last-writes via select_objects / unit_select_if_team (status log Wave 206).
         if game_logic.get_player(player_id).is_none() {
             return CommandResult::InvalidCommand;
         }
@@ -1770,19 +1728,7 @@ impl CommandSystem {
         };
         let mut added = Vec::new();
         for &unit_id in units {
-            let ok = game_logic
-                .get_object_mut(unit_id)
-                .map(|obj| {
-                    if obj.team == player_team && obj.is_selectable() {
-                        obj.select();
-                        obj.flash_as_selected();
-                        true
-                    } else {
-                        false
-                    }
-                })
-                .unwrap_or(false);
-            if ok {
+            if game_logic.unit_select_if_team(unit_id, player_team) {
                 added.push(unit_id);
             }
         }

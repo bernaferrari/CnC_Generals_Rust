@@ -61256,6 +61256,76 @@ impl GameLogic {
         true
     }
 
+    /// Wave 231: attack-move via path + AttackMoving state.
+    pub fn unit_command_attack_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        if !(self.unit_can_move(id) && self.unit_can_attack(id)) {
+            return false;
+        }
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.stop_attack();
+        }
+        let path_ok = self.assign_unit_path(id, destination, &[]);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            if !path_ok {
+                unit.set_destination(destination);
+            }
+            unit.set_ai_state(AIState::AttackMoving);
+            return true;
+        }
+        false
+    }
+
+    /// Wave 231: force-attack ground location.
+    pub fn unit_command_attack_ground(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !unit.can_attack() {
+            return false;
+        }
+        unit.set_target_location(Some(location));
+        unit.set_ai_state(AIState::AttackingGround);
+        true
+    }
+
+    /// Wave 231: move helper that always leaves unit in Moving state (scatter/formation).
+    pub fn unit_command_move_to_moving(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        if !self.unit_can_move(id) {
+            return false;
+        }
+        let path_ok = self.assign_unit_path(id, destination, &[]);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            if !path_ok {
+                unit.set_destination(destination);
+            }
+            unit.set_ai_state(AIState::Moving);
+            return true;
+        }
+        false
+    }
+
+    /// Wave 231: additive selection mark on a selectable friendly unit.
+    pub fn unit_select_if_team(&mut self, id: ObjectId, player_team: Team) -> bool {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if obj.team == player_team && obj.is_selectable() {
+            obj.select();
+            obj.flash_as_selected();
+            true
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    pub fn unit_position_if_movable(&self, id: ObjectId) -> Option<glam::Vec3> {
+        self.objects
+            .get(&id)
+            .filter(|o| o.can_move())
+            .map(|o| o.get_position())
+    }
+
     /// Wave 227: world position probe without exposing `&Object` to engine dual-read paths.
     #[inline]
     pub fn object_position(&self, id: ObjectId) -> Option<glam::Vec3> {

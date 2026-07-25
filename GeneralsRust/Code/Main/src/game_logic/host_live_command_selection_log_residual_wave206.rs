@@ -99,7 +99,10 @@ pub fn honesty_command_system_selection_uses_object_select_source() -> bool {
         None => return false,
     };
     let body = &cs[i..cs.len().min(i + 2000)];
-    body.contains("select_objects") && body.contains(".select()")
+    // Wave 231: additive select may go through GameLogic::unit_select_if_team
+    // (which calls Object::select); create_new still uses select_objects.
+    body.contains("select_objects")
+        && (body.contains(".select()") || body.contains("unit_select_if_team"))
 }
 
 /// Source residual: production has no formation_id = 0 field write.
