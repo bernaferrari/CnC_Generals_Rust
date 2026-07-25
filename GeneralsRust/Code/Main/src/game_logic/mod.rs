@@ -252,6 +252,7 @@ pub mod host_live_engine_player_ui_boot_peel_residual_wave237;
 pub mod host_live_engine_presentation_player_ui_residual_wave234;
 pub mod host_live_evacuate_contain_log_residual_wave201;
 pub mod host_live_force_complete_authority_api_residual_wave224;
+pub mod host_live_game_client_dual_world_empty_gate_residual_wave269;
 pub mod host_live_gameworld_construction_writeback_residual_wave181;
 pub mod host_live_gameworld_damage_channel_residual_wave182;
 pub mod host_live_gameworld_economy_movement_residual_wave183;
@@ -1908,6 +1909,12 @@ pub use host_live_force_complete_authority_api_residual_wave224::{
     honesty_live_force_complete_authority_api_nav_commands_residual_wave224,
     honesty_live_force_complete_authority_api_residual_pack_wave224,
     simulate_live_force_complete_authority_api_honesty,
+};
+pub use host_live_game_client_dual_world_empty_gate_residual_wave269::{
+    honesty_live_game_client_dual_world_empty_gate_method_names_residual_wave269,
+    honesty_live_game_client_dual_world_empty_gate_nav_commands_residual_wave269,
+    honesty_live_game_client_dual_world_empty_gate_residual_pack_wave269,
+    simulate_live_game_client_dual_world_empty_gate_honesty,
 };
 pub use host_live_gameworld_construction_writeback_residual_wave181::{
     honesty_live_gameworld_construction_writeback_method_names_residual_wave181,
