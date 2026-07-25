@@ -2550,6 +2550,58 @@ impl CnCGameEngine {
                     "click_keyboard_options_miss".into()
                 };
             }
+            "open_score_screen" => {
+                // Retail end-of-match ScoreScreen residual open.
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_score_screen_bind_controls();
+                }
+                self.enter_shell_screen_from_runtime_host(
+                    Some("ScoreScreen"),
+                    "Menus/ScoreScreen.wnd",
+                );
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_score_screen_ok_wnd".into()
+                } else {
+                    "open_score_screen_ok".into()
+                };
+            }
+            "click_score_screen" => {
+                // Retail ScoreScreen Ok/Continue/SaveReplay/Buddy/Emote residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "ok".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_score_screen_buddy_button_gadget_selected,
+                        simulate_score_screen_continue_button_gadget_selected,
+                        simulate_score_screen_emote_button_gadget_selected,
+                        simulate_score_screen_ok_button_gadget_selected,
+                        simulate_score_screen_prepare_finish, simulate_score_screen_prepare_ok,
+                        simulate_score_screen_save_replay_button_gadget_selected,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "continue" => simulate_score_screen_continue_button_gadget_selected(),
+                        "finish" | "prepare_finish" => simulate_score_screen_prepare_finish(),
+                        "save_replay" | "replay" => {
+                            simulate_score_screen_save_replay_button_gadget_selected()
+                        }
+                        "buddy" => simulate_score_screen_buddy_button_gadget_selected(),
+                        "emote" => simulate_score_screen_emote_button_gadget_selected(),
+                        "prepare_ok" => simulate_score_screen_prepare_ok(),
+                        _ => simulate_score_screen_ok_button_gadget_selected(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_score_screen_ok_wnd_{action}")
+                } else {
+                    "click_score_screen_miss".into()
+                };
+            }
             "open_difficulty_menu" => {
                 let campaign = args
                     .get("campaign")
