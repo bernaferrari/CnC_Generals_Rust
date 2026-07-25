@@ -58,6 +58,14 @@ pub mod animate_window_manager;
 pub mod callbacks;
 pub mod campaign_manager;
 pub mod challenge_generals;
+pub use challenge_generals::{
+    residual_challenge_generals_bio_name_len, residual_challenge_generals_difficulty,
+    residual_challenge_generals_last_action, residual_challenge_generals_starts_enabled,
+    residual_challenge_generals_template_num, simulate_challenge_generals_init,
+    simulate_challenge_generals_prepare_default, simulate_challenge_generals_set_bio_name,
+    simulate_challenge_generals_set_difficulty, simulate_challenge_generals_set_starts_enabled,
+    simulate_challenge_generals_set_template_num, ResidualChallengeGeneralsAction, NUM_GENERALS,
+};
 pub mod command_panel;
 pub mod control_bar;
 pub mod custom_match_preferences;

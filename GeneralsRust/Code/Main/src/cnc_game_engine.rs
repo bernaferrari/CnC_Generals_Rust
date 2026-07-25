@@ -3819,6 +3819,45 @@ impl CnCGameEngine {
                     "click_credits_roll_miss".into()
                 };
             }
+            "click_challenge_generals" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let name = args
+                    .get("name")
+                    .cloned()
+                    .unwrap_or_else(|| "General Alexander".to_string());
+                let difficulty = args
+                    .get("difficulty")
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .unwrap_or(2);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::{
+                        simulate_challenge_generals_init,
+                        simulate_challenge_generals_prepare_default,
+                        simulate_challenge_generals_set_bio_name,
+                        simulate_challenge_generals_set_difficulty,
+                        simulate_challenge_generals_set_starts_enabled,
+                        simulate_challenge_generals_set_template_num,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "init" => simulate_challenge_generals_init(),
+                        "starts" => simulate_challenge_generals_set_starts_enabled(0, true),
+                        "bio" => simulate_challenge_generals_set_bio_name(0, &name),
+                        "difficulty" => simulate_challenge_generals_set_difficulty(difficulty),
+                        "template" => simulate_challenge_generals_set_template_num(0),
+                        _ => simulate_challenge_generals_prepare_default(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_challenge_generals_ok_wnd_{action}")
+                } else {
+                    "click_challenge_generals_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
