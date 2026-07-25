@@ -16,6 +16,12 @@ use crate::player::{player_list, PlayerType};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::upgrade::center::get_upgrade_center;
 
+/// Wave 293: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Build order priority levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BuildPriority {
@@ -1127,6 +1133,11 @@ impl AIBuildList {
     }
 
     fn player_has_building(&self, building: &str, player_id: u32) -> Result<bool, AiError> {
+        // Wave 293: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
             return Ok(false);
         };
@@ -1177,6 +1188,11 @@ impl AIBuildList {
     }
 
     fn get_player_base_center(&self, player_id: u32) -> Result<Coord3D, AiError> {
+        // Wave 293: empty dual-world → origin.
+        if dual_world_registry_unavailable() {
+            return Ok(Vec3::new(0.0, 0.0, 0.0));
+        }
+
         let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
             return Ok(Vec3::new(0.0, 0.0, 0.0));
         };
@@ -1214,6 +1230,11 @@ impl AIBuildList {
     }
 
     fn get_builder_position(&self, builder_id: ObjectID) -> Result<Coord3D, AiError> {
+        // Wave 293: empty dual-world → origin.
+        if dual_world_registry_unavailable() {
+            return Ok(Vec3::new(0.0, 0.0, 0.0));
+        }
+
         Ok(OBJECT_REGISTRY
             .with_object(builder_id, |obj_guard| {
                 let pos = obj_guard.get_position();
@@ -1223,6 +1244,11 @@ impl AIBuildList {
     }
 
     fn find_idle_builders(&self, player_id: u32) -> Result<Vec<ObjectID>, AiError> {
+        // Wave 293: empty dual-world → no builders.
+        if dual_world_registry_unavailable() {
+            return Ok(Vec::new());
+        }
+
         let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
             return Ok(Vec::new());
         };
@@ -1256,8 +1282,8 @@ impl AIBuildList {
         let base_center = self.get_player_base_center(player_id)?;
         let mut threat = 0.0;
         let mut total = 0.0;
-        // Host path: empty dual-world registry residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 293: empty dual-world registry residual.
+        if dual_world_registry_unavailable() {
             return Ok(0.0);
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
@@ -1308,8 +1334,8 @@ impl AIBuildList {
     fn compute_map_control(&self, player_id: u32) -> Result<f32, AiError> {
         let mut mine = 0.0;
         let mut total = 0.0;
-        // Host path: empty dual-world registry residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 293: empty dual-world registry residual.
+        if dual_world_registry_unavailable() {
             return Ok(0.0);
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
@@ -1343,6 +1369,11 @@ impl AIBuildList {
     }
 
     fn count_player_units(&self, player_id: u32, template: &str, building_only: bool) -> Result<i32, AiError> {
+        // Wave 293: empty dual-world → zero count.
+        if dual_world_registry_unavailable() {
+            return Ok(0);
+        }
+
         let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
             return Ok(0);
         };
@@ -1376,6 +1407,11 @@ impl AIBuildList {
         position: Coord3D,
         min_spacing: f32,
     ) -> Result<i32, AiError> {
+        // Wave 293: empty dual-world → zero count.
+        if dual_world_registry_unavailable() {
+            return Ok(0);
+        }
+
         let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
             return Ok(0);
         };
