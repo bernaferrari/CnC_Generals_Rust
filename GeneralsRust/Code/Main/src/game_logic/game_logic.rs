@@ -25112,15 +25112,47 @@ impl GameLogic {
         self.players.get(&player_id)
     }
 
-    /// Get mutable player by ID
-    /// Unlocked science names for a player (empty when unknown).
-    pub fn player_unlocked_sciences(&self, player_id: u32) -> Vec<String> {
+    /// Wave 238: economy probe without exposing `&Player` to engine dual-read paths.
+    #[inline]
+    pub fn player_economy(&self, id: u32) -> Option<(u32, i32, i32, i32)> {
+        self.players.get(&id).map(|p| {
+            (
+                p.effective_supplies(),
+                p.power_available,
+                p.power_produced,
+                p.power_consumed,
+            )
+        })
+    }
+
+    /// Wave 238: unlocked sciences without exposing `&Player`.
+    #[inline]
+    pub fn player_unlocked_sciences(&self, id: u32) -> Vec<String> {
         self.players
-            .get(&player_id)
+            .get(&id)
             .map(|p| p.unlocked_sciences.iter().cloned().collect())
             .unwrap_or_default()
     }
 
+    /// Wave 238: science purchase points without exposing `&Player`.
+    #[inline]
+    pub fn player_science_purchase_points(&self, id: u32) -> i32 {
+        self.players
+            .get(&id)
+            .map(|p| p.science_purchase_points)
+            .unwrap_or(0)
+    }
+
+    /// Wave 238: science purchase capability without exposing `&Player`.
+    #[inline]
+    pub fn player_can_purchase_science(&self, id: u32, science_name: &str) -> bool {
+        self.players
+            .get(&id)
+            .map(|p| p.is_capable_of_purchasing_science(science_name))
+            .unwrap_or(false)
+    }
+
+    /// Get mutable player by ID
     pub fn get_player_mut(&mut self, player_id: u32) -> Option<&mut Player> {
         self.players.get_mut(&player_id)
     }
