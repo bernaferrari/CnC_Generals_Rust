@@ -3879,6 +3879,36 @@ impl CnCGameEngine {
                     "click_gameworld_authority_miss".into()
                 };
             }
+            "click_window_video" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::{
+                        simulate_window_video_init, simulate_window_video_pause_all,
+                        simulate_window_video_prepare_control_cycle, simulate_window_video_reset,
+                        simulate_window_video_resume_all, simulate_window_video_stop_all,
+                        simulate_window_video_update,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "init" => simulate_window_video_init(),
+                        "reset" => simulate_window_video_reset(),
+                        "pause" => simulate_window_video_pause_all(),
+                        "resume" => simulate_window_video_resume_all(),
+                        "stop" => simulate_window_video_stop_all(),
+                        "update" => simulate_window_video_update(),
+                        _ => simulate_window_video_prepare_control_cycle(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_window_video_ok_wnd_{action}")
+                } else {
+                    "click_window_video_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
