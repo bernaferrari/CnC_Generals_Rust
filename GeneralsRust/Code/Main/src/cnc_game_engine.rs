@@ -2197,6 +2197,11 @@ impl CnCGameEngine {
                 .as_ref()
                 .map(|f| f.gameworld_appended as u32)
                 .unwrap_or(0),
+            gameworld_rebuilt: self
+                .last_presentation_frame
+                .as_ref()
+                .map(|f| f.gameworld_rebuilt as u32)
+                .unwrap_or(0),
             shell_screen_count: {
                 #[cfg(feature = "game_client")]
                 {
@@ -5099,6 +5104,23 @@ impl CnCGameEngine {
                     format!("click_live_presentation_append_missing_ok_{action}")
                 } else {
                     format!("click_live_presentation_append_missing_miss_{action}")
+                };
+            }
+            "click_live_presentation_build_from_gameworld" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_presentation_build_from_gameworld_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_presentation_build_from_gameworld_residual_pack_wave193(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_presentation_build_from_gameworld_ok_{action}")
+                } else {
+                    format!("click_live_presentation_build_from_gameworld_miss_{action}")
                 };
             }
             "save_game" | "quicksave" => {
@@ -11396,6 +11418,13 @@ impl CnCGameEngine {
                 if a > 0 {
                     log::trace!("append missing GameWorld entities into presentation: {a}");
                 }
+                if std::env::var("GENERALS_PRESENTATION_FROM_GAMEWORLD")
+                    .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+                    .unwrap_or(false)
+                {
+                    let n = pres.rebuild_objects_from_gameworld(shadow);
+                    log::trace!("rebuild presentation objects from GameWorld: {n}");
+                }
             }
             // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
             let audio_n = pres.dispatch_audio_events_direct();
@@ -11834,6 +11863,14 @@ impl CnCGameEngine {
             if a > 0 {
                 log::trace!("append missing GameWorld entities into presentation: {a}");
             }
+            // Wave 193: opt-in GameWorld-primary object roster (env GENERALS_PRESENTATION_FROM_GAMEWORLD=1).
+            if std::env::var("GENERALS_PRESENTATION_FROM_GAMEWORLD")
+                .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+                .unwrap_or(false)
+            {
+                let n = pres.rebuild_objects_from_gameworld(shadow);
+                log::trace!("rebuild presentation objects from GameWorld: {n}");
+            }
         }
         pres.apply_to_game_hud(&mut self.game_hud);
         #[cfg(feature = "game_client")]
@@ -12037,6 +12074,12 @@ impl CnCGameEngine {
             if let Some(ref shadow) = self.gameworld_shadow {
                 let _ = frame.overlay_gameworld_shadow(shadow);
                 let _ = frame.append_missing_from_gameworld(shadow);
+                if std::env::var("GENERALS_PRESENTATION_FROM_GAMEWORLD")
+                    .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+                    .unwrap_or(false)
+                {
+                    let _ = frame.rebuild_objects_from_gameworld(shadow);
+                }
             }
             self.last_presentation_frame = Some(frame);
         }
@@ -19468,6 +19511,8 @@ struct RuntimeHostSnapshot {
     gameworld_overlay_stamped: u32,
     /// PresentationFrame.gameworld_appended after last append_missing_from_gameworld.
     gameworld_appended: u32,
+    /// PresentationFrame.gameworld_rebuilt after last rebuild_objects_from_gameworld.
+    gameworld_rebuilt: u32,
     /// Shell screen stack depth residual (retail WND push honesty).
     shell_screen_count: u32,
     /// Top shell layout filename residual (e.g. Menus/MainMenu.wnd).
@@ -19642,6 +19687,7 @@ impl RuntimeHostBridge {
             gameworld_presentation_entities: 0,
             gameworld_overlay_stamped: 0,
             gameworld_appended: 0,
+            gameworld_rebuilt: 0,
             shell_screen_count: 0,
             shell_top_wnd: String::new(),
             shell_active: false,
@@ -19718,6 +19764,10 @@ impl RuntimeHostBridge {
         payload.push_str(&format!(
             "gameworld_appended={}\n",
             snapshot.gameworld_appended
+        ));
+        payload.push_str(&format!(
+            "gameworld_rebuilt={}\n",
+            snapshot.gameworld_rebuilt
         ));
         payload.push_str(&format!(
             "shell_screen_count={}\n",

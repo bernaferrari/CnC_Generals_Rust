@@ -2311,6 +2311,10 @@ pub struct PresentationFrame {
     /// (Wave 192 append_missing_from_gameworld). Fail-closed: not full build_from_gameworld cutover.
     #[serde(default)]
     pub gameworld_appended: usize,
+    /// Count of objects after `rebuild_objects_from_gameworld` (Wave 193).
+    /// Fail-closed: opt-in path; not full host cutover / playable_claim.
+    #[serde(default)]
+    pub gameworld_rebuilt: usize,
 }
 
 impl PresentationFrame {
@@ -3424,6 +3428,7 @@ impl PresentationFrame {
             world_env: PresentationWorldEnv::from_logic(logic),
             gameworld_overlay_stamped: 0,
             gameworld_appended: 0,
+            gameworld_rebuilt: 0,
         }
     }
 
@@ -5818,13 +5823,13 @@ impl PresentationFrame {
             guard_position: None,
             garrisoned_units: Vec::new(),
             max_garrison: 0,
-            power_provided: 0,
-            power_consumed: 0,
-            stored_supplies: 0,
+            power_provided: ent.power_provided,
+            power_consumed: ent.power_consumed,
+            stored_supplies: ent.stored_supplies,
             health_current: ent.health.max(0.0),
             health_max,
             selected: ent.selected,
-            is_deployed: false,
+            is_deployed: ent.deployed,
             selection_flash_remaining: 0,
             destroyed: ent.destroyed || ent.health <= 0.0,
             model_condition_bits: 0,
@@ -5842,15 +5847,15 @@ impl PresentationFrame {
             under_construction: ent.under_construction,
             construction_percent: ent.construction_percent,
             sold: ent.sold,
-            unselectable: false,
+            unselectable: ent.unselectable,
             is_rebuild_hole: ent.is_rebuild_hole,
             reconstructing: ent.reconstructing,
             veterancy: PresentationVeterancy::Rookie,
             experience_points: 0.0,
-            moving,
-            attacking: attack_target.is_some(),
-            is_firing_weapon: false,
-            is_aiming_weapon: false,
+            moving: moving || ent.moving,
+            attacking: attack_target.is_some() || ent.attacking,
+            is_firing_weapon: ent.is_firing_weapon,
+            is_aiming_weapon: ent.is_aiming_weapon,
             disabled_emp: false,
             disabled_paralyzed: false,
             weapons_jammed: false,
@@ -5897,7 +5902,15 @@ impl PresentationFrame {
             special_power_ready: false,
             special_power_cooldown: 0.0,
             special_power_cooldown_remaining: 0.0,
-            object_type: PresentationObjectType::Neutral,
+            object_type: match ent.object_type_ordinal {
+                0 => PresentationObjectType::Infantry,
+                1 => PresentationObjectType::Vehicle,
+                2 => PresentationObjectType::Aircraft,
+                3 => PresentationObjectType::Building,
+                4 => PresentationObjectType::Supply,
+                5 => PresentationObjectType::Projectile,
+                _ => PresentationObjectType::Neutral,
+            },
             applied_upgrades: Vec::new(),
             has_secondary_weapon: false,
             secondary_weapon_range: 0.0,
@@ -5950,10 +5963,10 @@ impl PresentationFrame {
             guard_radius: 0.0,
             has_mine: false,
             kind_of: Vec::new(),
-            is_structure: false,
-            is_unit: true,
-            is_mobile: true,
-            can_produce: false,
+            is_structure: matches!(ent.object_type_ordinal, 3) || ent.is_building,
+            is_unit: matches!(ent.object_type_ordinal, 0 | 1 | 2),
+            is_mobile: matches!(ent.object_type_ordinal, 0 | 1 | 2),
+            can_produce: ent.is_building && !ent.under_construction,
             building_type: None,
             model_key: Some(ent.template.name.clone()),
             mesh_scale: 1.0,
@@ -5998,6 +6011,63 @@ impl PresentationFrame {
         }
         self.gameworld_appended = self.gameworld_appended.saturating_add(appended);
         appended
+    }
+
+    /// Rebuild the entire `objects` list from the GameWorld entity store (Wave 193).
+    ///
+    /// Host ObjectIds are preferred when the shadow map has them; otherwise
+    /// synthesizes `ObjectId(0x8000_0000 | entity_id)`. Counts land in
+    /// `gameworld_rebuilt`. Fail-closed: sparse host-only FX/UI fields stay default
+    /// unless a later host merge fills them; not full playable_claim cutover.
+    pub fn rebuild_objects_from_gameworld(
+        &mut self,
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+    ) -> usize {
+        self.objects.clear();
+        let mut n = 0usize;
+        for ent in shadow.world().world().entities() {
+            if ent.destroyed && ent.health <= 0.0 {
+                continue;
+            }
+            let host_id = shadow
+                .host_for_entity(ent.id)
+                .unwrap_or_else(|| crate::game_logic::ObjectId(0x8000_0000 | ent.id.get()));
+            self.objects
+                .push(Self::renderable_from_gameworld_entity(host_id, ent));
+            n += 1;
+        }
+        self.gameworld_rebuilt = n;
+        // Overlay last-writer stamps player residual + any fields the sparse builder
+        // still defaults (keeps one code path for shadow → presentation identity).
+        let _ = self.overlay_gameworld_shadow(shadow);
+        n
+    }
+
+    /// Build a PresentationFrame whose **object roster** is GameWorld-primary (Wave 193).
+    ///
+    /// When `host` is provided, non-object presentation residual (world_env, scripts,
+    /// camera, FX packs) still comes from `build_from_logic`, then objects are rebuilt
+    /// from the shadow. When `host` is `None`, a minimal shell frame is filled with
+    /// GameWorld objects + local player residual only.
+    ///
+    /// Fail-closed: not full GameWorld authority cutover / playable_claim.
+    pub fn build_from_gameworld(
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+        local_player_id: u32,
+        host: Option<&GameLogic>,
+    ) -> Self {
+        let mut frame = if let Some(logic) = host {
+            Self::build_from_logic(logic, local_player_id)
+        } else {
+            // Minimal shell — borrow-first empty presentation with local player id set.
+            let mut f = Self::build_from_logic(&GameLogic::new(), local_player_id);
+            f.objects.clear();
+            f.events.clear();
+            f
+        };
+        let _ = frame.rebuild_objects_from_gameworld(shadow);
+        // Local player residual already stamped by overlay inside rebuild.
+        frame
     }
 
     /// Lookup snapshot FOW for an object (local player). None if not on the frame.
