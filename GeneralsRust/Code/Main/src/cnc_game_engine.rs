@@ -5538,6 +5538,23 @@ impl CnCGameEngine {
                     format!("click_live_control_group_camera_presentation_only_miss_{action}")
                 };
             }
+            "click_live_cmd_filter_env_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_cmd_filter_env_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_cmd_filter_env_presentation_only_residual_pack_wave217(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_cmd_filter_env_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_cmd_filter_env_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -6096,15 +6113,8 @@ impl CnCGameEngine {
                                             )
                                 })
                             } else {
-                                self.game_logic
-                                    .get_object(*id)
-                                    .map(|o| {
-                                        o.team == team
-                                            && o.is_alive()
-                                            && o.is_kind_of(crate::game_logic::KindOf::Structure)
-                                            && !o.is_kind_of(crate::game_logic::KindOf::CommandCenter)
-                                    })
-                                    .unwrap_or(false)
+                                // Wave 217: presentation required for sell identity.
+                                false
                             }
                         })
                         .collect();
@@ -6177,15 +6187,8 @@ impl CnCGameEngine {
                                             || o.building_type.is_some())
                                 })
                             } else {
-                                self.game_logic
-                                    .get_object(*id)
-                                    .map(|o| {
-                                        o.team == team
-                                            && o.is_alive()
-                                            && o.is_constructed()
-                                            && o.is_kind_of(crate::game_logic::KindOf::Structure)
-                                    })
-                                    .unwrap_or(false)
+                                // Wave 217: presentation required for upgrade producer identity.
+                                false
                             }
                         })
                         .collect();
@@ -6435,10 +6438,8 @@ impl CnCGameEngine {
                                     .iter()
                                     .any(|o| o.id == *id && !o.destroyed && o.is_mobile)
                             } else {
-                                self.game_logic
-                                    .get_object(*id)
-                                    .map(|o| o.is_alive() && o.is_mobile())
-                                    .unwrap_or(false)
+                                // Wave 217: presentation required for formation mobile identity.
+                                false
                             }
                         })
                         .collect();
@@ -7457,10 +7458,8 @@ impl CnCGameEngine {
                             if let Some(frame) = self.last_presentation_frame.as_ref() {
                                 frame.alive_construct_builder_ids(team).contains(id)
                             } else {
-                                self.game_logic
-                                    .get_object(*id)
-                                    .map(|o| o.team == team && o.is_alive() && o.can_construct())
-                                    .unwrap_or(false)
+                                // Wave 217: presentation required for construct builder identity.
+                                false
                             }
                         })
                         .collect();
@@ -9107,8 +9106,16 @@ impl CnCGameEngine {
                 info!("Loaded startup initial-file map: {}", active_map_name);
             }
 
-            Self::apply_heightmap_hint(&mut self.render_pipeline, Some(&self.game_logic));
-            Self::apply_skybox_hint(&mut self.render_pipeline, Some(&self.game_logic));
+            // Wave 217: env hints presentation-only when freeze installed (boot residual may pass live).
+            let env_logic = if self.render_pipeline.presentation_frame().is_some()
+                || self.last_presentation_frame.is_some()
+            {
+                None
+            } else {
+                Some(&self.game_logic)
+            };
+            Self::apply_heightmap_hint(&mut self.render_pipeline, env_logic);
+            Self::apply_skybox_hint(&mut self.render_pipeline, env_logic);
             Self::sync_render_terrain_visual(
                 &mut self.render_pipeline,
                 &self.graphics_system,
@@ -14317,8 +14324,16 @@ impl CnCGameEngine {
                 self.selected_objects.clear();
 
                 if !headless_host {
-                    Self::apply_heightmap_hint(&mut self.render_pipeline, Some(&self.game_logic));
-                    Self::apply_skybox_hint(&mut self.render_pipeline, Some(&self.game_logic));
+                    // Wave 217: env hints presentation-only when freeze installed (boot residual may pass live).
+                    let env_logic = if self.render_pipeline.presentation_frame().is_some()
+                        || self.last_presentation_frame.is_some()
+                    {
+                        None
+                    } else {
+                        Some(&self.game_logic)
+                    };
+                    Self::apply_heightmap_hint(&mut self.render_pipeline, env_logic);
+                    Self::apply_skybox_hint(&mut self.render_pipeline, env_logic);
                     Self::sync_render_terrain_visual(
                         &mut self.render_pipeline,
                         &self.graphics_system,
@@ -14448,8 +14463,16 @@ impl CnCGameEngine {
         self.selected_objects.clear();
 
         // Update minimap/world bounds and camera to the new map.
-        Self::apply_heightmap_hint(&mut self.render_pipeline, Some(&self.game_logic));
-        Self::apply_skybox_hint(&mut self.render_pipeline, Some(&self.game_logic));
+        // Wave 217: env hints presentation-only when freeze installed (boot residual may pass live).
+        let env_logic = if self.render_pipeline.presentation_frame().is_some()
+            || self.last_presentation_frame.is_some()
+        {
+            None
+        } else {
+            Some(&self.game_logic)
+        };
+        Self::apply_heightmap_hint(&mut self.render_pipeline, env_logic);
+        Self::apply_skybox_hint(&mut self.render_pipeline, env_logic);
         Self::sync_render_terrain_visual(
             &mut self.render_pipeline,
             &self.graphics_system,

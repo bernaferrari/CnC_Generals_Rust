@@ -217,6 +217,7 @@ pub mod host_keyboard_options_residual_wave124;
 pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
+pub mod host_live_cmd_filter_env_presentation_only_residual_wave217;
 pub mod host_live_command_attack_log_residual_wave197;
 pub mod host_live_command_beacon_note_residual_wave210;
 pub mod host_live_command_cheer_science_log_residual_wave202;
@@ -1648,6 +1649,12 @@ pub use host_keyboard_options_residual_wave124::{
     honesty_keyboard_options_control_names_residual_wave124,
     honesty_keyboard_options_nav_commands_residual_wave124,
     honesty_keyboard_options_residual_pack_wave124,
+};
+pub use host_live_cmd_filter_env_presentation_only_residual_wave217::{
+    honesty_live_cmd_filter_env_presentation_only_method_names_residual_wave217,
+    honesty_live_cmd_filter_env_presentation_only_nav_commands_residual_wave217,
+    honesty_live_cmd_filter_env_presentation_only_residual_pack_wave217,
+    simulate_live_cmd_filter_env_presentation_only_honesty,
 };
 pub use host_live_command_attack_log_residual_wave197::{
     honesty_live_command_attack_log_method_names_residual_wave197,
