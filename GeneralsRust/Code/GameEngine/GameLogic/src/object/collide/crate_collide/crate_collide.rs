@@ -20,6 +20,12 @@ use std::collections::HashSet;
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 303: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Kind-of mask type for object classification
 pub type KindOfMaskType = u64;
 
@@ -194,6 +200,13 @@ impl CrateCollide {
     }
 
     pub fn get_object(&self) -> Result<Arc<RwLock<Object>>, CollisionError> {
+        // Wave 303: empty dual-world → missing object.
+        if dual_world_registry_unavailable() {
+            return Err(CollisionError::InvalidObject(
+                "dual-world registry unavailable".into(),
+            ));
+        }
+
         let object_id = self.base_module.get_object_id();
         TheGameLogic::find_object_by_id(object_id)
             .or_else(|| OBJECT_REGISTRY.get_object(object_id))
@@ -456,6 +469,11 @@ impl CrateCollide {
     }
 
     fn get_controlling_player_for_object(&self, _object_id: ObjectId) -> Option<PlayerId> {
+        // Wave 303: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY
             .with_object(_object_id, |obj| obj.get_player_id())
             .flatten()
@@ -600,6 +618,11 @@ impl LegacyCollideAdapter for CrateCollide {
         loc: &Coord3D,
         normal: &Coord3D,
     ) -> Result<(), GameError> {
+        // Wave 303: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
         else {
@@ -613,6 +636,11 @@ impl LegacyCollideAdapter for CrateCollide {
         &self,
         other_id: crate::common::ObjectID,
     ) -> Result<bool, GameError> {
+        // Wave 303: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
         else {
