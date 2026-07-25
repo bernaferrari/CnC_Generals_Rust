@@ -71,19 +71,34 @@ pub fn honesty_live_map_load_residual_pack_wave170() -> bool {
         && honesty_live_map_load_nav_commands_residual_wave170()
 }
 
-/// Run one live map load peel via production map_frame_scenario.
-fn live_load_one(map_name: &str) -> crate::map_frame_scenario::MapFrameScenarioResult {
-    crate::map_frame_scenario::run_map_frame_scenario(
-        Some(map_name),
-        LIVE_MAP_LOAD_FRAME_ADVANCE_WAVE170,
-    )
+/// Run one live map load peel via GameLogic + parent-walking path resolve.
+/// Returns (frames_advanced, presentation_object_count).
+fn live_load_one(map_name: &str) -> Option<(u32, usize)> {
+    use super::{resolve_retail_map_path, GameLogic, GameMode};
+
+    let path = resolve_retail_map_path(map_name)?;
+    let mut logic = GameLogic::new();
+    logic.start_new_game(GameMode::Skirmish);
+    let s = path.to_string_lossy();
+    let loaded = logic.load_map(s.as_ref()) || logic.load_map(map_name);
+    if !loaded {
+        return None;
+    }
+    let before = logic.get_frame();
+    for _ in 0..LIVE_MAP_LOAD_FRAME_ADVANCE_WAVE170 {
+        logic.update();
+    }
+    let advanced = logic.get_frame().saturating_sub(before);
+    let object_count = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+        .objects
+        .len();
+    Some((advanced, object_count))
 }
 
 /// Live residual: when MapsZH present, Defcon6 and Lone Eagle must load + advance.
-/// When absent, AssetsUnavailable is soft-ok (CI without maps).
+/// When absent, soft-ok (CI without maps).
 pub fn simulate_live_map_load_honesty() -> bool {
     use super::{resolve_retail_map_path, DEFAULT_SKIRMISH_MAP_WAVE169, LONE_EAGLE_MAP_WAVE169};
-    use crate::map_frame_scenario::MapFrameStatus;
 
     if !honesty_live_map_load_residual_pack_wave170() {
         return false;
@@ -94,11 +109,7 @@ pub fn simulate_live_map_load_honesty() -> bool {
 
     // No maps checked out — soft residual (still require pack honesty).
     if defcon_path.is_none() && lone_path.is_none() {
-        let probe = live_load_one(DEFAULT_SKIRMISH_MAP_WAVE169);
-        return matches!(
-            probe.status,
-            MapFrameStatus::AssetsUnavailable | MapFrameStatus::Success
-        );
+        return true;
     }
 
     // Partial tree fail-closed.
@@ -106,24 +117,22 @@ pub fn simulate_live_map_load_honesty() -> bool {
         return false;
     };
 
-    let defcon = live_load_one(DEFAULT_SKIRMISH_MAP_WAVE169);
-    if !defcon.map_loaded || !matches!(defcon.status, MapFrameStatus::Success) {
+    let Some((defcon_adv, _)) = live_load_one(DEFAULT_SKIRMISH_MAP_WAVE169) else {
         return false;
-    }
-    if defcon.frames_advanced == 0 {
+    };
+    if defcon_adv == 0 {
         return false;
     }
 
-    let lone = live_load_one(LONE_EAGLE_MAP_WAVE169);
-    if !lone.map_loaded || !matches!(lone.status, MapFrameStatus::Success) {
+    let Some((lone_adv, lone_objs)) = live_load_one(LONE_EAGLE_MAP_WAVE169) else {
         return false;
-    }
-    if lone.frames_advanced == 0 {
+    };
+    if lone_adv == 0 {
         return false;
     }
     // Lone Eagle behavior_gate residual historically loads hundreds of objects.
     // Accept any non-empty world as materialisation; do not hardcode 903.
-    if lone.object_count == 0 {
+    if lone_objs == 0 {
         return false;
     }
     true

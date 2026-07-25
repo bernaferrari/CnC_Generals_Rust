@@ -210,6 +210,7 @@ pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
 pub mod host_live_map_load_residual_wave170;
+pub mod host_live_presentation_seed_residual_wave171;
 pub mod host_loading_screen_residual_wave135;
 pub mod host_main_menu_buttons_residual_wave118;
 pub mod host_main_menu_campaign_residual_wave119;
@@ -1569,6 +1570,13 @@ pub use host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170,
     honesty_live_map_load_residual_pack_wave170, simulate_live_map_load_honesty,
+};
+pub use host_live_presentation_seed_residual_wave171::{
+    honesty_live_presentation_seed_method_names_residual_wave171,
+    honesty_live_presentation_seed_nav_commands_residual_wave171,
+    honesty_live_presentation_seed_residual_pack_wave171,
+    honesty_render_execute_presentation_only_source,
+    honesty_seed_presentation_after_match_start_source, simulate_live_presentation_seed_honesty,
 };
 pub use host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
