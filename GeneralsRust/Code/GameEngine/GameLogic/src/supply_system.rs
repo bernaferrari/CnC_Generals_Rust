@@ -36,6 +36,12 @@ use crate::state_machine::{
 use game_engine::common::system::snapshot::Snapshotable;
 use game_engine::common::system::xfer::{Xfer, XferVersion};
 
+/// Wave 298: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 pub type ObjectID = u32;
 pub type PlayerIndex = u32;
 pub type Real = f32;
@@ -778,6 +784,11 @@ const ST_DOCKING: u32 = 4;
 const REGROUP_SUCCESS_DISTANCE_SQUARED: Real = 225.0;
 
 fn resolve_supply_object(id: ObjectID) -> Result<Arc<RwLock<Object>>, String> {
+    // Wave 298: empty dual-world → not found.
+    if dual_world_registry_unavailable() {
+        return Err("Supply object unavailable on host-only path".into());
+    }
+
     crate::helpers::TheGameLogic::find_object_by_id(id)
         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
         .ok_or_else(|| format!("SupplyTruck object {id} not found"))
@@ -1652,6 +1663,11 @@ impl SupplyTruckAIUpdate {
     }
 
     fn update_drawable_supply_status(&self) {
+        // Wave 298: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.object_id == INVALID_ID {
             return;
         }
@@ -1729,6 +1745,11 @@ impl SupplyTruckAIUpdate {
     /// Gain one box (when collecting from warehouse)
     /// Matches C++ SupplyTruckAIUpdate::gainOneBox() - SupplyTruckAIUpdate.cpp:132
     pub fn gain_one_box(&mut self, remaining_stock: i32) -> bool {
+        // Wave 298: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.number_boxes >= self.data.max_boxes {
             return false;
         }
@@ -1874,6 +1895,11 @@ impl SupplyTruckAIInterface for SupplyTruckAIUpdate {
         &self,
         dock_id: ObjectID,
     ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 298: empty dual-world → Ok(0).
+        if dual_world_registry_unavailable() {
+            return Ok(0);
+        }
+
         let Some(dock) = crate::helpers::TheGameLogic::find_object_by_id(dock_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(dock_id))
         else {
@@ -1947,6 +1973,11 @@ impl SupplyTruckAIInterface for WorkerAIUpdate {
         &self,
         dock_id: ObjectID,
     ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 298: empty dual-world → Ok(0).
+        if dual_world_registry_unavailable() {
+            return Ok(0);
+        }
+
         let Some(dock) = crate::helpers::TheGameLogic::find_object_by_id(dock_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(dock_id))
         else {
@@ -2655,6 +2686,11 @@ impl WorkerAIUpdate {
     }
 
     fn update_drawable_supply_status(&self) {
+        // Wave 298: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.object_id == INVALID_ID {
             return;
         }
@@ -2853,6 +2889,11 @@ impl WorkerAIUpdate {
     }
 
     fn new_task(&mut self, task: WorkerDozerTaskSlot, target_id: ObjectID) {
+        // Wave 298: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.object_id == INVALID_ID {
             return;
         }
@@ -2934,6 +2975,11 @@ impl WorkerAIUpdate {
 
     /// Issue a repair task to this worker (matches C++ WorkerAIUpdate::privateRepair).
     pub fn set_repair_target(&mut self, target_id: ObjectID, cmd_source: CommandSourceType) {
+        // Wave 298: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.object_id == INVALID_ID {
             return;
         }
@@ -2972,6 +3018,11 @@ impl WorkerAIUpdate {
         target_id: ObjectID,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 298: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.object_id == INVALID_ID {
             return;
         }
@@ -3027,6 +3078,11 @@ impl WorkerAIUpdate {
     }
 
     fn update_dozer_task(&mut self) {
+        // Wave 298: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         const MIN_ACTION_TOLERANCE: Real = 70.0;
         let repair_rate = self.get_repair_health_per_second();
         let clear_current = |this: &mut WorkerAIUpdate| {
@@ -3403,6 +3459,11 @@ impl WorkerAIUpdate {
     }
 
     pub fn gain_one_box(&mut self, remaining_stock: i32) -> bool {
+        // Wave 298: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.number_boxes >= self.data.max_boxes {
             return false;
         }
