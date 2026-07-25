@@ -57,6 +57,12 @@ use gamelogic::player::{player_list, Player};
 use gamelogic::system::disguise_manager::get_disguise_manager;
 use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
 
+/// Wave 273: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 const CMD_CONTEXTMODE_COMMAND: u32 = 0x0000_0200;
 
 /// Re-export of the INI settings type from the Common crate's INI parser.
@@ -1441,6 +1447,11 @@ impl InGameUI {
     }
 
     fn source_has_overridable_special_power_destination(&self, source_object_id: ObjectID) -> bool {
+        // Wave 273: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if source_object_id == 0 {
             return false;
         }
@@ -1478,6 +1489,11 @@ impl InGameUI {
         target_id: ObjectID,
         options_bits: u32,
     ) -> bool {
+        // Wave 273: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let options = SpecialPowerCommandOption::from_bits_truncate(options_bits);
         let needs_object = options.intersects(
             SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
@@ -1641,6 +1657,11 @@ impl InGameUI {
         template_object_id: ObjectID,
         add_to_selection: bool,
     ) -> Result<()> {
+        // Wave 273: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(reference) = OBJECT_REGISTRY.get_object(template_object_id) else {
             return Ok(());
         };
@@ -2379,6 +2400,11 @@ impl InGameUI {
     /// health bars (green/yellow/red based on HP), veterancy pips, and
     /// selection rings on terrain.
     fn draw_selection_anims(&self, renderer: &mut UIRenderer) -> std::result::Result<(), String> {
+        // Wave 273: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let selected = self.get_selection();
         for &obj_id in &selected {
             let obj = match OBJECT_REGISTRY.get_object(obj_id) {
@@ -3091,6 +3117,11 @@ impl InGameUI {
     }
 
     pub fn is_any_selected_kind_of(&self, kind_of: KindOf) -> bool {
+        // Wave 273: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let selection_manager = get_selection_manager();
         let Ok(manager) = selection_manager.read() else {
             return false;
@@ -3111,6 +3142,11 @@ impl InGameUI {
     }
 
     pub fn is_all_selected_kind_of(&self, kind_of: KindOf) -> bool {
+        // Wave 273: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let selection_manager = get_selection_manager();
         let Ok(manager) = selection_manager.read() else {
             return true; // vacuously true when nothing selected (matches C++ empty-loop behavior)
@@ -3165,6 +3201,11 @@ impl InGameUI {
     }
 
     fn select_matching_across_region(&mut self, region: &IRegion2D) -> i32 {
+        // Wave 273: empty dual-world → zero.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         let selection_manager = get_selection_manager();
         let selected_ids = if let Ok(manager) = selection_manager.read() {
             manager
@@ -3235,6 +3276,11 @@ impl InGameUI {
     }
 
     pub fn select_matching_across_map(&mut self) -> i32 {
+        // Wave 273: empty dual-world → zero.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         // C++: InGameUI.cpp:4671 (selectMatchingAcrossRegion with NULL region)
         // Gets templates from current selection, iterates all objects, selects matching
         let selection_manager = get_selection_manager();
@@ -3933,6 +3979,11 @@ impl InGameUI {
     }
 
     fn ignored_gui_slaver_id_for_object(object: &Object) -> Option<ObjectID> {
+        // Wave 273: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if !object.is_kind_of(KindOf::IgnoredInGui) {
             return None;
         }
@@ -4209,6 +4260,11 @@ impl InGameUI {
     }
 
     fn command_hint_source_context(object_id: u32) -> Option<(bool, bool)> {
+        // Wave 273: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.get_object(object_id).and_then(|obj| {
             obj.read().ok().map(|guard| {
                 (
@@ -4557,6 +4613,11 @@ impl InGameUI {
     /// mouse cursor and radius cursor as a preview of what command would be
     /// issued if the player clicked.
     pub fn create_command_hint(&mut self, hint_type: CommandHintType) {
+        // Wave 273: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Early exit: no cursor hints while scrolling, selecting, or in playback
         if !Self::command_hint_update_allowed(
             self.is_scrolling,
@@ -4854,6 +4915,11 @@ impl InGameUI {
     /// Simplified from C++: player-name suffixes and special object cases are
     /// deferred until the rest of the tooltip path is ported.
     pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
+        // Wave 273: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Phase 1: Early exit guards
         // C++: if (m_isScrolling || m_isSelecting) return;
         if self.is_scrolling || self.is_selecting {
