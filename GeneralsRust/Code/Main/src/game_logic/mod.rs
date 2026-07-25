@@ -237,6 +237,7 @@ pub mod host_live_gameworld_presentation_view_residual_wave186;
 pub mod host_live_gameworld_production_writeback_residual_wave180;
 pub mod host_live_gameworld_projectile_ai_residual_wave184;
 pub mod host_live_gameworld_shadow_overlay_residual_wave172;
+pub mod host_live_golden_mopup_honesty_residual_wave208;
 pub mod host_live_map_load_residual_wave170;
 pub mod host_live_presentation_append_missing_residual_wave192;
 pub mod host_live_presentation_build_for_engine_residual_wave195;
@@ -1758,6 +1759,11 @@ pub use host_live_gameworld_shadow_overlay_residual_wave172::{
     honesty_live_gameworld_shadow_overlay_residual_pack_wave172,
     honesty_seed_presentation_shadow_overlay_source,
     simulate_live_gameworld_shadow_overlay_honesty,
+};
+pub use host_live_golden_mopup_honesty_residual_wave208::{
+    honesty_live_golden_mopup_honesty_method_names_residual_wave208,
+    honesty_live_golden_mopup_honesty_nav_commands_residual_wave208,
+    honesty_live_golden_mopup_honesty_residual_pack_wave208, simulate_live_golden_mopup_honesty,
 };
 pub use host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
