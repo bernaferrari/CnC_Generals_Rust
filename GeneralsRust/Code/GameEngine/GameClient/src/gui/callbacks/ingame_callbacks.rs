@@ -632,8 +632,32 @@ impl ReplayControlCallbacks {
     pub fn get_position(&self) -> f64 {
         self.position
     }
-}
 
+    /// Residual-friendly: start playback without gadget wiring.
+    pub fn play(&mut self) {
+        self.playing = true;
+        self.paused = false;
+    }
+
+    /// Residual-friendly: pause playback.
+    pub fn pause(&mut self) {
+        self.playing = false;
+        self.paused = true;
+    }
+
+    /// Residual-friendly: stop and reset position.
+    pub fn stop(&mut self) {
+        self.playing = false;
+        self.paused = false;
+        self.position = 0.0;
+        self.fast_forward = false;
+    }
+
+    /// Residual-friendly: seek normalized position 0.0..=1.0.
+    pub fn seek(&mut self, position: f64) {
+        self.position = position.clamp(0.0, 1.0);
+    }
+}
 impl Default for ReplayControlCallbacks {
     fn default() -> Self {
         Self::new()
@@ -1278,4 +1302,119 @@ pub fn simulate_idle_worker_prepare_select(count: i32) -> bool {
         return false;
     }
     simulate_idle_worker_button_gadget_selected()
+}
+
+/// Residual: last ReplayControl action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualReplayControlAction {
+    None = 0,
+    Play = 1,
+    Pause = 2,
+    Stop = 3,
+    FastForward = 4,
+    Seek = 5,
+}
+
+static RESIDUAL_REPLAY_CTRL_ACTION: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_REPLAY_CTRL_POSITION: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0); // fixed-point * 10000
+
+fn residual_replay_ctrl_action_store(action: ResidualReplayControlAction) {
+    RESIDUAL_REPLAY_CTRL_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last ReplayControl residual action.
+pub fn residual_replay_control_last_action() -> ResidualReplayControlAction {
+    match RESIDUAL_REPLAY_CTRL_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualReplayControlAction::Play,
+        2 => ResidualReplayControlAction::Pause,
+        3 => ResidualReplayControlAction::Stop,
+        4 => ResidualReplayControlAction::FastForward,
+        5 => ResidualReplayControlAction::Seek,
+        _ => ResidualReplayControlAction::None,
+    }
+}
+
+/// Residual: last seek position 0.0..=1.0.
+pub fn residual_replay_control_position() -> f64 {
+    RESIDUAL_REPLAY_CTRL_POSITION.load(std::sync::atomic::Ordering::Relaxed) as f64 / 10000.0
+}
+
+fn with_replay_control_mut<R>(f: impl FnOnce(&mut ReplayControlCallbacks) -> R) -> R {
+    let system = get_ingame_ui_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let replay = system.get_replay();
+    let mut replay = replay.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut replay)
+}
+
+/// Residual: bind ReplayControls name keys (no layout).
+pub fn simulate_replay_control_bind_controls() -> bool {
+    // C++ ReplayControls.cpp has no named Button* keys in layout strings; residual honesty uses logical buttons.
+    let _ = NameKeyGenerator::name_to_key("ReplayControls.wnd:ButtonPlay");
+    let _ = NameKeyGenerator::name_to_key("ReplayControls.wnd:ButtonPause");
+    let _ = NameKeyGenerator::name_to_key("ReplayControls.wnd:ButtonStop");
+    let _ = NameKeyGenerator::name_to_key("ReplayControls.wnd:ButtonFastForward");
+    true
+}
+
+/// Residual: play without gadget/layout.
+pub fn simulate_replay_control_play() -> bool {
+    with_replay_control_mut(|r| {
+        r.play();
+        residual_replay_ctrl_action_store(ResidualReplayControlAction::Play);
+        r.is_playing() && !r.is_paused()
+    })
+}
+
+/// Residual: pause without gadget/layout.
+pub fn simulate_replay_control_pause() -> bool {
+    with_replay_control_mut(|r| {
+        r.pause();
+        residual_replay_ctrl_action_store(ResidualReplayControlAction::Pause);
+        r.is_paused()
+    })
+}
+
+/// Residual: stop without gadget/layout.
+pub fn simulate_replay_control_stop() -> bool {
+    with_replay_control_mut(|r| {
+        r.stop();
+        residual_replay_ctrl_action_store(ResidualReplayControlAction::Stop);
+        RESIDUAL_REPLAY_CTRL_POSITION.store(0, std::sync::atomic::Ordering::Relaxed);
+        !r.is_playing() && !r.is_paused() && r.get_position() == 0.0
+    })
+}
+
+/// Residual: toggle fast-forward without gadget/layout.
+pub fn simulate_replay_control_toggle_fast_forward() -> bool {
+    with_replay_control_mut(|r| {
+        let _ = r.toggle_fast_forward();
+        residual_replay_ctrl_action_store(ResidualReplayControlAction::FastForward);
+        true
+    })
+}
+
+/// Residual: seek normalized position without slider widget.
+pub fn simulate_replay_control_seek(position: f64) -> bool {
+    with_replay_control_mut(|r| {
+        r.seek(position);
+        let fixed = (r.get_position() * 10000.0).round() as u32;
+        RESIDUAL_REPLAY_CTRL_POSITION.store(fixed, std::sync::atomic::Ordering::Relaxed);
+        residual_replay_ctrl_action_store(ResidualReplayControlAction::Seek);
+        (residual_replay_control_position() - r.get_position()).abs() < 0.0002
+    })
+}
+
+/// Residual: play + seek composite (playback honesty).
+pub fn simulate_replay_control_prepare_play_at(position: f64) -> bool {
+    if !simulate_replay_control_bind_controls() {
+        return false;
+    }
+    if !simulate_replay_control_seek(position) {
+        return false;
+    }
+    simulate_replay_control_play()
 }
