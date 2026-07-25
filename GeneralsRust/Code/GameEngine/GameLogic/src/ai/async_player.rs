@@ -18,6 +18,12 @@ use tokio::sync::{mpsc, oneshot, Semaphore};
 use tokio::task::{JoinHandle, JoinSet};
 use async_trait::async_trait;
 
+/// Wave 290: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// AI difficulty levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiDifficulty {
@@ -653,6 +659,11 @@ impl AsyncAiPlayer {
 
     /// Update game state snapshot
     async fn update_game_state(&self) -> GameLogicResult<()> {
+        // Wave 290: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let frame = TheGameLogic::get_frame();
         let game_time = Duration::from_secs_f32(frame as f32 / LOGICFRAMES_PER_SECOND as f32);
 
@@ -677,8 +688,8 @@ impl AsyncAiPlayer {
         }
 
         let now = Instant::now();
-        // Host path: dual-world factory empty — no enemy residual scan.
-        if !OBJECT_REGISTRY.is_empty() {
+        // Wave 290: dual-world factory empty — no enemy residual scan.
+        if !dual_world_registry_unavailable() {
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
         let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
             Some(v) => v,
@@ -727,8 +738,8 @@ impl AsyncAiPlayer {
         let enemy_positions: Vec<Coord3D> = known_enemies.values().map(|info| info.position).collect();
 
         let mut resource_sites = Vec::new();
-        // Host path: dual-world factory empty — no resource residual.
-        if !OBJECT_REGISTRY.is_empty() {
+        // Wave 290: dual-world factory empty — no resource residual.
+        if !dual_world_registry_unavailable() {
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
         let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
             Some(v) => v,
@@ -796,8 +807,8 @@ impl AsyncAiPlayer {
             });
         }
 
-        // Host path: empty dual-world registry → map_control from owned count only.
-        let total_objects = if OBJECT_REGISTRY.is_empty() {
+        // Wave 290: empty dual-world registry → map_control from owned count only.
+        let total_objects = if dual_world_registry_unavailable() {
             owned_objects.len().max(1) as f32
         } else {
             OBJECT_REGISTRY.get_all_object_ids().len().max(1) as f32
@@ -831,6 +842,11 @@ impl AsyncAiPlayer {
 
     /// Evaluate current threats
     async fn evaluate_threats(&self) -> GameLogicResult<()> {
+        // Wave 290: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let previous_overall = self.context.read()
             .ok()
             .map(|ctx| ctx.threat_assessment.overall_threat)
@@ -1131,6 +1147,11 @@ impl AsyncAiPlayer {
         &self,
         context: &DecisionContext,
     ) -> GameLogicResult<Vec<AiTask>> {
+        // Wave 290: empty dual-world → no tasks.
+        if dual_world_registry_unavailable() {
+            return Ok(Vec::new());
+        }
+
         let mut tasks = Vec::new();
 
         let best_resource = context
