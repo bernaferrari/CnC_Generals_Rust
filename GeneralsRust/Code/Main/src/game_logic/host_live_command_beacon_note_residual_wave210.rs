@@ -100,7 +100,7 @@ pub fn honesty_note_beacon_api_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 300)];
+    let body = &src[i..src.len().min(i + 800)];
     body.contains("recent_beacons.push")
 }
 

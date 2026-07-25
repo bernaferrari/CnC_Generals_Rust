@@ -2116,6 +2116,9 @@ pub struct GameLogic {
     script_named_timer_display_shown: bool,
     script_superweapon_display_enabled: bool,
     script_superweapon_hidden_objects: HashSet<ObjectId>,
+    /// Host-owned active beacon world positions (presentation freeze; Wave 211).
+    /// Mirrors beacon_manager place/remove without mid-frame Mutex dual-read.
+    host_beacons: Vec<Vec3>,
     /// Beacon locations created this frame for HUD highlighting/bloom.
     recent_beacons: Vec<Vec3>,
     script_engine: Option<Arc<ScriptingEngine>>,
@@ -3538,6 +3541,7 @@ impl GameLogic {
             script_named_timer_display_shown: true,
             script_superweapon_display_enabled: true,
             script_superweapon_hidden_objects: HashSet::new(),
+            host_beacons: Vec::new(),
             recent_beacons: Vec::new(),
             script_engine: None,
             script_event_pump_in_flight: Arc::new(AtomicBool::new(false)),
@@ -4077,6 +4081,7 @@ impl GameLogic {
         self.script_named_timer_display_shown = true;
         self.script_superweapon_display_enabled = true;
         self.script_superweapon_hidden_objects.clear();
+        self.host_beacons.clear();
         self.recent_beacons.clear();
         self.terrain = None;
         self.runtime_road_segments.clear();
@@ -67613,7 +67618,23 @@ impl GameLogic {
 
     /// Track a newly placed beacon so the UI can bloom/highlight it this frame.
     pub fn note_beacon_placed(&mut self, position: Vec3) {
+        // Wave 211: host-owned active list + frame bloom residual.
+        const MATCH: f32 = 3.0; // beacon_manager BEACON_MATCH_THRESHOLD residual
+        self.host_beacons
+            .retain(|p| (*p - position).length() > MATCH);
+        self.host_beacons.push(position);
         self.recent_beacons.push(position);
+    }
+
+    /// Wave 211: remove latest host beacon for player place-order residual
+    /// (manager remove_latest is player-scoped; host list is position-only).
+    pub fn note_beacon_removed_latest(&mut self) {
+        let _ = self.host_beacons.pop();
+    }
+
+    /// Active host beacon positions for presentation freeze.
+    pub fn host_beacons(&self) -> &[Vec3] {
+        &self.host_beacons
     }
 
     /// Play radar audio with a short cooldown to avoid stacking duplicates if many events fire simultaneously.

@@ -2191,7 +2191,7 @@ pub struct PresentationFrame {
     /// Skipped in serde (Duration/player payload is host snapshot residual only).
     #[serde(skip)]
     pub victory_summary: Option<crate::game_logic::VictorySummary>,
-    /// Beacon world positions residual (snapshot_beacons / host place).
+    /// Beacon world positions residual (host_beacons preferred; manager snapshot fallback).
     pub beacons: Vec<Vec3>,
     /// Beacons placed this frame (HUD bloom residual).
     pub new_beacons: Vec<Vec3>,
@@ -3297,18 +3297,24 @@ impl PresentationFrame {
             alliance_events: Vec::new(),
             victory_summary: None,
             beacons: {
-                #[cfg(feature = "game_client")]
-                {
-                    use gamelogic::system::beacon_manager::snapshot_beacons;
-                    snapshot_beacons()
-                        .into_iter()
-                        .map(|b| glam::Vec3::new(b.position.x, b.position.y, b.position.z))
-                        .take(64)
-                        .collect()
-                }
-                #[cfg(not(feature = "game_client"))]
-                {
-                    Vec::new()
+                // Wave 211: prefer host-owned beacon list (no Mutex dual-read).
+                let host = logic.host_beacons();
+                if !host.is_empty() {
+                    host.iter().copied().take(64).collect()
+                } else {
+                    #[cfg(feature = "game_client")]
+                    {
+                        use gamelogic::system::beacon_manager::snapshot_beacons;
+                        snapshot_beacons()
+                            .into_iter()
+                            .map(|b| glam::Vec3::new(b.position.x, b.position.y, b.position.z))
+                            .take(64)
+                            .collect()
+                    }
+                    #[cfg(not(feature = "game_client"))]
+                    {
+                        Vec::new()
+                    }
                 }
             },
             new_beacons: logic.recent_beacons().iter().copied().take(32).collect(),
