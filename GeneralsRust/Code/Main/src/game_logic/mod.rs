@@ -255,6 +255,7 @@ pub mod host_live_hotkey_move_attack_selection_presentation_only_residual_wave22
 pub mod host_live_hotkey_selection_camera_presentation_only_residual_wave226;
 pub mod host_live_local_team_presentation_only_residual_wave220;
 pub mod host_live_map_load_residual_wave170;
+pub mod host_live_mouse_input_presentation_only_residual_wave236;
 pub mod host_live_os_input_command_path_residual_wave209;
 pub mod host_live_path_guard_authority_api_residual_wave225;
 pub mod host_live_pick_object_presentation_only_residual_wave222;
@@ -1892,6 +1893,12 @@ pub use host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170,
     honesty_live_map_load_residual_pack_wave170, simulate_live_map_load_honesty,
+};
+pub use host_live_mouse_input_presentation_only_residual_wave236::{
+    honesty_live_mouse_input_presentation_only_method_names_residual_wave236,
+    honesty_live_mouse_input_presentation_only_nav_commands_residual_wave236,
+    honesty_live_mouse_input_presentation_only_residual_pack_wave236,
+    simulate_live_mouse_input_presentation_only_honesty,
 };
 pub use host_live_os_input_command_path_residual_wave209::{
     honesty_live_os_input_command_path_method_names_residual_wave209,

@@ -730,6 +730,12 @@ pub struct MouseCommandContext {
     pub target_presentation: Option<PresentationTargetHint>,
     /// Wave 229: presentation freeze for selected-unit capabilities (InGame).
     pub selected_presentation: Vec<PresentationSelectedUnitHint>,
+    /// Wave 236: presentation-frozen box-select unit ids (drag LMB).
+    #[serde(default)]
+    pub presentation_box_select_units: Vec<ObjectId>,
+    /// Wave 236: presentation-frozen select-similar unit ids (double-click LMB).
+    #[serde(default)]
+    pub presentation_select_similar_units: Vec<ObjectId>,
     pub screen_position: Vec2,
     pub viewport_size: Option<Vec2>,
     pub world_min: Option<Vec3>,
@@ -906,12 +912,31 @@ impl CommandSystem {
         target_id: ObjectId,
         player_id: u32,
         modifier_keys: ModifierKeys,
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
+        presentation_similar: &[ObjectId],
     ) -> Option<GameCommand> {
+        // Wave 236: prefer presentation-frozen similar unit ids.
+        if !presentation_similar.is_empty() {
+            let mut units = presentation_similar.to_vec();
+            if !units.contains(&target_id) {
+                units.push(target_id);
+            }
+            let command_units = units.clone();
+            return Some(self.create_command(
+                CommandType::CreateSelectedGroup {
+                    create_new: true,
+                    units: command_units,
+                },
+                units.as_slice(),
+                player_id,
+                modifier_keys,
+            ));
+        }
+
+        let game_logic = game_logic?;
         let target = game_logic.get_object(target_id)?;
         let player = game_logic.get_player(player_id)?;
 
-        // Only allow selecting similar units that belong to the same team
         if target.team != player.team {
             return None;
         }
@@ -966,7 +991,7 @@ impl CommandSystem {
         context: &MouseCommandContext,
         selected_units: &[ObjectId],
         player_id: u32,
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
     ) -> Option<GameCommand> {
         if context.is_drag {
             self.mouse_drag_start = context.drag_start.or(Some(context.screen_position));
@@ -993,7 +1018,7 @@ impl CommandSystem {
         context: &MouseCommandContext,
         selected_units: &[ObjectId],
         player_id: u32,
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
     ) -> Option<GameCommand> {
         match &self.current_mode {
             CommandMode::Normal => {
@@ -1013,6 +1038,7 @@ impl CommandSystem {
                             player_id,
                             context.modifier_keys,
                             game_logic,
+                            &context.presentation_select_similar_units,
                         ) {
                             return Some(command);
                         }
@@ -1079,7 +1105,7 @@ impl CommandSystem {
         context: &MouseCommandContext,
         selected_units: &[ObjectId],
         player_id: u32,
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
     ) -> Option<GameCommand> {
         if selected_units.is_empty() {
             return None;
@@ -1149,7 +1175,7 @@ impl CommandSystem {
         _context: &MouseCommandContext,
         _selected_units: &[ObjectId],
         _player_id: u32,
-        _game_logic: &GameLogic,
+        _game_logic: Option<&GameLogic>,
     ) -> Option<GameCommand> {
         // Middle click typically used for camera controls
         None
@@ -1160,7 +1186,7 @@ impl CommandSystem {
         &self,
         context: &MouseCommandContext,
         selected_units: &[ObjectId],
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
     ) -> CommandType {
         if let Some(target_id) = context.target_object {
             // Wave 228: prefer presentation-frozen target identity when installed.
@@ -1174,67 +1200,53 @@ impl CommandSystem {
                     &context.selected_presentation,
                     target_id,
                     hint,
-                    // Wave 235: live dual-read only when presentation selection empty.
+                    // Wave 235/236: live dual-read only when presentation selection empty.
                     if context.selected_presentation.is_empty() {
-                        Some(game_logic)
+                        game_logic
                     } else {
                         None
                     },
                 ) {
                     return cmd;
                 }
-            } else if let Some(target_obj) = game_logic.get_object(target_id) {
-                // Boot residual only — no presentation target freeze.
-                // Check if target is a resource/harvestable and selected units can gather
-                if self.can_gather_from_target(selected_units, target_obj, game_logic) {
-                    return CommandType::Gather { target_id };
-                }
-
-                // C++ capture residual: capture-capable infantry/heroes → neutral
-                // (or unowned tech) structure preferred over attack when applicable.
-                if self.can_capture_building(selected_units, target_obj, game_logic) {
-                    // Prefer capture on Neutral structures; enemy still defaults to attack
-                    // unless no attacker can fire (unarmed infantry with capture upgrade).
-                    let prefer_capture = target_obj.team == Team::Neutral
-                        || !self.can_attack_target(selected_units, target_obj, game_logic);
-                    if prefer_capture {
-                        return CommandType::CaptureBuilding { target_id };
+            } else if let Some(gl) = game_logic {
+                if let Some(target_obj) = gl.get_object(target_id) {
+                    // Boot residual only — no presentation target freeze.
+                    if self.can_gather_from_target(selected_units, target_obj, gl) {
+                        return CommandType::Gather { target_id };
                     }
-                }
-
-                // Check if target is enemy - attack
-                if self.can_attack_target(selected_units, target_obj, game_logic) {
-                    return CommandType::AttackObject { target_id };
-                }
-
-                // C++ MSG_RESUME_CONSTRUCTION residual: dozer → unfinished ally structure.
-                if self.can_resume_construction(selected_units, target_obj, game_logic) {
-                    return CommandType::ResumeConstruction { target_id };
-                }
-
-                // Check if target is repairable
-                if self.can_repair_target(selected_units, target_obj, game_logic) {
-                    return CommandType::Repair { target_id };
-                }
-
-                // Check if target is enterable
-                if self.can_enter_target(selected_units, target_obj, game_logic) {
-                    return CommandType::Enter { target_id };
-                }
-
-                // Check if target provides healing/repair services
-                if self.can_get_serviced_at_target(selected_units, target_obj, game_logic) {
-                    let target_building_type = target_obj
-                        .building_data
-                        .as_ref()
-                        .map(|b| b.building_type)
-                        .unwrap_or(BuildingType::CommandCenter);
-                    if target_building_type == BuildingType::HealPad
-                        || target_obj.is_medical_facility()
-                    {
-                        return CommandType::GetHealed { target_id };
-                    } else {
-                        return CommandType::GetRepaired { target_id };
+                    if self.can_capture_building(selected_units, target_obj, gl) {
+                        let prefer_capture = target_obj.team == Team::Neutral
+                            || !self.can_attack_target(selected_units, target_obj, gl);
+                        if prefer_capture {
+                            return CommandType::CaptureBuilding { target_id };
+                        }
+                    }
+                    if self.can_attack_target(selected_units, target_obj, gl) {
+                        return CommandType::AttackObject { target_id };
+                    }
+                    if self.can_resume_construction(selected_units, target_obj, gl) {
+                        return CommandType::ResumeConstruction { target_id };
+                    }
+                    if self.can_repair_target(selected_units, target_obj, gl) {
+                        return CommandType::Repair { target_id };
+                    }
+                    if self.can_enter_target(selected_units, target_obj, gl) {
+                        return CommandType::Enter { target_id };
+                    }
+                    if self.can_get_serviced_at_target(selected_units, target_obj, gl) {
+                        let target_building_type = target_obj
+                            .building_data
+                            .as_ref()
+                            .map(|b| b.building_type)
+                            .unwrap_or(BuildingType::CommandCenter);
+                        if target_building_type == BuildingType::HealPad
+                            || target_obj.is_medical_facility()
+                        {
+                            return CommandType::GetHealed { target_id };
+                        } else {
+                            return CommandType::GetRepaired { target_id };
+                        }
                     }
                 }
             }
@@ -1252,8 +1264,33 @@ impl CommandSystem {
         &mut self,
         context: &MouseCommandContext,
         player_id: u32,
-        game_logic: &GameLogic,
+        game_logic: Option<&GameLogic>,
     ) -> GameCommand {
+        // Wave 236: prefer presentation-frozen box-select ids when provided.
+        if !context.presentation_box_select_units.is_empty() {
+            return self.create_command(
+                CommandType::CreateSelectedGroup {
+                    create_new: !context.modifier_keys.shift,
+                    units: context.presentation_box_select_units.clone(),
+                },
+                &context.presentation_box_select_units,
+                player_id,
+                context.modifier_keys,
+            );
+        }
+
+        let Some(game_logic) = game_logic else {
+            return self.create_command(
+                CommandType::CreateSelectedGroup {
+                    create_new: !context.modifier_keys.shift,
+                    units: Vec::new(),
+                },
+                &[],
+                player_id,
+                context.modifier_keys,
+            );
+        };
+
         let player = match game_logic.get_player(player_id) {
             Some(player) => player,
             None => {
@@ -1291,10 +1328,8 @@ impl CommandSystem {
             if obj.team != player.team || !obj.is_selectable() {
                 continue;
             }
-
-            let obj_pos = obj.get_position();
-            if obj_pos.x >= min_x && obj_pos.x <= max_x && obj_pos.z >= min_z && obj_pos.z <= max_z
-            {
+            let p = obj.get_position();
+            if p.x >= min_x && p.x <= max_x && p.z >= min_z && p.z <= max_z {
                 units.push(id);
             }
         }
@@ -1302,9 +1337,9 @@ impl CommandSystem {
         self.create_command(
             CommandType::CreateSelectedGroup {
                 create_new: !context.modifier_keys.shift,
-                units,
+                units: units.clone(),
             },
-            &[],
+            &units,
             player_id,
             context.modifier_keys,
         )
@@ -2732,6 +2767,8 @@ mod tests {
             target_object: None,
             target_presentation: None,
             selected_presentation: Vec::new(),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: Vec2::new(400.0, 300.0),
             viewport_size: None,
             world_min: None,
@@ -2748,7 +2785,8 @@ mod tests {
         let game_logic = GameLogic::new();
         let selected_units = vec![ObjectId(1)];
 
-        if let Some(command) = system.process_mouse_input(&context, &selected_units, 0, &game_logic)
+        if let Some(command) =
+            system.process_mouse_input(&context, &selected_units, 0, Some(&game_logic))
         {
             match command.command_type {
                 CommandType::MoveTo { destination, .. } => {
@@ -2824,6 +2862,8 @@ mod tests {
             target_object: Some(ObjectId(2)),
             target_presentation: None,
             selected_presentation: Vec::new(),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: Vec2::new(0.0, 0.0),
             viewport_size: None,
             world_min: None,
@@ -2838,7 +2878,7 @@ mod tests {
         };
 
         let command = system
-            .process_mouse_input(&context, &[ObjectId(1)], 0, &game_logic)
+            .process_mouse_input(&context, &[ObjectId(1)], 0, Some(&game_logic))
             .expect("right click should generate a command");
         assert!(
             matches!(
@@ -2882,6 +2922,8 @@ mod tests {
             target_object: Some(ObjectId(11)),
             target_presentation: None,
             selected_presentation: Vec::new(),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: Vec2::new(0.0, 0.0),
             viewport_size: None,
             world_min: None,
@@ -2896,7 +2938,7 @@ mod tests {
         };
 
         let command = system
-            .process_mouse_input(&context, &[ObjectId(10)], 0, &game_logic)
+            .process_mouse_input(&context, &[ObjectId(10)], 0, Some(&game_logic))
             .expect("right click should generate a command");
         assert!(
             matches!(
@@ -2936,6 +2978,8 @@ mod tests {
             target_object: None,
             target_presentation: None,
             selected_presentation: Vec::new(),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: Vec2::new(0.0, 0.0),
             viewport_size: Some(Vec2::new(1024.0, 768.0)),
             world_min: Some(Vec3::new(-256.0, 0.0, -256.0)),
@@ -2950,7 +2994,7 @@ mod tests {
         };
 
         let command = system
-            .process_mouse_input(&context, &[], 0, &game_logic)
+            .process_mouse_input(&context, &[], 0, Some(&game_logic))
             .expect("drag selection should produce command");
 
         match command.command_type {
@@ -3477,6 +3521,8 @@ mod tests {
             target_object: Some(target),
             target_presentation: None,
             selected_presentation: Vec::new(),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: glam::Vec2::ZERO,
             viewport_size: None,
             world_min: None,
@@ -3495,7 +3541,7 @@ mod tests {
         };
         let mut sys = CommandSystem::new();
         let cmd = sys
-            .process_mouse_input(&ctx, &[attacker], 0, &logic)
+            .process_mouse_input(&ctx, &[attacker], 0, Some(&logic))
             .expect("ctrl RMB should produce command");
         match cmd.command_type {
             CommandType::ForceAttackObject { target_id } => assert_eq!(target_id, target),
@@ -3533,6 +3579,8 @@ mod tests {
             target_object: None,
             target_presentation: None,
             selected_presentation: Vec::new(),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: glam::Vec2::ZERO,
             viewport_size: None,
             world_min: None,
@@ -3551,7 +3599,7 @@ mod tests {
         };
         let mut sys = CommandSystem::new();
         let cmd = sys
-            .process_mouse_input(&ctx, &[attacker], 0, &logic)
+            .process_mouse_input(&ctx, &[attacker], 0, Some(&logic))
             .expect("ctrl RMB ground should produce command");
         match cmd.command_type {
             CommandType::ForceAttackGround { location } => {
@@ -3609,6 +3657,8 @@ mod tests {
             target_object: Some(wf),
             target_presentation: None,
             selected_presentation: Vec::new(),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: glam::Vec2::ZERO,
             viewport_size: None,
             world_min: None,
@@ -3623,7 +3673,7 @@ mod tests {
         };
         let mut sys = CommandSystem::new();
         let cmd = sys
-            .process_mouse_input(&ctx, &[tank], 0, &logic)
+            .process_mouse_input(&ctx, &[tank], 0, Some(&logic))
             .expect("context command");
         match cmd.command_type {
             CommandType::GetRepaired { target_id } => assert_eq!(target_id, wf),
