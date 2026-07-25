@@ -272,6 +272,7 @@ pub mod host_skirmish_rules_residual_wave117;
 pub mod host_skirmish_slot_config_residual_wave116;
 pub mod host_slave_drones;
 mod host_slow_death;
+pub mod host_smudge_residual_wave145;
 pub mod host_sneak_attack;
 pub mod host_sp_science_upgrade_player_team_residual_wave109;
 mod host_special_power_completion_die;
@@ -1592,4 +1593,8 @@ pub use host_skirmish_slot_config_residual_wave116::{
     honesty_skirmish_slot_config_residual_pack_wave116,
     honesty_skirmish_slot_nav_commands_residual_wave116,
     honesty_skirmish_slot_state_residual_wave116,
+};
+pub use host_smudge_residual_wave145::{
+    honesty_smudge_method_names_residual_wave145, honesty_smudge_nav_commands_residual_wave145,
+    honesty_smudge_residual_pack_wave145,
 };

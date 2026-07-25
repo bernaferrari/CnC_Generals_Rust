@@ -184,6 +184,160 @@ fn push_free_smudge(smudge: Smudge) {
         .push(smudge);
 }
 
+/// Residual: last Smudge action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualSmudgeAction {
+    None = 0,
+    AddSet = 1,
+    AddSmudge = 2,
+    RemoveSmudge = 3,
+    RemoveSet = 4,
+    Reset = 5,
+    SetCount = 6,
+}
+
+static RESIDUAL_SMUDGE_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_SMUDGE_SET_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+static RESIDUAL_SMUDGE_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+fn residual_smudge_action_store(action: ResidualSmudgeAction) {
+    RESIDUAL_SMUDGE_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last Smudge residual action.
+pub fn residual_smudge_last_action() -> ResidualSmudgeAction {
+    match RESIDUAL_SMUDGE_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualSmudgeAction::AddSet,
+        2 => ResidualSmudgeAction::AddSmudge,
+        3 => ResidualSmudgeAction::RemoveSmudge,
+        4 => ResidualSmudgeAction::RemoveSet,
+        5 => ResidualSmudgeAction::Reset,
+        6 => ResidualSmudgeAction::SetCount,
+        _ => ResidualSmudgeAction::None,
+    }
+}
+
+/// Residual: residual smudge-set count latch.
+pub fn residual_smudge_set_count() -> usize {
+    RESIDUAL_SMUDGE_SET_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: residual smudge count latch inside residual set.
+pub fn residual_smudge_count() -> usize {
+    RESIDUAL_SMUDGE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: allocate a residual smudge set without terrain render.
+/// Uses only SmudgeManager lock (no nested residual set slot).
+pub fn simulate_smudge_add_set() -> bool {
+    let Ok(mut manager) = get_smudge_manager().lock() else {
+        return false;
+    };
+    // Keep a single residual set: clear used sets first for deterministic residual.
+    manager.reset();
+    let _set = manager.add_smudge_set();
+    RESIDUAL_SMUDGE_SET_COUNT.store(1, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SMUDGE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+    residual_smudge_action_store(ResidualSmudgeAction::AddSet);
+    residual_smudge_set_count() == 1
+}
+
+/// Residual: add a smudge into the first residual set.
+pub fn simulate_smudge_add(size: f32, opacity: f32) -> bool {
+    let Ok(mut manager) = get_smudge_manager().lock() else {
+        return false;
+    };
+    if manager.used_sets.is_empty() {
+        let _ = manager.add_smudge_set();
+        RESIDUAL_SMUDGE_SET_COUNT.store(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    let Some(set) = manager.used_sets.first().cloned() else {
+        return false;
+    };
+    // Drop manager before locking set to avoid lock-order inversion with reset().
+    drop(manager);
+    let Ok(mut guard) = set.lock() else {
+        return false;
+    };
+    let smudge = guard.add_smudge_to_set();
+    smudge.size = size;
+    smudge.opacity = opacity;
+    let count = guard.used_smudge_count();
+    drop(guard);
+    RESIDUAL_SMUDGE_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SMUDGE_SET_COUNT.store(1, std::sync::atomic::Ordering::Relaxed);
+    residual_smudge_action_store(ResidualSmudgeAction::AddSmudge);
+    count > 0
+}
+
+/// Residual: remove first residual smudge.
+pub fn simulate_smudge_remove_first() -> bool {
+    let Ok(manager) = get_smudge_manager().lock() else {
+        return false;
+    };
+    let Some(set) = manager.used_sets.first().cloned() else {
+        return false;
+    };
+    drop(manager);
+    let Ok(mut guard) = set.lock() else {
+        return false;
+    };
+    if guard.used_smudge_count() == 0 {
+        return false;
+    }
+    guard.remove_smudge_from_set(0);
+    let count = guard.used_smudge_count();
+    drop(guard);
+    RESIDUAL_SMUDGE_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
+    residual_smudge_action_store(ResidualSmudgeAction::RemoveSmudge);
+    true
+}
+
+/// Residual: remove residual smudge set(s).
+pub fn simulate_smudge_remove_set() -> bool {
+    let Ok(mut manager) = get_smudge_manager().lock() else {
+        return false;
+    };
+    manager.reset();
+    RESIDUAL_SMUDGE_SET_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SMUDGE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+    residual_smudge_action_store(ResidualSmudgeAction::RemoveSet);
+    residual_smudge_set_count() == 0
+}
+
+/// Residual: reset smudge manager residual.
+pub fn simulate_smudge_reset() -> bool {
+    let Ok(mut manager) = get_smudge_manager().lock() else {
+        return false;
+    };
+    manager.reset();
+    RESIDUAL_SMUDGE_SET_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SMUDGE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+    residual_smudge_action_store(ResidualSmudgeAction::Reset);
+    residual_smudge_set_count() == 0 && residual_smudge_count() == 0
+}
+
+/// Residual: set last-frame smudge count residual.
+pub fn simulate_smudge_set_count_last_frame(count: i32) -> bool {
+    let Ok(mut manager) = get_smudge_manager().lock() else {
+        return false;
+    };
+    manager.set_smudge_count_last_frame(count);
+    residual_smudge_action_store(ResidualSmudgeAction::SetCount);
+    manager.get_smudge_count_last_frame() == count
+}
+
+/// Residual: add set + smudge composite.
+pub fn simulate_smudge_prepare_set_with_smudge(size: f32) -> bool {
+    if !simulate_smudge_add_set() {
+        return false;
+    }
+    simulate_smudge_add(size, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
