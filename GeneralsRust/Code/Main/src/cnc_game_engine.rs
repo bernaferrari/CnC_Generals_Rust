@@ -4012,6 +4012,25 @@ impl CnCGameEngine {
                     "click_control_bar_print_positions_miss".into()
                 };
             }
+            "click_terrain_env_boundary" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let wnd_ok = match action.as_str() {
+                    "heightmap" => {
+                        crate::game_logic::simulate_terrain_env_boundary_heightmap_source()
+                    }
+                    "skybox" => crate::game_logic::simulate_terrain_env_boundary_skybox_source(),
+                    "sync" => crate::game_logic::simulate_terrain_env_boundary_sync_source(),
+                    _ => crate::game_logic::simulate_terrain_env_boundary_prepare_honesty(),
+                };
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_terrain_env_boundary_ok_wnd_{action}")
+                } else {
+                    "click_terrain_env_boundary_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
@@ -13668,17 +13687,17 @@ impl CnCGameEngine {
     }
 
     fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline, game_logic: Option<&GameLogic>) {
-        // Prefer presentation-frozen hint when available (no live path re-read).
-        let path = render_pipeline
-            .presentation_frame()
-            .and_then(|p| p.world_env.heightmap_hint.clone())
-            .or_else(|| {
-                game_logic.and_then(|logic| {
-                    logic
-                        .heightmap_hint()
-                        .and_then(|p| p.to_str().map(|s| s.to_string()))
-                })
-            });
+        // Presentation-first boundary: when a frame is installed, never dual-read live
+        // GameLogic for the heightmap path (matches apply_skybox_hint).
+        let path = if let Some(pres) = render_pipeline.presentation_frame() {
+            pres.world_env.heightmap_hint.clone()
+        } else {
+            game_logic.and_then(|logic| {
+                logic
+                    .heightmap_hint()
+                    .and_then(|p| p.to_str().map(|s| s.to_string()))
+            })
+        };
         if let Some(path) = path {
             // Keep renderer parity-safe: map-adjacent TGA companions are frequently preview art.
             // Feeding those into terrain elevation creates severe startup terrain corruption.
