@@ -217,6 +217,7 @@ mod host_lifetime_update;
 pub mod host_listening_outpost;
 pub mod host_live_command_attack_log_residual_wave197;
 pub mod host_live_command_guard_log_residual_wave198;
+pub mod host_live_command_production_construction_log_residual_wave199;
 pub mod host_live_gameworld_construction_writeback_residual_wave181;
 pub mod host_live_gameworld_damage_channel_residual_wave182;
 pub mod host_live_gameworld_economy_movement_residual_wave183;
@@ -1639,6 +1640,12 @@ pub use host_live_command_guard_log_residual_wave198::{
     honesty_live_command_guard_log_method_names_residual_wave198,
     honesty_live_command_guard_log_nav_commands_residual_wave198,
     honesty_live_command_guard_log_residual_pack_wave198, simulate_live_command_guard_log_honesty,
+};
+pub use host_live_command_production_construction_log_residual_wave199::{
+    honesty_live_command_production_construction_log_method_names_residual_wave199,
+    honesty_live_command_production_construction_log_nav_commands_residual_wave199,
+    honesty_live_command_production_construction_log_residual_pack_wave199,
+    simulate_live_command_production_construction_log_honesty,
 };
 pub use host_live_gameworld_construction_writeback_residual_wave181::{
     honesty_live_gameworld_construction_writeback_method_names_residual_wave181,
