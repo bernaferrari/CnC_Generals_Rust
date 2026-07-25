@@ -5572,6 +5572,23 @@ impl CnCGameEngine {
                     format!("click_live_selection_commands_presentation_only_miss_{action}")
                 };
             }
+            "click_live_ui_command_selection_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_ui_command_selection_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_ui_command_selection_presentation_only_residual_pack_wave219(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_ui_command_selection_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_ui_command_selection_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -12731,14 +12748,8 @@ impl CnCGameEngine {
         };
         self.clear_radius_cursor_overlays();
         let player_id = self.current_player_id;
-        let mut selected = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_default();
-        if selected.is_empty() {
-            selected = self.selected_objects.clone();
-        }
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
         let allows_empty = matches!(kind, PendingMapCommand::PlaceBeacon);
         if selected.is_empty() && !allows_empty {
             return;
@@ -12947,11 +12958,11 @@ impl CnCGameEngine {
                 .map(|p| p.team)
                 .unwrap_or(crate::game_logic::Team::USA)
         };
-        let builder_id = self.selected_objects.first().copied().or_else(|| {
-            self.game_logic
-                .get_player(self.current_player_id)
-                .and_then(|p| p.selected_objects.first().copied())
-        });
+        // Wave 219: builder identity via presentation-first ui_selected_ids.
+        let builder_id = self
+            .ui_selected_ids(self.current_player_id)
+            .first()
+            .copied();
         let code = self
             .game_logic
             .legal_build_code_at_for_builder(team, loc, &template, builder_id);
@@ -12988,16 +12999,12 @@ impl CnCGameEngine {
         player_id: u32,
         location: glam::Vec3,
     ) -> Option<crate::game_logic::ObjectId> {
-        // Presentation-only roster; team from player still via host player store.
+        // Wave 219: team prefers presentation freeze, then host player boot residual.
         let team = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.team)
-            .or_else(|| {
-                self.last_presentation_frame
-                    .as_ref()
-                    .map(|f| f.local_team())
-            })
+            .last_presentation_frame
+            .as_ref()
+            .map(|f| f.local_team())
+            .or_else(|| self.game_logic.get_player(player_id).map(|p| p.team))
             .unwrap_or(crate::game_logic::Team::USA);
         let frame = self.last_presentation_frame.as_ref()?;
         let cands: Vec<_> = frame
@@ -13204,14 +13211,8 @@ impl CnCGameEngine {
         let player_id = self.local_player_id_for_ui();
         let team = self.local_team_for_ui();
 
-        let mut selected = if !self.selected_objects.is_empty() {
-            self.selected_objects.clone()
-        } else {
-            self.game_logic
-                .get_player(player_id)
-                .map(|p| p.selected_objects.clone())
-                .unwrap_or_default()
-        };
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let mut selected = self.ui_selected_ids(player_id);
         let is_dozer = |id: crate::game_logic::ObjectId| self.ui_object_is_dozer(id);
         let dozers: Vec<_> = selected
             .iter()
@@ -13306,14 +13307,8 @@ impl CnCGameEngine {
     fn place_wall_line_from_ui(&mut self, template_name: &str, start: glam::Vec3, end: glam::Vec3) {
         let template = template_name.to_string();
         let player_id = self.current_player_id;
-        let mut selected = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_else(|| self.selected_objects.clone());
-        if selected.is_empty() {
-            selected = self.selected_objects.clone();
-        }
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
         // Prefer dozers/workers in selection residual.
         let builders: Vec<_> = selected
             .iter()
@@ -13356,11 +13351,8 @@ impl CnCGameEngine {
     /// Cancel production queue head on selected producers residual (Delete key).
     fn cancel_selected_production_queue_head(&mut self) -> bool {
         let player_id = self.current_player_id;
-        let selected = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_else(|| self.selected_objects.clone());
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
         if selected.is_empty() {
             return false;
         }
@@ -13395,11 +13387,8 @@ impl CnCGameEngine {
     /// Cancel entire production queue on selected producers residual (Ctrl+Delete).
     fn cancel_all_selected_production(&mut self) -> bool {
         let player_id = self.current_player_id;
-        let selected = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_else(|| self.selected_objects.clone());
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
         if selected.is_empty() {
             return false;
         }
@@ -13439,11 +13428,8 @@ impl CnCGameEngine {
             return;
         }
         let player_id = self.current_player_id;
-        let selected = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_else(|| self.selected_objects.clone());
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
         if selected.is_empty() {
             return;
         }
@@ -13588,11 +13574,8 @@ impl CnCGameEngine {
                 // Resolve SW type from selected ready structure residual.
                 // Named buttons (SpySatellite, ParticleCannon, …) prefer their type.
                 let player_id = self.current_player_id;
-                let selected = self
-                    .game_logic
-                    .get_player(player_id)
-                    .map(|p| p.selected_objects.clone())
-                    .unwrap_or_else(|| self.selected_objects.clone());
+                // Wave 219: selection via presentation-first ui_selected_ids.
+                let selected = self.ui_selected_ids(player_id);
                 let requested = power_type.clone();
                 let mut resolved = None;
                 // Pass 1: honor named button power when ready on selection.
@@ -13765,14 +13748,8 @@ impl CnCGameEngine {
         // Prefer engine current player; fall back to lowest id residual.
         let player_id = self.local_player_id_for_ui();
 
-        let mut selected = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_default();
-        if selected.is_empty() {
-            selected = self.selected_objects.clone();
-        }
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(player_id);
         if selected.is_empty()
             && !matches!(
                 command_type,
@@ -15279,15 +15256,8 @@ impl CnCGameEngine {
     }
 
     fn issue_minimap_move(&mut self, world_pos: Vec3) {
-        // Prefer live player selection; fall back to engine selection residual.
-        let mut selected = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_default();
-        if selected.is_empty() {
-            selected = self.selected_objects.clone();
-        }
+        // Wave 219: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
             return;
         }
