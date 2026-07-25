@@ -22,6 +22,12 @@ use crate::common::{
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::player_list;
 
+/// Wave 278: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Maximum objects in a single selection
 pub const MAX_SELECTION_SIZE: usize = 200;
 
@@ -1271,6 +1277,11 @@ impl RegistryObjectLookup {
 
 impl ObjectLookup for RegistryObjectLookup {
     fn get_object_info(&self, id: ObjectID) -> Option<ObjectInfo> {
+        // Wave 278: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         use crate::common::KindOf;
         use crate::object::drawable::DrawableArcExt;
 
@@ -1318,6 +1329,11 @@ impl ObjectLookup for RegistryObjectLookup {
     }
 
     fn get_objects_in_region(&self, region: &IRegion2D) -> Vec<ObjectID> {
+        // Wave 278: empty dual-world → no objects.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         OBJECT_REGISTRY
             .get_all_object_ids()
             .into_iter()
@@ -1335,20 +1351,40 @@ impl ObjectLookup for RegistryObjectLookup {
     }
 
     fn get_all_objects(&self) -> Vec<ObjectID> {
+        // Wave 278: empty dual-world → no objects.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         OBJECT_REGISTRY.get_all_object_ids()
     }
 
     fn get_object_position(&self, id: ObjectID) -> Option<Coord3D> {
+        // Wave 278: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.with_object(id, |guard| *guard.get_position())
     }
 
     fn is_object_alive(&self, id: ObjectID) -> bool {
+        // Wave 278: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         OBJECT_REGISTRY
             .with_object(id, |guard| !guard.is_destroyed())
             .unwrap_or(false)
     }
 
     fn is_object_visible_to_player(&self, player_id: Int, object_id: ObjectID) -> bool {
+        // Wave 278: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let player_id: u32 = match player_id.try_into() {
             Ok(value) => value,
             Err(_) => return false,
@@ -1359,18 +1395,33 @@ impl ObjectLookup for RegistryObjectLookup {
     }
 
     fn is_object_detected_by_player(&self, _player_id: Int, object_id: ObjectID) -> bool {
+        // Wave 278: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         OBJECT_REGISTRY
             .with_object(object_id, |guard| guard.is_detected())
             .unwrap_or(false)
     }
 
     fn get_object_owner(&self, id: ObjectID) -> Option<Int> {
+        // Wave 278: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.with_object(id, |guard| {
             guard.get_controlling_player_id().map(|p| p as Int)
         })?
     }
 
     fn get_object_kind(&self, id: ObjectID) -> Option<ObjectKind> {
+        // Wave 278: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         use crate::common::KindOf;
 
         OBJECT_REGISTRY.with_object(id, |guard| {
@@ -1388,6 +1439,11 @@ impl ObjectLookup for RegistryObjectLookup {
     }
 
     fn can_player_control(&self, player_id: Int, object_id: ObjectID) -> bool {
+        // Wave 278: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         use crate::common::KindOf;
 
         OBJECT_REGISTRY
@@ -1410,6 +1466,11 @@ impl ObjectLookup for RegistryObjectLookup {
     }
 
     fn set_object_selected(&self, object_id: ObjectID, selected: bool) {
+        // Wave 278: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
             if let Some(drawable) = guard.get_drawable() {
                 if let Ok(mut drawable_guard) = drawable.write() {
@@ -1425,6 +1486,11 @@ impl ObjectLookup for RegistryObjectLookup {
     }
 
     fn resolve_selection_target(&self, object_id: ObjectID) -> ObjectID {
+        // Wave 278: empty dual-world → no container resolve.
+        if dual_world_registry_unavailable() {
+            return object_id;
+        }
+
         use crate::common::types::ObjectStatusMaskType;
         use crate::modules::ContainModuleInterfaceExt;
 
