@@ -237,6 +237,7 @@ pub mod host_live_command_unit_authority_api_residual_wave230;
 pub mod host_live_command_unit_more_authority_api_residual_wave231;
 pub mod host_live_construct_spawn_pose_authority_api_residual_wave227;
 pub mod host_live_control_group_camera_presentation_only_residual_wave216;
+pub mod host_live_engine_player_ui_boot_peel_residual_wave237;
 pub mod host_live_engine_presentation_player_ui_residual_wave234;
 pub mod host_live_evacuate_contain_log_residual_wave201;
 pub mod host_live_force_complete_authority_api_residual_wave224;
@@ -1786,6 +1787,12 @@ pub use host_live_control_group_camera_presentation_only_residual_wave216::{
     honesty_live_control_group_camera_presentation_only_nav_commands_residual_wave216,
     honesty_live_control_group_camera_presentation_only_residual_pack_wave216,
     simulate_live_control_group_camera_presentation_only_honesty,
+};
+pub use host_live_engine_player_ui_boot_peel_residual_wave237::{
+    honesty_live_engine_player_ui_boot_peel_method_names_residual_wave237,
+    honesty_live_engine_player_ui_boot_peel_nav_commands_residual_wave237,
+    honesty_live_engine_player_ui_boot_peel_residual_pack_wave237,
+    simulate_live_engine_player_ui_boot_peel_honesty,
 };
 pub use host_live_engine_presentation_player_ui_residual_wave234::{
     honesty_live_engine_presentation_player_ui_method_names_residual_wave234,

@@ -5878,6 +5878,23 @@ impl CnCGameEngine {
                     format!("click_live_mouse_input_presentation_only_miss_{action}")
                 };
             }
+            "click_live_engine_player_ui_boot_peel" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_engine_player_ui_boot_peel_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_engine_player_ui_boot_peel_residual_pack_wave237(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_engine_player_ui_boot_peel_ok_{action}")
+                } else {
+                    format!("click_live_engine_player_ui_boot_peel_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -7953,12 +7970,12 @@ impl CnCGameEngine {
             }
         }
 
-        // Boot residual only — no presentation roster yet (live get_player).
+        // Wave 237: boot load-screen roster via ui_player_info (presentation-first helper).
         let player = self
             .game_logic
             .local_player_id()
-            .and_then(|id| self.game_logic.get_player(id))
-            .or_else(|| self.game_logic.get_player(self.current_player_id));
+            .and_then(|id| self.ui_player_info(id))
+            .or_else(|| self.ui_player_info(self.current_player_id));
 
         if let Some(player) = player {
             let slot = game_client::gui::load_screen::LoadScreenSlotInitContext {
@@ -7968,7 +7985,7 @@ impl CnCGameEngine {
                 team_number: player.id as i32,
                 apparent_color: None,
                 apparent_text_color: None,
-                is_ai: false,
+                is_ai: player.is_ai,
                 has_map: true,
                 visible: true,
             };
@@ -12240,24 +12257,20 @@ impl CnCGameEngine {
                 self.game_logic
                     .queue_radar_message_for_team(player.team, message.clone());
                 self.game_logic.play_ui_sound("GUIMessageReceived");
-            } else if self.last_presentation_frame.is_none() {
-                // Boot residual only — no live dual-read when a presentation frame is installed.
-                if let Some(player) = self.game_logic.get_player(player_id) {
-                    let message = localization::localize_with_args(
-                        "hud.message.player_defeated",
-                        "{player} has been defeated!",
-                        &[("player", player.name.as_str())],
-                    );
-                    info!("Player {} ({}) has been defeated", player.name, player_id);
-                    self.game_hud.push_info_message(&message);
-                    self.game_logic
-                        .queue_radar_message_for_team(player.team, message.clone());
-                    self.game_logic.play_ui_sound("GUIMessageReceived");
-                } else {
-                    info!("Player {} has been defeated", player_id);
-                }
+            } else if let Some(player) = self.ui_player_info(player_id) {
+                // Wave 237: defeat UI prefers presentation roster helper (boot fallback inside).
+                let message = localization::localize_with_args(
+                    "hud.message.player_defeated",
+                    "{player} has been defeated!",
+                    &[("player", player.name.as_str())],
+                );
+                info!("Player {} ({}) has been defeated", player.name, player_id);
+                self.game_hud.push_info_message(&message);
+                self.game_logic
+                    .queue_radar_message_for_team(player.team, message.clone());
+                self.game_logic.play_ui_sound("GUIMessageReceived");
             } else {
-                // Presentation installed but roster miss — fail-closed id-only residual.
+                // Fail-closed id-only residual.
                 info!("Player {} has been defeated", player_id);
             }
             fow_rendering::reveal_entire_map_for_player(player_id);
@@ -17021,11 +17034,10 @@ impl CnCGameEngine {
                 })
                 .unwrap_or(self.camera_target)
         } else if let Some(pos) = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .and_then(|p| self.game_logic.command_center_position(p.team))
+            .ui_player_team(self.current_player_id)
+            .and_then(|team| self.game_logic.command_center_position(team))
         {
-            // Boot residual only.
+            // Wave 237: boot residual via ui_player_team helper.
             pos
         } else {
             self.camera_target
@@ -17407,7 +17419,7 @@ impl CnCGameEngine {
                 "SCIENCE_SpyDrone",
             ],
         };
-        // Wave 234: unlocked sciences prefer presentation freeze.
+        // Wave 237: unlocked sciences prefer presentation freeze; boot dual-read only.
         let unlocked: Vec<String> = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_unlocked_sciences.clone()
         } else {
@@ -17422,7 +17434,8 @@ impl CnCGameEngine {
             if unlocked.iter().any(|s| s.eq_ignore_ascii_case(name)) {
                 continue;
             }
-            // Probe capability without long-lived dual-read: only when no frame.
+            // Wave 237: InGame capability fail-open from presentation unlocked list;
+            // boot-only live is_capable probe when no frame.
             if self.last_presentation_frame.is_none() {
                 if let Some(p) = self.game_logic.get_player(player_id) {
                     if !p.is_capable_of_purchasing_science(name) {
