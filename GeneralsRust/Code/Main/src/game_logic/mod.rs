@@ -160,6 +160,7 @@ pub mod host_emp_pulse;
 pub mod host_enemy_near;
 pub mod host_enum_table_residual;
 pub mod host_env_contain_residual;
+pub mod host_eva_residual_wave143;
 pub mod host_faction_skirmish_residual;
 pub mod host_fire_base;
 pub mod host_fire_spread;
@@ -1469,6 +1470,10 @@ pub use host_difficulty_select_residual_wave134::{
 pub use host_diplomacy_residual_wave129::{
     honesty_diplomacy_control_names_residual_wave129,
     honesty_diplomacy_nav_commands_residual_wave129, honesty_diplomacy_residual_pack_wave129,
+};
+pub use host_eva_residual_wave143::{
+    honesty_eva_message_names_residual_wave143, honesty_eva_nav_commands_residual_wave143,
+    honesty_eva_residual_pack_wave143,
 };
 pub use host_gadget_video_audio_residual_wave113::{
     honesty_audio_event_residual_wave113, honesty_gadget_residual_wave113,
