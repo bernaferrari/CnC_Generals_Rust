@@ -4031,6 +4031,28 @@ impl CnCGameEngine {
                     "click_terrain_env_boundary_miss".into()
                 };
             }
+            "click_main_menu_wnd" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let wnd_ok = match action.as_str() {
+                    "resolve" => {
+                        crate::gameplay_layout::resolve_main_menu_wnd_path().is_some()
+                            || crate::gameplay_layout::main_menu_wnd_honesty().assets_unavailable
+                    }
+                    "validate" => {
+                        let h = crate::gameplay_layout::main_menu_wnd_honesty();
+                        h.shell_residual_ok()
+                    }
+                    _ => crate::gameplay_layout::simulate_main_menu_wnd_prepare_honesty(),
+                };
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_main_menu_wnd_ok_wnd_{action}")
+                } else {
+                    "click_main_menu_wnd_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
