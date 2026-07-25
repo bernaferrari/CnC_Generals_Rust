@@ -382,6 +382,7 @@ impl InputCommandProcessor {
         let context = MouseCommandContext {
             world_position: self.mouse_world_pos,
             target_object: self.find_object_at_position(game_logic),
+            target_presentation: None,
             screen_position: self.mouse_screen_pos,
             viewport_size: Some(self.viewport_size),
             world_min: Some(game_logic.world_bounds().0),
