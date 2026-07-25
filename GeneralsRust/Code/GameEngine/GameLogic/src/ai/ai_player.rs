@@ -111,6 +111,12 @@ pub const SUPPLY_CENTER_CLOSE_DIST: f32 = 200.0;
 /// Huge distance constant for enemy prioritization (C++ HUGE_DIST)
 pub const HUGE_DIST: f32 = 100000.0;
 
+/// Wave 255: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Work order for unit production tracking
 #[derive(Debug, Clone)]
 pub struct WorkOrder {
@@ -146,6 +152,11 @@ impl WorkOrder {
     /// and is still owned by the specified player. If any check fails,
     /// the factory_id is cleared to INVALID_ID.
     pub fn validate_factory(&mut self, player_id: u32) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.factory_id.is_none() {
             // C++ parity: if m_factoryID == INVALID_ID, return immediately (valid)
             return Ok(());
@@ -929,6 +940,12 @@ impl AIPlayer {
     }
 
     fn analyze_military_situation(&mut self) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(player_arc) = self.get_player_arc() else {
             return Ok(());
         };
@@ -983,6 +1000,12 @@ impl AIPlayer {
     }
 
     fn analyze_threats(&mut self) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(player_arc) = self.get_player_arc() else {
             return Ok(());
         };
@@ -1163,6 +1186,11 @@ impl AIPlayer {
     /// Partition closest-object filters: enemies only, alive, not stealthed,
     /// reject harvesters/dozers. Any hit → unsafe.
     pub fn is_location_safe(&self, pos: &Coord3D, thing: &dyn ThingTemplate) -> bool {
+        // Wave 255: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(player_arc) = self.get_player_arc() else {
             return true;
         };
@@ -1258,6 +1286,11 @@ impl AIPlayer {
     /// 4. Walk *original* entries only: initiallyBuilt → buildStructureNow else
     ///    incrementNumRebuilds
     pub fn new_map(&mut self) {
+        // Wave 255: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ does not clear queues/timers here — only factory scan + initial builds.
 
         // Snapshot original build list BEFORE factory prepends (C++ keeps old head ptr).
@@ -1529,6 +1562,11 @@ impl AIPlayer {
     /// C++ onUnitProduced supply assignment: first build-list supply building with
     /// desiredGatherers > currentGatherers; bump current and return object id.
     fn take_supply_gatherer_slot(&mut self) -> Option<ObjectID> {
+        // Wave 255: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let player_arc = self.get_player()?;
         let Ok(mut pg) = player_arc.write() else {
             return None;
@@ -1558,6 +1596,11 @@ impl AIPlayer {
     /// If structure has SupplyCenterDockUpdate, mark build-list entry as supply
     /// building and set desired gatherers from AISideInfo + 1 freebie.
     pub fn check_for_supply_center(&mut self, structure_id: ObjectID) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let has_dock = OBJECT_REGISTRY
             .with_object(structure_id, |structure_guard| {
                 // C++: findUpdateModule(NAMEKEY("SupplyCenterDockUpdate")) only —
@@ -1666,6 +1709,11 @@ impl AIPlayer {
     /// Rate-limited (10s): if player was recently attacked, scan cash generators /
     /// dozers / harvesters for recent damage and latch attacked_supply_center.
     pub fn is_supply_source_attacked(&mut self) -> bool {
+        // Wave 255: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // C++ AIPlayer.cpp: const Int SCAN_RATE = 10;
         // Comment says "10 seconds" but the value is added to frame counters as-is
         // (10 logic frames ≈ 0.33s). Match code, not the misleading comment.
@@ -2049,6 +2097,11 @@ impl AIPlayer {
     /// Validate upgrade type/affordability, then walk player build list for a
     /// ready factory whose command set can queue the upgrade.
     pub fn build_upgrade(&mut self, upgrade_name: &str) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let upgrade = with_upgrade_center(|center| center.find_upgrade(upgrade_name));
         let Some(upgrade) = upgrade else {
             log::debug!(
@@ -2187,6 +2240,11 @@ impl AIPlayer {
         minimum_cash: i32,
         thing_name: &str,
     ) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(template) = crate::helpers::TheThingFactory::find_template(thing_name) else {
             log::warn!(
                 "AIPlayer: template '{}' not found for build_by_supplies",
@@ -2356,6 +2414,11 @@ impl AIPlayer {
     /// Closest non-enemy warehouse with enough cash, no nearby owned cash
     /// generator, not closer to enemy than us (60/40). Halve cash floor to 100.
     fn find_supply_center(&self, minimum_cash: i32) -> Option<Arc<RwLock<Object>>> {
+        // Wave 255: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let player_arc = self.get_player_arc()?;
         let player_guard = player_arc.read().ok()?;
         let base_center = self
@@ -2758,6 +2821,11 @@ impl AIPlayer {
         factory_id: ObjectID,
         unit_id: ObjectID,
     ) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // C++: factory could be NULL at start of game.
         if factory_id == INVALID_ID {
             return Ok(());
@@ -2915,6 +2983,11 @@ impl AIPlayer {
         _factory_id: ObjectID,
         structure_id: ObjectID,
     ) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // C++: m_teamDelay = 0; m_buildDelay = 0; (no frameLastBuildingBuilt here)
         self.team_delay = 0;
         self.build_delay = 0;
@@ -3316,6 +3389,11 @@ impl AIPlayer {
     /// Select best attack target based on strategic priorities
     /// Considers: economy disruption, defensive weakness, strategic value
     fn select_attack_target(&self) -> Result<Option<Coord3D>, AiError> {
+        // Wave 255: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         // Priority order (matches C++ AIPlayer behavior):
         // 1. Enemy supply centers (economy disruption)
         // 2. Enemy production facilities (tactical advantage)
@@ -3553,6 +3631,11 @@ impl AIPlayer {
 
     /// Count number of active supply centers
     fn count_supply_centers(&self) -> usize {
+        // Wave 255: empty dual-world → zero.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         let Some(player_arc) = player_list()
             .read()
             .ok()
@@ -3584,6 +3667,11 @@ impl AIPlayer {
     /// Calculate average base health from all structures
     /// Used for strategic decision making
     fn calculate_base_health(&self) -> f32 {
+        // Wave 255: empty dual-world → zero.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         let Some(player_arc) = player_list()
             .read()
             .ok()
@@ -4013,6 +4101,12 @@ impl AIPlayer {
     }
 
     fn object_ai_is_idle(object_id: ObjectID) -> bool {
+        // Wave 255: empty dual-world → fail-closed.
+
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         OBJECT_REGISTRY
             .with_object(object_id, |obj| {
                 obj.get_ai_update_interface()
@@ -4205,6 +4299,11 @@ impl AIPlayer {
         _team: Option<Arc<RwLock<crate::team::Team>>>,
         _team_name: Option<&str>,
     ) {
+        // Wave 255: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(ai) = OBJECT_REGISTRY
             .with_object(obj_id, |obj| obj.get_ai_update_interface())
             .flatten()
@@ -4715,6 +4814,11 @@ impl AIPlayer {
         location: Coord3D,
         angle: Real,
     ) -> Result<Option<ObjectID>, AiError> {
+        // Wave 255: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         // C++ findDozer may queueDozer internally; do not double-queue here.
         let Some(dozer_id) = self.find_dozer(&location)? else {
             return Ok(None);
@@ -5312,6 +5416,11 @@ impl AIPlayer {
         busy_ok: bool,
         team_name: &str,
     ) -> Result<bool, AiError> {
+        // Wave 255: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let Some(factory_id) = self.find_factory_internal(&order.thing_template, busy_ok)? else {
             return Ok(false);
         };
@@ -5385,6 +5494,11 @@ impl AIPlayer {
         busy_ok: bool,
         busy_factory: &mut Option<ObjectID>,
     ) -> Result<Option<ObjectID>, AiError> {
+        // Wave 255: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         let Some((module_handles, behaviors)) = OBJECT_REGISTRY
             .with_object(obj_id, |obj_guard| {
                 if obj_guard.get_controlling_player_id() != Some(self.player_id) {
@@ -5470,6 +5584,11 @@ impl AIPlayer {
         thing_template: &str,
         busy_ok: bool,
     ) -> Result<Option<ObjectID>, AiError> {
+        // Wave 255: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         let mut busy_factory: Option<ObjectID> = None;
         let Ok(list) = player_list().read() else {
             return Ok(None);
@@ -5832,6 +5951,11 @@ impl AIPlayer {
     /// - if current >= desired: maintain (nearby warehouse, recount/redock)
     /// - else: reattach loose harvesters, else train one (unless ≥3× desired total)
     fn queue_supply_truck(&mut self) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Already building a supply truck?
         let truck_in_queue = self.team_build_queue.iter().any(|team| {
             team.work_orders
@@ -5918,6 +6042,12 @@ impl AIPlayer {
     }
 
     fn count_player_harvesters(&self) -> i32 {
+        // Wave 255: empty dual-world → zero.
+
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         let Ok(list) = player_list().read() else {
             return 0;
         };
@@ -5951,6 +6081,10 @@ impl AIPlayer {
     }
 
     fn supply_center_has_nearby_supplies(&self, center: &Object) -> bool {
+        // Wave 255: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
         let center_pos = *center.get_position();
         let radius =
             SUPPLY_CENTER_CLOSE_DIST + center.get_geometry_info().get_bounding_circle_radius();
@@ -6038,6 +6172,12 @@ impl AIPlayer {
     }
 
     fn recount_and_redock_harvesters(&self, center_id: ObjectID) -> i32 {
+        // Wave 255: empty dual-world → zero.
+
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         let Ok(list) = player_list().read() else {
             return 0;
         };
@@ -6115,6 +6255,12 @@ impl AIPlayer {
     }
 
     fn try_reattach_loose_harvester(&mut self, center_id: ObjectID) -> Result<bool, AiError> {
+        // Wave 255: empty dual-world → Ok(false).
+
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let Ok(list) = player_list().read() else {
             return Ok(false);
         };
@@ -6304,6 +6450,11 @@ impl AIPlayer {
     /// Walk player build list: track destroyed buildings, honor rebuild delay,
     /// start at most one dozer build per call, then arm structureTimer with wealth mods.
     fn process_base_building(&mut self) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if !self.ready_to_build_structure {
             return Ok(());
         }
@@ -6828,6 +6979,11 @@ impl AIPlayer {
     /// Prefer idle dozers (not building, not ferrying supplies, not repair dozer).
     /// Closest idle dozer wins. If no dozer exists at all, queue one.
     fn find_dozer(&mut self, location: &Coord3D) -> Result<Option<ObjectID>, AiError> {
+        // Wave 255: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         use crate::object::update::ai_update::dozer_ai_update::DozerTask;
 
         let mut need_dozer = true;
@@ -7162,6 +7318,11 @@ impl AIPlayer {
         team_name: &str,
         min_supplies: i32,
     ) -> Result<(), AiError> {
+        // Wave 255: empty dual-world → no-op success.
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.supply_source_attack_check_frame = 0; // force check
         let mut warehouse_id = None;
         if self.is_supply_source_attacked() {
@@ -7299,6 +7460,11 @@ impl AIPlayer {
         player_index: i32,
         conservative: bool,
     ) -> Result<(Coord3D, Coord3D), AiError> {
+        // Wave 255: empty dual-world → empty bounds.
+        if dual_world_registry_unavailable() {
+            return Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)));
+        }
+
         let Some(player_arc) = player_list()
             .read()
             .ok()
@@ -7469,6 +7635,12 @@ impl AIPlayer {
     }
 
     fn count_active_harvesters(&self) -> usize {
+        // Wave 255: empty dual-world → zero.
+
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         let Some(player_arc) = player_list()
             .read()
             .ok()
@@ -7499,6 +7671,11 @@ impl AIPlayer {
         radius: Real,
         include_military_units: bool,
     ) -> Result<i32, AiError> {
+        // Wave 255: empty dual-world → Ok(0).
+        if dual_world_registry_unavailable() {
+            return Ok(0);
+        }
+
         let radius = radius.max(4.0 * PATHFIND_CELL_SIZE_F);
         let Some(player_arc) = player_list()
             .read()
