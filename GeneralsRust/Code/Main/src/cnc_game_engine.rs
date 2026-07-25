@@ -2492,6 +2492,64 @@ impl CnCGameEngine {
                     "click_quit_menu_miss".into()
                 };
             }
+            "open_keyboard_options" => {
+                // Retail Options → KeyboardOptions residual open.
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_keyboard_options_bind_controls();
+                }
+                self.enter_shell_menu_from_runtime_host(Some("KeyboardOptions"));
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_keyboard_options_ok_wnd".into()
+                } else {
+                    "open_keyboard_options_ok".into()
+                };
+            }
+            "click_keyboard_options" => {
+                // Retail KeyboardOptions category/command/Assign/Reset/Back residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "assign".to_string());
+                let category = args
+                    .get("category")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(0);
+                let command = args
+                    .get("command")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(0);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_keyboard_options_assign_button_gadget_selected,
+                        simulate_keyboard_options_back_button_gadget_selected,
+                        simulate_keyboard_options_prepare_assign,
+                        simulate_keyboard_options_reset_all_button_gadget_selected,
+                        simulate_keyboard_options_select_category,
+                        simulate_keyboard_options_select_command,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "category" => simulate_keyboard_options_select_category(category),
+                        "command" => {
+                            let _ = simulate_keyboard_options_select_category(category);
+                            simulate_keyboard_options_select_command(command)
+                        }
+                        "reset" | "reset_all" => {
+                            simulate_keyboard_options_reset_all_button_gadget_selected()
+                        }
+                        "back" => simulate_keyboard_options_back_button_gadget_selected(),
+                        _ => simulate_keyboard_options_prepare_assign(category, command),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_keyboard_options_ok_wnd_{action}")
+                } else {
+                    "click_keyboard_options_miss".into()
+                };
+            }
             "open_difficulty_menu" => {
                 let campaign = args
                     .get("campaign")

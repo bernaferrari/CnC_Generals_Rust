@@ -188,6 +188,7 @@ pub mod host_inferno_cannon;
 pub mod host_jarmen_kell;
 mod host_jet_slow_death;
 mod host_keep_object_die;
+pub mod host_keyboard_options_residual_wave124;
 pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
@@ -1434,6 +1435,11 @@ pub use host_gadget_video_audio_residual_wave113::{
     honesty_audio_event_residual_wave113, honesty_gadget_residual_wave113,
     honesty_gadget_video_audio_residual_pack_wave113, honesty_game_window_manager_residual_wave113,
     honesty_video_buffer_residual_wave113, honesty_window_style_residual_wave113,
+};
+pub use host_keyboard_options_residual_wave124::{
+    honesty_keyboard_options_control_names_residual_wave124,
+    honesty_keyboard_options_nav_commands_residual_wave124,
+    honesty_keyboard_options_residual_pack_wave124,
 };
 pub use host_main_menu_buttons_residual_wave118::{
     honesty_main_menu_button_names_residual_wave118,
