@@ -242,6 +242,7 @@ pub mod host_rpg_trooper;
 pub mod host_saboteur;
 pub mod host_save_load_menu_residual_wave121;
 pub mod host_science_rank;
+pub mod host_score_screen_residual_wave125;
 pub mod host_scorpion;
 pub mod host_script_map_team_player_residual;
 pub mod host_scud_launcher;
@@ -1470,6 +1471,10 @@ pub use host_replay_menu_residual_wave122::{
 pub use host_save_load_menu_residual_wave121::{
     honesty_save_load_control_stems_residual_wave121, honesty_save_load_layout_residual_wave121,
     honesty_save_load_menu_residual_pack_wave121, honesty_save_load_nav_commands_residual_wave121,
+};
+pub use host_score_screen_residual_wave125::{
+    honesty_score_screen_control_names_residual_wave125,
+    honesty_score_screen_nav_commands_residual_wave125, honesty_score_screen_residual_pack_wave125,
 };
 pub use host_skirmish_map_select_residual_wave115::{
     honesty_skirmish_map_select_commands_residual_wave115,

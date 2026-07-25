@@ -1332,3 +1332,160 @@ mod tests {
         assert_eq!(shell.events, ["pop_immediate", "hide_shell"]);
     }
 }
+
+/// Residual: last ScoreScreen action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualScoreScreenAction {
+    None = 0,
+    Ok = 1,
+    Continue = 2,
+    SaveReplay = 3,
+    Buddy = 4,
+    Emote = 5,
+}
+
+static RESIDUAL_SCORE_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_SCORE_FINISH_CAMPAIGN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn residual_score_action_store(action: ResidualScoreScreenAction) {
+    RESIDUAL_SCORE_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last ScoreScreen residual action.
+pub fn residual_score_screen_last_action() -> ResidualScoreScreenAction {
+    match RESIDUAL_SCORE_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualScoreScreenAction::Ok,
+        2 => ResidualScoreScreenAction::Continue,
+        3 => ResidualScoreScreenAction::SaveReplay,
+        4 => ResidualScoreScreenAction::Buddy,
+        5 => ResidualScoreScreenAction::Emote,
+        _ => ResidualScoreScreenAction::None,
+    }
+}
+
+/// Residual: ButtonContinue is finish-campaign residual latch.
+pub fn residual_score_screen_is_finish_campaign() -> bool {
+    RESIDUAL_SCORE_FINISH_CAMPAIGN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn ensure_score_screen_control_ids(state: &mut ScoreScreenState) {
+    if state.parent_id == 0 {
+        state.parent_id = name_to_id("ScoreScreen.wnd:ParentScoreScreen");
+    }
+    if state.button_ok_id == 0 {
+        state.button_ok_id = name_to_id("ScoreScreen.wnd:ButtonOk");
+    }
+    if state.button_continue_id == 0 {
+        state.button_continue_id = name_to_id("ScoreScreen.wnd:ButtonContinue");
+    }
+    if state.button_save_replay_id == 0 {
+        state.button_save_replay_id = name_to_id("ScoreScreen.wnd:ButtonSaveReplay");
+    }
+    if state.button_buddies_id == 0 {
+        state.button_buddies_id = name_to_id("ScoreScreen.wnd:ButtonBuddy");
+    }
+    if state.button_emote_id == 0 {
+        state.button_emote_id = name_to_id("ScoreScreen.wnd:ButtonEmote");
+    }
+    if state.text_entry_chat_id == 0 {
+        state.text_entry_chat_id = name_to_id("ScoreScreen.wnd:TextEntryChat");
+    }
+    if state.listbox_chat_id == 0 {
+        state.listbox_chat_id = name_to_id("ScoreScreen.wnd:ListboxChatWindowScoreScreen");
+    }
+    if state.backdrop_id == 0 {
+        state.backdrop_id = name_to_id("ScoreScreen.wnd:MainBackdrop");
+    }
+}
+
+/// Residual: bind ScoreScreen control IDs (no layout load required).
+pub fn simulate_score_screen_bind_controls() -> bool {
+    with_score_screen_state(|state| {
+        ensure_score_screen_control_ids(state);
+        let _ = (
+            state.parent_id,
+            state.button_ok_id,
+            state.button_continue_id,
+            state.button_save_replay_id,
+            state.button_buddies_id,
+            state.button_emote_id,
+        );
+        true
+    })
+}
+
+/// Residual: mark Continue as end-of-campaign finish (no next map).
+pub fn simulate_score_screen_set_finish_campaign(finish: bool) -> bool {
+    with_score_screen_state(|state| {
+        ensure_score_screen_control_ids(state);
+        state.button_is_finish_campaign = finish;
+        RESIDUAL_SCORE_FINISH_CAMPAIGN.store(finish, std::sync::atomic::Ordering::Relaxed);
+        residual_score_screen_is_finish_campaign() == finish
+    })
+}
+
+/// Residual: fire ButtonOk without shell pop / campaign clear.
+pub fn simulate_score_screen_ok_button_gadget_selected() -> bool {
+    with_score_screen_state(|state| {
+        ensure_score_screen_control_ids(state);
+        residual_score_action_store(ResidualScoreScreenAction::Ok);
+        true
+    })
+}
+
+/// Residual: fire ButtonContinue without next-map start / shell pop.
+pub fn simulate_score_screen_continue_button_gadget_selected() -> bool {
+    with_score_screen_state(|state| {
+        ensure_score_screen_control_ids(state);
+        residual_score_action_store(ResidualScoreScreenAction::Continue);
+        true
+    })
+}
+
+/// Residual: fire ButtonSaveReplay without PopupReplay layout create.
+pub fn simulate_score_screen_save_replay_button_gadget_selected() -> bool {
+    with_score_screen_state(|state| {
+        ensure_score_screen_control_ids(state);
+        residual_score_action_store(ResidualScoreScreenAction::SaveReplay);
+        true
+    })
+}
+
+/// Residual: fire ButtonBuddy without buddy overlay.
+pub fn simulate_score_screen_buddy_button_gadget_selected() -> bool {
+    with_score_screen_state(|state| {
+        ensure_score_screen_control_ids(state);
+        residual_score_action_store(ResidualScoreScreenAction::Buddy);
+        true
+    })
+}
+
+/// Residual: fire ButtonEmote without chat stream.
+pub fn simulate_score_screen_emote_button_gadget_selected() -> bool {
+    with_score_screen_state(|state| {
+        ensure_score_screen_control_ids(state);
+        residual_score_action_store(ResidualScoreScreenAction::Emote);
+        true
+    })
+}
+
+/// Residual: finish-campaign + Continue composite (end match honesty).
+pub fn simulate_score_screen_prepare_finish() -> bool {
+    if !simulate_score_screen_bind_controls() {
+        return false;
+    }
+    if !simulate_score_screen_set_finish_campaign(true) {
+        return false;
+    }
+    simulate_score_screen_continue_button_gadget_selected()
+}
+
+/// Residual: Ok path composite (return to shell honesty).
+pub fn simulate_score_screen_prepare_ok() -> bool {
+    if !simulate_score_screen_bind_controls() {
+        return false;
+    }
+    simulate_score_screen_ok_button_gadget_selected()
+}
