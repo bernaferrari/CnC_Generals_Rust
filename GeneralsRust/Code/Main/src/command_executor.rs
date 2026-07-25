@@ -2539,7 +2539,7 @@ impl<'a> CommandExecutor<'a> {
                         .get_object(building_id)
                         .map(|b| b.get_position());
                     if let Some(unit_mut) = self.game_logic.get_object_mut(unit_id) {
-                        unit_mut.set_target(Some(building_id));
+                        unit_mut.set_order_target(Some(building_id));
                         unit_mut.set_ai_state(AIState::Entering);
                         any = true;
                     }
@@ -4064,7 +4064,7 @@ impl<'a> CommandExecutor<'a> {
                 .map(|o| o.get_position())
                 .unwrap_or(pos);
             if let Some(u) = self.game_logic.get_object_mut(unit_id) {
-                u.set_target(Some(sc_id));
+                u.set_order_target(Some(sc_id));
                 u.set_ai_state(AIState::ReturningResources);
             }
             if self.path_to_goal_with_state(unit_id, sc_pos, AIState::ReturningResources) {
@@ -4348,7 +4348,7 @@ impl<'a> CommandExecutor<'a> {
                 .map(|o| o.get_position())
                 .unwrap_or(pos);
             if let Some(u) = self.game_logic.get_object_mut(unit_id) {
-                u.set_target(Some(mine_id));
+                u.set_order_target(Some(mine_id));
             }
             if self.path_to_goal_with_state(unit_id, mpos, AIState::Moving) {
                 any = true;
@@ -4379,7 +4379,7 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.set_target(Some(target_id));
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::Docking) {
                 issued = true;
@@ -4405,7 +4405,7 @@ impl<'a> CommandExecutor<'a> {
                     let target_pos = target_obj.position;
                     for &unit_id in units {
                         if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                            unit.set_target(Some(*target_id));
+                            unit.set_order_target(Some(*target_id));
                         }
                         let _ =
                             self.path_to_goal_with_state(unit_id, target_pos, AIState::Entering);
@@ -4461,7 +4461,7 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.set_target(Some(target_id));
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::Repairing) {
                 any = true;
@@ -4534,7 +4534,7 @@ impl<'a> CommandExecutor<'a> {
                 .unwrap_or(false);
             if can {
                 if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                    unit.set_target(Some(target_id));
+                    unit.set_order_target(Some(target_id));
                 }
                 if self.path_to_goal_with_state(unit_id, target_pos, AIState::SeekingRepair) {
                     any = true;
@@ -4596,7 +4596,7 @@ impl<'a> CommandExecutor<'a> {
                 .unwrap_or(false);
             if can {
                 if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                    unit.set_target(Some(target_id));
+                    unit.set_order_target(Some(target_id));
                 }
                 if self.path_to_goal_with_state(unit_id, target_pos, AIState::SeekingHealing) {
                     any = true;

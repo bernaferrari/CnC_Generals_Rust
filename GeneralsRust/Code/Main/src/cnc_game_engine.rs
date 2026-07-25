@@ -5357,6 +5357,23 @@ impl CnCGameEngine {
                     format!("click_live_command_selection_log_miss_{action}")
                 };
             }
+            "click_live_command_non_attack_order_target" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_command_non_attack_order_target_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_command_non_attack_order_target_residual_pack_wave207(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_command_non_attack_order_target_ok_{action}")
+                } else {
+                    format!("click_live_command_non_attack_order_target_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
