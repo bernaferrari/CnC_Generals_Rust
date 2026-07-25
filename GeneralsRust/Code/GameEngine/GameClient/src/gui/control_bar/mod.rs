@@ -30,6 +30,15 @@ pub mod control_bar_beacon;
 pub mod control_bar_command;
 pub mod control_bar_command_processing;
 pub mod control_bar_multi_select;
+pub use control_bar_multi_select::{
+    residual_multi_select_actionable_count, residual_multi_select_attack_move_kept,
+    residual_multi_select_common_command_count, residual_multi_select_last_action,
+    residual_multi_select_portrait_agrees, residual_multi_select_selected_count,
+    simulate_multi_select_clear, simulate_multi_select_populate,
+    simulate_multi_select_prepare_divergent, simulate_multi_select_prepare_same_commands,
+    ResidualMultiSelectAction, ResidualMultiSelectUnit, MULTI_SELECT_MAX_COMMANDS_PER_SET,
+    MULTI_SELECT_OK_FOR_MULTI_SELECT_BIT,
+};
 pub mod control_bar_observer;
 pub mod control_bar_ocl_timer;
 pub use control_bar_ocl_timer::{

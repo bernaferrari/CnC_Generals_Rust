@@ -3761,6 +3761,30 @@ impl CnCGameEngine {
                     "click_structure_inventory_miss".into()
                 };
             }
+            "click_multi_select" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::control_bar::{
+                        simulate_multi_select_clear, simulate_multi_select_prepare_divergent,
+                        simulate_multi_select_prepare_same_commands,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "clear" => simulate_multi_select_clear(),
+                        "divergent" => simulate_multi_select_prepare_divergent(),
+                        _ => simulate_multi_select_prepare_same_commands(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_multi_select_ok_wnd_{action}")
+                } else {
+                    "click_multi_select_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
