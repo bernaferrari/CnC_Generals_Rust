@@ -218,6 +218,7 @@ pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
 pub mod host_live_command_attack_log_residual_wave197;
+pub mod host_live_command_beacon_note_residual_wave210;
 pub mod host_live_command_cheer_science_log_residual_wave202;
 pub mod host_live_command_deploy_status_log_residual_wave203;
 pub mod host_live_command_formation_log_residual_wave204;
@@ -1647,6 +1648,12 @@ pub use host_live_command_attack_log_residual_wave197::{
     honesty_live_command_attack_log_nav_commands_residual_wave197,
     honesty_live_command_attack_log_residual_pack_wave197,
     simulate_live_command_attack_log_honesty,
+};
+pub use host_live_command_beacon_note_residual_wave210::{
+    honesty_live_command_beacon_note_method_names_residual_wave210,
+    honesty_live_command_beacon_note_nav_commands_residual_wave210,
+    honesty_live_command_beacon_note_residual_pack_wave210,
+    simulate_live_command_beacon_note_honesty,
 };
 pub use host_live_command_cheer_science_log_residual_wave202::{
     honesty_live_command_cheer_science_log_method_names_residual_wave202,
