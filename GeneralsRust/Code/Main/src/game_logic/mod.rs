@@ -305,6 +305,7 @@ pub mod host_tank_hunter;
 pub mod host_technical;
 pub mod host_tensile_formation;
 pub mod host_terrain_bridge_water_road_residual_wave108;
+pub mod host_terrain_env_boundary_residual_wave159;
 pub mod host_terrorist;
 pub mod host_thing_factory_module_xfer_residual;
 pub mod host_timing_shell_residual;
@@ -1665,6 +1666,16 @@ pub use host_structure_inventory_residual_wave149::{
     honesty_structure_inventory_command_names_residual_wave149,
     honesty_structure_inventory_nav_commands_residual_wave149,
     honesty_structure_inventory_residual_pack_wave149,
+};
+pub use host_terrain_env_boundary_residual_wave159::{
+    honesty_terrain_env_boundary_method_names_residual_wave159,
+    honesty_terrain_env_boundary_nav_commands_residual_wave159,
+    honesty_terrain_env_boundary_residual_pack_wave159,
+    honesty_terrain_env_boundary_source_markers_residual_wave159,
+    residual_terrain_env_boundary_last_action, residual_terrain_env_boundary_ok,
+    simulate_terrain_env_boundary_heightmap_source, simulate_terrain_env_boundary_prepare_honesty,
+    simulate_terrain_env_boundary_skybox_source, simulate_terrain_env_boundary_sync_source,
+    ResidualTerrainEnvBoundaryAction,
 };
 pub use host_under_construction_residual_wave148::{
     honesty_under_construction_method_names_residual_wave148,
