@@ -5710,6 +5710,23 @@ impl CnCGameEngine {
                     format!("click_live_hotkey_selection_camera_presentation_only_miss_{action}")
                 };
             }
+            "click_live_construct_spawn_pose_authority_api" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_construct_spawn_pose_authority_api_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_construct_spawn_pose_authority_api_residual_pack_wave227(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_construct_spawn_pose_authority_api_ok_{action}")
+                } else {
+                    format!("click_live_construct_spawn_pose_authority_api_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -6310,14 +6327,11 @@ impl CnCGameEngine {
                             // Honesty: if host upgrade log / queue advanced, count ok.
                             // Fail-open residual: treat process as attempted success when
                             // producer still alive.
-                            // Wave 216: producer still-alive honesty via presentation identity.
+                            // Wave 227: producer still-alive honesty via presentation identity
+                            // (boot residual without frame: fail-closed false).
                             if self.ui_object_alive(pid)
                                 || (self.last_presentation_frame.is_none()
-                                    && self
-                                        .game_logic
-                                        .get_object(pid)
-                                        .map(|o| o.is_alive())
-                                        .unwrap_or(false))
+                                    && self.game_logic.object_is_alive(pid))
                             {
                                 ok = Some((pid, name.to_string()));
                                 break 'outer;
@@ -7465,6 +7479,11 @@ impl CnCGameEngine {
                         };
                     }
                     // Host residual: if map has no dozer yet, spawn USA_Dozer/GoldenDozer at CC.
+                    // Wave 227: remember spawn pose so construct location needs no live get_object.
+                    let mut spawned_builder_pose: Option<(
+                        crate::game_logic::ObjectId,
+                        glam::Vec3,
+                    )> = None;
                     if builders.is_empty() {
                         let spawn_at = {
                             let cc = if let Some(frame) = self.last_presentation_frame.as_ref() {
@@ -7482,6 +7501,7 @@ impl CnCGameEngine {
                             }
                             if let Some(id) = self.game_logic.create_object(name, team, spawn_at) {
                                 builders.push(id);
+                                spawned_builder_pose = Some((id, spawn_at));
                                 break;
                             }
                         }
@@ -7520,10 +7540,10 @@ impl CnCGameEngine {
                             None
                         }
                         .or_else(|| {
-                            // Newly spawned dozer may not be on last presentation frame.
-                            self.game_logic
-                                .get_object(builder)
-                                .map(|o| o.get_position())
+                            // Wave 227: newly spawned dozer pose from spawn residual (no live get_object).
+                            spawned_builder_pose
+                                .filter(|(id, _)| *id == builder)
+                                .map(|(_, pos)| pos)
                         })
                         .unwrap_or(glam::Vec3::ZERO);
                         base + glam::Vec3::new(40.0, 0.0, 0.0)
