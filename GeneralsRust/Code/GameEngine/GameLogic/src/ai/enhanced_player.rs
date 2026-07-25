@@ -18,6 +18,12 @@ use crate::common::ObjectID;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::{GameDifficulty, Player};
 
+/// Wave 287: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// AI Player resource assessment
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceStatus {
@@ -697,8 +703,8 @@ impl EnhancedAiPlayer {
         let mut damaged_penalty = 0.0f32;
         let mut perimeter_score = 0.0f32;
 
-        // Host path: dual-world factory empty residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 287: empty dual-world residual.
+        if dual_world_registry_unavailable() {
             return 0.0;
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
@@ -765,6 +771,11 @@ impl EnhancedAiPlayer {
     }
 
     fn calculate_supply_security(&self) -> f32 {
+        // Wave 287: empty dual-world → zero score.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         if self.controlled_supply_centers.is_empty() {
             return 0.0; // No supply centers = no security
         }
@@ -842,6 +853,11 @@ impl EnhancedAiPlayer {
     }
 
     fn scan_for_nearby_enemies(&self) -> Result<f32, AiError> {
+        // Wave 287: empty dual-world → Ok(0.0).
+        if dual_world_registry_unavailable() {
+            return Ok(0.0);
+        }
+
         let Some(base_center) = self.base_center else {
             return Ok(0.0);
         };
@@ -894,8 +910,8 @@ impl EnhancedAiPlayer {
         let mut health_factor = 0.0f32;
         let mut owned_count = 0.0f32;
 
-        // Host path: dual-world factory empty residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 287: empty dual-world residual.
+        if dual_world_registry_unavailable() {
             return 0.0;
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
@@ -949,6 +965,11 @@ impl EnhancedAiPlayer {
     }
 
     fn meets_prerequisites(&self, build_order: &BuildOrderItem) -> Result<bool, AiError> {
+        // Wave 287: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         if build_order.prerequisites.is_empty() {
             return Ok(true);
         }
@@ -1039,6 +1060,11 @@ impl EnhancedAiPlayer {
     }
 
     fn check_expansion_opportunities(&mut self) -> Result<(), AiError> {
+        // Wave 287: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Scan map for potential expansion locations
         // In full implementation, would:
         // 1. Use pathfinder to scan reachable areas
@@ -1055,8 +1081,8 @@ impl EnhancedAiPlayer {
         };
         let min_dist_sq = 200.0 * 200.0;
         let mut candidates = Vec::new();
-        // Host path: dual-world factory empty residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 287: empty dual-world residual.
+        if dual_world_registry_unavailable() {
             return Ok(());
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
