@@ -24,6 +24,12 @@ use crate::player::Player;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
+/// Wave 300: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Configuration data for OverlordContain module
 /// Matches C++ OverlordContainModuleData (OverlordContain.h:20-33)
 #[derive(Debug, Clone)]
@@ -147,6 +153,11 @@ impl OverlordContain {
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 300: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -226,6 +237,11 @@ impl OverlordContain {
     /// Handle death of the Overlord.
     /// Matches C++ OverlordContain::onDie (OverlordContain.cpp:185-205)
     pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        // Wave 300: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Do you mean me the Overlord, or my behavior of passing stuff on to my passengers?
         if self.get_redirected_contain().is_none() {
             return self.base.on_die(damage_info);
@@ -281,6 +297,11 @@ impl OverlordContain {
         _old_owner: Option<&Arc<RwLock<Player>>>,
         new_owner: Option<&Arc<RwLock<Player>>>,
     ) -> GameResult<()> {
+        // Wave 300: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.base.base.get_contain_count() < 1 {
             return Ok(());
         }
@@ -313,6 +334,11 @@ impl OverlordContain {
     /// Called when this object starts containing another object.
     /// Matches C++ OverlordContain::onContaining (OverlordContain.h:65)
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        // Wave 300: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -414,6 +440,11 @@ impl OverlordContain {
     /// Called when removing an object from containment.
     /// Matches C++ OverlordContain::onRemoving (OverlordContain.h:66)
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 300: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -624,6 +655,11 @@ impl OverlordContain {
     /// Flash selected for visible contained units.
     /// Matches C++ OverlordContain::clientVisibleContainedFlashAsSelected (OverlordContain.h:89)
     pub fn client_visible_contained_flash_as_selected(&self) -> GameResult<()> {
+        // Wave 300: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for &item_id in self.base.base.get_contained_object_ids() {
             if let Some(item) = TheGameLogic::find_object_by_id(item_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(item_id))
@@ -699,6 +735,11 @@ impl OverlordContain {
         _old_state: BodyDamageType,
         new_state: BodyDamageType,
     ) -> GameResult<()> {
+        // Wave 300: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // I can't use any convenience functions, as they will all get routed to the bunker I may carry.
         // I want just me.
         // Oh, and I don't want this function trying to do death. That is more complicated and will
@@ -722,6 +763,11 @@ impl OverlordContain {
     /// Get redirected contain interface (bunker inside).
     /// Matches C++ OverlordContain::getRedirectedContain (OverlordContain.cpp:157-175)
     fn get_redirected_contain(&self) -> Option<Arc<Mutex<dyn ContainModuleInterface>>> {
+        // Wave 300: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         // Naturally, I cannot use a redirectible convenience function
         // to answer if I am redirecting yet.
 
@@ -943,6 +989,11 @@ impl ContainModuleInterface for OverlordContain {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 300: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -965,6 +1016,11 @@ impl ContainModuleInterface for OverlordContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 300: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
