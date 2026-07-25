@@ -78,7 +78,7 @@ pub fn honesty_live_command_attack_log_residual_pack_wave197() -> bool {
         && honesty_live_command_attack_log_nav_commands_residual_wave197()
 }
 
-/// Source residual: execute_attack records host_attack_log.
+/// Source residual: execute_attack records host_attack_log (directly or via unit_command_attack).
 pub fn honesty_execute_attack_records_source() -> bool {
     let src = include_str!("../command_executor.rs");
     let i = match src.find("fn execute_attack(") {
@@ -86,6 +86,17 @@ pub fn honesty_execute_attack_records_source() -> bool {
         None => return false,
     };
     let body = &src[i..src.len().min(i + 2500)];
+    // Wave 232: executor routes through GameLogic::unit_command_attack which records.
+    if body.contains("unit_command_attack") {
+        let gl = include_str!("game_logic.rs");
+        let gi = match gl.find("pub fn unit_command_attack(") {
+            Some(gi) => gi,
+            None => return false,
+        };
+        let gbody = &gl[gi..gl.len().min(gi + 800)];
+        return gbody.contains("host_attack_log::record")
+            && gbody.contains("set_target(Some(target_id))");
+    }
     body.contains("host_attack_log::record") && body.contains("set_target(Some(target_id))")
 }
 

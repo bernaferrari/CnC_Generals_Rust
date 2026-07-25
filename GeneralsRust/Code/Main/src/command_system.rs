@@ -1678,13 +1678,15 @@ impl CommandSystem {
                 return CommandResult::InvalidCommand;
             }
 
-            if !game_logic.assign_unit_path(unit_id, location, &[]) {
-                if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                    unit.set_destination(location);
+            // Wave 232: dozer construct last-writes via GameLogic authority API.
+            if !game_logic.unit_command_begin_construct(unit_id, location) {
+                if let Some(player) = game_logic.get_player_mut_by_team(team) {
+                    player.resources.supplies = player
+                        .resources
+                        .supplies
+                        .saturating_add(build_cost.supplies);
                 }
-            }
-            if let Some(unit) = game_logic.get_object_mut(unit_id) {
-                unit.set_ai_state(AIState::Constructing);
+                return CommandResult::InvalidCommand;
             }
 
             log::debug!(

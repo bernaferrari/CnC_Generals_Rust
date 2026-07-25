@@ -88,7 +88,8 @@ pub fn honesty_create_formation_uses_set_formation_source() -> bool {
         None => return false,
     };
     let body = &ce[i..ce.len().min(i + 2500)];
-    body.contains("set_formation")
+    // Wave 232: executor may call unit_command_set_formation (Object::set_formation inside).
+    (body.contains("set_formation") || body.contains("unit_command_set_formation"))
         && !body.contains("formation_id = new_id")
         && !body.contains("formation_offset = glam")
 }

@@ -87,7 +87,10 @@ pub fn honesty_cheer_uses_begin_cheer_source() -> bool {
         None => return false,
     };
     let body = &ce[i..ce.len().min(i + 1200)];
-    body.contains("begin_cheer")
+    // Wave 232: executor may call unit_command_cheer which calls begin_cheer.
+    let via_api = body.contains("unit_command_cheer");
+    let via_direct = body.contains("begin_cheer");
+    (via_api || via_direct)
         && !body.contains("cheer_timer =")
         && !body.contains("model_condition_bits |=")
 }
