@@ -1533,3 +1533,219 @@ mod tests {
         }
     }
 }
+
+/// Residual: last MessageBox action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualMessageBoxAction {
+    None = 0,
+    ShowOk = 1,
+    ShowYesNo = 2,
+    ShowOkCancel = 3,
+    ShowYesNoCancel = 4,
+    Ok = 5,
+    Yes = 6,
+    No = 7,
+    Cancel = 8,
+    Hide = 9,
+}
+
+static RESIDUAL_MSGBOX_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_MSGBOX_VISIBLE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_MSGBOX_TYPE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+fn residual_msgbox_action_store(action: ResidualMessageBoxAction) {
+    RESIDUAL_MSGBOX_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last MessageBox residual action.
+pub fn residual_message_box_last_action() -> ResidualMessageBoxAction {
+    match RESIDUAL_MSGBOX_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualMessageBoxAction::ShowOk,
+        2 => ResidualMessageBoxAction::ShowYesNo,
+        3 => ResidualMessageBoxAction::ShowOkCancel,
+        4 => ResidualMessageBoxAction::ShowYesNoCancel,
+        5 => ResidualMessageBoxAction::Ok,
+        6 => ResidualMessageBoxAction::Yes,
+        7 => ResidualMessageBoxAction::No,
+        8 => ResidualMessageBoxAction::Cancel,
+        9 => ResidualMessageBoxAction::Hide,
+        _ => ResidualMessageBoxAction::None,
+    }
+}
+
+/// Residual: MessageBox visibility latch (independent of live layout).
+pub fn residual_message_box_is_visible() -> bool {
+    RESIDUAL_MSGBOX_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: last residual MessageBoxType discriminant (0=Ok,1=OkCancel,2=YesNo,3=YesNoCancel).
+pub fn residual_message_box_type_ordinal() -> u8 {
+    RESIDUAL_MSGBOX_TYPE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn residual_message_box_type_store(message_type: MessageBoxType) {
+    let ord = match message_type {
+        MessageBoxType::Ok => 0,
+        MessageBoxType::OkCancel => 1,
+        MessageBoxType::YesNo => 2,
+        MessageBoxType::YesNoCancel => 3,
+        _ => 0,
+    };
+    RESIDUAL_MSGBOX_TYPE.store(ord, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn with_standard_message_box_mut<R>(f: impl FnOnce(&mut MessageBoxCallbacks) -> R) -> R {
+    let system = get_message_box_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let standard = system.get_standard();
+    let mut standard = standard.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut standard)
+}
+
+/// Residual: bind MessageBox control name keys (no layout load).
+pub fn simulate_message_box_bind_controls() -> bool {
+    let button_ok = NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonOk");
+    let button_yes = NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonYes");
+    let button_no = NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonNo");
+    let button_cancel = NameKeyGenerator::name_to_key("MessageBox.wnd:ButtonCancel");
+    let _ = (button_ok, button_yes, button_no, button_cancel);
+    true
+}
+
+/// Residual: show Ok message box without creating MessageBox.wnd.
+pub fn simulate_message_box_show_ok(title: &str, body: &str) -> bool {
+    with_standard_message_box_mut(|mb| {
+        mb.visible = true;
+        mb.title = title.to_string();
+        mb.message = body.to_string();
+        mb.message_type = MessageBoxType::Ok;
+        mb.result = None;
+        residual_message_box_type_store(MessageBoxType::Ok);
+        RESIDUAL_MSGBOX_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+        residual_msgbox_action_store(ResidualMessageBoxAction::ShowOk);
+        true
+    })
+}
+
+/// Residual: show Yes/No message box without creating layout.
+pub fn simulate_message_box_show_yes_no(title: &str, body: &str) -> bool {
+    with_standard_message_box_mut(|mb| {
+        mb.visible = true;
+        mb.title = title.to_string();
+        mb.message = body.to_string();
+        mb.message_type = MessageBoxType::YesNo;
+        mb.result = None;
+        residual_message_box_type_store(MessageBoxType::YesNo);
+        RESIDUAL_MSGBOX_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+        residual_msgbox_action_store(ResidualMessageBoxAction::ShowYesNo);
+        true
+    })
+}
+
+/// Residual: show Ok/Cancel message box without creating layout.
+pub fn simulate_message_box_show_ok_cancel(title: &str, body: &str) -> bool {
+    with_standard_message_box_mut(|mb| {
+        mb.visible = true;
+        mb.title = title.to_string();
+        mb.message = body.to_string();
+        mb.message_type = MessageBoxType::OkCancel;
+        mb.result = None;
+        residual_message_box_type_store(MessageBoxType::OkCancel);
+        RESIDUAL_MSGBOX_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+        residual_msgbox_action_store(ResidualMessageBoxAction::ShowOkCancel);
+        true
+    })
+}
+
+/// Residual: show Yes/No/Cancel message box without creating layout.
+pub fn simulate_message_box_show_yes_no_cancel(title: &str, body: &str) -> bool {
+    with_standard_message_box_mut(|mb| {
+        mb.visible = true;
+        mb.title = title.to_string();
+        mb.message = body.to_string();
+        mb.message_type = MessageBoxType::YesNoCancel;
+        mb.result = None;
+        residual_message_box_type_store(MessageBoxType::YesNoCancel);
+        RESIDUAL_MSGBOX_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+        residual_msgbox_action_store(ResidualMessageBoxAction::ShowYesNoCancel);
+        true
+    })
+}
+
+/// Residual: fire ButtonOk without callback/window destroy.
+pub fn simulate_message_box_ok_button_gadget_selected() -> bool {
+    with_standard_message_box_mut(|mb| {
+        let _ = mb.set_result(MessageBoxResult::Ok);
+        mb.visible = false;
+        RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_msgbox_action_store(ResidualMessageBoxAction::Ok);
+        true
+    })
+}
+
+/// Residual: fire ButtonYes without callback/window destroy.
+pub fn simulate_message_box_yes_button_gadget_selected() -> bool {
+    with_standard_message_box_mut(|mb| {
+        let _ = mb.set_result(MessageBoxResult::Yes);
+        mb.visible = false;
+        RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_msgbox_action_store(ResidualMessageBoxAction::Yes);
+        true
+    })
+}
+
+/// Residual: fire ButtonNo without callback/window destroy.
+pub fn simulate_message_box_no_button_gadget_selected() -> bool {
+    with_standard_message_box_mut(|mb| {
+        let _ = mb.set_result(MessageBoxResult::No);
+        mb.visible = false;
+        RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_msgbox_action_store(ResidualMessageBoxAction::No);
+        true
+    })
+}
+
+/// Residual: fire ButtonCancel without callback/window destroy.
+pub fn simulate_message_box_cancel_button_gadget_selected() -> bool {
+    with_standard_message_box_mut(|mb| {
+        let _ = mb.set_result(MessageBoxResult::Cancel);
+        mb.visible = false;
+        RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_msgbox_action_store(ResidualMessageBoxAction::Cancel);
+        true
+    })
+}
+
+/// Residual: hide message box without layout destroy.
+pub fn simulate_message_box_hide() -> bool {
+    with_standard_message_box_mut(|mb| {
+        mb.visible = false;
+        RESIDUAL_MSGBOX_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+        residual_msgbox_action_store(ResidualMessageBoxAction::Hide);
+        true
+    })
+}
+
+/// Residual: Yes/No show + Yes composite (quit confirm honesty).
+pub fn simulate_message_box_prepare_yes(title: &str, body: &str) -> bool {
+    if !simulate_message_box_bind_controls() {
+        return false;
+    }
+    if !simulate_message_box_show_yes_no(title, body) {
+        return false;
+    }
+    simulate_message_box_yes_button_gadget_selected()
+}
+
+/// Residual: Ok show + Ok composite.
+pub fn simulate_message_box_prepare_ok(title: &str, body: &str) -> bool {
+    if !simulate_message_box_bind_controls() {
+        return false;
+    }
+    if !simulate_message_box_show_ok(title, body) {
+        return false;
+    }
+    simulate_message_box_ok_button_gadget_selected()
+}
