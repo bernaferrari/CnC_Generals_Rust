@@ -61590,6 +61590,70 @@ impl GameLogic {
             .collect()
     }
 
+    /// Wave 246: world-position object pick without exposing object dual-walk to callers.
+    ///
+    /// Priority bands mirror command_integration residual acquire:
+    /// - with selection: enemy attackable, then friendly selectable, then other
+    /// - without selection: own selectable only
+    pub fn pick_object_id_at_world(
+        &self,
+        origin: glam::Vec3,
+        player_team: Option<Team>,
+        has_selected_units: bool,
+        base_selection_radius: f32,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_residual_acquire::{
+            pick_best_priority_residual_target, PriorityAcquireCandidate,
+        };
+
+        let cands: Vec<_> = self
+            .objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let distance = (pos - origin).length();
+                let radius = base_selection_radius.max(obj.selection_radius);
+                if distance > radius {
+                    return None;
+                }
+                let priority = if has_selected_units {
+                    match player_team {
+                        Some(team) if obj.team != team && obj.is_attackable() => Some(0),
+                        Some(team) if obj.team == team && obj.is_selectable() => Some(1),
+                        _ if obj.is_attackable() => Some(2),
+                        _ if obj.is_selectable() => Some(3),
+                        _ => None,
+                    }
+                } else {
+                    match player_team {
+                        Some(team) if obj.team == team && obj.is_selectable() => Some(0),
+                        Some(_) => None,
+                        None if obj.is_selectable() => Some(0),
+                        None => None,
+                    }
+                };
+                Some(PriorityAcquireCandidate {
+                    id,
+                    position: pos,
+                    is_alive: true,
+                    priority,
+                })
+            })
+            .collect();
+
+        pick_best_priority_residual_target(
+            ObjectId(0),
+            origin,
+            (origin.x, origin.z),
+            f32::MAX,
+            cands,
+        )
+        .map(|(id, _, _)| id)
+    }
+
     #[inline]
     pub fn unit_is_dead_or_missing(&self, id: ObjectId) -> bool {
         match self.objects.get(&id) {
