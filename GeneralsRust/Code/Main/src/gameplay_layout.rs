@@ -347,6 +347,25 @@ pub fn control_bar_layout_honesty(attempt_window_load: bool) -> ControlBarLayout
     ControlBarLayoutHonesty::from_status_with_count(status, window_count)
 }
 
+/// Residual: ControlBar.wnd materialisation honesty (Wave 165).
+///
+/// When retail assets resolve, require headless WindowManager load with
+/// `window_count == CONTROL_BAR_RETAIL_WINDOW_COUNT` (98). Soft-ok only if
+/// assets are unavailable (CI without WindowZH).
+pub fn simulate_control_bar_materialise_honesty() -> bool {
+    let h = control_bar_layout_honesty(true);
+    if !h.shell_residual_ok() {
+        return false;
+    }
+    if !h.path_resolved {
+        return true;
+    }
+    h.wnd_validated
+        && h.window_loaded
+        && h.window_count == CONTROL_BAR_RETAIL_WINDOW_COUNT
+        && honesty_control_bar_residual_pack_wave76_ok(h.window_loaded, h.window_count)
+}
+
 /// Shipped ensure path: resolve ControlBar.wnd, validate, and attempt load.
 ///
 /// When `attempt_window_load` is false, only resolve+validate (unit-test friendly).
@@ -403,17 +422,18 @@ pub fn ensure_control_bar_layout_with_count(
                 count,
             ),
             Err(e) => {
-                // Assets exist; load may fail without full GUI init — still Ready with
-                // loaded=false after validation so host does not silently no-op.
+                // Assets resolved and validated: load failure is not soft-ok.
+                // Matches MainMenu materialise honesty (Wave 162) — host must not
+                // claim Ready when WindowManager did not materialise windows.
                 log::warn!(
-                    "ControlBar.wnd validated at {} but window load deferred/failed: {}",
+                    "ControlBar.wnd validated at {} but window load failed: {}",
                     path_str,
                     e
                 );
                 (
-                    GameplayLayoutStatus::Ready {
+                    GameplayLayoutStatus::LoadFailed {
                         path: path_str,
-                        loaded: false,
+                        error: e,
                     },
                     0,
                 )
@@ -833,33 +853,30 @@ mod tests {
         );
         if h.path_resolved {
             assert!(h.wnd_validated, "path must structurally validate");
-            // When assets are present on this host, prefer real load.
-            if matches!(h.status, GameplayLayoutStatus::Ready { loaded: true, .. }) {
-                assert!(
-                    h.window_loaded && h.window_count > 0,
-                    "WindowManager parse must materialise windows: {:?}",
-                    h
-                );
-                // Wave 76: retail parse must materialise exactly 98 windows.
-                assert_eq!(
-                    h.window_count, CONTROL_BAR_RETAIL_WINDOW_COUNT,
-                    "retail ControlBar.wnd window_count residual: {:?}",
-                    h
-                );
-                assert!(honesty_control_bar_residual_pack_wave76_ok(
-                    h.window_loaded,
-                    h.window_count
-                ));
-            } else {
-                // Validated-only residual (parse deferred/failed): still not silent.
-                assert!(!h.window_loaded);
-                assert_eq!(h.window_count, 0);
-                assert!(honesty_control_bar_residual_pack_wave76_ok(false, 0));
-            }
+            // When retail assets resolve, require materialisation (no soft-ok).
+            assert!(
+                h.window_loaded && h.window_count > 0,
+                "resolved ControlBar.wnd must materialise windows: {:?}",
+                h
+            );
+            assert_eq!(
+                h.window_count, CONTROL_BAR_RETAIL_WINDOW_COUNT,
+                "retail ControlBar.wnd window_count residual: {:?}",
+                h
+            );
+            assert!(honesty_control_bar_residual_pack_wave76_ok(
+                h.window_loaded,
+                h.window_count
+            ));
+            assert!(
+                simulate_control_bar_materialise_honesty(),
+                "ControlBar materialise honesty must latch"
+            );
         } else {
             assert!(h.assets_unavailable);
             assert!(!h.window_loaded);
             assert!(honesty_control_bar_residual_pack_wave76_ok(false, 0));
+            assert!(simulate_control_bar_materialise_honesty());
         }
         let report = format_control_bar_honesty(&h);
         assert!(
