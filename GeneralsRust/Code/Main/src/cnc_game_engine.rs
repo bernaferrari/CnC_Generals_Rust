@@ -6142,6 +6142,23 @@ impl CnCGameEngine {
                     format!("click_live_presentation_visual_speed_probe_miss_{action}")
                 };
             }
+            "click_live_presentation_script_camera_probe" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_presentation_script_camera_probe_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_presentation_script_camera_probe_residual_pack_wave252(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_presentation_script_camera_probe_ok_{action}")
+                } else {
+                    format!("click_live_presentation_script_camera_probe_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -13658,6 +13675,25 @@ impl CnCGameEngine {
     }
 
     /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
+    /// Wave 252: script default camera residuals via presentation freeze.
+    fn ui_script_default_camera_max_height(&self) -> f32 {
+        // Wave 252: presentation freeze first.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.script_default_camera_max_height;
+        }
+        // Boot residual only.
+        self.game_logic.script_default_camera_max_height()
+    }
+
+    fn ui_script_default_camera_pitch(&self) -> f32 {
+        // Wave 252: presentation freeze first.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.script_default_camera_pitch;
+        }
+        // Boot residual only.
+        self.game_logic.script_default_camera_pitch()
+    }
+
     fn ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
         if let Some(id) = self.selected_objects.first().copied() {
             return Some(id);
@@ -14442,7 +14478,7 @@ impl CnCGameEngine {
         if self.game_logic.take_camera_zoom_reset() {
             self.camera_zoom = self.compute_default_camera_zoom_for_target(
                 self.camera_target,
-                self.game_logic.script_default_camera_max_height(),
+                self.ui_script_default_camera_max_height(),
             );
             self.camera_zoom_target = None;
             self.camera_zoom_start = self.camera_zoom;
@@ -14451,7 +14487,7 @@ impl CnCGameEngine {
             self.camera_zoom_ease_in = 0.0;
             self.camera_zoom_ease_out = 0.0;
             self.apply_script_camera_pitch_request(CameraPitchRequest {
-                pitch: self.game_logic.script_default_camera_pitch(),
+                pitch: self.ui_script_default_camera_pitch(),
                 duration_seconds: 0.0,
                 ease_in_seconds: 0.0,
                 ease_out_seconds: 0.0,
@@ -14557,7 +14593,7 @@ impl CnCGameEngine {
         if pres.camera_zoom_reset {
             self.camera_zoom = self.compute_default_camera_zoom_for_target(
                 self.camera_target,
-                self.game_logic.script_default_camera_max_height(),
+                self.ui_script_default_camera_max_height(),
             );
             self.camera_zoom_target = None;
             self.camera_zoom_start = self.camera_zoom;
@@ -14566,7 +14602,7 @@ impl CnCGameEngine {
             self.camera_zoom_ease_in = 0.0;
             self.camera_zoom_ease_out = 0.0;
             self.apply_script_camera_pitch_request(CameraPitchRequest {
-                pitch: self.game_logic.script_default_camera_pitch(),
+                pitch: self.ui_script_default_camera_pitch(),
                 duration_seconds: 0.0,
                 ease_in_seconds: 0.0,
                 ease_out_seconds: 0.0,
@@ -17376,7 +17412,7 @@ impl CnCGameEngine {
         self.camera_target.z = clamped.z;
         self.camera_zoom = self.compute_default_camera_zoom_for_target(
             clamped,
-            self.game_logic.script_default_camera_max_height(),
+            self.ui_script_default_camera_max_height(),
         );
         self.game_logic.request_camera_focus(clamped);
         info!("CAMERA_RESET residual -> {:?}", clamped);

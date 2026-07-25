@@ -2231,6 +2231,10 @@ pub struct PresentationFrame {
     pub time_frozen_for_simulation: bool,
     /// Wave 251: host visual speed residual (render/update timing).
     pub visual_speed_multiplier: f32,
+    /// Wave 252: script default camera max height residual.
+    pub script_default_camera_max_height: f32,
+    /// Wave 252: script default camera pitch residual.
+    pub script_default_camera_pitch: f32,
     /// Pending script FPS limit residual.
     pub script_fps_limit: Option<i32>,
     /// Pending view guardband residual (x,y bias).
@@ -3367,6 +3371,9 @@ impl PresentationFrame {
             time_frozen_for_simulation: logic.is_time_frozen_for_simulation(),
             // Wave 251: freeze visual speed into presentation snapshot.
             visual_speed_multiplier: logic.visual_speed_multiplier(),
+            // Wave 252: freeze script default camera residuals.
+            script_default_camera_max_height: logic.script_default_camera_max_height(),
+            script_default_camera_pitch: logic.script_default_camera_pitch(),
             script_fps_limit: logic.peek_pending_script_fps_limit(),
             view_guardband: logic
                 .peek_pending_view_guardband()
