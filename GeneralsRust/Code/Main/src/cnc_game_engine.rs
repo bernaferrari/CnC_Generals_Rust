@@ -5504,6 +5504,23 @@ impl CnCGameEngine {
                     format!("click_live_ui_producer_presentation_only_miss_{action}")
                 };
             }
+            "click_live_ui_helpers_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_ui_helpers_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_ui_helpers_presentation_only_residual_pack_wave215(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_ui_helpers_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_ui_helpers_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -13118,25 +13135,17 @@ impl CnCGameEngine {
 
     #[inline]
     fn ui_object_can_produce(&self, id: crate::game_logic::ObjectId) -> bool {
-        if let Some(o) = self.presentation_ro(id) {
-            return o.can_produce
-                && !o.destroyed
-                && !o.under_construction
-                && o.health_current > 0.0;
-        }
-        self.game_logic
-            .get_object(id)
-            .is_some_and(|o| o.is_alive() && o.is_constructed() && o.building_data.is_some())
+        // Wave 215: presentation-only (no live GameLogic dual-read residual).
+        self.presentation_ro(id).is_some_and(|o| {
+            o.can_produce && !o.destroyed && !o.under_construction && o.health_current > 0.0
+        })
     }
 
     #[inline]
     fn ui_object_under_construction(&self, id: crate::game_logic::ObjectId) -> bool {
-        if let Some(o) = self.presentation_ro(id) {
-            return o.under_construction && !o.destroyed && o.health_current > 0.0;
-        }
-        self.game_logic
-            .get_object(id)
-            .is_some_and(|o| o.is_alive() && o.status.under_construction && !o.status.sold)
+        // Wave 215: presentation-only (no live GameLogic dual-read residual).
+        self.presentation_ro(id)
+            .is_some_and(|o| o.under_construction && !o.destroyed && o.health_current > 0.0)
     }
 
     #[inline]
@@ -13149,18 +13158,13 @@ impl CnCGameEngine {
     #[inline]
     #[inline]
     fn ui_special_power_ready(&self, id: crate::game_logic::ObjectId) -> bool {
-        if let Some(o) = self.presentation_ro(id) {
-            return o.special_power_ready
-                && !o.destroyed
-                && o.health_current > 0.0
-                && !o.under_construction;
-        }
-        self.game_logic
-            .get_object(id)
-            .is_some_and(|o| o.is_alive() && o.special_power_ready)
+        // Wave 215: presentation-only (no live GameLogic dual-read residual).
+        self.presentation_ro(id).is_some_and(|o| {
+            o.special_power_ready && !o.destroyed && o.health_current > 0.0 && !o.under_construction
+        })
     }
 
-    /// Prefer presentation special-power type residual when ready; else live host.
+    /// Presentation special-power type residual when ready.
     #[inline]
     fn ui_special_power_type_if_ready(
         &self,
@@ -13177,31 +13181,30 @@ impl CnCGameEngine {
     }
 
     fn ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
-        // Prefer engine selection residual, then player selection, then presentation.
+        // Wave 215: prefer engine selection residual, then presentation freeze,
+        // then host player selection (command authority) — no requirement for live
+        // dual-read when a presentation frame is installed.
         if !self.selected_objects.is_empty() {
             return self.selected_objects.clone();
-        }
-        if let Some(sel) = self
-            .game_logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-        {
-            if !sel.is_empty() {
-                return sel;
-            }
         }
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             if !frame.selected.is_empty() {
                 return frame.selected.clone();
             }
-            return frame
+            let from_objs: Vec<_> = frame
                 .objects
                 .iter()
-                .filter(|o| o.selected && !o.destroyed)
+                .filter(|o| o.selected && !o.destroyed && o.health_current > 0.0)
                 .map(|o| o.id)
                 .collect();
+            if !from_objs.is_empty() {
+                return from_objs;
+            }
         }
-        Vec::new()
+        self.game_logic
+            .get_player(player_id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default()
     }
 
     fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
