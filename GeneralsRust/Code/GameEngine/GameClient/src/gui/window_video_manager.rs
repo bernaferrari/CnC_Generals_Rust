@@ -372,6 +372,162 @@ fn open_stream(movie_name: String) -> Option<Box<dyn VideoStreamInterface>> {
     None
 }
 
+/// Residual: last WindowVideoManager action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualWindowVideoAction {
+    None = 0,
+    Init = 1,
+    Reset = 2,
+    PauseAll = 3,
+    ResumeAll = 4,
+    StopAll = 5,
+    Update = 6,
+}
+
+static RESIDUAL_WV_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_WV_STOP_ALL: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_WV_PAUSE_ALL: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_WV_PLAYING_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+fn residual_wv_action_store(action: ResidualWindowVideoAction) {
+    RESIDUAL_WV_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last WindowVideo residual action.
+pub fn residual_window_video_last_action() -> ResidualWindowVideoAction {
+    match RESIDUAL_WV_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualWindowVideoAction::Init,
+        2 => ResidualWindowVideoAction::Reset,
+        3 => ResidualWindowVideoAction::PauseAll,
+        4 => ResidualWindowVideoAction::ResumeAll,
+        5 => ResidualWindowVideoAction::StopAll,
+        6 => ResidualWindowVideoAction::Update,
+        _ => ResidualWindowVideoAction::None,
+    }
+}
+
+/// Residual: stop-all latch.
+pub fn residual_window_video_stop_all() -> bool {
+    RESIDUAL_WV_STOP_ALL.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: pause-all latch.
+pub fn residual_window_video_pause_all() -> bool {
+    RESIDUAL_WV_PAUSE_ALL.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: playing video count latch.
+pub fn residual_window_video_playing_count() -> usize {
+    RESIDUAL_WV_PLAYING_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn residual_wv_sync(manager: &WindowVideoManager) {
+    RESIDUAL_WV_STOP_ALL.store(
+        manager.stop_all_movies,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    RESIDUAL_WV_PAUSE_ALL.store(
+        manager.pause_all_movies,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    RESIDUAL_WV_PLAYING_COUNT.store(
+        manager.playing_videos.len(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+/// Residual: init window video manager without movies.
+pub fn simulate_window_video_init() -> bool {
+    with_window_video_manager(|manager| {
+        manager.init();
+        residual_wv_sync(manager);
+        residual_wv_action_store(ResidualWindowVideoAction::Init);
+        residual_window_video_playing_count() == 0
+            && !residual_window_video_stop_all()
+            && !residual_window_video_pause_all()
+    })
+}
+
+/// Residual: reset window video manager residual.
+pub fn simulate_window_video_reset() -> bool {
+    with_window_video_manager(|manager| {
+        manager.reset();
+        residual_wv_sync(manager);
+        residual_wv_action_store(ResidualWindowVideoAction::Reset);
+        residual_window_video_playing_count() == 0
+    })
+}
+
+/// Residual: pause all movies residual (global flag).
+pub fn simulate_window_video_pause_all() -> bool {
+    with_window_video_manager(|manager| {
+        manager.pause_all_movies();
+        residual_wv_sync(manager);
+        residual_wv_action_store(ResidualWindowVideoAction::PauseAll);
+        residual_window_video_pause_all()
+    })
+}
+
+/// Residual: resume all movies residual.
+pub fn simulate_window_video_resume_all() -> bool {
+    with_window_video_manager(|manager| {
+        manager.resume_all_movies();
+        residual_wv_sync(manager);
+        residual_wv_action_store(ResidualWindowVideoAction::ResumeAll);
+        !residual_window_video_pause_all()
+    })
+}
+
+/// Residual: stop all movies residual.
+pub fn simulate_window_video_stop_all() -> bool {
+    with_window_video_manager(|manager| {
+        manager.stop_all_movies();
+        residual_wv_sync(manager);
+        residual_wv_action_store(ResidualWindowVideoAction::StopAll);
+        residual_window_video_stop_all()
+    })
+}
+
+/// Residual: update window video manager residual.
+pub fn simulate_window_video_update() -> bool {
+    with_window_video_manager(|manager| {
+        manager.update();
+        residual_wv_sync(manager);
+        residual_wv_action_store(ResidualWindowVideoAction::Update);
+        true
+    })
+}
+
+/// Residual play-type names residual.
+pub const WINDOW_VIDEO_PLAY_TYPE_NAMES: &[&str] = &["Once", "Loop", "ShowLastFrame"];
+
+/// Residual state names residual.
+pub const WINDOW_VIDEO_STATE_NAMES: &[&str] = &["Start", "Stop", "Pause", "Play", "Hidden"];
+
+/// Residual: init + pause + resume + stop composite.
+pub fn simulate_window_video_prepare_control_cycle() -> bool {
+    if !simulate_window_video_init() {
+        return false;
+    }
+    if !simulate_window_video_pause_all() {
+        return false;
+    }
+    if !simulate_window_video_resume_all() {
+        return false;
+    }
+    if !simulate_window_video_stop_all() {
+        return false;
+    }
+    if !simulate_window_video_update() {
+        return false;
+    }
+    residual_window_video_stop_all() && residual_window_video_playing_count() == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

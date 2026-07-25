@@ -112,6 +112,15 @@ pub mod window_layout;
 pub mod window_manager;
 pub mod window_script;
 pub mod window_video_manager;
+pub use window_video_manager::{
+    residual_window_video_last_action, residual_window_video_pause_all,
+    residual_window_video_playing_count, residual_window_video_stop_all,
+    simulate_window_video_init, simulate_window_video_pause_all,
+    simulate_window_video_prepare_control_cycle, simulate_window_video_reset,
+    simulate_window_video_resume_all, simulate_window_video_stop_all, simulate_window_video_update,
+    ResidualWindowVideoAction, WindowVideoPlayType, WindowVideoState, WINDOW_VIDEO_PLAY_TYPE_NAMES,
+    WINDOW_VIDEO_STATE_NAMES,
+};
 
 // Re-export main types for convenience
 pub use game_window::{

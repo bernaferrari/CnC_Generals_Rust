@@ -320,6 +320,7 @@ pub mod host_usa_pilot;
 pub mod host_usa_tanks;
 mod host_wave_guide;
 pub mod host_weapon_laser;
+pub mod host_window_video_residual_wave154;
 pub mod locomotor_bootstrap;
 pub mod mission_scripts;
 pub mod object;
@@ -1643,4 +1644,9 @@ pub use host_under_construction_residual_wave148::{
     honesty_under_construction_method_names_residual_wave148,
     honesty_under_construction_nav_commands_residual_wave148,
     honesty_under_construction_residual_pack_wave148,
+};
+pub use host_window_video_residual_wave154::{
+    honesty_window_video_method_names_residual_wave154,
+    honesty_window_video_nav_commands_residual_wave154, honesty_window_video_residual_pack_wave154,
+    honesty_window_video_type_state_names_residual_wave154,
 };
