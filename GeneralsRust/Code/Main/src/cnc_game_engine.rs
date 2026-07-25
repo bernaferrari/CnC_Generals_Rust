@@ -4934,6 +4934,23 @@ impl CnCGameEngine {
                     format!("click_live_gameworld_economy_movement_miss_{action}")
                 };
             }
+            "click_live_gameworld_projectile_ai" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "projectile" | "ai" | "prepare" => {
+                        crate::game_logic::simulate_live_gameworld_projectile_ai_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_gameworld_projectile_ai_residual_pack_wave184(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_gameworld_projectile_ai_ok_{action}")
+                } else {
+                    format!("click_live_gameworld_projectile_ai_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
