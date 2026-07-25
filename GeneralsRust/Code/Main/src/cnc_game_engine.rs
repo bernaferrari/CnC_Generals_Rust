@@ -4846,6 +4846,26 @@ impl CnCGameEngine {
                     format!("click_gameworld_sole_tick_coupling_miss_{action}")
                 };
             }
+            "click_gameworld_authority_matrix" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "all" | "couple" | "prepare" => {
+                        crate::game_logic::simulate_gameworld_authority_matrix_honesty()
+                    }
+                    _ => {
+                        crate::game_logic::honesty_gameworld_authority_matrix_residual_pack_wave179(
+                        )
+                    }
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_gameworld_authority_matrix_ok_{action}")
+                } else {
+                    format!("click_gameworld_authority_matrix_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();

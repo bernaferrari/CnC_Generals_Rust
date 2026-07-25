@@ -182,6 +182,7 @@ pub mod host_fx_ocl_particle_audio_residual_wave107;
 pub mod host_gadget_video_audio_residual_wave113;
 pub mod host_game_logic_residual_wave103;
 pub mod host_gamedata_lobby_residual;
+pub mod host_gameworld_authority_matrix_residual_wave179;
 pub mod host_gameworld_authority_residual_wave153;
 pub mod host_gameworld_production_authority_residual_wave177;
 pub mod host_gameworld_sole_tick_coupling_residual_wave178;
@@ -1551,6 +1552,12 @@ pub use host_gadget_video_audio_residual_wave113::{
     honesty_audio_event_residual_wave113, honesty_gadget_residual_wave113,
     honesty_gadget_video_audio_residual_pack_wave113, honesty_game_window_manager_residual_wave113,
     honesty_video_buffer_residual_wave113, honesty_window_style_residual_wave113,
+};
+pub use host_gameworld_authority_matrix_residual_wave179::{
+    honesty_gameworld_authority_matrix_method_names_residual_wave179,
+    honesty_gameworld_authority_matrix_nav_commands_residual_wave179,
+    honesty_gameworld_authority_matrix_residual_pack_wave179,
+    simulate_gameworld_authority_matrix_honesty,
 };
 pub use host_gameworld_authority_residual_wave153::{
     honesty_gameworld_authority_env_names_residual_wave153,
