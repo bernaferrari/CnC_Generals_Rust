@@ -218,6 +218,7 @@ pub mod host_live_gameworld_construction_writeback_residual_wave181;
 pub mod host_live_gameworld_damage_channel_residual_wave182;
 pub mod host_live_gameworld_economy_movement_residual_wave183;
 pub mod host_live_gameworld_fire_special_power_residual_wave185;
+pub mod host_live_gameworld_presentation_view_residual_wave186;
 pub mod host_live_gameworld_production_writeback_residual_wave180;
 pub mod host_live_gameworld_projectile_ai_residual_wave184;
 pub mod host_live_gameworld_shadow_overlay_residual_wave172;
@@ -1633,6 +1634,12 @@ pub use host_live_gameworld_fire_special_power_residual_wave185::{
     honesty_live_gameworld_fire_special_power_nav_commands_residual_wave185,
     honesty_live_gameworld_fire_special_power_residual_pack_wave185,
     simulate_live_gameworld_fire_special_power_honesty,
+};
+pub use host_live_gameworld_presentation_view_residual_wave186::{
+    honesty_live_gameworld_presentation_view_method_names_residual_wave186,
+    honesty_live_gameworld_presentation_view_nav_commands_residual_wave186,
+    honesty_live_gameworld_presentation_view_residual_pack_wave186,
+    simulate_live_gameworld_presentation_view_honesty,
 };
 pub use host_live_gameworld_production_writeback_residual_wave180::{
     honesty_live_gameworld_production_writeback_method_names_residual_wave180,
