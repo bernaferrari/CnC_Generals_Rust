@@ -5861,6 +5861,23 @@ impl CnCGameEngine {
                     format!("click_live_rmb_presentation_full_classify_miss_{action}")
                 };
             }
+            "click_live_mouse_input_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_mouse_input_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_mouse_input_presentation_only_residual_pack_wave236(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_mouse_input_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_mouse_input_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -15548,6 +15565,8 @@ impl CnCGameEngine {
             target_object,
             target_presentation: target_object.and_then(|id| self.presentation_target_hint(id)),
             selected_presentation: self.presentation_selected_unit_hints(&selected),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
             viewport_size: None,
             world_min: None,
@@ -15562,11 +15581,16 @@ impl CnCGameEngine {
         };
 
         let mut cmd_sys = crate::command_system::CommandSystem::new();
+        // Wave 236: presentation-only mouse path when frame installed.
         let command = cmd_sys.process_mouse_input(
             &context,
             &selected,
             self.current_player_id,
-            &self.game_logic,
+            if self.last_presentation_frame.is_some() {
+                None
+            } else {
+                Some(&self.game_logic)
+            },
         );
 
         if let Some(mut command) = command {
@@ -18727,6 +18751,8 @@ impl CnCGameEngine {
             target_object,
             target_presentation: target_object.and_then(|id| self.presentation_target_hint(id)),
             selected_presentation: self.presentation_selected_unit_hints(&selected),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
             viewport_size: None,
             world_min: None,
@@ -18741,11 +18767,16 @@ impl CnCGameEngine {
         };
 
         let mut cmd_sys = crate::command_system::CommandSystem::new();
+        // Wave 236: presentation-only mouse path when frame installed.
         let command = cmd_sys.process_mouse_input(
             &context,
             &selected,
             self.current_player_id,
-            &self.game_logic,
+            if self.last_presentation_frame.is_some() {
+                None
+            } else {
+                Some(&self.game_logic)
+            },
         );
 
         if let Some(mut command) = command {
@@ -19178,6 +19209,8 @@ impl CnCGameEngine {
             target_object: hover,
             target_presentation: hover.and_then(|id| self.presentation_target_hint(id)),
             selected_presentation: self.presentation_selected_unit_hints(&selected),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
             viewport_size: None,
             world_min: None,
@@ -19191,11 +19224,16 @@ impl CnCGameEngine {
             drag_end_world: None,
         };
         let mut cmd_sys = crate::command_system::CommandSystem::new();
+        // Wave 236: presentation-only mouse path when frame installed.
         let cmd = cmd_sys.process_mouse_input(
             &context,
             &selected,
             self.current_player_id,
-            &self.game_logic,
+            if self.last_presentation_frame.is_some() {
+                None
+            } else {
+                Some(&self.game_logic)
+            },
         );
         match cmd.map(|c| c.command_type) {
             Some(crate::command_system::CommandType::AttackObject { .. }) => {

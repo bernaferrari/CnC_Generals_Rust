@@ -119,9 +119,10 @@ pub fn honesty_rmb_presentation_full_classify_source() -> bool {
     let Some(det) = fn_body(cs, "fn determine_context_command(") else {
         return false;
     };
-    if !(det.contains("Wave 235")
-        && det.contains("context.selected_presentation.is_empty()")
-        && det.contains("Some(game_logic)")
+    // Wave 236: game_logic is Option; empty selected_presentation forwards `game_logic`.
+    if !(det.contains("context.selected_presentation.is_empty()")
+        && (det.contains("Wave 235") || det.contains("Wave 236"))
+        && det.contains("game_logic")
         && det.contains("None"))
     {
         return false;

@@ -384,6 +384,8 @@ impl InputCommandProcessor {
             target_object: self.find_object_at_position(game_logic),
             target_presentation: None,
             selected_presentation: Vec::new(),
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
             screen_position: self.mouse_screen_pos,
             viewport_size: Some(self.viewport_size),
             world_min: Some(game_logic.world_bounds().0),
@@ -423,7 +425,7 @@ impl InputCommandProcessor {
                 &context,
                 &selected_units,
                 self.current_player_id,
-                game_logic,
+                Some(game_logic),
             ) {
                 system.queue_command(command);
                 log::trace!("Command queued from mouse input");
