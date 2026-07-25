@@ -4621,6 +4621,11 @@ impl<'a> CommandExecutor<'a> {
             if let Some(obj) = self.game_logic.get_object_mut(unit_id) {
                 if let Some(building) = obj.building_data.as_mut() {
                     building.rally_point = Some(location);
+                    // Wave 200: GameWorld SetRallyPoint last-writer drain.
+                    crate::game_logic::host_rally_log::record(
+                        unit_id,
+                        Some([location.x, location.y, location.z]),
+                    );
                     applied = true;
                 }
             }

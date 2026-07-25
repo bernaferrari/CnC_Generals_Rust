@@ -837,6 +837,11 @@ pub enum WorldMutation {
         target_host: u32,
         radius: f32,
     },
+    /// Host BuildingData::rally_point residual (Wave 200).
+    SetRallyPoint {
+        unit: EntityId,
+        position: Option<[f32; 3]>,
+    },
     /// Host Object::ai_attitude residual (-2 Sleep .. +2 Aggressive).
     SetAiAttitude { target: EntityId, attitude: i8 },
     /// Host AI mood/idle residual (dozer idle timestamp + auto-acquire).
@@ -2057,6 +2062,12 @@ impl GameWorld {
                         e.guard_position = position;
                         e.guard_target_host = target_host;
                         e.guard_radius = radius.max(0.0);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetRallyPoint { unit, position } => {
+                    if let Some(e) = self.inner.entity_mut(unit) {
+                        e.rally_point = position;
                         applied += 1;
                     }
                 }

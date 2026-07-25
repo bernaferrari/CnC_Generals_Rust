@@ -3324,6 +3324,20 @@ impl GameWorldShadow {
         true
     }
 
+    /// Queue SetRallyPoint residual onto a mapped host structure (Wave 200).
+    pub fn queue_set_rally_point_for_host(
+        &mut self,
+        host: ObjectId,
+        position: Option<[f32; 3]>,
+    ) -> bool {
+        let Some(unit) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world
+            .queue_mutation(gamelogic::world::WorldMutation::SetRallyPoint { unit, position });
+        true
+    }
+
     /// Queue SetConstruction residual onto a mapped host structure.
     pub fn queue_set_construction_for_host(
         &mut self,
@@ -4491,6 +4505,23 @@ impl GameWorldShadow {
                     radius: ev.radius,
                 });
             n += 1;
+        }
+        if n > 0 {
+            let _ = self.apply_pending();
+        }
+        n
+    }
+
+    /// Apply host rally-point events as SetRallyPoint mutations (Wave 200).
+    pub fn apply_host_rally_events(
+        &mut self,
+        events: &[crate::game_logic::host_rally_log::HostRallyEvent],
+    ) -> usize {
+        let mut n = 0usize;
+        for ev in events {
+            if self.queue_set_rally_point_for_host(ev.object, ev.position) {
+                n += 1;
+            }
         }
         if n > 0 {
             let _ = self.apply_pending();
@@ -7265,6 +7296,7 @@ pub fn shadow_session_after_host_tick(
     let detector_events = crate::game_logic::host_detector_log::drain();
     let continuous_fire_events = crate::game_logic::host_continuous_fire_log::drain();
     let guard_events = crate::game_logic::host_guard_log::drain();
+    let rally_events = crate::game_logic::host_rally_log::drain();
     let ai_attitude_events = crate::game_logic::host_ai_attitude_log::drain();
     let weapon_set_events = crate::game_logic::host_weapon_set_log::drain();
     let overcharge_events = crate::game_logic::host_overcharge_log::drain();
@@ -7403,6 +7435,7 @@ pub fn shadow_session_after_host_tick(
     }
 
     let _guard_applied = shadow.apply_host_guard_events(&guard_events);
+    let _rally_applied = shadow.apply_host_rally_events(&rally_events);
     let _att_applied = shadow.apply_host_ai_attitude_events(&ai_attitude_events);
     let ai_mood_events = crate::game_logic::host_ai_mood_log::drain();
     let _mood_applied = shadow.apply_host_ai_mood_events(&ai_mood_events);
