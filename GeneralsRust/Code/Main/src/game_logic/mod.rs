@@ -174,6 +174,7 @@ pub mod host_gadget_video_audio_residual_wave113;
 pub mod host_game_logic_residual_wave103;
 pub mod host_gamedata_lobby_residual;
 pub mod host_gattling_tank;
+pub mod host_generals_exp_residual_wave138;
 pub mod host_gla_rebel;
 pub mod host_gla_worker;
 pub mod host_gps_scrambler;
@@ -229,6 +230,7 @@ pub mod host_passengers_fire_upgrade;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 mod host_poisoned_behavior;
+pub mod host_popup_communicator_residual_wave139;
 pub mod host_popup_replay_residual_wave130;
 mod host_preorder_create;
 pub mod host_production_buildable_command_residual;
@@ -1466,6 +1468,10 @@ pub use host_gadget_video_audio_residual_wave113::{
     honesty_gadget_video_audio_residual_pack_wave113, honesty_game_window_manager_residual_wave113,
     honesty_video_buffer_residual_wave113, honesty_window_style_residual_wave113,
 };
+pub use host_generals_exp_residual_wave138::{
+    honesty_generals_exp_control_names_residual_wave138,
+    honesty_generals_exp_nav_commands_residual_wave138, honesty_generals_exp_residual_pack_wave138,
+};
 pub use host_idle_worker_residual_wave137::{
     honesty_idle_worker_control_names_residual_wave137,
     honesty_idle_worker_nav_commands_residual_wave137, honesty_idle_worker_residual_pack_wave137,
@@ -1513,6 +1519,11 @@ pub use host_message_box_residual_wave128::{
 pub use host_options_menu_residual_wave126::{
     honesty_options_menu_control_names_residual_wave126,
     honesty_options_menu_nav_commands_residual_wave126, honesty_options_menu_residual_pack_wave126,
+};
+pub use host_popup_communicator_residual_wave139::{
+    honesty_popup_communicator_control_names_residual_wave139,
+    honesty_popup_communicator_nav_commands_residual_wave139,
+    honesty_popup_communicator_residual_pack_wave139,
 };
 pub use host_popup_replay_residual_wave130::{
     honesty_popup_replay_control_names_residual_wave130,

@@ -3279,6 +3279,85 @@ impl CnCGameEngine {
                     "click_idle_worker_miss".into()
                 };
             }
+            "open_generals_exp" => {
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_generals_exp_show();
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_generals_exp_ok_wnd".into()
+                } else {
+                    "open_generals_exp_miss".into()
+                };
+            }
+            "click_generals_exp" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "exit".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_generals_exp_esc,
+                        simulate_generals_exp_exit_button_gadget_selected,
+                        simulate_generals_exp_prepare_exit,
+                        simulate_generals_exp_science_button_gadget_selected,
+                        simulate_generals_exp_show,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "show" => simulate_generals_exp_show(),
+                        "esc" => simulate_generals_exp_esc(),
+                        "science" => simulate_generals_exp_science_button_gadget_selected(0),
+                        "prepare_exit" => simulate_generals_exp_prepare_exit(),
+                        _ => simulate_generals_exp_exit_button_gadget_selected(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_generals_exp_ok_wnd_{action}")
+                } else {
+                    "click_generals_exp_miss".into()
+                };
+            }
+            "open_popup_communicator" => {
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_popup_communicator_show();
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_popup_communicator_ok_wnd".into()
+                } else {
+                    "open_popup_communicator_miss".into()
+                };
+            }
+            "click_popup_communicator" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "ok".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_popup_communicator_esc,
+                        simulate_popup_communicator_ok_button_gadget_selected,
+                        simulate_popup_communicator_prepare_ok, simulate_popup_communicator_show,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "show" => simulate_popup_communicator_show(),
+                        "esc" => simulate_popup_communicator_esc(),
+                        "prepare_ok" => simulate_popup_communicator_prepare_ok(),
+                        _ => simulate_popup_communicator_ok_button_gadget_selected(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_popup_communicator_ok_wnd_{action}")
+                } else {
+                    "click_popup_communicator_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args

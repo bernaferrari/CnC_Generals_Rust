@@ -131,3 +131,85 @@ pub fn popup_communicator_system(
         _ => WindowMsgHandled::Ignored,
     }
 }
+
+/// Residual: last PopupCommunicator action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualPopupCommunicatorAction {
+    None = 0,
+    Bind = 1,
+    Ok = 2,
+    Esc = 3,
+}
+
+static RESIDUAL_POPCOM_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_POPCOM_VISIBLE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn residual_popcom_action_store(action: ResidualPopupCommunicatorAction) {
+    RESIDUAL_POPCOM_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last PopupCommunicator residual action.
+pub fn residual_popup_communicator_last_action() -> ResidualPopupCommunicatorAction {
+    match RESIDUAL_POPCOM_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualPopupCommunicatorAction::Bind,
+        2 => ResidualPopupCommunicatorAction::Ok,
+        3 => ResidualPopupCommunicatorAction::Esc,
+        _ => ResidualPopupCommunicatorAction::None,
+    }
+}
+
+/// Residual: PopupCommunicator visibility latch.
+pub fn residual_popup_communicator_is_visible() -> bool {
+    RESIDUAL_POPCOM_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: bind PopupCommunicator control IDs (no layout/modal).
+pub fn simulate_popup_communicator_bind_controls() -> bool {
+    let state_handle = popup_communicator_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    if state.parent_id.is_none() {
+        state.parent_id = Some(NameKeyGenerator::name_to_key(
+            "PopupCommunicator.wnd:PopupCommunicator",
+        ));
+    }
+    if state.button_ok_id.is_none() {
+        state.button_ok_id = Some(NameKeyGenerator::name_to_key(
+            "PopupCommunicator.wnd:ButtonOk",
+        ));
+    }
+    residual_popcom_action_store(ResidualPopupCommunicatorAction::Bind);
+    true
+}
+
+/// Residual: show residual without modal/layout create.
+pub fn simulate_popup_communicator_show() -> bool {
+    let _ = simulate_popup_communicator_bind_controls();
+    RESIDUAL_POPCOM_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+    residual_popup_communicator_is_visible()
+}
+
+/// Residual: fire ButtonOk without destroy_layout/unset_modal.
+pub fn simulate_popup_communicator_ok_button_gadget_selected() -> bool {
+    let _ = simulate_popup_communicator_bind_controls();
+    RESIDUAL_POPCOM_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_popcom_action_store(ResidualPopupCommunicatorAction::Ok);
+    !residual_popup_communicator_is_visible()
+}
+
+/// Residual: ESC maps to Ok residual.
+pub fn simulate_popup_communicator_esc() -> bool {
+    residual_popcom_action_store(ResidualPopupCommunicatorAction::Esc);
+    simulate_popup_communicator_ok_button_gadget_selected();
+    residual_popcom_action_store(ResidualPopupCommunicatorAction::Esc);
+    !residual_popup_communicator_is_visible()
+}
+
+/// Residual: show + Ok composite.
+pub fn simulate_popup_communicator_prepare_ok() -> bool {
+    if !simulate_popup_communicator_show() {
+        return false;
+    }
+    simulate_popup_communicator_ok_button_gadget_selected()
+}

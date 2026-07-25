@@ -52,3 +52,83 @@ pub fn generals_exp_points_system(
         _ => WindowMsgHandled::Ignored,
     }
 }
+
+/// Residual: last GeneralsExpPoints action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualGeneralsExpAction {
+    None = 0,
+    Bind = 1,
+    Exit = 2,
+    ScienceClick = 3,
+    Esc = 4,
+}
+
+static RESIDUAL_GENEXP_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_GENEXP_VISIBLE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn residual_genexp_action_store(action: ResidualGeneralsExpAction) {
+    RESIDUAL_GENEXP_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last GeneralsExp residual action.
+pub fn residual_generals_exp_last_action() -> ResidualGeneralsExpAction {
+    match RESIDUAL_GENEXP_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualGeneralsExpAction::Bind,
+        2 => ResidualGeneralsExpAction::Exit,
+        3 => ResidualGeneralsExpAction::ScienceClick,
+        4 => ResidualGeneralsExpAction::Esc,
+        _ => ResidualGeneralsExpAction::None,
+    }
+}
+
+/// Residual: GeneralsExp / purchase-science visibility latch.
+pub fn residual_generals_exp_is_visible() -> bool {
+    RESIDUAL_GENEXP_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: bind GeneralsExpPoints control IDs (no layout load).
+pub fn simulate_generals_exp_bind_controls() -> bool {
+    let _ = NameKeyGenerator::name_to_key("GeneralsExpPoints.wnd:ButtonExit");
+    residual_genexp_action_store(ResidualGeneralsExpAction::Bind);
+    true
+}
+
+/// Residual: show purchase-science residual without ControlBar layout create.
+pub fn simulate_generals_exp_show() -> bool {
+    let _ = simulate_generals_exp_bind_controls();
+    RESIDUAL_GENEXP_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+    residual_generals_exp_is_visible()
+}
+
+/// Residual: fire ButtonExit without hide_purchase_science side effects.
+pub fn simulate_generals_exp_exit_button_gadget_selected() -> bool {
+    let _ = simulate_generals_exp_bind_controls();
+    RESIDUAL_GENEXP_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_genexp_action_store(ResidualGeneralsExpAction::Exit);
+    !residual_generals_exp_is_visible()
+}
+
+/// Residual: ESC hide residual (same exit path).
+pub fn simulate_generals_exp_esc() -> bool {
+    RESIDUAL_GENEXP_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_genexp_action_store(ResidualGeneralsExpAction::Esc);
+    !residual_generals_exp_is_visible()
+}
+
+/// Residual: context-sensitive science button click without purchase apply.
+pub fn simulate_generals_exp_science_button_gadget_selected(control_id: u32) -> bool {
+    let _ = control_id;
+    let _ = simulate_generals_exp_bind_controls();
+    residual_genexp_action_store(ResidualGeneralsExpAction::ScienceClick);
+    true
+}
+
+/// Residual: show + Exit composite.
+pub fn simulate_generals_exp_prepare_exit() -> bool {
+    if !simulate_generals_exp_show() {
+        return false;
+    }
+    simulate_generals_exp_exit_button_gadget_selected()
+}
