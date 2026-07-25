@@ -61329,6 +61329,70 @@ impl GameLogic {
         self.objects.get(&id).is_some_and(|o| o.can_attack())
     }
 
+    /// Wave 244: team probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_team(&self, id: ObjectId) -> Option<Team> {
+        self.objects.get(&id).map(|o| o.team)
+    }
+
+    /// Wave 244: alive probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_is_alive(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.is_alive())
+    }
+
+    /// Wave 244: worker probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_is_worker(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.is_worker())
+    }
+
+    /// Wave 244: repair/dozer probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_can_repair(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.can_repair())
+    }
+
+    /// Wave 244: hero probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_is_hero(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.is_hero())
+    }
+
+    /// Wave 244: KindOf probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_is_kind_of(&self, id: ObjectId, kind: KindOf) -> bool {
+        self.objects.get(&id).is_some_and(|o| o.is_kind_of(kind))
+    }
+
+    /// Wave 244: template name probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_template_name(&self, id: ObjectId) -> Option<String> {
+        self.objects.get(&id).map(|o| o.template_name.clone())
+    }
+
+    /// Wave 244: existence probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_exists(&self, id: ObjectId) -> bool {
+        self.objects.contains_key(&id)
+    }
+
+    /// Wave 244: under-construction status without exposing `&Object`.
+    #[inline]
+    pub fn unit_under_construction(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.status.under_construction)
+    }
+
+    /// Wave 244: damaged/injured probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_needs_service(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.health.current + 0.01 < o.health.maximum)
+    }
+
     #[inline]
     pub fn unit_is_dead_or_missing(&self, id: ObjectId) -> bool {
         match self.objects.get(&id) {
