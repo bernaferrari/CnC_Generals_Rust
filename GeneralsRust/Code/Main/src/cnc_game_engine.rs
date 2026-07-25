@@ -5946,6 +5946,25 @@ impl CnCGameEngine {
                     format!("click_live_player_field_probe_miss_{action}")
                 };
             }
+            "click_live_camera_height_probe" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_camera_height_probe_honesty()
+                    }
+                    _ => {
+                        crate::game_logic::honesty_live_camera_height_probe_residual_pack_wave241()
+                    }
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_camera_height_probe_ok_{action}")
+                } else {
+                    format!("click_live_camera_height_probe_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -8514,15 +8533,24 @@ impl CnCGameEngine {
         // Match C++ W3DView::lookAt(): unlike the old 2D View::lookAt(), the W3D path writes the
         // requested world coordinate directly into m_pos and builds the camera transform from that.
         let terrain_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
-        let (camera_anchor_ground_height, terrain_height_max) = Self::sample_startup_camera_heights(
-            game_logic,
+        let (camera_anchor_ground_height, terrain_height_max) = // Wave 241: no live dual-read when presentation freeze is installed.
+        Self::sample_startup_camera_heights(
+            if presentation.is_some() {
+                None
+            } else {
+                Some(game_logic)
+            },
             terrain_target,
             world_center.y,
             presentation,
         );
         let focus_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
         let (focus_ground_height, _) = Self::sample_startup_camera_heights(
-            game_logic,
+            if presentation.is_some() {
+                None
+            } else {
+                Some(game_logic)
+            },
             focus_target,
             world_center.y,
             presentation,
@@ -8587,7 +8615,8 @@ impl CnCGameEngine {
     }
 
     fn sample_startup_camera_heights(
-        game_logic: &GameLogic,
+        // Wave 241: live GameLogic only when no presentation freeze is installed.
+        game_logic: Option<&GameLogic>,
         terrain_target: Vec3,
         fallback_ground_height: f32,
         presentation: Option<&crate::presentation_frame::PresentationFrame>,
@@ -8598,8 +8627,10 @@ impl CnCGameEngine {
         // Prefer presentation-frozen height grid / bounds when a frame is installed.
         let (world_min, world_max) = if let Some(pres) = presentation {
             pres.world_env.world_bounds_vec3()
+        } else if let Some(gl) = game_logic {
+            gl.world_bounds()
         } else {
-            game_logic.world_bounds()
+            (Vec3::new(-500.0, 0.0, -500.0), Vec3::new(500.0, 0.0, 500.0))
         };
 
         let sample_one = |pos: Vec3| -> f32 {
@@ -8613,10 +8644,14 @@ impl CnCGameEngine {
                     return h.min(MAX_GROUND_LEVEL);
                 }
             }
-            game_logic
-                .terrain_height_at(clamped)
-                .unwrap_or(fallback_ground_height)
-                .min(MAX_GROUND_LEVEL)
+            // Wave 241: boot residual only — no live dual-read when frame installed.
+            if let Some(gl) = game_logic {
+                return gl
+                    .terrain_height_at(clamped)
+                    .unwrap_or(fallback_ground_height)
+                    .min(MAX_GROUND_LEVEL);
+            }
+            fallback_ground_height.min(MAX_GROUND_LEVEL)
         };
 
         let mut ground_height = sample_one(terrain_target);
@@ -8658,8 +8693,13 @@ impl CnCGameEngine {
 
     fn compute_default_camera_zoom_for_target(&self, target: Vec3, max_height_scale: f32) -> f32 {
         let defaults = Self::configured_startup_camera_defaults();
+        // Wave 241: no live dual-read when presentation freeze is installed.
         let (ground_height, terrain_height_max) = Self::sample_startup_camera_heights(
-            &self.game_logic,
+            if self.last_presentation_frame.is_some() {
+                None
+            } else {
+                Some(&self.game_logic)
+            },
             target,
             target.y,
             self.last_presentation_frame.as_ref(),
