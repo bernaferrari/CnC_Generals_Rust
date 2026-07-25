@@ -279,6 +279,7 @@ pub mod host_live_presentation_gameworld_overlay_residual_wave187;
 pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_overlay_stamp_residual_wave190;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
+pub mod host_live_presentation_script_camera_probe_residual_wave252;
 pub mod host_live_presentation_seed_residual_wave171;
 pub mod host_live_presentation_time_frozen_probe_residual_wave250;
 pub mod host_live_presentation_visual_speed_probe_residual_wave251;
@@ -2050,6 +2051,12 @@ pub use host_live_presentation_rebuilt_vertical_gate_residual_wave196::{
     honesty_live_presentation_rebuilt_vertical_gate_nav_commands_residual_wave196,
     honesty_live_presentation_rebuilt_vertical_gate_residual_pack_wave196,
     simulate_live_presentation_rebuilt_vertical_gate_honesty,
+};
+pub use host_live_presentation_script_camera_probe_residual_wave252::{
+    honesty_live_presentation_script_camera_probe_method_names_residual_wave252,
+    honesty_live_presentation_script_camera_probe_nav_commands_residual_wave252,
+    honesty_live_presentation_script_camera_probe_residual_pack_wave252,
+    simulate_live_presentation_script_camera_probe_honesty,
 };
 pub use host_live_presentation_seed_residual_wave171::{
     honesty_live_presentation_seed_method_names_residual_wave171,
