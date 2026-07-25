@@ -11998,13 +11998,29 @@ impl Object {
             self.target_location = None;
             self.record_host_target_location();
             self.set_ai_state(AIState::Attacking);
-            self.status.attacking = true;
+            self.set_status_attacking(true);
         } else {
             self.target_location = None;
             self.set_status_force_attack(false);
             self.set_ai_state(AIState::Idle);
-            self.status.attacking = false;
+            self.set_status_attacking(false);
         }
+        crate::game_logic::host_attack_log::record(self.id, target);
+    }
+
+    /// Set order target without forcing AIState::Attacking.
+    /// Used by capture/hijack/gather/special-ability pathing where
+    /// `path_to_goal_with_state` owns the AI state residual.
+    /// Still last-writes host_attack_log + target_location clear.
+    pub fn set_order_target(&mut self, target: Option<ObjectId>) {
+        if target.is_some() {
+            let _ = self.takeoff_from_airfield_parking();
+        }
+        self.target = target;
+        self.target_location = None;
+        self.record_host_target_location();
+        self.set_status_force_attack(false);
+        self.set_status_attacking(false);
         crate::game_logic::host_attack_log::record(self.id, target);
     }
 

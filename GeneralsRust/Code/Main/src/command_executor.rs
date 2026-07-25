@@ -2593,11 +2593,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::Gathering) {
                 any = true;
@@ -3515,11 +3513,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::Entering) {
                 issued = true;
@@ -3750,11 +3746,11 @@ impl<'a> CommandExecutor<'a> {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_moving();
                 unit.set_position(drop_position);
-                unit.contained_by = None;
+                unit.set_contained_by(None);
                 unit.set_target(None);
                 unit.set_ai_state(AIState::Idle);
-                unit.status.moving = false;
-                unit.status.attacking = false;
+                unit.set_status_moving(false);
+                unit.set_status_attacking(false);
                 if was_tunnel {
                     // Counters already recorded in exit_tunnel_network_unit.
                 } else if was_garrisoned {
@@ -4967,11 +4963,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -5030,11 +5024,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -5094,11 +5086,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -5174,11 +5164,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, building_pos, AIState::Capturing) {
                 any = true;
@@ -5234,11 +5222,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -5304,11 +5290,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -5374,11 +5358,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -5446,11 +5428,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -5585,11 +5565,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -5678,11 +5656,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -5766,11 +5742,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -5827,10 +5801,9 @@ impl<'a> CommandExecutor<'a> {
         }
         let target_pos = target.get_position();
         if let Some(u) = self.game_logic.get_object_mut(unit_id) {
+            // Wave 205: order target last-writes host_attack_log (no AIState force).
             u.stop_moving();
-            u.status.attacking = false;
-            u.target = Some(target_id);
-            u.target_location = None;
+            u.set_order_target(Some(target_id));
         }
         let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility);
         self.game_logic.queue_pending_special_ability(
@@ -5858,10 +5831,9 @@ impl<'a> CommandExecutor<'a> {
         }
         let target_pos = target.get_position();
         if let Some(u) = self.game_logic.get_object_mut(unit_id) {
+            // Wave 205: order target last-writes host_attack_log (no AIState force).
             u.stop_moving();
-            u.status.attacking = false;
-            u.target = Some(target_id);
-            u.target_location = None;
+            u.set_order_target(Some(target_id));
         }
         let _ = self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility);
         self.game_logic.queue_pending_special_ability(
@@ -5899,10 +5871,9 @@ impl<'a> CommandExecutor<'a> {
         let target_pos = target.get_position();
         // Always queue walk-to; plant resolves on reach (StartAbilityRange 5 residual).
         if let Some(u) = self.game_logic.get_object_mut(unit_id) {
+            // Wave 205: order target last-writes host_attack_log (no AIState force).
             u.stop_moving();
-            u.status.attacking = false;
-            u.target = Some(target_id);
-            u.target_location = None;
+            u.set_order_target(Some(target_id));
         }
         if !self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
             // If already in range, still queue plant.
@@ -5980,11 +5951,9 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                // Wave 205: order target last-writes host_attack_log (no AIState force).
                 unit.stop_moving();
-                unit.status.attacking = false;
-                unit.target = Some(target_id);
-                unit.target_location = None;
-                unit.force_attack = false;
+                unit.set_order_target(Some(target_id));
             }
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
                 issued_units.push(unit_id);
@@ -8135,7 +8104,7 @@ mod group_move_tests {
         }
         {
             let p = logic.get_object_mut(pax).unwrap();
-            p.contained_by = Some(transport);
+            p.set_contained_by(Some(transport));
             p.set_ai_state(crate::game_logic::AIState::Docked);
         }
         assert!(!logic
@@ -8184,7 +8153,7 @@ mod group_move_tests {
         }
         {
             let p = logic.get_object_mut(pax).unwrap();
-            p.contained_by = Some(transport);
+            p.set_contained_by(Some(transport));
             p.set_ai_state(crate::game_logic::AIState::Docked);
         }
         {
