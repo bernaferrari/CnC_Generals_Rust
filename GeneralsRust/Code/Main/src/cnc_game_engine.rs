@@ -2620,6 +2620,77 @@ impl CnCGameEngine {
                     "click_single_player_menu_miss".into()
                 };
             }
+            "open_map_select_menu" => {
+                // Retail SinglePlayer → MapSelectMenu residual open.
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_map_select_menu_bind_controls();
+                }
+                self.enter_shell_menu_from_runtime_host(Some("MapSelect"));
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_map_select_menu_ok_wnd".into()
+                } else {
+                    "open_map_select_menu_ok".into()
+                };
+            }
+            "click_map_select_menu" => {
+                // Retail MapSelect OK/Back/difficulty/filter residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "ok".to_string());
+                let map = args
+                    .get("map")
+                    .cloned()
+                    .unwrap_or_else(|| "Maps/LoneEagle/LoneEagle.map".to_string());
+                let difficulty = args
+                    .get("difficulty")
+                    .and_then(|v| v.parse::<i32>().ok())
+                    .unwrap_or(1);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_map_select_menu_back_button_gadget_selected,
+                        simulate_map_select_menu_clear_button_pushed,
+                        simulate_map_select_menu_multiplayer_maps_button_gadget_selected,
+                        simulate_map_select_menu_ok_button_gadget_selected,
+                        simulate_map_select_menu_prepare_ok, simulate_map_select_menu_select_map,
+                        simulate_map_select_menu_set_difficulty,
+                        simulate_map_select_menu_solo_maps_button_gadget_selected,
+                        simulate_map_select_menu_system_maps_radio_selected,
+                        simulate_map_select_menu_user_maps_radio_selected,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "select" | "map" => simulate_map_select_menu_select_map(&map),
+                        "difficulty" => simulate_map_select_menu_set_difficulty(difficulty),
+                        "back" => {
+                            let _ = simulate_map_select_menu_clear_button_pushed();
+                            simulate_map_select_menu_back_button_gadget_selected()
+                        }
+                        "solo" => simulate_map_select_menu_solo_maps_button_gadget_selected(),
+                        "multiplayer" | "mp" => {
+                            simulate_map_select_menu_multiplayer_maps_button_gadget_selected()
+                        }
+                        "system" => simulate_map_select_menu_system_maps_radio_selected(),
+                        "user" => simulate_map_select_menu_user_maps_radio_selected(),
+                        "prepare_ok" => simulate_map_select_menu_prepare_ok(&map),
+                        "clear" => simulate_map_select_menu_clear_button_pushed(),
+                        _ => {
+                            let _ = simulate_map_select_menu_clear_button_pushed();
+                            let _ = simulate_map_select_menu_select_map(&map);
+                            let _ = simulate_map_select_menu_set_difficulty(difficulty);
+                            simulate_map_select_menu_ok_button_gadget_selected()
+                        }
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_map_select_menu_ok_wnd_{action}")
+                } else {
+                    "click_map_select_menu_miss".into()
+                };
+            }
             "open_single_player_menu" => {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]
