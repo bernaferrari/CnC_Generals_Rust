@@ -2229,6 +2229,8 @@ pub struct PresentationFrame {
     pub script_camera_time_frozen: bool,
     /// Combined simulation freeze residual.
     pub time_frozen_for_simulation: bool,
+    /// Wave 251: host visual speed residual (render/update timing).
+    pub visual_speed_multiplier: f32,
     /// Pending script FPS limit residual.
     pub script_fps_limit: Option<i32>,
     /// Pending view guardband residual (x,y bias).
@@ -3363,6 +3365,8 @@ impl PresentationFrame {
             script_time_frozen: logic.is_script_time_frozen(),
             script_camera_time_frozen: logic.is_script_camera_time_frozen(),
             time_frozen_for_simulation: logic.is_time_frozen_for_simulation(),
+            // Wave 251: freeze visual speed into presentation snapshot.
+            visual_speed_multiplier: logic.visual_speed_multiplier(),
             script_fps_limit: logic.peek_pending_script_fps_limit(),
             view_guardband: logic
                 .peek_pending_view_guardband()
