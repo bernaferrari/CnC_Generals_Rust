@@ -184,6 +184,7 @@ pub mod host_game_logic_residual_wave103;
 pub mod host_gamedata_lobby_residual;
 pub mod host_gameworld_authority_residual_wave153;
 pub mod host_gameworld_production_authority_residual_wave177;
+pub mod host_gameworld_sole_tick_coupling_residual_wave178;
 pub mod host_gattling_tank;
 pub mod host_generals_exp_residual_wave138;
 pub mod host_gla_rebel;
@@ -1562,6 +1563,12 @@ pub use host_gameworld_production_authority_residual_wave177::{
     honesty_gameworld_production_authority_nav_commands_residual_wave177,
     honesty_gameworld_production_authority_residual_pack_wave177,
     simulate_gameworld_production_authority_honesty,
+};
+pub use host_gameworld_sole_tick_coupling_residual_wave178::{
+    honesty_gameworld_sole_tick_coupling_method_names_residual_wave178,
+    honesty_gameworld_sole_tick_coupling_nav_commands_residual_wave178,
+    honesty_gameworld_sole_tick_coupling_residual_pack_wave178,
+    simulate_gameworld_sole_tick_coupling_honesty,
 };
 pub use host_generals_exp_residual_wave138::{
     honesty_generals_exp_control_names_residual_wave138,
