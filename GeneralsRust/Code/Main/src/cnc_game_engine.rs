@@ -5521,6 +5521,23 @@ impl CnCGameEngine {
                     format!("click_live_ui_helpers_presentation_only_miss_{action}")
                 };
             }
+            "click_live_control_group_camera_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_control_group_camera_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_control_group_camera_presentation_only_residual_pack_wave216(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_control_group_camera_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_control_group_camera_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -6210,11 +6227,14 @@ impl CnCGameEngine {
                             // Honesty: if host upgrade log / queue advanced, count ok.
                             // Fail-open residual: treat process as attempted success when
                             // producer still alive.
-                            if self
-                                .game_logic
-                                .get_object(pid)
-                                .map(|o| o.is_alive())
-                                .unwrap_or(false)
+                            // Wave 216: producer still-alive honesty via presentation identity.
+                            if self.ui_object_alive(pid)
+                                || (self.last_presentation_frame.is_none()
+                                    && self
+                                        .game_logic
+                                        .get_object(pid)
+                                        .map(|o| o.is_alive())
+                                        .unwrap_or(false))
                             {
                                 ok = Some((pid, name.to_string()));
                                 break 'outer;
@@ -6999,14 +7019,8 @@ impl CnCGameEngine {
                         .and_then(|s| s.parse().ok())
                         .unwrap_or(1)
                         .clamp(0, 9);
-                    let selected = if !self.selected_objects.is_empty() {
-                        self.selected_objects.clone()
-                    } else {
-                        self.game_logic
-                            .get_player(self.current_player_id)
-                            .map(|p| p.selected_objects.clone())
-                            .unwrap_or_default()
-                    };
+                    // Wave 216: selection identity via presentation-first ui_selected_ids.
+                    let selected = self.ui_selected_ids(self.current_player_id);
                     if selected.is_empty() {
                         self.runtime_host_last_gameplay_cmd =
                             "control_group_assign_fail_no_selection".into();
@@ -7029,14 +7043,10 @@ impl CnCGameEngine {
                         .unwrap_or(1)
                         .clamp(0, 9);
                     if let Some(ids) = self.control_groups.get(&group).cloned() {
+                        // Wave 216: presentation-only alive identity when freeze installed.
                         let alive: Vec<_> = ids
                             .into_iter()
-                            .filter(|id| {
-                                self.game_logic
-                                    .get_object(*id)
-                                    .map(|o| o.is_alive())
-                                    .unwrap_or(false)
-                            })
+                            .filter(|id| self.ui_object_alive(*id))
                             .collect();
                         if alive.is_empty() {
                             self.runtime_host_last_gameplay_cmd =
@@ -13981,12 +13991,9 @@ impl CnCGameEngine {
             self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
         }
 
-        // Prefer presentation-frozen follow position; live path is boot residual only.
+        // Wave 216: presentation-frozen follow only (no live camera_follow dual-read residual).
         if let Some(follow) = pres.camera_follow_position {
             self.center_camera_on(Vec3::new(follow[0], follow[1], follow[2]));
-        } else if let Some(focus) = self.game_logic.camera_follow_target_position() {
-            // Boot residual only — presentation camera_follow_position owns InGame follow.
-            self.center_camera_on(focus);
         }
 
         if pres.camera_zoom_reset {
