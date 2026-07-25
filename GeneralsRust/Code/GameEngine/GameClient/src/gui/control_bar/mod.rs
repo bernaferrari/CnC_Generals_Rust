@@ -51,6 +51,16 @@ pub use control_bar_resizer::{
 };
 pub mod control_bar_scheme;
 pub mod control_bar_structure_inventory;
+pub use control_bar_structure_inventory::{
+    residual_structure_inventory_evacuate_visible, residual_structure_inventory_exit_visible,
+    residual_structure_inventory_garrisoned_count, residual_structure_inventory_last_action,
+    residual_structure_inventory_max_garrison, residual_structure_inventory_stop_visible,
+    simulate_structure_inventory_clear, simulate_structure_inventory_evacuate_command_name,
+    simulate_structure_inventory_exit_command_name, simulate_structure_inventory_populate,
+    simulate_structure_inventory_prepare_occupied, simulate_structure_inventory_stop_command_name,
+    ResidualStructureInventoryAction, STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME,
+    STRUCTURE_INVENTORY_EXIT_COMMAND_NAME, STRUCTURE_INVENTORY_STOP_COMMAND_NAME,
+};
 pub mod control_bar_under_construction;
 pub use control_bar_under_construction::{
     format_under_construction_percent_text, residual_under_construction_cancel_visible,

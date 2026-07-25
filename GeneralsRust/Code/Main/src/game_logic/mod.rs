@@ -288,6 +288,7 @@ pub mod host_stealth_fighter;
 pub mod host_strategy_center;
 mod host_structure_collapse;
 pub mod host_structure_economy_residual;
+pub mod host_structure_inventory_residual_wave149;
 mod host_structure_topple;
 mod host_sub_objects_upgrade;
 pub mod host_superweapon_kindof;
@@ -1609,6 +1610,11 @@ pub use host_skirmish_slot_config_residual_wave116::{
 pub use host_smudge_residual_wave145::{
     honesty_smudge_method_names_residual_wave145, honesty_smudge_nav_commands_residual_wave145,
     honesty_smudge_residual_pack_wave145,
+};
+pub use host_structure_inventory_residual_wave149::{
+    honesty_structure_inventory_command_names_residual_wave149,
+    honesty_structure_inventory_nav_commands_residual_wave149,
+    honesty_structure_inventory_residual_pack_wave149,
 };
 pub use host_under_construction_residual_wave148::{
     honesty_under_construction_method_names_residual_wave148,
