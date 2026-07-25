@@ -52,6 +52,12 @@ use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
+/// Wave 249: host/presentation path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 fn selection_any_local_object_can_target<F>(
     local_player: Option<u32>,
     selection: &HashSet<ObjectID>,
@@ -61,6 +67,10 @@ fn selection_any_local_object_can_target<F>(
 where
     F: FnMut(&gamelogic::object::Object, &gamelogic::object::Object) -> bool,
 {
+    // Wave 249: host path — empty dual-world registry cannot answer selection queries.
+    if selection.is_empty() || dual_world_registry_unavailable() {
+        return false;
+    }
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
         return false;
     };
@@ -464,7 +474,8 @@ fn collect_selectable_objects(
     }
 
     // Host/presentation path: Main owns context pick via presentation residual.
-    if OBJECT_REGISTRY.is_empty() {
+    // Wave 249: prefer shared host empty helper.
+    if dual_world_registry_unavailable() {
         return (Vec::new(), Vec::new());
     }
     let mut mine = Vec::new();
@@ -741,7 +752,7 @@ fn pending_command_accepts_position(options: u32) -> bool {
 }
 
 fn relationship_to_target(local_player_id: i32, target_id: ObjectID) -> Option<Relationship> {
-    if local_player_id < 0 {
+    if local_player_id < 0 || dual_world_registry_unavailable() {
         return None;
     }
 
@@ -760,6 +771,10 @@ fn relationship_to_target(local_player_id: i32, target_id: ObjectID) -> Option<R
 }
 
 fn is_prisoner_target(target_id: ObjectID) -> bool {
+    // Wave 249: host empty dual-world short-circuit.
+    if dual_world_registry_unavailable() {
+        return false;
+    }
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
         return false;
     };
@@ -1239,6 +1254,10 @@ fn selection_source_object_id(
     selection: &HashSet<ObjectID>,
     local_player_u32: Option<u32>,
 ) -> ObjectID {
+    // Wave 249: host empty dual-world short-circuit.
+    if selection.is_empty() || dual_world_registry_unavailable() {
+        return selection.iter().next().copied().unwrap_or(0);
+    }
     for &id in selection {
         let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
             continue;
@@ -1753,6 +1772,10 @@ fn pick_context_target_for_click(
 }
 
 fn is_locally_controlled_mine_target(object_id: ObjectID) -> bool {
+    // Wave 249: host empty dual-world short-circuit.
+    if dual_world_registry_unavailable() {
+        return false;
+    }
     OBJECT_REGISTRY
         .get_object(object_id)
         .and_then(|obj| {
