@@ -101,6 +101,12 @@ pub enum CombatMode {
     GuardArea,    // Stay in designated area
 }
 
+/// Wave 258: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Unit-specific data and behavior
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -1635,6 +1641,11 @@ impl Unit {
         target: ObjectID,
         distance: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 258: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.follow_target = Some(target);
         self.follow_distance = distance.max(0.0);
         let Some(target_pos) =
@@ -1933,6 +1944,11 @@ impl Unit {
     fn return_to_formation_position(
         &mut self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 258: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let leader_id = match self.group_leader {
             Some(id) => id,
             None => {
@@ -2103,6 +2119,11 @@ impl Unit {
         target_id: ObjectID,
         _delta_time: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 258: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let (target_pos, target_relationship, detected) = crate::object::registry::OBJECT_REGISTRY
             .with_object(target_id, |g| {
                 let pos = Some(*g.get_position());
@@ -2181,6 +2202,11 @@ impl Unit {
         Ok(())
     }
     fn should_scan_for_targets(&mut self, max_distance: Real) -> bool {
+        // Wave 258: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         const TARGET_LOCK_GRACE: u32 = 30;
 
         let current_frame = TheGameLogic::get_frame() as u32;
@@ -2551,6 +2577,12 @@ struct RappelState {
 }
 
 fn find_enemy_in_container(killer_id: ObjectID, container_id: ObjectID) -> Option<ObjectID> {
+    // Wave 258: empty dual-world → None.
+
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     let contained_ids = crate::object::registry::OBJECT_REGISTRY
         .with_object(container_id, |guard| {
             let contain = guard.get_contain()?;
@@ -2580,6 +2612,12 @@ fn find_enemy_in_container(killer_id: ObjectID, container_id: ObjectID) -> Optio
 }
 
 fn kill_enemies_in_container(killer_id: ObjectID, container_id: ObjectID, max_to_kill: i32) -> i32 {
+    // Wave 258: empty dual-world → zero.
+
+    if dual_world_registry_unavailable() {
+        return 0;
+    }
+
     let mut num_killed = 0;
     while num_killed < max_to_kill {
         let Some(enemy_id) = find_enemy_in_container(killer_id, container_id) else {
@@ -3237,6 +3275,12 @@ impl UnitAIUpdate {
     }
 
     fn try_finish_attack_path_if_already_in_range(&mut self) -> Result<bool, String> {
+        // Wave 258: empty dual-world → Ok(false).
+
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let Some(unit) = get_unit_arc(self.unit_id) else {
             return Ok(false);
         };
@@ -3318,6 +3362,12 @@ impl UnitAIUpdate {
     }
 
     fn prepare_queued_attack_path_fallback(&mut self) -> Result<(), String> {
+        // Wave 258: empty dual-world → Ok(()).
+
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.is_attack_path = false;
         if self.requested_victim_id == INVALID_ID {
             return Ok(());
@@ -3363,6 +3413,12 @@ impl UnitAIUpdate {
     }
 
     fn do_queued_safe_pathfind_now(&mut self) -> Result<bool, String> {
+        // Wave 258: empty dual-world → Ok(false).
+
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         self.destroy_path();
 
         let unit =
@@ -3651,6 +3707,12 @@ impl UnitAIUpdate {
     }
 
     fn start_rappel_state(&mut self, target_id: Option<ObjectID>) -> Result<(), String> {
+        // Wave 258: empty dual-world → Ok(()).
+
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let unit = get_unit_arc(self.unit_id).ok_or("unit no longer available")?;
         let base_object = unit.read().map_err(|_| "unit lock poisoned")?.base_arc();
 
@@ -3740,6 +3802,12 @@ impl UnitAIUpdate {
     }
 
     fn update_rappel_state(&mut self) {
+        // Wave 258: empty dual-world → no factory object walks.
+
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(mut current_state) = self.rappel_state.take() else {
             return;
         };
@@ -7692,6 +7760,11 @@ impl AIUpdateInterface for UnitAIUpdate {
     /// current state). `setState(INVALID)` then falls through to the default
     /// state. Port that literally — C++ does not read the teammate's state id.
     fn join_team(&mut self) {
+        // Wave 258: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.is_ai_in_dead_state() {
             return;
         }
@@ -7883,6 +7956,12 @@ impl AIUpdateInterface for UnitAIUpdate {
         victim_id: ObjectID,
         victim_pos: &Coord3D,
     ) -> Result<(), String> {
+        // Wave 258: empty dual-world → Ok(()).
+
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if !self.has_valid_locomotor_surfaces() {
             return Err("Attempting to path immobile unit".to_string());
         }
@@ -8308,6 +8387,12 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn set_surrendered(&mut self, to_object_id: Option<ObjectID>, surrendered: bool) {
+        // Wave 258: empty dual-world → no factory object walks.
+
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if surrendered {
             self.surrendered_frames_left = self.surrender_duration_frames;
             self.surrendered_player_index = to_object_id.and_then(|id| {
@@ -8519,6 +8604,12 @@ impl AIUpdateInterface for UnitAIUpdate {
         use_existing_target: bool,
         _ignore_attacked: bool,
     ) -> ObjectID {
+        // Wave 258: empty dual-world → invalid id.
+
+        if dual_world_registry_unavailable() {
+            return INVALID_ID;
+        }
+
         let Some(unit) = get_unit_arc(self.unit_id) else {
             return INVALID_ID;
         };
@@ -8936,6 +9027,12 @@ impl AIUpdateInterface for UnitAIUpdate {
         &mut self,
         target_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 258: empty dual-world → Ok(()).
+
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let target_pos = crate::helpers::TheGameLogic::find_object_by_id(target_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
             .and_then(|arc| arc.read().ok().map(|g| *g.get_position()))
@@ -9065,6 +9162,12 @@ mod tests {
         owner_pos: Coord3D,
         weapon_range: Real,
     ) -> (Arc<RwLock<Object>>, Arc<RwLock<Unit>>, UnitAIUpdate) {
+        // Wave 258: empty dual-world → no factory object walks.
+
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let base_object = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
         {
             let mut object = base_object.write().unwrap();
