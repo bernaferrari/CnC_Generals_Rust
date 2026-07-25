@@ -194,6 +194,12 @@ impl TeamRelationMap {
     }
 }
 
+/// Wave 256: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Team class (matching C++ Team structure and functionality)
 #[derive(Debug)]
 pub struct Team {
@@ -318,6 +324,11 @@ impl Team {
 
     /// Set controlling player
     pub fn set_controlling_player_id(&mut self, player_id: Option<UnsignedInt>) {
+        // Wave 256: empty dual-world → no factory member walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let changed = self.controlling_player_id != player_id;
         self.controlling_player_id = player_id;
         if !changed {
@@ -417,6 +428,11 @@ impl Team {
 
     /// Get team target object
     pub fn get_team_target_object(&self) -> ObjectID {
+        // Wave 256: empty dual-world → invalid target.
+        if dual_world_registry_unavailable() {
+            return INVALID_ID;
+        }
+
         let target_id = self.common_attack_target;
         if target_id == INVALID_ID {
             return INVALID_ID;
@@ -526,6 +542,10 @@ impl Team {
     }
 
     fn compute_enemy_sighted_state(&self) -> (Bool, Bool) {
+        // Wave 256: empty dual-world → no sighted state.
+        if dual_world_registry_unavailable() {
+            return (false, false);
+        }
         let Some(partition) = ThePartitionManager::get() else {
             return (false, false);
         };
@@ -602,6 +622,11 @@ impl Team {
 
     /// Update team state (called each frame)
     pub fn update_state(&mut self) {
+        // Wave 256: empty dual-world → no factory member walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.entered_or_exited = false;
         if !self.active {
             return;
@@ -990,6 +1015,11 @@ impl Team {
         team_home: &Coord3D,
         max_dist: Real,
     ) -> Option<Arc<RwLock<crate::object::Object>>> {
+        // Wave 256: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let controller_id = self.controlling_player_id?;
         let default_team_id = player_list()
             .read()
@@ -1242,6 +1272,11 @@ impl Team {
     /// Returns true when any live team member is inside the trigger area.
     /// Matches C++ Team::unitsEntered.
     pub fn units_entered(&self, trigger: &PolygonTrigger) -> Bool {
+        // Wave 256: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         for &object_id in &self.members {
             if OBJECT_REGISTRY
                 .with_object(object_id, |object_guard| {
@@ -1320,6 +1355,11 @@ impl Team {
 
     /// Delete team (mark for destruction)
     pub fn delete_team(&mut self, ignore_dead: Bool) {
+        // Wave 256: empty dual-world → no factory member walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.is_default_team_for_controller() {
             self.evacuate_team_containers();
         }
@@ -1342,6 +1382,11 @@ impl Team {
 
     /// Get estimated team position (first member position)
     pub fn get_estimate_team_position(&self) -> Option<Coord3D> {
+        // Wave 256: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let object_id = *self.members.first()?;
         OBJECT_REGISTRY.with_object(object_id, |object_guard| *object_guard.get_position())
     }
@@ -1400,6 +1445,12 @@ impl Team {
         trigger: &PolygonTrigger,
         which_to_consider: LocomotorSurfaceTypeMask,
     ) -> Bool {
+        // Wave 256: empty dual-world → fail-closed.
+
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if !self.entered_or_exited {
             return false;
         }
@@ -1445,6 +1496,12 @@ impl Team {
         trigger: &PolygonTrigger,
         which_to_consider: LocomotorSurfaceTypeMask,
     ) -> Bool {
+        // Wave 256: empty dual-world → fail-closed.
+
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if !self.entered_or_exited {
             return false;
         }
@@ -1478,6 +1535,12 @@ impl Team {
         trigger: &PolygonTrigger,
         which_to_consider: LocomotorSurfaceTypeMask,
     ) -> Bool {
+        // Wave 256: empty dual-world → fail-closed.
+
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if !self.entered_or_exited {
             return false;
         }
@@ -1511,6 +1574,12 @@ impl Team {
         trigger: &PolygonTrigger,
         which_to_consider: LocomotorSurfaceTypeMask,
     ) -> Bool {
+        // Wave 256: empty dual-world → fail-closed.
+
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if !self.entered_or_exited {
             return false;
         }
@@ -1558,6 +1627,12 @@ impl Team {
         trigger: &PolygonTrigger,
         which_to_consider: LocomotorSurfaceTypeMask,
     ) -> Bool {
+        // Wave 256: empty dual-world → fail-closed.
+
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if !self.has_any_objects() {
             return false;
         }
@@ -1600,6 +1675,12 @@ impl Team {
         trigger: &PolygonTrigger,
         which_to_consider: LocomotorSurfaceTypeMask,
     ) -> Bool {
+        // Wave 256: empty dual-world → fail-closed.
+
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let mut any_considered = false;
         let mut any_inside = false;
 
@@ -1637,6 +1718,12 @@ impl Team {
         trigger: &PolygonTrigger,
         which_to_consider: LocomotorSurfaceTypeMask,
     ) -> Bool {
+        // Wave 256: empty dual-world → fail-closed.
+
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let mut any_considered = false;
         let mut any_inside = false;
         let mut any_outside = false;
@@ -1687,6 +1774,11 @@ impl Team {
 
     /// Kill all team members
     pub fn kill_team(&mut self) {
+        // Wave 256: empty dual-world → no factory member walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.evacuate_team_containers();
 
         let neutral_default_team = player_list()
