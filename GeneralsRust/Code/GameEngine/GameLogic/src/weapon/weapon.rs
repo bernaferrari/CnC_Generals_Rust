@@ -21,6 +21,12 @@ use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::Arc;
 
+/// Wave 289: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Weapon instance with state and ammunition management
 ///
 /// Matches C++ Weapon class from Weapon.h line 540
@@ -127,6 +133,11 @@ impl Weapon {
     }
 
     pub fn is_within_target_pitch(&self, source_obj: ObjectID, target_obj: ObjectID) -> bool {
+        // Wave 289: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.is_contact_weapon() || !self.pitch_limited {
             return true;
         }
@@ -356,6 +367,11 @@ impl Weapon {
         source_bonus_flags: WeaponBonusConditionFlags,
         container_bonus_flags: Option<WeaponBonusConditionFlags>,
     ) -> GameLogicResult<(bool, Option<ObjectID>)> {
+        // Wave 289: empty dual-world → did not fire.
+        if dual_world_registry_unavailable() {
+            return Ok((false, None));
+        }
+
         // Check weapon status (matches C++ line 2570-2571)
         if self.get_status_at_frame(current_frame) != WeaponStatus::ReadyToFire {
             return Ok((false, None));
@@ -670,6 +686,11 @@ impl Weapon {
         victim_id: Option<ObjectID>,
         bonus: &WeaponBonus,
     ) -> Real {
+        // Wave 289: empty dual-world → zero range.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         let mut range = self.get_attack_range(bonus);
         let Some(source_r) = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
             source_guard
@@ -1075,6 +1096,11 @@ impl Weapon {
         target_pos: Option<&Coord3D>,
         bonus: &WeaponBonus,
     ) -> bool {
+        // Wave 289: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let mut attack_range = self.template.get_attack_range(bonus);
         let mut min_attack_range = self.template.get_minimum_attack_range();
 
@@ -1412,6 +1438,11 @@ impl Weapon {
         requesting_object_id: ObjectID,
         victim_object_id: ObjectID,
     ) {
+        // Wave 289: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(requesting_arc) = TheGameLogic::find_object_by_id(requesting_object_id) else {
             return;
         };
@@ -1465,6 +1496,11 @@ impl Weapon {
     }
 
     pub fn get_firing_line_of_sight_origin(&self, source_id: ObjectID) -> Option<Coord3D> {
+        // Wave 289: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.with_object(source_id, |source_guard| {
             let pos = source_guard.get_position();
             Coord3D::new(
