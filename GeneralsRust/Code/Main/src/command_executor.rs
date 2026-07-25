@@ -6130,6 +6130,9 @@ impl<'a> CommandExecutor<'a> {
             )));
         // C++ EVA_BeaconDetected when local is ALLIES with placer.
         self.game_logic.try_eva_beacon_detected(player_id);
+        // Wave 210: host recent_beacons last-write for presentation freeze
+        // (new_beacons / HUD bloom) without mid-frame manager dual-read.
+        self.game_logic.note_beacon_placed(location);
 
         CommandResult::Success
     }
