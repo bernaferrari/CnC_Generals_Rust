@@ -6097,9 +6097,9 @@ impl<'a> CommandExecutor<'a> {
 
         for (unit_id, pos, _) in members {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                unit.formation_id = new_id;
+                // Wave 204: set_formation logs host_formation_log → SetFormation.
                 // C++ offset is XY; host ground is XZ → store as Vec2(x, z).
-                unit.formation_offset = glam::Vec2::new(pos.x - center.x, pos.z - center.z);
+                unit.set_formation(new_id, glam::Vec2::new(pos.x - center.x, pos.z - center.z));
             }
         }
 

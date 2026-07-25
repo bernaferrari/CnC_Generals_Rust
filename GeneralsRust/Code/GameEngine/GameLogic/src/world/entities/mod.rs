@@ -557,6 +557,10 @@ pub struct Entity {
     pub kind_of_bits: u32,
     /// Host Object::cheer_timer residual.
     pub cheer_timer: f32,
+    /// Host Object::formation_id residual (0 = no formation).
+    pub formation_id: u32,
+    /// Host Object::formation_offset residual (XZ as Vec2).
+    pub formation_offset: [f32; 2],
     /// Host Object::overcharge_enabled residual.
     pub overcharge_enabled: bool,
     /// Host Object::active_weapon_slot residual.
@@ -1042,6 +1046,8 @@ impl EntityStore {
             garrisoned_host_ids: Vec::new(),
             kind_of_bits: 0,
             cheer_timer: 0.0,
+            formation_id: 0,
+            formation_offset: [0.0, 0.0],
             overcharge_enabled: false,
             active_weapon_slot: 0,
             guard_radius: 0.0,
