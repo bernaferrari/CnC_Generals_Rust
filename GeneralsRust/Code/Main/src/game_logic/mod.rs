@@ -219,6 +219,7 @@ pub mod host_missile_defender;
 mod host_model_condition_upgrade;
 pub mod host_money_crate;
 pub mod host_mouse_keyboard_view_residual_wave112;
+pub mod host_multi_select_residual_wave150;
 pub mod host_neutron_missile_slow_death;
 pub mod host_neutron_shell;
 pub mod host_nuclear_tanks;
@@ -1542,6 +1543,10 @@ pub use host_map_select_menu_residual_wave132::{
 pub use host_message_box_residual_wave128::{
     honesty_message_box_control_names_residual_wave128,
     honesty_message_box_nav_commands_residual_wave128, honesty_message_box_residual_pack_wave128,
+};
+pub use host_multi_select_residual_wave150::{
+    honesty_multi_select_method_names_residual_wave150,
+    honesty_multi_select_nav_commands_residual_wave150, honesty_multi_select_residual_pack_wave150,
 };
 pub use host_ocl_timer_residual_wave146::{
     honesty_ocl_timer_method_names_residual_wave146,
