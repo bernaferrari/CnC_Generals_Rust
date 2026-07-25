@@ -16,6 +16,12 @@ use log::warn;
 
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 
+/// Wave 276: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Default turn rate for turrets
 pub const DEFAULT_TURN_RATE: f32 = 0.01;
 /// Default pitch rate for turrets
@@ -237,6 +243,11 @@ impl TurretAI {
 
     /// Resolve the current target handle for call sites that still need an Arc.
     pub fn get_current_target(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 276: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         self.current_target
             .and_then(|id| OBJECT_REGISTRY.get_object(id))
     }
@@ -438,6 +449,11 @@ impl TurretAI {
 
     /// Calculate angle to target
     pub fn calculate_angle_to_target(&self, target_id: ObjectID) -> Option<f32> {
+        // Wave 276: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.owner_id == crate::common::INVALID_ID {
             return None;
         }
@@ -452,6 +468,11 @@ impl TurretAI {
 
     /// Calculate pitch to target
     pub fn calculate_pitch_to_target(&self, target_id: ObjectID) -> Option<f32> {
+        // Wave 276: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.owner_id == crate::common::INVALID_ID {
             return None;
         }
@@ -567,6 +588,11 @@ impl TurretAI {
 
     /// Check if target is in weapon range
     pub fn is_target_in_weapon_range(&self, target_id: ObjectID) -> bool {
+        // Wave 276: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.owner_id == crate::common::INVALID_ID {
             return false;
         }
@@ -593,6 +619,11 @@ impl TurretAI {
 
     /// Check if any turret weapon is within range of target (matches C++ friend_isAnyWeaponInRangeOf)
     pub fn friend_is_any_weapon_in_range_of(&self, target_id: ObjectID) -> bool {
+        // Wave 276: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.owner_id == crate::common::INVALID_ID {
             return false;
         }
@@ -620,6 +651,11 @@ impl TurretAI {
 
     /// Scan for targets within turret's range and arc
     pub fn scan_for_targets(&self) -> Vec<Arc<RwLock<Object>>> {
+        // Wave 276: empty dual-world → no targets.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let mut targets = Vec::new();
 
         if !self.can_scan {
@@ -684,6 +720,11 @@ impl TurretAI {
 
     /// Find best target from available targets
     pub fn find_best_target(&self, targets: &[Arc<RwLock<Object>>]) -> Option<Arc<RwLock<Object>>> {
+        // Wave 276: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if targets.is_empty() {
             return None;
         }
@@ -910,6 +951,11 @@ impl TurretAI {
     }
 
     pub fn is_owners_cur_weapon_on_turret(&self) -> bool {
+        // Wave 276: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.owner_id == crate::common::INVALID_ID {
             return false;
         }
@@ -1056,6 +1102,11 @@ impl TurretAI {
 
     /// Next frame to check idle mood target (matches C++ friend_getNextIdleMoodTargetFrame)
     pub fn friend_get_next_idle_mood_target_frame(&self) -> u32 {
+        // Wave 276: empty dual-world → current frame fallback.
+        if dual_world_registry_unavailable() {
+            return TheGameLogic::get_frame();
+        }
+
         if self.owner_id == crate::common::INVALID_ID {
             return TheGameLogic::get_frame();
         }
@@ -1073,6 +1124,11 @@ impl TurretAI {
 
     /// Check for idle mood target acquisition (matches C++ friend_checkForIdleMoodTarget)
     pub fn friend_check_for_idle_mood_target(&mut self) {
+        // Wave 276: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.owner_id == crate::common::INVALID_ID {
             return;
         }
@@ -1654,6 +1710,11 @@ impl ClassicState for TurretAIAimTurretState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 276: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         if self.delay_until > 0 {
             let now = TheGameLogic::get_frame();
             if now < self.delay_until {
@@ -1862,6 +1923,11 @@ impl ClassicState for TurretAIFireWeaponState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 276: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let mut next_state = None;
 
         // Get turret AI and current target
@@ -2169,6 +2235,11 @@ impl ClassicState for TurretAIHoldTurretState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 276: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let current_frame = TheGameLogic::try_get_frame()?;
 
         let mut next_state = None;
@@ -2350,6 +2421,11 @@ impl Snapshotable for TurretAI {
     /// Post-load processing
     /// Matches C++ TurretAI::loadPostProcess
     fn load_post_process(&mut self) -> Result<(), String> {
+        // Wave 276: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // C++ TurretAI.cpp line 359-364: captures victim initial team
         // The turret state machine's goal object is the victim
         if self.target_kind == TurretTargetKind::Object {
