@@ -16,6 +16,12 @@ use crate::player::ThePlayerList;
 use crate::squad::Squad;
 use std::sync::{Arc, Mutex};
 
+/// Wave 266: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // ---------------------------------------------------------------------------
 // PartitionFilterIsFlying
 // ---------------------------------------------------------------------------
@@ -186,6 +192,11 @@ impl PartitionFilterRelationship {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterRelationship {
     fn allow(&self, obj: &dyn GameObject) -> bool {
+        // Wave 266: empty dual-world → reject object.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // Resolve the source object and compute the relationship.
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
@@ -299,6 +310,11 @@ impl PartitionFilterLineOfSight {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterLineOfSight {
     fn allow(&self, obj: &dyn GameObject) -> bool {
+        // Wave 266: empty dual-world → reject object.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(source_pos) =
             crate::object::registry::OBJECT_REGISTRY.with_object(self.obj_id, |source_guard| {
                 let source_raw_pos = source_guard.get_position();
@@ -351,6 +367,11 @@ impl PartitionFilterPossibleToAttack {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToAttack {
     fn allow(&self, obj: &dyn GameObject) -> bool {
+        // Wave 266: empty dual-world → reject object.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
                 let Some(other_handle) = obj.as_object_handle() else {
@@ -399,6 +420,11 @@ impl PartitionFilterPossibleToEnter {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToEnter {
     fn allow(&self, obj: &dyn GameObject) -> bool {
+        // Wave 266: empty dual-world → reject object.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
                 let Some(other_handle) = obj.as_object_handle() else {
@@ -444,6 +470,11 @@ impl PartitionFilterPossibleToHijack {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToHijack {
     fn allow(&self, obj: &dyn GameObject) -> bool {
+        // Wave 266: empty dual-world → reject object.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
                 let Some(other_handle) = obj.as_object_handle() else {
@@ -601,6 +632,11 @@ impl PartitionFilterStealthedAndUndetected {
     }
 
     fn source_player(&self) -> Option<std::sync::Arc<std::sync::RwLock<crate::player::Player>>> {
+        // Wave 266: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         crate::object::registry::OBJECT_REGISTRY
             .get_object(self.obj_id)
             .and_then(|source| source.read().ok()?.get_controlling_player())
@@ -819,6 +855,11 @@ impl PartitionFilterRejectBehind {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterRejectBehind {
     fn allow(&self, obj: &dyn GameObject) -> bool {
+        // Wave 266: empty dual-world → reject object.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
                 let src_pos = src_guard.get_position();
@@ -893,6 +934,11 @@ impl PartitionFilterSameMapStatus {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterSameMapStatus {
     fn allow(&self, obj: &dyn GameObject) -> bool {
+        // Wave 266: empty dual-world → reject object.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
                 let src_off_map = src_guard.is_off_map();
@@ -994,6 +1040,11 @@ impl PartitionFilterRejectBuildings {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuildings {
     fn allow(&self, obj: &dyn GameObject) -> bool {
+        // Wave 266: empty dual-world → reject object.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(other_handle) = obj.as_object_handle() {
             if let Ok(other_guard) = other_handle.read() {
                 // Non-structures always pass
@@ -1176,6 +1227,11 @@ impl PartitionFilterRepulsor {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterRepulsor {
     fn allow(&self, obj: &dyn GameObject) -> bool {
+        // Wave 266: empty dual-world → reject object.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // Don't repulse yourself
         if obj.get_id() == self.obj_id {
             return false;
@@ -1611,6 +1667,11 @@ impl PartitionFilterValidCommandButtonTarget {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterValidCommandButtonTarget {
     fn allow(&self, obj: &dyn GameObject) -> bool {
+        // Wave 266: empty dual-world → reject object.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let mut valid_target = false;
 
         if let Some(target_handle) = obj.as_object_handle() {

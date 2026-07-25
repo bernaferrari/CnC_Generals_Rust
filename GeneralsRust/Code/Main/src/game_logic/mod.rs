@@ -273,6 +273,7 @@ pub mod host_live_object_mod_dual_world_empty_gate_residual_wave264;
 pub mod host_live_object_registry_empty_fastpath_residual_wave247;
 pub mod host_live_open_contain_dual_world_empty_gate_residual_wave261;
 pub mod host_live_os_input_command_path_residual_wave209;
+pub mod host_live_partition_filters_dual_world_empty_gate_residual_wave266;
 pub mod host_live_path_guard_authority_api_residual_wave225;
 pub mod host_live_pathfind_dual_world_empty_gate_residual_wave262;
 pub mod host_live_pick_object_presentation_only_residual_wave222;
@@ -2030,6 +2031,12 @@ pub use host_live_os_input_command_path_residual_wave209::{
     honesty_live_os_input_command_path_nav_commands_residual_wave209,
     honesty_live_os_input_command_path_residual_pack_wave209,
     simulate_live_os_input_command_path_honesty,
+};
+pub use host_live_partition_filters_dual_world_empty_gate_residual_wave266::{
+    honesty_live_partition_filters_dual_world_empty_gate_method_names_residual_wave266,
+    honesty_live_partition_filters_dual_world_empty_gate_nav_commands_residual_wave266,
+    honesty_live_partition_filters_dual_world_empty_gate_residual_pack_wave266,
+    simulate_live_partition_filters_dual_world_empty_gate_honesty,
 };
 pub use host_live_path_guard_authority_api_residual_wave225::{
     honesty_live_path_guard_authority_api_method_names_residual_wave225,
