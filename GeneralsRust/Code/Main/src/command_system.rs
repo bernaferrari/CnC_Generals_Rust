@@ -692,6 +692,18 @@ pub struct PresentationTargetHint {
     pub can_be_entered: bool,
 }
 
+/// Wave 229: presentation-frozen selected-unit capability for RMB classification.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationSelectedUnitHint {
+    pub id: ObjectId,
+    pub is_alive: bool,
+    pub is_worker: bool,
+    pub can_attack: bool,
+    pub can_move: bool,
+    pub can_capture: bool,
+    pub template_name: String,
+}
+
 /// Information needed for command creation from mouse input
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MouseCommandContext {
@@ -699,6 +711,8 @@ pub struct MouseCommandContext {
     pub target_object: Option<ObjectId>,
     /// Presentation freeze for target classification (InGame).
     pub target_presentation: Option<PresentationTargetHint>,
+    /// Wave 229: presentation freeze for selected-unit capabilities (InGame).
+    pub selected_presentation: Vec<PresentationSelectedUnitHint>,
     pub screen_position: Vec2,
     pub viewport_size: Option<Vec2>,
     pub world_min: Option<Vec3>,
@@ -1140,6 +1154,7 @@ impl CommandSystem {
             {
                 if let Some(cmd) = self.classify_right_click_target_from_presentation(
                     selected_units,
+                    &context.selected_presentation,
                     target_id,
                     hint,
                     game_logic,
@@ -1881,11 +1896,13 @@ impl CommandSystem {
 
     /// Validate if selected units can gather from a resource target
 
-    /// Wave 228: RMB target classification from presentation freeze (target identity).
-    /// Unit capability probes still use host GameLogic (command authority).
+    /// Wave 228/229: RMB target classification from presentation freeze.
+    /// Selected-unit capability probes prefer `selected_presentation` (Wave 229);
+    /// live GameLogic unit dual-read is boot residual only.
     fn classify_right_click_target_from_presentation(
         &self,
         units: &[ObjectId],
+        selected_presentation: &[PresentationSelectedUnitHint],
         target_id: ObjectId,
         hint: &PresentationTargetHint,
         game_logic: &GameLogic,
@@ -1893,52 +1910,76 @@ impl CommandSystem {
         if !hint.is_alive {
             return None;
         }
-        // Gather
-        if hint.is_resource {
-            for &unit_id in units {
-                if let Some(unit) = game_logic.get_object(unit_id) {
-                    if unit.is_alive() && unit.is_worker() {
-                        return Some(CommandType::Gather { target_id });
-                    }
-                }
+        let any_worker = || {
+            if !selected_presentation.is_empty() {
+                return selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.is_worker);
             }
-        }
-        // Capture (neutral / non-attackable structure)
-        if hint.is_structure && !hint.under_construction && !hint.sold {
-            // Reuse live capture probe with a presentation-alive structure gate.
-            // Build a minimal path: prefer Capture when neutral structure.
-            if hint.is_neutral || hint.team == Team::Neutral {
-                // Probe via existing capture helper only if host still has target object.
-                if let Some(target_obj) = game_logic.get_object(target_id) {
-                    if self.can_capture_building(units, target_obj, game_logic) {
-                        return Some(CommandType::CaptureBuilding { target_id });
-                    }
-                }
-            } else if hint.is_enemy_of_local {
-                // fall through to attack
-            }
-        }
-        // Attack enemy
-        if hint.is_enemy_of_local && !hint.is_neutral {
-            let any_attacker = units.iter().any(|&unit_id| {
-                game_logic
-                    .get_object(unit_id)
-                    .is_some_and(|u| u.is_alive() && u.can_attack())
-            });
-            if any_attacker {
-                return Some(CommandType::AttackObject { target_id });
-            }
-        }
-        // Resume construction on unfinished ally structure
-        if hint.is_structure && hint.under_construction && !hint.is_enemy_of_local && !hint.sold {
-            let any_dozer = units.iter().any(|&unit_id| {
+            units.iter().any(|&unit_id| {
                 game_logic
                     .get_object(unit_id)
                     .is_some_and(|u| u.is_alive() && u.is_worker())
-            });
-            if any_dozer {
-                return Some(CommandType::ResumeConstruction { target_id });
+            })
+        };
+        let any_attacker = || {
+            if !selected_presentation.is_empty() {
+                return selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.can_attack);
             }
+            units.iter().any(|&unit_id| {
+                game_logic
+                    .get_object(unit_id)
+                    .is_some_and(|u| u.is_alive() && u.can_attack())
+            })
+        };
+        let any_capturer = || {
+            if !selected_presentation.is_empty() {
+                return selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.can_capture && u.can_move);
+            }
+            units.iter().any(|&unit_id| {
+                game_logic.get_object(unit_id).is_some_and(|u| {
+                    use crate::game_logic::host_hero_abilities::{
+                        can_capture_without_upgrade, is_black_lotus_template,
+                    };
+                    let is_lotus = is_black_lotus_template(&u.template_name);
+                    let is_hero = u.is_kind_of(KindOf::Hero);
+                    u.is_alive()
+                        && u.can_move()
+                        && (u.is_kind_of(KindOf::Infantry)
+                            || can_capture_without_upgrade(is_hero, is_lotus))
+                })
+            })
+        };
+
+        // Gather
+        if hint.is_resource && any_worker() {
+            return Some(CommandType::Gather { target_id });
+        }
+        // Capture neutral structure
+        if hint.is_structure
+            && !hint.under_construction
+            && !hint.sold
+            && (hint.is_neutral || hint.team == Team::Neutral)
+            && any_capturer()
+        {
+            return Some(CommandType::CaptureBuilding { target_id });
+        }
+        // Attack enemy
+        if hint.is_enemy_of_local && !hint.is_neutral && any_attacker() {
+            return Some(CommandType::AttackObject { target_id });
+        }
+        // Resume construction on unfinished ally structure
+        if hint.is_structure
+            && hint.under_construction
+            && !hint.is_enemy_of_local
+            && !hint.sold
+            && any_worker()
+        {
+            return Some(CommandType::ResumeConstruction { target_id });
         }
         // Enter — prefer host can_enter when object still resolves; else fail-closed.
         if hint.can_be_entered && !hint.is_enemy_of_local {
@@ -2688,6 +2729,7 @@ mod tests {
             world_position: Vec3::new(100.0, 0.0, 100.0),
             target_object: None,
             target_presentation: None,
+            selected_presentation: Vec::new(),
             screen_position: Vec2::new(400.0, 300.0),
             viewport_size: None,
             world_min: None,
@@ -2779,6 +2821,7 @@ mod tests {
             world_position: Vec3::new(0.0, 0.0, 0.0),
             target_object: Some(ObjectId(2)),
             target_presentation: None,
+            selected_presentation: Vec::new(),
             screen_position: Vec2::new(0.0, 0.0),
             viewport_size: None,
             world_min: None,
@@ -2836,6 +2879,7 @@ mod tests {
             world_position: Vec3::new(0.0, 0.0, 0.0),
             target_object: Some(ObjectId(11)),
             target_presentation: None,
+            selected_presentation: Vec::new(),
             screen_position: Vec2::new(0.0, 0.0),
             viewport_size: None,
             world_min: None,
@@ -2889,6 +2933,7 @@ mod tests {
             world_position: Vec3::new(0.0, 0.0, 0.0),
             target_object: None,
             target_presentation: None,
+            selected_presentation: Vec::new(),
             screen_position: Vec2::new(0.0, 0.0),
             viewport_size: Some(Vec2::new(1024.0, 768.0)),
             world_min: Some(Vec3::new(-256.0, 0.0, -256.0)),
@@ -3429,6 +3474,7 @@ mod tests {
             world_position: glam::Vec3::new(50.0, 0.0, 0.0),
             target_object: Some(target),
             target_presentation: None,
+            selected_presentation: Vec::new(),
             screen_position: glam::Vec2::ZERO,
             viewport_size: None,
             world_min: None,
@@ -3484,6 +3530,7 @@ mod tests {
             world_position: loc,
             target_object: None,
             target_presentation: None,
+            selected_presentation: Vec::new(),
             screen_position: glam::Vec2::ZERO,
             viewport_size: None,
             world_min: None,
@@ -3559,6 +3606,7 @@ mod tests {
             world_position: glam::Vec3::new(40.0, 0.0, 0.0),
             target_object: Some(wf),
             target_presentation: None,
+            selected_presentation: Vec::new(),
             screen_position: glam::Vec2::ZERO,
             viewport_size: None,
             world_min: None,

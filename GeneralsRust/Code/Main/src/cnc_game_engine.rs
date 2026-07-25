@@ -5744,6 +5744,23 @@ impl CnCGameEngine {
                     format!("click_live_rmb_target_presentation_only_miss_{action}")
                 };
             }
+            "click_live_rmb_selected_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_rmb_selected_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_rmb_selected_presentation_only_residual_pack_wave229(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_rmb_selected_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_rmb_selected_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -15362,6 +15379,7 @@ impl CnCGameEngine {
             world_position: clamped,
             target_object,
             target_presentation: target_object.and_then(|id| self.presentation_target_hint(id)),
+            selected_presentation: self.presentation_selected_unit_hints(&selected),
             screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
             viewport_size: None,
             world_min: None,
@@ -18558,6 +18576,7 @@ impl CnCGameEngine {
             world_position: mouse_pos,
             target_object,
             target_presentation: target_object.and_then(|id| self.presentation_target_hint(id)),
+            selected_presentation: self.presentation_selected_unit_hints(&selected),
             screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
             viewport_size: None,
             world_min: None,
@@ -19009,18 +19028,13 @@ impl CnCGameEngine {
         }
 
         // Has selection: context from CommandSystem residual.
-        let mut selected = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_default();
-        if selected.is_empty() {
-            selected = self.selected_objects.clone();
-        }
+        // Wave 229: selection via presentation-first ui_selected_ids.
+        let selected = self.ui_selected_ids(self.current_player_id);
         let context = crate::command_system::MouseCommandContext {
             world_position: self.mouse_world_position,
             target_object: hover,
             target_presentation: hover.and_then(|id| self.presentation_target_hint(id)),
+            selected_presentation: self.presentation_selected_unit_hints(&selected),
             screen_position: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
             viewport_size: None,
             world_min: None,
@@ -19236,6 +19250,59 @@ impl CnCGameEngine {
     /// `last_presentation_frame` before input.
 
     /// Wave 228: build presentation target hint for RMB classification.
+
+    /// Wave 229: presentation-frozen selected-unit capabilities for RMB classification.
+    fn presentation_selected_unit_hints(
+        &self,
+        ids: &[crate::game_logic::ObjectId],
+    ) -> Vec<crate::command_system::PresentationSelectedUnitHint> {
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(ids.len());
+        for &id in ids {
+            let Some(o) = frame.objects.iter().find(|x| x.id == id) else {
+                continue;
+            };
+            if o.destroyed || o.health_current <= 0.0 {
+                continue;
+            }
+            let n = o.template_name.to_ascii_lowercase();
+            let is_worker =
+                crate::presentation_frame::PresentationFrame::presentation_is_worker_like(o)
+                    || n.contains("dozer")
+                    || n.contains("worker")
+                    || n.contains("supplytruck")
+                    || n.contains("supply_truck");
+            let can_attack = o.has_weapon;
+            let can_move = o.is_mobile;
+            let is_lotus =
+                crate::game_logic::host_hero_abilities::is_black_lotus_template(&o.template_name);
+            let is_hero = crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Hero,
+            ) || n.contains("colonel")
+                || n.contains("jarmen")
+                || n.contains("lotus");
+            let can_capture = n.contains("ranger")
+                || n.contains("rebel")
+                || n.contains("redguard")
+                || crate::game_logic::host_hero_abilities::can_capture_without_upgrade(
+                    is_hero, is_lotus,
+                );
+            out.push(crate::command_system::PresentationSelectedUnitHint {
+                id,
+                is_alive: true,
+                is_worker,
+                can_attack,
+                can_move,
+                can_capture,
+                template_name: o.template_name.clone(),
+            });
+        }
+        out
+    }
+
     fn presentation_target_hint(
         &self,
         id: crate::game_logic::ObjectId,
