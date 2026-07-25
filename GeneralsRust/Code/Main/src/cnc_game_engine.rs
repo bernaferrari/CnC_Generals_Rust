@@ -2383,6 +2383,80 @@ impl CnCGameEngine {
                     "click_credits_menu_miss".into()
                 };
             }
+            "show_message_box" => {
+                // Retail MessageBox show residual without MessageBox.wnd create.
+                let kind = args
+                    .get("type")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "yes_no".to_string());
+                let title = args
+                    .get("title")
+                    .cloned()
+                    .unwrap_or_else(|| "GUI:Message".to_string());
+                let body = args
+                    .get("body")
+                    .cloned()
+                    .unwrap_or_else(|| "GUI:Confirm".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_message_box_show_ok, simulate_message_box_show_ok_cancel,
+                        simulate_message_box_show_yes_no, simulate_message_box_show_yes_no_cancel,
+                    };
+                    wnd_ok = match kind.as_str() {
+                        "ok" => simulate_message_box_show_ok(&title, &body),
+                        "ok_cancel" => simulate_message_box_show_ok_cancel(&title, &body),
+                        "yes_no_cancel" => simulate_message_box_show_yes_no_cancel(&title, &body),
+                        _ => simulate_message_box_show_yes_no(&title, &body),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("show_message_box_ok_wnd_{kind}")
+                } else {
+                    "show_message_box_miss".into()
+                };
+            }
+            "click_message_box" => {
+                // Retail MessageBox Yes/No/Ok/Cancel residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "yes".to_string());
+                let title = args
+                    .get("title")
+                    .cloned()
+                    .unwrap_or_else(|| "GUI:Message".to_string());
+                let body = args
+                    .get("body")
+                    .cloned()
+                    .unwrap_or_else(|| "GUI:Confirm".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_message_box_cancel_button_gadget_selected,
+                        simulate_message_box_hide, simulate_message_box_no_button_gadget_selected,
+                        simulate_message_box_ok_button_gadget_selected,
+                        simulate_message_box_prepare_ok, simulate_message_box_prepare_yes,
+                        simulate_message_box_yes_button_gadget_selected,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "ok" => simulate_message_box_ok_button_gadget_selected(),
+                        "no" => simulate_message_box_no_button_gadget_selected(),
+                        "cancel" => simulate_message_box_cancel_button_gadget_selected(),
+                        "hide" => simulate_message_box_hide(),
+                        "prepare_yes" => simulate_message_box_prepare_yes(&title, &body),
+                        "prepare_ok" => simulate_message_box_prepare_ok(&title, &body),
+                        _ => simulate_message_box_yes_button_gadget_selected(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_message_box_ok_wnd_{action}")
+                } else {
+                    "click_message_box_miss".into()
+                };
+            }
             "open_single_player_menu" => {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]
