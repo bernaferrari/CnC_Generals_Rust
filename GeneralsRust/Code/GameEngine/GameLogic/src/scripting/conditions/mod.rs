@@ -8,6 +8,7 @@ pub use super::{ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheVictoryConditions};
 use crate::object::registry::OBJECT_REGISTRY;
+
 use crate::object_manager::get_object_manager;
 use crate::player::{player_list, Player, PlayerType};
 use crate::scripting::engine::{
@@ -23,6 +24,12 @@ use async_trait::async_trait;
 use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+
+/// Wave 271: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
 
 fn normalize_event_name(name: &str) -> String {
     name.trim()
@@ -3508,6 +3515,11 @@ impl ScriptCondition for NamedUnitExistsCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
@@ -3545,6 +3557,11 @@ impl ScriptCondition for NamedUnitDestroyedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
@@ -3586,6 +3603,11 @@ impl ScriptCondition for NamedUnitDyingCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
@@ -3623,6 +3645,11 @@ impl ScriptCondition for NamedUnitTotallyDeadCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
@@ -3667,6 +3694,11 @@ impl ScriptCondition for NamedOwnedByPlayerCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
@@ -3715,6 +3747,11 @@ impl ScriptCondition for NamedInsideAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let area_name = get_str_param(parameters, "area_name")?;
 
@@ -3792,6 +3829,11 @@ impl ScriptCondition for NamedDiscoveredCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
@@ -3844,6 +3886,11 @@ impl ScriptCondition for NamedBuildingIsEmptyCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let building_name = get_str_param(parameters, "building_name")?;
 
         let object_id = match lookup_named_object_id(&building_name)? {
@@ -3890,6 +3937,11 @@ impl ScriptCondition for NamedHasFreeContainerSlotsCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
 
         let object_id = match lookup_named_object_id(&unit_name)? {
@@ -3940,6 +3992,11 @@ impl ScriptCondition for NamedCreatedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         match lookup_named_object_id(&unit_name)? {
             Some(id) => {
@@ -4016,6 +4073,11 @@ impl ScriptCondition for NamedReachedWaypointsEndCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let _waypoint_path = get_str_param(parameters, "waypoint_path")?;
 
@@ -4307,6 +4369,11 @@ impl ScriptCondition for TeamDiscoveredCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
             None => return Ok(false),
@@ -4669,6 +4736,11 @@ impl ScriptCondition for BuildingEnteredByPlayerCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let building_name = get_str_param(parameters, "building_name")?;
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
@@ -4727,6 +4799,11 @@ impl ScriptCondition for UnitHasObjectStatusCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let status_str = get_str_param(parameters, "status")?;
 
@@ -4768,6 +4845,11 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
@@ -4831,6 +4913,11 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
@@ -4893,6 +4980,11 @@ impl ScriptCondition for BuiltByPlayerCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
             None => return Ok(false),
@@ -4962,6 +5054,11 @@ impl ScriptCondition for NamedEnteredAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let area_name = get_str_param(parameters, "area_name")?;
 
@@ -5011,6 +5108,11 @@ impl ScriptCondition for NamedExitedAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let area_name = get_str_param(parameters, "area_name")?;
 
@@ -6247,6 +6349,11 @@ impl ScriptCondition for UnitEmptiedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")?;
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
@@ -6572,6 +6679,11 @@ impl ScriptCondition for UnitHealthCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")
             .or_else(|_| get_str_param(parameters, "unit"))?;
         let comparison = get_str_param(parameters, "comparison")?;
@@ -6653,6 +6765,11 @@ impl ScriptCondition for EnemySightedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_name = get_str_param(parameters, "unit_name")
             .or_else(|_| get_str_param(parameters, "unit"))?;
 
@@ -6794,6 +6911,11 @@ impl ScriptCondition for PlayerHasObjectComparisonCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 271: empty dual-world → fail-closed condition.
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_arc = get_player_arc(parameters, "player")?;
         let player = match player_arc {
             Some(p) => p,
