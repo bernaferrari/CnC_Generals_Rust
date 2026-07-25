@@ -1082,3 +1082,111 @@ mod tests {
         assert_eq!(eva.message_being_tested, EvaMessage::LowPower);
     }
 }
+
+/// Residual: last EVA action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualEvaAction {
+    None = 0,
+    Enable = 1,
+    Disable = 2,
+    ShouldPlay = 3,
+    Reset = 4,
+    Update = 5,
+}
+
+static RESIDUAL_EVA_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_EVA_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+static RESIDUAL_EVA_LAST_MESSAGE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(usize::MAX);
+
+fn residual_eva_action_store(action: ResidualEvaAction) {
+    RESIDUAL_EVA_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last EVA residual action.
+pub fn residual_eva_last_action() -> ResidualEvaAction {
+    match RESIDUAL_EVA_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualEvaAction::Enable,
+        2 => ResidualEvaAction::Disable,
+        3 => ResidualEvaAction::ShouldPlay,
+        4 => ResidualEvaAction::Reset,
+        5 => ResidualEvaAction::Update,
+        _ => ResidualEvaAction::None,
+    }
+}
+
+/// Residual: EVA enabled latch.
+pub fn residual_eva_is_enabled() -> bool {
+    RESIDUAL_EVA_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: last EvaMessage index flagged for play (None if none).
+pub fn residual_eva_last_message_index() -> Option<usize> {
+    let idx = RESIDUAL_EVA_LAST_MESSAGE.load(std::sync::atomic::Ordering::Relaxed);
+    if idx == usize::MAX {
+        None
+    } else {
+        Some(idx)
+    }
+}
+
+/// Residual: enable EVA without INI reload.
+pub fn simulate_eva_enable() -> bool {
+    set_eva_enabled(true);
+    RESIDUAL_EVA_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    residual_eva_action_store(ResidualEvaAction::Enable);
+    residual_eva_is_enabled()
+}
+
+/// Residual: disable EVA without INI reload.
+pub fn simulate_eva_disable() -> bool {
+    set_eva_enabled(false);
+    RESIDUAL_EVA_ENABLED.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_eva_action_store(ResidualEvaAction::Disable);
+    !residual_eva_is_enabled()
+}
+
+/// Residual: flag a named EVA message should play without audio.
+pub fn simulate_eva_set_should_play_by_name(name: &str) -> bool {
+    let Some(message) = EvaMessage::from_name(name) else {
+        return false;
+    };
+    set_eva_should_play(message);
+    RESIDUAL_EVA_LAST_MESSAGE.store(message.as_index(), std::sync::atomic::Ordering::Relaxed);
+    residual_eva_action_store(ResidualEvaAction::ShouldPlay);
+    residual_eva_last_message_index() == Some(message.as_index())
+}
+
+/// Residual: flag LowPower residual (common combat alert).
+pub fn simulate_eva_set_should_play_low_power() -> bool {
+    simulate_eva_set_should_play_by_name("LOWPOWER")
+}
+
+/// Residual: reset EVA residual flags without INI reload.
+pub fn simulate_eva_reset() -> bool {
+    let eva = get_eva();
+    if let Ok(mut guard) = eva.lock() {
+        guard.reset();
+    }
+    RESIDUAL_EVA_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_EVA_LAST_MESSAGE.store(usize::MAX, std::sync::atomic::Ordering::Relaxed);
+    residual_eva_action_store(ResidualEvaAction::Reset);
+    true
+}
+
+/// Residual: update EVA system residual (no INI required).
+pub fn simulate_eva_update() -> bool {
+    update_eva_system();
+    residual_eva_action_store(ResidualEvaAction::Update);
+    true
+}
+
+/// Residual: enable + LowPower should-play composite.
+pub fn simulate_eva_prepare_low_power_alert() -> bool {
+    if !simulate_eva_enable() {
+        return false;
+    }
+    simulate_eva_set_should_play_low_power()
+}

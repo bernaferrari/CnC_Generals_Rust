@@ -3481,6 +3481,38 @@ impl CnCGameEngine {
                     "click_beacon_miss".into()
                 };
             }
+            "click_eva" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let message = args
+                    .get("message")
+                    .cloned()
+                    .unwrap_or_else(|| "LOWPOWER".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::eva::{
+                        simulate_eva_disable, simulate_eva_enable,
+                        simulate_eva_prepare_low_power_alert, simulate_eva_reset,
+                        simulate_eva_set_should_play_by_name, simulate_eva_update,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "enable" => simulate_eva_enable(),
+                        "disable" => simulate_eva_disable(),
+                        "reset" => simulate_eva_reset(),
+                        "update" => simulate_eva_update(),
+                        "should_play" | "play" => simulate_eva_set_should_play_by_name(&message),
+                        _ => simulate_eva_prepare_low_power_alert(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_eva_ok_wnd_{action}")
+                } else {
+                    "click_eva_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
