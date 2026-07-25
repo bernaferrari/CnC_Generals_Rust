@@ -13,11 +13,18 @@ use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::HijackerControlInterface;
 use std::sync::{Arc, RwLock, Weak};
+
+/// Wave 288: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
 
 #[derive(Clone, Debug)]
 pub struct HijackerUpdateModuleData {
@@ -145,6 +152,11 @@ impl HijackerUpdate {
 
 impl UpdateModuleInterface for HijackerUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 288: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::None;
+        }
+
         if !self.update {
             return UpdateSleepTime::None;
         }

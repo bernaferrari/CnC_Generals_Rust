@@ -273,6 +273,7 @@ pub mod host_live_garrison_dual_world_empty_gate_residual_wave260;
 pub mod host_live_golden_mopup_honesty_residual_wave208;
 pub mod host_live_helix_contain_dual_world_empty_gate_residual_wave274;
 pub mod host_live_helpers_dual_world_empty_gate_residual_wave281;
+pub mod host_live_hijacker_update_dual_world_empty_gate_residual_wave288;
 pub mod host_live_host_beacon_presentation_residual_wave211;
 pub mod host_live_hotkey_move_attack_selection_presentation_only_residual_wave221;
 pub mod host_live_hotkey_selection_camera_presentation_only_residual_wave226;
@@ -2053,6 +2054,12 @@ pub use host_live_helpers_dual_world_empty_gate_residual_wave281::{
     honesty_live_helpers_dual_world_empty_gate_nav_commands_residual_wave281,
     honesty_live_helpers_dual_world_empty_gate_residual_pack_wave281,
     simulate_live_helpers_dual_world_empty_gate_honesty,
+};
+pub use host_live_hijacker_update_dual_world_empty_gate_residual_wave288::{
+    honesty_live_hijacker_update_dual_world_empty_gate_method_names_residual_wave288,
+    honesty_live_hijacker_update_dual_world_empty_gate_nav_commands_residual_wave288,
+    honesty_live_hijacker_update_dual_world_empty_gate_residual_pack_wave288,
+    simulate_live_hijacker_update_dual_world_empty_gate_honesty,
 };
 pub use host_live_host_beacon_presentation_residual_wave211::{
     honesty_live_host_beacon_presentation_method_names_residual_wave211,
