@@ -12,6 +12,12 @@
 //! - Projectile management
 //! - Target validation and range checking
 
+/// Wave 265: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
@@ -2020,6 +2026,11 @@ impl Weapon {
     }
 
     pub fn is_within_target_pitch(&self, source_obj: ObjectId, target_obj: ObjectId) -> bool {
+        // Wave 265: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.is_contact_weapon() || !self.pitch_limited {
             return true;
         }
@@ -2285,6 +2296,11 @@ impl Weapon {
         target_obj: Option<ObjectId>,
         target_pos: Option<&Coord3D>,
     ) -> bool {
+        // Wave 265: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(source_pos) = crate::object::registry::OBJECT_REGISTRY
             .with_object(source_obj, |guard| *guard.get_position())
         else {
@@ -2324,6 +2340,11 @@ impl Weapon {
         target_obj: Option<ObjectId>,
         target_pos: Option<&Coord3D>,
     ) -> bool {
+        // Wave 265: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(source_pos) = crate::object::registry::OBJECT_REGISTRY
             .with_object(source_obj, |guard| *guard.get_position())
         else {
@@ -2358,6 +2379,11 @@ impl Weapon {
     /// Returns `getAttackRange(source)` plus the bounding circle radii of both
     /// the source and victim objects (2D path via ATTACK_RANGE_IS_2D).
     pub fn get_attack_distance(&self, source_obj: ObjectId, victim_obj: Option<ObjectId>) -> f32 {
+        // Wave 265: empty dual-world → zero.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         let mut range = self.get_attack_range(source_obj);
 
         if let Some(victim_id) = victim_obj {
@@ -2394,6 +2420,11 @@ impl Weapon {
         target_obj: Option<ObjectId>,
         target_pos: Option<&Coord3D>,
     ) -> bool {
+        // Wave 265: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let source_radius = crate::object::registry::OBJECT_REGISTRY
             .with_object(source_obj, |guard| {
                 guard.get_geometry_info().get_bounding_circle_radius()
@@ -2861,6 +2892,11 @@ impl Weapon {
         source_obj: ObjectId,
         target_obj: ObjectId,
     ) -> bool {
+        // Wave 265: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         use crate::object::collide::Coord3D as CollideCoord;
 
         let Some(origin) =
@@ -2902,6 +2938,11 @@ impl Weapon {
         source_obj: ObjectId,
         victim_pos: &Coord3D,
     ) -> bool {
+        // Wave 265: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         use crate::object::collide::Coord3D as CollideCoord;
 
         let Some(origin) =
@@ -2933,6 +2974,11 @@ impl Weapon {
         goal_pos: &Coord3D,
         target_obj: ObjectId,
     ) -> bool {
+        // Wave 265: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         use crate::object::collide::Coord3D as CollideCoord;
 
         let Some(origin) =
@@ -2974,6 +3020,11 @@ impl Weapon {
         goal_pos: &Coord3D,
         victim_pos: &Coord3D,
     ) -> bool {
+        // Wave 265: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         use crate::object::collide::Coord3D as CollideCoord;
 
         let Some(origin) =
@@ -3743,6 +3794,11 @@ impl Weapon {
     /// Matches C++ turret-aiming logic — checks if facing direction is within `aimDelta` of target.
     /// Contact weapons always return `true`.
     pub fn compute_aim(&self, source_id: ObjectId, target_pos: &Coord3D) -> bool {
+        // Wave 265: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.is_contact_weapon() {
             return true;
         }
@@ -3788,6 +3844,11 @@ impl Weapon {
         damage_type: crate::damage::DamageType,
         source_id: Option<ObjectId>,
     ) -> f32 {
+        // Wave 265: empty dual-world → zero.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         let mut damage_info = crate::damage::DamageInfo::with_simple(
             amount,
             source_id.unwrap_or(INVALID_OBJECT_ID),
@@ -3831,6 +3892,11 @@ impl Weapon {
         condition: crate::common::types::WeaponBonusConditionType,
         enabled: bool,
     ) {
+        // Wave 265: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ =
             crate::object::registry::OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
                 if enabled {
@@ -4488,6 +4554,11 @@ impl Weapon {
         center: &Coord3D,
         radius: f32,
     ) -> Result<Vec<(ObjectId, Coord3D, u32)>, WeaponError> {
+        // Wave 265: empty dual-world → Ok(empty).
+        if dual_world_registry_unavailable() {
+            return Ok(Vec::new());
+        }
+
         use crate::object::registry::OBJECT_REGISTRY;
         use crate::object_manager::get_object_manager;
 
@@ -4811,6 +4882,11 @@ impl Snapshotable for Weapon {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        // Wave 265: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.projectile_stream_id != INVALID_OBJECT_ID {
             // Existence probe via borrow-first helper (no Arc kept).
             if crate::object::registry::OBJECT_REGISTRY
@@ -5931,6 +6007,11 @@ mod tests {
     }
 
     fn reset_projectile_collision_objects() {
+        // Wave 265: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         crate::object::registry::OBJECT_REGISTRY.clear();
         crate::system::game_logic::get_game_logic()
             .lock()
