@@ -188,6 +188,8 @@ pub mod host_hero_abilities;
 mod host_highlander_body;
 pub mod host_historic_bonus;
 pub mod host_humvee;
+pub mod host_idle_worker_residual_wave137;
+pub mod host_in_game_chat_residual_wave136;
 pub mod host_inferno_cannon;
 pub mod host_jarmen_kell;
 mod host_jet_slow_death;
@@ -1463,6 +1465,14 @@ pub use host_gadget_video_audio_residual_wave113::{
     honesty_audio_event_residual_wave113, honesty_gadget_residual_wave113,
     honesty_gadget_video_audio_residual_pack_wave113, honesty_game_window_manager_residual_wave113,
     honesty_video_buffer_residual_wave113, honesty_window_style_residual_wave113,
+};
+pub use host_idle_worker_residual_wave137::{
+    honesty_idle_worker_control_names_residual_wave137,
+    honesty_idle_worker_nav_commands_residual_wave137, honesty_idle_worker_residual_pack_wave137,
+};
+pub use host_in_game_chat_residual_wave136::{
+    honesty_in_game_chat_control_names_residual_wave136,
+    honesty_in_game_chat_nav_commands_residual_wave136, honesty_in_game_chat_residual_pack_wave136,
 };
 pub use host_keyboard_options_residual_wave124::{
     honesty_keyboard_options_control_names_residual_wave124,
