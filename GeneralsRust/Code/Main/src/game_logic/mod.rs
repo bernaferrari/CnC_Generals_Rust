@@ -148,6 +148,7 @@ mod host_defector_special_power;
 pub mod host_deliver_payload;
 pub mod host_demo_suicide_bomb;
 mod host_deploy_style;
+pub mod host_difficulty_select_residual_wave134;
 pub mod host_diplomacy_residual_wave129;
 pub mod host_dock_contain_exit_heal_residual;
 pub mod host_dragon_tank;
@@ -1447,6 +1448,11 @@ pub use host_control_bar_residual_wave133::{
 pub use host_credits_menu_residual_wave127::{
     honesty_credits_menu_control_names_residual_wave127,
     honesty_credits_menu_nav_commands_residual_wave127, honesty_credits_menu_residual_pack_wave127,
+};
+pub use host_difficulty_select_residual_wave134::{
+    honesty_difficulty_select_control_names_residual_wave134,
+    honesty_difficulty_select_nav_commands_residual_wave134,
+    honesty_difficulty_select_residual_pack_wave134,
 };
 pub use host_diplomacy_residual_wave129::{
     honesty_diplomacy_control_names_residual_wave129,
