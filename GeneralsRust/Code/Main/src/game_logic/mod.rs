@@ -214,6 +214,7 @@ pub mod host_keyboard_options_residual_wave124;
 pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
+pub mod host_live_gameworld_production_writeback_residual_wave180;
 pub mod host_live_gameworld_shadow_overlay_residual_wave172;
 pub mod host_live_map_load_residual_wave170;
 pub mod host_live_presentation_seed_residual_wave171;
@@ -1603,6 +1604,12 @@ pub use host_keyboard_options_residual_wave124::{
     honesty_keyboard_options_control_names_residual_wave124,
     honesty_keyboard_options_nav_commands_residual_wave124,
     honesty_keyboard_options_residual_pack_wave124,
+};
+pub use host_live_gameworld_production_writeback_residual_wave180::{
+    honesty_live_gameworld_production_writeback_method_names_residual_wave180,
+    honesty_live_gameworld_production_writeback_nav_commands_residual_wave180,
+    honesty_live_gameworld_production_writeback_residual_pack_wave180,
+    simulate_live_gameworld_production_writeback_honesty,
 };
 pub use host_live_gameworld_shadow_overlay_residual_wave172::{
     honesty_live_gameworld_shadow_overlay_method_names_residual_wave172,
