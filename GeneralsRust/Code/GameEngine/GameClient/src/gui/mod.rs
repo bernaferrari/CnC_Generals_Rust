@@ -140,7 +140,8 @@ pub use custom_match_preferences::CustomMatchPreferencesStore;
 pub use lan_preferences::LanPreferences;
 pub use lan_setup::get_lan_setup;
 pub use shell::{
-    get_shell, residual_last_campaign_difficulty, show_shell_map_if_available,
+    get_shell, residual_last_campaign_difficulty, residual_shell_map_is_on,
+    residual_shell_map_last_action, show_shell_map_if_available,
     simulate_main_menu_campaign_side_button_gadget_selected,
     simulate_main_menu_campaign_start_residual,
     simulate_main_menu_challenge_button_gadget_selected,
@@ -151,8 +152,10 @@ pub use shell::{
     simulate_main_menu_options_button_gadget_selected,
     simulate_main_menu_replay_button_gadget_selected,
     simulate_main_menu_single_player_button_gadget_selected,
-    simulate_main_menu_skirmish_button_gadget_selected, try_with_shell_mut, AnimateWindowManager,
-    AnimationType, Color, Coord2D, GameDifficulty, LayoutState, Shell, ShellError, ShellMenuScheme,
+    simulate_main_menu_skirmish_button_gadget_selected, simulate_shell_map_hide,
+    simulate_shell_map_prepare_cycle, simulate_shell_map_show, simulate_shell_map_toggle,
+    try_with_shell_mut, AnimateWindowManager, AnimationType, Color, Coord2D, GameDifficulty,
+    LayoutState, ResidualShellMapAction, Shell, ShellError, ShellMenuScheme,
     ShellMenuSchemeManager, ShowSide, WindowLayout as ShellWindowLayout, WindowRect,
 };
 pub use skirmish_preferences::SkirmishPreferences;

@@ -3392,6 +3392,43 @@ impl CnCGameEngine {
                     "click_replay_control_miss".into()
                 };
             }
+            "toggle_shell_map" => {
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::simulate_shell_map_toggle();
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "toggle_shell_map_ok_wnd".into()
+                } else {
+                    "toggle_shell_map_miss".into()
+                };
+            }
+            "click_shell_map" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "show".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::{
+                        simulate_shell_map_hide, simulate_shell_map_prepare_cycle,
+                        simulate_shell_map_show, simulate_shell_map_toggle,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "hide" => simulate_shell_map_hide(),
+                        "toggle" => simulate_shell_map_toggle(),
+                        "prepare_cycle" | "cycle" => simulate_shell_map_prepare_cycle(),
+                        _ => simulate_shell_map_show(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_shell_map_ok_wnd_{action}")
+                } else {
+                    "click_shell_map_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
