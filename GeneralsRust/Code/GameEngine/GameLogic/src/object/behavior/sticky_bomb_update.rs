@@ -28,6 +28,12 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 305: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct StickyBombUpdateModuleData {
     pub base: BehaviorModuleData,
@@ -191,6 +197,11 @@ impl StickyBombUpdate {
         bomber: Option<&GameObject>,
         specific_pos: Option<&Coord3D>,
     ) {
+        // Wave 305: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.target_id = target.map(|t| t.get_id()).unwrap_or(OBJECT_INVALID_ID);
 
         if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
@@ -337,6 +348,11 @@ impl StickyBombUpdate {
 
     /// Detonate the sticky bomb - C++ detonate()
     pub fn detonate(&mut self) {
+        // Wave 305: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let booby_trapped = self.get_target_object();
 
         if let Some(template) = self
@@ -459,6 +475,11 @@ impl StickyBombUpdate {
 
 impl UpdateModuleInterface for StickyBombUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 305: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         let current_frame = TheGameLogic::get_frame();
 
         // Check if target is dead - if so, destroy the bomb
@@ -551,6 +572,11 @@ impl BehaviorModuleInterface for StickyBombUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 305: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
