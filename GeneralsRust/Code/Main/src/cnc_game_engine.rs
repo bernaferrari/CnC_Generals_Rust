@@ -2565,6 +2565,62 @@ impl CnCGameEngine {
                 };
             }
             "open_single_player_menu" => {
+                // Retail MainMenu → SinglePlayerMenu residual open.
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok =
+                        game_client::gui::simulate_main_menu_single_player_button_gadget_selected();
+                    let _ =
+                        game_client::gui::callbacks::simulate_single_player_menu_bind_controls();
+                }
+                self.enter_shell_menu_from_runtime_host(Some("SinglePlayer"));
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_single_player_menu_ok_wnd".into()
+                } else {
+                    "open_single_player_menu_ok".into()
+                };
+            }
+            "click_single_player_menu" => {
+                // Retail SinglePlayerMenu New/Load/Back residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "new".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_single_player_menu_back_button_gadget_selected,
+                        simulate_single_player_menu_clear_button_pushed,
+                        simulate_single_player_menu_load_button_gadget_selected,
+                        simulate_single_player_menu_new_button_gadget_selected,
+                        simulate_single_player_menu_prepare_new,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "load" => {
+                            let _ = simulate_single_player_menu_clear_button_pushed();
+                            simulate_single_player_menu_load_button_gadget_selected()
+                        }
+                        "back" => {
+                            let _ = simulate_single_player_menu_clear_button_pushed();
+                            simulate_single_player_menu_back_button_gadget_selected()
+                        }
+                        "clear" => simulate_single_player_menu_clear_button_pushed(),
+                        "prepare_new" => simulate_single_player_menu_prepare_new(),
+                        _ => {
+                            let _ = simulate_single_player_menu_clear_button_pushed();
+                            simulate_single_player_menu_new_button_gadget_selected()
+                        }
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_single_player_menu_ok_wnd_{action}")
+                } else {
+                    "click_single_player_menu_miss".into()
+                };
+            }
+            "open_single_player_menu" => {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]
                 {

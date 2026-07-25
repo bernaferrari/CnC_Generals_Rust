@@ -2357,6 +2357,166 @@ pub fn simulate_credits_menu_prepare_skip() -> bool {
     simulate_credits_menu_skip()
 }
 
+/// Residual: last SinglePlayerMenu action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualSinglePlayerMenuAction {
+    None = 0,
+    New = 1,
+    Load = 2,
+    Back = 3,
+}
+
+static RESIDUAL_SP_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_SP_BOUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_SP_BUTTON_PUSHED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn residual_sp_action_store(action: ResidualSinglePlayerMenuAction) {
+    RESIDUAL_SP_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last SinglePlayerMenu residual action.
+pub fn residual_single_player_menu_last_action() -> ResidualSinglePlayerMenuAction {
+    match RESIDUAL_SP_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualSinglePlayerMenuAction::New,
+        2 => ResidualSinglePlayerMenuAction::Load,
+        3 => ResidualSinglePlayerMenuAction::Back,
+        _ => ResidualSinglePlayerMenuAction::None,
+    }
+}
+
+/// Residual: whether SinglePlayerMenu control IDs were bound.
+pub fn residual_single_player_menu_is_bound() -> bool {
+    RESIDUAL_SP_BOUND.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: button_pushed latch (C++ double-click guard).
+pub fn residual_single_player_menu_button_pushed() -> bool {
+    RESIDUAL_SP_BUTTON_PUSHED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn with_single_player_menu_mut<R>(f: impl FnOnce(&mut SinglePlayerMenu) -> R) -> R {
+    let menu = {
+        let manager = get_menu_manager();
+        let guard = manager.read().unwrap_or_else(|e| e.into_inner());
+        guard.get_single_player_menu()
+    };
+    let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut menu)
+}
+
+/// Residual: bind SinglePlayerMenu control IDs (no layout load).
+pub fn simulate_single_player_menu_bind_controls() -> bool {
+    with_single_player_menu_mut(|menu| {
+        menu.parent_id =
+            NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:SinglePlayerMenuParent") as i32;
+        menu.button_new_id = NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonNew") as i32;
+        menu.button_load_id =
+            NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonLoad") as i32;
+        menu.button_back_id =
+            NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonBack") as i32;
+        menu.initialized = true;
+        menu.is_shutting_down = false;
+        menu.button_pushed = false;
+        RESIDUAL_SP_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_SP_BUTTON_PUSHED.store(false, std::sync::atomic::Ordering::Relaxed);
+        true
+    })
+}
+
+/// Residual: fire ButtonNew without shell push MapSelectMenu.
+pub fn simulate_single_player_menu_new_button_gadget_selected() -> bool {
+    with_single_player_menu_mut(|menu| {
+        if !residual_single_player_menu_is_bound() {
+            menu.parent_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:SinglePlayerMenuParent") as i32;
+            menu.button_new_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonNew") as i32;
+            menu.button_load_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonLoad") as i32;
+            menu.button_back_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonBack") as i32;
+            menu.initialized = true;
+            RESIDUAL_SP_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        if menu.button_pushed {
+            return false;
+        }
+        menu.button_pushed = true;
+        RESIDUAL_SP_BUTTON_PUSHED.store(true, std::sync::atomic::Ordering::Relaxed);
+        residual_sp_action_store(ResidualSinglePlayerMenuAction::New);
+        true
+    })
+}
+
+/// Residual: fire ButtonLoad without save/load menu open.
+pub fn simulate_single_player_menu_load_button_gadget_selected() -> bool {
+    with_single_player_menu_mut(|menu| {
+        if !residual_single_player_menu_is_bound() {
+            menu.parent_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:SinglePlayerMenuParent") as i32;
+            menu.button_new_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonNew") as i32;
+            menu.button_load_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonLoad") as i32;
+            menu.button_back_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonBack") as i32;
+            menu.initialized = true;
+            RESIDUAL_SP_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        if menu.button_pushed {
+            return false;
+        }
+        // C++ Load path returns Handled without always setting button_pushed in all builds;
+        // residual latches Load without shell navigation.
+        residual_sp_action_store(ResidualSinglePlayerMenuAction::Load);
+        true
+    })
+}
+
+/// Residual: fire ButtonBack without shell pop.
+pub fn simulate_single_player_menu_back_button_gadget_selected() -> bool {
+    with_single_player_menu_mut(|menu| {
+        if !residual_single_player_menu_is_bound() {
+            menu.parent_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:SinglePlayerMenuParent") as i32;
+            menu.button_new_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonNew") as i32;
+            menu.button_load_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonLoad") as i32;
+            menu.button_back_id =
+                NameKeyGenerator::name_to_key("SinglePlayerMenu.wnd:ButtonBack") as i32;
+            menu.initialized = true;
+            RESIDUAL_SP_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        if menu.button_pushed {
+            return false;
+        }
+        menu.button_pushed = true;
+        RESIDUAL_SP_BUTTON_PUSHED.store(true, std::sync::atomic::Ordering::Relaxed);
+        residual_sp_action_store(ResidualSinglePlayerMenuAction::Back);
+        true
+    })
+}
+
+/// Residual: clear button_pushed latch (re-enter honesty).
+pub fn simulate_single_player_menu_clear_button_pushed() -> bool {
+    with_single_player_menu_mut(|menu| {
+        menu.button_pushed = false;
+        RESIDUAL_SP_BUTTON_PUSHED.store(false, std::sync::atomic::Ordering::Relaxed);
+        true
+    })
+}
+
+/// Residual: bind + New composite (campaign map select entry honesty).
+pub fn simulate_single_player_menu_prepare_new() -> bool {
+    if !simulate_single_player_menu_bind_controls() {
+        return false;
+    }
+    simulate_single_player_menu_new_button_gadget_selected()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
