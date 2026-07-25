@@ -49,6 +49,15 @@ pub use control_bar_ocl_timer::{
     ResidualOclTimerAction,
 };
 pub mod control_bar_print_positions;
+pub use control_bar_print_positions::{
+    residual_control_bar_print_positions_last_action,
+    residual_control_bar_print_positions_line_len,
+    simulate_control_bar_print_positions_format_line,
+    simulate_control_bar_print_positions_parent_name,
+    simulate_control_bar_print_positions_prepare_sample,
+    simulate_control_bar_print_positions_script_names, ResidualControlBarPrintPositionsAction,
+    CONTROL_BAR_PRINT_HIDDEN_SCRIPT, CONTROL_BAR_PRINT_OUTPUT_FILE, CONTROL_BAR_PRINT_PARENT_NAME,
+};
 pub mod control_bar_resizer;
 pub use control_bar_resizer::{
     residual_control_bar_resizer_base_resolution, residual_control_bar_resizer_last_action,

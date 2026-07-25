@@ -3976,6 +3976,42 @@ impl CnCGameEngine {
                     "click_presentation_boundary_miss".into()
                 };
             }
+            "click_control_bar_print_positions" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::control_bar::{
+                        simulate_control_bar_print_positions_format_line,
+                        simulate_control_bar_print_positions_parent_name,
+                        simulate_control_bar_print_positions_prepare_sample,
+                        simulate_control_bar_print_positions_script_names,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "parent" => simulate_control_bar_print_positions_parent_name(),
+                        "script" => simulate_control_bar_print_positions_script_names(),
+                        "format" => {
+                            let block = simulate_control_bar_print_positions_format_line(
+                                "ControlBar.wnd:ControlBarParent",
+                                0,
+                                450,
+                                800,
+                                150,
+                            );
+                            block.contains("END")
+                        }
+                        _ => simulate_control_bar_print_positions_prepare_sample(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_control_bar_print_positions_ok_wnd_{action}")
+                } else {
+                    "click_control_bar_print_positions_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
