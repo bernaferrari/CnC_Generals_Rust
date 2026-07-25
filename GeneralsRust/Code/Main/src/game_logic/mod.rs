@@ -280,6 +280,7 @@ pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_overlay_stamp_residual_wave190;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
 pub mod host_live_presentation_seed_residual_wave171;
+pub mod host_live_presentation_time_frozen_probe_residual_wave250;
 pub mod host_live_rmb_presentation_full_classify_residual_wave235;
 pub mod host_live_rmb_selected_presentation_only_residual_wave229;
 pub mod host_live_rmb_target_presentation_only_residual_wave228;
@@ -2055,6 +2056,12 @@ pub use host_live_presentation_seed_residual_wave171::{
     honesty_live_presentation_seed_residual_pack_wave171,
     honesty_render_execute_presentation_only_source,
     honesty_seed_presentation_after_match_start_source, simulate_live_presentation_seed_honesty,
+};
+pub use host_live_presentation_time_frozen_probe_residual_wave250::{
+    honesty_live_presentation_time_frozen_probe_method_names_residual_wave250,
+    honesty_live_presentation_time_frozen_probe_nav_commands_residual_wave250,
+    honesty_live_presentation_time_frozen_probe_residual_pack_wave250,
+    simulate_live_presentation_time_frozen_probe_honesty,
 };
 pub use host_live_rmb_presentation_full_classify_residual_wave235::{
     honesty_live_rmb_presentation_full_classify_method_names_residual_wave235,
