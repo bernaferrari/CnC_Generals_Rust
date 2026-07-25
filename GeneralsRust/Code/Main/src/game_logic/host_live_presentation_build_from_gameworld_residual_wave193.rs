@@ -93,7 +93,9 @@ pub fn honesty_build_from_gameworld_api_source() -> bool {
 /// Source residual: engine opt-in env gate after overlay/append.
 pub fn honesty_engine_presentation_from_gameworld_opt_in_source() -> bool {
     let src = include_str!("../cnc_game_engine.rs");
-    src.contains("GENERALS_PRESENTATION_FROM_GAMEWORLD")
+    // Wave 194: rebuild is default-on via presentation_from_gameworld_enabled().
+    // Still require rebuild call sites + rebuilt status export.
+    src.contains("presentation_from_gameworld_enabled")
         && src.contains("rebuild_objects_from_gameworld")
         && src.contains("gameworld_rebuilt")
         && src.contains("gameworld_rebuilt=")

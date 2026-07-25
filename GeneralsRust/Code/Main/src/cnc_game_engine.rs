@@ -5123,6 +5123,23 @@ impl CnCGameEngine {
                     format!("click_live_presentation_build_from_gameworld_miss_{action}")
                 };
             }
+            "click_live_presentation_from_gameworld_default" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_presentation_from_gameworld_default_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_presentation_from_gameworld_default_residual_pack_wave194(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_presentation_from_gameworld_default_ok_{action}")
+                } else {
+                    format!("click_live_presentation_from_gameworld_default_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -11418,12 +11435,12 @@ impl CnCGameEngine {
                 if a > 0 {
                     log::trace!("append missing GameWorld entities into presentation: {a}");
                 }
-                if std::env::var("GENERALS_PRESENTATION_FROM_GAMEWORLD")
-                    .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
-                    .unwrap_or(false)
-                {
+                // Wave 194: GameWorld-primary object roster by default (opt-out via env=0).
+                if crate::presentation_frame::presentation_from_gameworld_enabled() {
                     let n = pres.rebuild_objects_from_gameworld(shadow);
-                    log::trace!("rebuild presentation objects from GameWorld: {n}");
+                    if n > 0 {
+                        log::trace!("rebuild presentation objects from GameWorld: {n}");
+                    }
                 }
             }
             // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
@@ -11863,13 +11880,12 @@ impl CnCGameEngine {
             if a > 0 {
                 log::trace!("append missing GameWorld entities into presentation: {a}");
             }
-            // Wave 193: opt-in GameWorld-primary object roster (env GENERALS_PRESENTATION_FROM_GAMEWORLD=1).
-            if std::env::var("GENERALS_PRESENTATION_FROM_GAMEWORLD")
-                .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
-                .unwrap_or(false)
-            {
+            // Wave 194: GameWorld-primary object roster by default (opt-out via env=0).
+            if crate::presentation_frame::presentation_from_gameworld_enabled() {
                 let n = pres.rebuild_objects_from_gameworld(shadow);
-                log::trace!("rebuild presentation objects from GameWorld: {n}");
+                if n > 0 {
+                    log::trace!("rebuild presentation objects from GameWorld: {n}");
+                }
             }
         }
         pres.apply_to_game_hud(&mut self.game_hud);
@@ -12074,10 +12090,8 @@ impl CnCGameEngine {
             if let Some(ref shadow) = self.gameworld_shadow {
                 let _ = frame.overlay_gameworld_shadow(shadow);
                 let _ = frame.append_missing_from_gameworld(shadow);
-                if std::env::var("GENERALS_PRESENTATION_FROM_GAMEWORLD")
-                    .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
-                    .unwrap_or(false)
-                {
+                // Wave 194: GameWorld-primary object roster by default (opt-out via env=0).
+                if crate::presentation_frame::presentation_from_gameworld_enabled() {
                     let _ = frame.rebuild_objects_from_gameworld(shadow);
                 }
             }

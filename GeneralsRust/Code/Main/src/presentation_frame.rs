@@ -2317,6 +2317,22 @@ pub struct PresentationFrame {
     pub gameworld_rebuilt: usize,
 }
 
+/// Whether presentation object rosters should be rebuilt from GameWorld (Wave 194).
+///
+/// **Default ON** when shadow is present. Opt out with
+/// `GENERALS_PRESENTATION_FROM_GAMEWORLD=0` (or false/no/off).
+/// Fail-closed: does not flip shell `playable_claim`; host still supplies
+/// non-object residual (scripts/FX/camera) via `build_from_logic` when used.
+pub fn presentation_from_gameworld_enabled() -> bool {
+    match std::env::var("GENERALS_PRESENTATION_FROM_GAMEWORLD") {
+        Ok(v) => {
+            let t = v.trim();
+            !matches!(t, "0" | "false" | "FALSE" | "no" | "NO" | "off" | "OFF")
+        }
+        Err(_) => true,
+    }
+}
+
 impl PresentationFrame {
     /// Build a snapshot by borrowing the authoritative world for this call only.
     ///
@@ -6017,8 +6033,9 @@ impl PresentationFrame {
     ///
     /// Host ObjectIds are preferred when the shadow map has them; otherwise
     /// synthesizes `ObjectId(0x8000_0000 | entity_id)`. Counts land in
-    /// `gameworld_rebuilt`. Fail-closed: sparse host-only FX/UI fields stay default
-    /// unless a later host merge fills them; not full playable_claim cutover.
+    /// `gameworld_rebuilt`. Default engine path when shadow is live (Wave 194).
+    /// Fail-closed: sparse host-only FX/UI fields stay default unless host merge
+    /// fills them; not full playable_claim cutover.
     pub fn rebuild_objects_from_gameworld(
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
@@ -6050,7 +6067,8 @@ impl PresentationFrame {
     /// from the shadow. When `host` is `None`, a minimal shell frame is filled with
     /// GameWorld objects + local player residual only.
     ///
-    /// Fail-closed: not full GameWorld authority cutover / playable_claim.
+    /// Default engine path (Wave 194) rebuilds objects from GameWorld after host
+    /// non-object residual. Fail-closed: not full authority cutover / playable_claim.
     pub fn build_from_gameworld(
         shadow: &crate::gameworld_shadow::GameWorldShadow,
         local_player_id: u32,
