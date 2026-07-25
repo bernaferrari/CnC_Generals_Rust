@@ -97,10 +97,11 @@ pub fn honesty_presentation_from_gameworld_enabled_default_source() -> bool {
 /// Source residual: engine uses helper (not env=1 opt-in).
 pub fn honesty_engine_default_rebuild_source() -> bool {
     let src = include_str!("../cnc_game_engine.rs");
-    let hits = src.matches("presentation_from_gameworld_enabled()").count();
-    // Default path calls the helper (not env=1 opt-in). unwrap_or(false) may exist
-    // elsewhere in the engine file — only require helper + rebuild call sites.
-    hits >= 2 && src.contains("rebuild_objects_from_gameworld")
+    // Wave 195: engine uses build_for_engine / build_with_victory_for_engine;
+    // rebuild lives inside those helpers when presentation_from_gameworld_enabled.
+    (src.contains("build_for_engine(") || src.contains("build_with_victory_for_engine("))
+        && include_str!("../presentation_frame.rs").contains("presentation_from_gameworld_enabled")
+        && include_str!("../presentation_frame.rs").contains("rebuild_objects_from_gameworld")
 }
 
 /// Source residual: executable smoke tracks rebuilt status key.

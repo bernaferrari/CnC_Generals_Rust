@@ -99,9 +99,9 @@ pub fn honesty_overlay_gameworld_shadow_api_source() -> bool {
 /// Source residual: engine calls overlay on main presentation seed paths.
 pub fn honesty_engine_calls_overlay_source() -> bool {
     let eng = include_str!("../cnc_game_engine.rs");
-    eng.matches("overlay_gameworld_shadow").count() >= 3
-        && eng.contains("build_from_logic")
-        && eng.contains("if let Some(ref shadow) = self.gameworld_shadow")
+    // Wave 195: engine presentation helpers fold overlay/rebuild.
+    (eng.contains("build_for_engine") || eng.contains("build_with_victory_for_engine"))
+        && include_str!("../presentation_frame.rs").contains("fn overlay_gameworld_shadow")
 }
 
 /// Live residual: build_from_logic then overlay stamps shadow health/pose.

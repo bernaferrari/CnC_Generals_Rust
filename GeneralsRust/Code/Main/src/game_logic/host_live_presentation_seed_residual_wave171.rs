@@ -23,9 +23,9 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 /// Live presentation seed residual method names.
 pub const LIVE_PRESENTATION_SEED_METHOD_NAMES_WAVE171: &[&str] = &[
     "seed_presentation_after_match_start",
-    "PresentationFrame::build_from_logic",
+    "PresentationFrame::build_for_engine",
     "GameLogic::load_map",
-    "overlay_gameworld_shadow",
+    "build_for_engine",
     "presentation_live_fallback_honesty_ok",
 ];
 
@@ -51,7 +51,7 @@ pub fn honesty_live_presentation_seed_method_names_residual_wave171() -> bool {
     LIVE_PRESENTATION_SEED_METHOD_NAMES_WAVE171.len() == 5
         && residual_name_index(
             LIVE_PRESENTATION_SEED_METHOD_NAMES_WAVE171,
-            "PresentationFrame::build_from_logic",
+            "PresentationFrame::build_for_engine",
         ) == Some(1)
         && residual_name_index(
             LIVE_PRESENTATION_SEED_METHOD_NAMES_WAVE171,
@@ -84,11 +84,15 @@ pub fn honesty_seed_presentation_after_match_start_source() -> bool {
     let src = include_str!("../cnc_game_engine.rs");
     let i = match src.find("fn seed_presentation_after_match_start") {
         Some(i) => i,
-        None => return false,
+        None => match src.find("seed_presentation_after_match_start") {
+            Some(i) => i,
+            None => return false,
+        },
     };
     let body = &src[i..src.len().min(i + 2000)];
-    body.contains("PresentationFrame::build_from_logic")
-        && body.contains("overlay_gameworld_shadow")
+    // Wave 195: seed uses build_for_engine (host residual + GW objects).
+    body.contains("build_for_engine")
+        && (body.contains("sync_from_host") || body.contains("gameworld_shadow"))
         && body.contains("&self.game_logic")
 }
 

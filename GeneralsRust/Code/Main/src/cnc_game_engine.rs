@@ -242,25 +242,25 @@ mod tests {
             .expect("seed_presentation_after_match_start");
         let body = &src[i..src.len().min(i + 1200)];
         assert!(
-            body.contains("overlay_gameworld_shadow"),
-            "match-start seed must overlay GameWorld shadow last-writer residual"
+            body.contains("build_for_engine"),
+            "match-start seed must use build_for_engine (Wave 195 host+GW presentation)"
         );
         assert!(
             body.contains("sync_from_host"),
-            "match-start seed must sync shadow before overlay"
+            "match-start seed must sync shadow before presentation build"
         );
         assert!(
             !body.contains("build_and_apply_for_hud"),
             "seed must not skip shadow via build_and_apply_for_hud"
         );
-        // Boot/render residual seed also overlays.
+        // Boot/render residual seed also uses build_for_engine.
         let j = src
             .find("Boot/Menu residual: if no frame yet")
             .expect("boot residual comment");
         let boot = &src[j..src.len().min(j + 700)];
         assert!(
-            boot.contains("overlay_gameworld_shadow"),
-            "boot presentation seed must overlay shadow"
+            boot.contains("build_for_engine"),
+            "boot presentation seed must use build_for_engine"
         );
     }
 
@@ -5138,6 +5138,23 @@ impl CnCGameEngine {
                     format!("click_live_presentation_from_gameworld_default_ok_{action}")
                 } else {
                     format!("click_live_presentation_from_gameworld_default_miss_{action}")
+                };
+            }
+            "click_live_presentation_build_for_engine" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_presentation_build_for_engine_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_presentation_build_for_engine_residual_pack_wave195(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_presentation_build_for_engine_ok_{action}")
+                } else {
+                    format!("click_live_presentation_build_for_engine_miss_{action}")
                 };
             }
             "save_game" | "quicksave" => {
@@ -11422,27 +11439,12 @@ impl CnCGameEngine {
             // Built after authority + host side systems + shadow writeback.
             let local_id = self.current_player_id;
             // Include victory residual in the snapshot (single evaluate; no dual-read later).
-            let mut pres = crate::presentation_frame::PresentationFrame::build_with_victory(
-                &mut self.game_logic,
-                local_id,
-            );
-            if let Some(ref shadow) = self.gameworld_shadow {
-                let n = pres.overlay_gameworld_shadow(shadow);
-                if n > 0 {
-                    log::trace!("presentation overlay from GameWorld shadow: {n} objects");
-                }
-                let a = pres.append_missing_from_gameworld(shadow);
-                if a > 0 {
-                    log::trace!("append missing GameWorld entities into presentation: {a}");
-                }
-                // Wave 194: GameWorld-primary object roster by default (opt-out via env=0).
-                if crate::presentation_frame::presentation_from_gameworld_enabled() {
-                    let n = pres.rebuild_objects_from_gameworld(shadow);
-                    if n > 0 {
-                        log::trace!("rebuild presentation objects from GameWorld: {n}");
-                    }
-                }
-            }
+            let mut pres =
+                crate::presentation_frame::PresentationFrame::build_with_victory_for_engine(
+                    &mut self.game_logic,
+                    local_id,
+                    self.gameworld_shadow.as_ref(),
+                );
             // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
             let audio_n = pres.dispatch_audio_events_direct();
             if audio_n > 0 {
@@ -11867,27 +11869,12 @@ impl CnCGameEngine {
         if let Some(ref mut shadow) = self.gameworld_shadow {
             shadow.sync_from_host(&self.game_logic);
         }
-        let mut pres = crate::presentation_frame::PresentationFrame::build_from_logic(
+        // Wave 195: single engine presentation build (host residual + GW objects).
+        let mut pres = crate::presentation_frame::PresentationFrame::build_for_engine(
             &self.game_logic,
             local_id,
+            self.gameworld_shadow.as_ref(),
         );
-        if let Some(ref shadow) = self.gameworld_shadow {
-            let n = pres.overlay_gameworld_shadow(shadow);
-            if n > 0 {
-                log::trace!("seed presentation overlay from GameWorld shadow: {n}");
-            }
-            let a = pres.append_missing_from_gameworld(shadow);
-            if a > 0 {
-                log::trace!("append missing GameWorld entities into presentation: {a}");
-            }
-            // Wave 194: GameWorld-primary object roster by default (opt-out via env=0).
-            if crate::presentation_frame::presentation_from_gameworld_enabled() {
-                let n = pres.rebuild_objects_from_gameworld(shadow);
-                if n > 0 {
-                    log::trace!("rebuild presentation objects from GameWorld: {n}");
-                }
-            }
-        }
         pres.apply_to_game_hud(&mut self.game_hud);
         #[cfg(feature = "game_client")]
         {
@@ -12083,18 +12070,12 @@ impl CnCGameEngine {
             if let Some(ref mut shadow) = self.gameworld_shadow {
                 shadow.sync_from_host(&self.game_logic);
             }
-            let mut frame = crate::presentation_frame::PresentationFrame::build_from_logic(
+            // Wave 195: single engine presentation build (host residual + GW objects).
+            let frame = crate::presentation_frame::PresentationFrame::build_for_engine(
                 &self.game_logic,
                 local,
+                self.gameworld_shadow.as_ref(),
             );
-            if let Some(ref shadow) = self.gameworld_shadow {
-                let _ = frame.overlay_gameworld_shadow(shadow);
-                let _ = frame.append_missing_from_gameworld(shadow);
-                // Wave 194: GameWorld-primary object roster by default (opt-out via env=0).
-                if crate::presentation_frame::presentation_from_gameworld_enabled() {
-                    let _ = frame.rebuild_objects_from_gameworld(shadow);
-                }
-            }
             self.last_presentation_frame = Some(frame);
         }
         self.render_pipeline

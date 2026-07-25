@@ -6088,6 +6088,58 @@ impl PresentationFrame {
         frame
     }
 
+    /// Standard engine presentation build (Wave 195).
+    ///
+    /// When a live `GameWorldShadow` is present and
+    /// [`presentation_from_gameworld_enabled`] is true (default), this is equivalent to
+    /// [`build_from_gameworld`] — host supplies non-object residual, objects come from
+    /// the borrow-first entity store. Otherwise falls back to host
+    /// [`build_from_logic`] plus overlay/append when a shadow is available.
+    ///
+    /// Callers must `sync_from_host` before this when a shadow is provided.
+    /// Fail-closed: not full GameWorld authority cutover / playable_claim.
+    pub fn build_for_engine(
+        logic: &GameLogic,
+        local_player_id: u32,
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+    ) -> Self {
+        match shadow {
+            Some(shadow) if presentation_from_gameworld_enabled() => {
+                Self::build_from_gameworld(shadow, local_player_id, Some(logic))
+            }
+            Some(shadow) => {
+                let mut frame = Self::build_from_logic(logic, local_player_id);
+                let _ = frame.overlay_gameworld_shadow(shadow);
+                let _ = frame.append_missing_from_gameworld(shadow);
+                frame
+            }
+            None => Self::build_from_logic(logic, local_player_id),
+        }
+    }
+
+    /// Engine tick presentation build with victory residual (Wave 195).
+    ///
+    /// Freezes victory via [`build_with_victory`], then applies the standard
+    /// GameWorld object roster path when a shadow is live.
+    pub fn build_with_victory_for_engine(
+        logic: &mut GameLogic,
+        local_player_id: u32,
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+    ) -> Self {
+        let mut frame = Self::build_with_victory(logic, local_player_id);
+        match shadow {
+            Some(shadow) if presentation_from_gameworld_enabled() => {
+                let _ = frame.rebuild_objects_from_gameworld(shadow);
+            }
+            Some(shadow) => {
+                let _ = frame.overlay_gameworld_shadow(shadow);
+                let _ = frame.append_missing_from_gameworld(shadow);
+            }
+            None => {}
+        }
+        frame
+    }
+
     /// Lookup snapshot FOW for an object (local player). None if not on the frame.
     pub fn fow_for_object(&self, id: ObjectId) -> Option<ObjectVisibility> {
         self.objects

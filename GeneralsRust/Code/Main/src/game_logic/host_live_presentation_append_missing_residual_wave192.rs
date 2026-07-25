@@ -94,17 +94,10 @@ pub fn honesty_append_missing_api_source() -> bool {
 /// Source residual: engine calls append after overlay on seed paths.
 pub fn honesty_engine_append_after_overlay_source() -> bool {
     let src = include_str!("../cnc_game_engine.rs");
-    let mut hits = 0usize;
-    let mut search = src;
-    while let Some(i) = search.find("overlay_gameworld_shadow") {
-        let window = &search[i..search.len().min(i + 500)];
-        if window.contains("append_missing_from_gameworld") {
-            hits += 1;
-        }
-        search = &search[i + 1..];
-    }
-    // Production sites (not honesty string asserts) should include append.
-    hits >= 2 && src.contains("gameworld_appended") && src.contains("gameworld_appended=")
+    // Wave 195: append/rebuild folded into build_for_engine helpers.
+    (src.contains("build_for_engine(") || src.contains("build_with_victory_for_engine("))
+        && src.contains("gameworld_appended")
+        && include_str!("../presentation_frame.rs").contains("append_missing_from_gameworld")
 }
 
 /// Live residual: append creates a frame object for a shadow-only entity.
