@@ -50,6 +50,12 @@ use super::behavior_module::{
     BridgeTowerType, ScaffoldTargetMotion,
 };
 
+/// Wave 301: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // Constants
 const BRIDGE_MAX_TOWERS: usize = 4;
 const MAX_BRIDGE_BODY_FX: usize = 3;
@@ -499,6 +505,11 @@ impl BridgeBehavior {
         thing: Arc<dyn ModuleThing>,
         module_data: Arc<BridgeBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 301: empty dual-world → missing object.
+        if dual_world_registry_unavailable() {
+            return Err("BridgeBehavior missing dual-world object".into());
+        }
+
         let module_object = thing
             .as_object()
             .ok_or_else(|| "BridgeBehavior requires an owning object".to_string())?;
@@ -582,6 +593,11 @@ impl BridgeBehavior {
         &self,
         tower_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 301: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if tower_id == OBJECT_INVALID_ID {
             return Ok(());
         }
@@ -960,6 +976,11 @@ impl BridgeBehavior {
     fn handle_objects_on_bridge_on_die(
         &mut self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 301: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let bridge_pos = self.with_object(|me_read| *me_read.get_position())?;
 
         let Some(bridge) = self.find_bridge_at_position(&bridge_pos)? else {
@@ -1404,6 +1425,11 @@ impl BridgeBehavior {
         &self,
         id: ObjectID,
     ) -> Result<Option<Arc<RwLock<GameObject>>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 301: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         if id == OBJECT_INVALID_ID {
             return Ok(None);
         }
@@ -1445,6 +1471,11 @@ impl BridgeBehavior {
     fn get_object(
         &self,
     ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 301: empty dual-world → missing object.
+        if dual_world_registry_unavailable() {
+            return Err("BridgeBehavior missing dual-world object".into());
+        }
+
         let id = self.owner_object_id();
         if id == OBJECT_INVALID_ID {
             return Err("BridgeBehavior missing owning object id".into());
@@ -1577,6 +1608,11 @@ impl DamageModuleInterface for BridgeBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 301: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.resolve_fx()?;
 
         let me_id = self.owner_object_id();
@@ -1651,6 +1687,11 @@ impl DamageModuleInterface for BridgeBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 301: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.resolve_fx()?;
 
         let max_health = self.with_object(
