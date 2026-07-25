@@ -5625,6 +5625,23 @@ impl CnCGameEngine {
                     )
                 };
             }
+            "click_live_pick_object_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_pick_object_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_pick_object_presentation_only_residual_pack_wave222(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_pick_object_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_pick_object_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -15206,7 +15223,7 @@ impl CnCGameEngine {
 
         // C++ InGameUI minimap RMB residual: same context-sensitive path as world
         // right-click (attack enemy / gather / enter / move).
-        let target_object = self.find_object_at_position(clamped, &self.game_logic, true);
+        let target_object = self.find_object_at_position(clamped, true);
         let ctrl = self.keys_pressed.iter().any(|k| {
             matches!(
                 k,
@@ -18185,7 +18202,7 @@ impl CnCGameEngine {
         self.selection_start_screen = Some(self.mouse_position);
 
         let mouse_pos = self.mouse_world_position;
-        let clicked_object = self.find_object_at_position(mouse_pos, &self.game_logic, false);
+        let clicked_object = self.find_object_at_position(mouse_pos, false);
 
         // Check for double-click
         let now = Instant::now();
@@ -18371,9 +18388,7 @@ impl CnCGameEngine {
             // Click on empty ground (no pending command/placement handled on press): clear selection.
             if self.pending_map_command.is_none()
                 && self.pending_structure_placement.is_none()
-                && self
-                    .find_object_at_position(end, &self.game_logic, false)
-                    .is_none()
+                && self.find_object_at_position(end, false).is_none()
             {
                 let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
                 if !shift_down {
@@ -18443,7 +18458,7 @@ impl CnCGameEngine {
 
         // C++ context-sensitive right-click residual via CommandSystem:
         // attack / gather / repair / enter / get-repaired / get-healed / move / attack-move.
-        let target_object = self.find_object_at_position(mouse_pos, &self.game_logic, true);
+        let target_object = self.find_object_at_position(mouse_pos, true);
         let ctrl = self.keys_pressed.iter().any(|k| {
             matches!(
                 k,
@@ -18870,7 +18885,7 @@ impl CnCGameEngine {
                 .map(|p| !p.selected_objects.is_empty())
                 .unwrap_or(false);
 
-        let hover = self.find_object_at_position(self.mouse_world_position, &self.game_logic, true);
+        let hover = self.find_object_at_position(self.mouse_world_position, true);
         let ctrl = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
         let alt = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
 
@@ -19142,14 +19157,9 @@ impl CnCGameEngine {
     /// Presentation-only world pick. Returns `None` when no snapshot is installed
     /// (no live GameLogic dual-read residual). InGame always seeds
     /// `last_presentation_frame` before input.
-    fn find_object_at_position(
-        &self,
-        position: Vec3,
-        _game_logic: &GameLogic,
-        command_context: bool,
-    ) -> Option<ObjectId> {
+    fn find_object_at_position(&self, position: Vec3, command_context: bool) -> Option<ObjectId> {
         const BASE_SELECTION_RADIUS: f32 = 20.0;
-        // Presentation-only: no live object-store dual-read residual.
+        // Wave 222: presentation-only pick (no GameLogic dual-read residual).
 
         let frame = self.last_presentation_frame.as_ref()?;
         let player_team = Some(frame.local_team());
