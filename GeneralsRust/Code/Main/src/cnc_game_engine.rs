@@ -6108,6 +6108,23 @@ impl CnCGameEngine {
                     format!("click_live_client_dual_world_empty_gate_miss_{action}")
                 };
             }
+            "click_live_presentation_time_frozen_probe" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_presentation_time_frozen_probe_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_presentation_time_frozen_probe_residual_pack_wave250(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_presentation_time_frozen_probe_ok_{action}")
+                } else {
+                    format!("click_live_presentation_time_frozen_probe_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -12195,7 +12212,13 @@ impl CnCGameEngine {
             // Projectiles + path following are owned by GameLogic::update_simulation
             // (update_combat drain/step + update_movement). Engine must not run a
             // second mid-frame CombatSystem/PathfindingSystem mover.
-            if !self.game_logic.is_time_frozen_for_simulation() {
+            // Wave 250: prefer presentation freeze residual when a frame is installed.
+            let time_frozen = self
+                .last_presentation_frame
+                .as_ref()
+                .map(|p| p.time_frozen_for_simulation)
+                .unwrap_or_else(|| self.game_logic.is_time_frozen_for_simulation());
+            if !time_frozen {
                 // Hit SFX residual: prefer presentation audio events; legacy direct
                 // Hit playback removed with dual CombatSystem step.
                 let _ = dt;
@@ -12263,7 +12286,13 @@ impl CnCGameEngine {
 
             #[cfg(feature = "game_client")]
             {
-                let visual_delta = if self.game_logic.is_time_frozen_for_simulation() {
+                // Wave 250: prefer presentation freeze residual when a frame is installed.
+                let visual_delta = if self
+                    .last_presentation_frame
+                    .as_ref()
+                    .map(|p| p.time_frozen_for_simulation)
+                    .unwrap_or_else(|| self.game_logic.is_time_frozen_for_simulation())
+                {
                     0.0
                 } else {
                     game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
@@ -12795,7 +12824,13 @@ impl CnCGameEngine {
         }
 
         // Execute the main game render pipeline using the WW3D frame.
-        let render_time_delta = if self.game_logic.is_time_frozen_for_simulation() {
+        // Wave 250: prefer presentation freeze residual when a frame is installed.
+        let time_frozen = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|p| p.time_frozen_for_simulation)
+            .unwrap_or_else(|| self.game_logic.is_time_frozen_for_simulation());
+        let render_time_delta = if time_frozen {
             0.0
         } else {
             self.last_frame_timing
@@ -19339,7 +19374,13 @@ impl CnCGameEngine {
             }
         }
 
-        let shake_dt = if self.game_logic.is_time_frozen_for_simulation() {
+        // Wave 250: prefer presentation freeze residual when a frame is installed.
+        let shake_dt = if self
+            .last_presentation_frame
+            .as_ref()
+            .map(|p| p.time_frozen_for_simulation)
+            .unwrap_or_else(|| self.game_logic.is_time_frozen_for_simulation())
+        {
             0.0
         } else {
             dt
