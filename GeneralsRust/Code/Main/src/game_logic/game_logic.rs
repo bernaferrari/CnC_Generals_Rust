@@ -61189,6 +61189,43 @@ impl GameLogic {
         false
     }
 
+    /// Wave 225: clear movement path / target on a unit (host residual).
+    pub fn clear_unit_movement_path(&mut self, id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if obj.movement.path.is_empty() && obj.movement.target_position.is_none() {
+            return false;
+        }
+        obj.movement.path.clear();
+        obj.movement.current_path_index = 0;
+        obj.movement.target_position = None;
+        obj.status.moving = false;
+        true
+    }
+
+    /// Wave 225: adjust guard radius residual on a unit. Returns new radius when applied.
+    pub fn adjust_unit_guard_radius(&mut self, id: ObjectId, delta: f32) -> Option<f32> {
+        let obj = self.objects.get_mut(&id)?;
+        let guarding = matches!(
+            obj.ai_state,
+            AIState::GuardingArea | AIState::GuardingObject
+        ) || obj.guard_position.is_some()
+            || obj.guard_target.is_some();
+        if !guarding && obj.guard_radius <= 0.0 {
+            let base = obj.selection_radius.max(20.0) * 2.0;
+            obj.guard_radius = (base + delta).clamp(30.0, 400.0);
+        } else {
+            let cur = if obj.guard_radius > 1.0 {
+                obj.guard_radius
+            } else {
+                obj.selection_radius.max(20.0) * 2.0
+            };
+            obj.guard_radius = (cur + delta).clamp(30.0, 400.0);
+        }
+        Some(obj.guard_radius)
+    }
+
     /// Add object to the game world
     pub fn add_object(&mut self, object: Object) -> ObjectId {
         let id = object.id;
