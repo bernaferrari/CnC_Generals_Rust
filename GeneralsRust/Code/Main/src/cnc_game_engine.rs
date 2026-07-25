@@ -5929,6 +5929,23 @@ impl CnCGameEngine {
                     format!("click_live_player_team_probe_miss_{action}")
                 };
             }
+            "click_live_player_field_probe" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_player_field_probe_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_player_field_probe_residual_pack_wave240(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_player_field_probe_ok_{action}")
+                } else {
+                    format!("click_live_player_field_probe_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -6215,9 +6232,9 @@ impl CnCGameEngine {
                             tpl.add_kind_of(crate::game_logic::KindOf::Attackable);
                             self.game_logic.templates.insert("GoldenRanger".into(), tpl);
                         }
-                        if let Some(p) = self.game_logic.get_player_mut(self.current_player_id) {
-                            p.resources.supplies = p.resources.supplies.max(25_000);
-                        }
+                        // Wave 240: supplies floor via probe (no &mut Player dual-read).
+                        self.game_logic
+                            .ensure_player_min_supplies(self.current_player_id, 25_000);
                         let try_names = [
                             template.as_str(),
                             "AmericaInfantryRanger",
@@ -6462,9 +6479,9 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd = "upgrade_fail_no_player".into();
                         return;
                     };
-                    if let Some(p) = self.game_logic.get_player_mut(self.current_player_id) {
-                        p.resources.supplies = p.resources.supplies.max(25_000);
-                    }
+                    // Wave 240: supplies floor via probe (no &mut Player dual-read).
+                    self.game_logic
+                        .ensure_player_min_supplies(self.current_player_id, 25_000);
                     // Prefer selected structure; else any constructed friendly structure.
                     let mut producers: Vec<crate::game_logic::ObjectId> = self
                         .selected_objects
@@ -13322,15 +13339,11 @@ impl CnCGameEngine {
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.local_player_id;
         }
-        if self.game_logic.get_player(self.current_player_id).is_some() {
+        // Wave 240: boot residual via player_exists / min_player_id probes.
+        if self.game_logic.player_exists(self.current_player_id) {
             return self.current_player_id;
         }
-        self.game_logic
-            .get_players()
-            .keys()
-            .copied()
-            .min()
-            .unwrap_or(0)
+        self.game_logic.min_player_id().unwrap_or(0)
     }
 
     /// Local team for UI. Prefers presentation freeze.
@@ -13338,9 +13351,9 @@ impl CnCGameEngine {
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.local_team();
         }
+        // Wave 240: boot residual via player_team probe.
         self.game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.team)
+            .player_team(self.current_player_id)
             .unwrap_or(crate::game_logic::Team::USA)
     }
 
@@ -13354,16 +13367,25 @@ impl CnCGameEngine {
                 return Some(p);
             }
         }
-        self.game_logic.get_player(player_id).map(|p| {
-            crate::presentation_frame::PresentationPlayerInfo {
-                id: p.id,
-                name: p.name.clone(),
-                team: p.team,
-                is_alive: p.is_alive,
-                is_local: p.is_local || p.id == self.current_player_id,
-                is_ai: self.game_logic.ai_manager_contains_player(player_id),
-                color_rgb: p.color_rgb,
-            }
+        // Wave 240: boot residual via field probes (no &Player expose).
+        if !self.game_logic.player_exists(player_id) {
+            return None;
+        }
+        Some(crate::presentation_frame::PresentationPlayerInfo {
+            id: player_id,
+            name: self.game_logic.player_name(player_id).unwrap_or_default(),
+            team: self
+                .game_logic
+                .player_team(player_id)
+                .unwrap_or(crate::game_logic::Team::USA),
+            is_alive: self.game_logic.player_is_alive(player_id),
+            is_local: self.game_logic.player_is_local(player_id)
+                || player_id == self.current_player_id,
+            is_ai: self.game_logic.ai_manager_contains_player(player_id),
+            color_rgb: self
+                .game_logic
+                .player_color_rgb(player_id)
+                .unwrap_or((255, 255, 255)),
         })
     }
 
@@ -13382,9 +13404,10 @@ impl CnCGameEngine {
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return Some(frame.local_team().get_name().to_string());
         }
+        // Wave 240: boot residual via player_team probe.
         self.game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.team.get_name().to_string())
+            .player_team(self.current_player_id)
+            .map(|t| t.get_name().to_string())
     }
 
     /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
@@ -13400,9 +13423,11 @@ impl CnCGameEngine {
                 return Some(id);
             }
         }
+        // Wave 240: boot residual via player_selected_objects probe.
         self.game_logic
-            .get_player(self.current_player_id)
-            .and_then(|p| p.selected_objects.first().copied())
+            .player_selected_objects(self.current_player_id)
+            .first()
+            .copied()
     }
 
     /// Wave 234: local science purchase points prefer presentation freeze.
@@ -13529,10 +13554,8 @@ impl CnCGameEngine {
                 return from_objs;
             }
         }
-        self.game_logic
-            .get_player(player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_default()
+        // Wave 240: boot residual via player_selected_objects probe.
+        self.game_logic.player_selected_objects(player_id)
     }
 
     fn place_structure_from_ui(&mut self, template_name: &str, location: glam::Vec3) {
@@ -17043,12 +17066,17 @@ impl CnCGameEngine {
                 });
             }
         } else {
-            for (&id, p) in self.game_logic.get_players() {
+            for id in self.game_logic.player_ids() {
+                // Wave 240: diplomacy roster via player field probes (no get_players dual-read).
+                let team = self
+                    .game_logic
+                    .player_team(id)
+                    .unwrap_or(crate::game_logic::Team::USA);
                 rows.push(DiplomacyPlayerEntry {
                     player_id: id as i32,
-                    name: p.name.clone(),
-                    side: format!("{:?}", p.team),
-                    team: match p.team {
+                    name: self.game_logic.player_name(id).unwrap_or_default(),
+                    side: format!("{:?}", team),
+                    team: match team {
                         crate::game_logic::Team::USA => 0,
                         crate::game_logic::Team::China => 1,
                         crate::game_logic::Team::GLA => 2,

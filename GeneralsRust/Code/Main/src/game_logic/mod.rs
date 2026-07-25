@@ -260,6 +260,7 @@ pub mod host_live_mouse_input_presentation_only_residual_wave236;
 pub mod host_live_os_input_command_path_residual_wave209;
 pub mod host_live_path_guard_authority_api_residual_wave225;
 pub mod host_live_pick_object_presentation_only_residual_wave222;
+pub mod host_live_player_field_probe_residual_wave240;
 pub mod host_live_player_probe_api_residual_wave238;
 pub mod host_live_player_team_probe_residual_wave239;
 pub mod host_live_presentation_append_missing_residual_wave192;
@@ -1926,6 +1927,12 @@ pub use host_live_pick_object_presentation_only_residual_wave222::{
     honesty_live_pick_object_presentation_only_nav_commands_residual_wave222,
     honesty_live_pick_object_presentation_only_residual_pack_wave222,
     simulate_live_pick_object_presentation_only_honesty,
+};
+pub use host_live_player_field_probe_residual_wave240::{
+    honesty_live_player_field_probe_method_names_residual_wave240,
+    honesty_live_player_field_probe_nav_commands_residual_wave240,
+    honesty_live_player_field_probe_residual_pack_wave240,
+    simulate_live_player_field_probe_honesty,
 };
 pub use host_live_player_probe_api_residual_wave238::{
     honesty_live_player_probe_api_method_names_residual_wave238,

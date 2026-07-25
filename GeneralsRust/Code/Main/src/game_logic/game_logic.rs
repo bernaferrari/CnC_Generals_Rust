@@ -25165,6 +25165,67 @@ impl GameLogic {
         self.command_center_position(team)
     }
 
+    /// Wave 240: existence probe without exposing `&Player`.
+    #[inline]
+    pub fn player_exists(&self, id: u32) -> bool {
+        self.players.contains_key(&id)
+    }
+
+    /// Wave 240: lowest player id (boot local residual).
+    #[inline]
+    pub fn min_player_id(&self) -> Option<u32> {
+        self.players.keys().copied().min()
+    }
+
+    /// Wave 240: display name without exposing `&Player`.
+    #[inline]
+    pub fn player_name(&self, id: u32) -> Option<String> {
+        self.players.get(&id).map(|p| p.name.clone())
+    }
+
+    /// Wave 240: alive flag without exposing `&Player`.
+    #[inline]
+    pub fn player_is_alive(&self, id: u32) -> bool {
+        self.players.get(&id).map(|p| p.is_alive).unwrap_or(false)
+    }
+
+    /// Wave 240: local flag without exposing `&Player`.
+    #[inline]
+    pub fn player_is_local(&self, id: u32) -> bool {
+        self.players.get(&id).map(|p| p.is_local).unwrap_or(false)
+    }
+
+    /// Wave 240: UI color without exposing `&Player`.
+    #[inline]
+    pub fn player_color_rgb(&self, id: u32) -> Option<(u8, u8, u8)> {
+        self.players.get(&id).map(|p| p.color_rgb)
+    }
+
+    /// Wave 240: selected object ids without exposing `&Player`.
+    #[inline]
+    pub fn player_selected_objects(&self, id: u32) -> Vec<ObjectId> {
+        self.players
+            .get(&id)
+            .map(|p| p.selected_objects.clone())
+            .unwrap_or_default()
+    }
+
+    /// Wave 240: ordered player id roster without exposing `&Player`.
+    #[inline]
+    pub fn player_ids(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = self.players.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Wave 240: raise supplies floor without exposing `&mut Player`.
+    #[inline]
+    pub fn ensure_player_min_supplies(&mut self, id: u32, min_supplies: u32) {
+        if let Some(p) = self.players.get_mut(&id) {
+            p.resources.supplies = p.resources.supplies.max(min_supplies);
+        }
+    }
+
     /// Get mutable player by ID
     pub fn get_player_mut(&mut self, player_id: u32) -> Option<&mut Player> {
         self.players.get_mut(&player_id)
