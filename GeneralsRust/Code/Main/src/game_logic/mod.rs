@@ -209,6 +209,7 @@ pub mod host_keyboard_options_residual_wave124;
 pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
+pub mod host_live_map_load_residual_wave170;
 pub mod host_loading_screen_residual_wave135;
 pub mod host_main_menu_buttons_residual_wave118;
 pub mod host_main_menu_campaign_residual_wave119;
@@ -1564,6 +1565,11 @@ pub use host_keyboard_options_residual_wave124::{
     honesty_keyboard_options_nav_commands_residual_wave124,
     honesty_keyboard_options_residual_pack_wave124,
 };
+pub use host_live_map_load_residual_wave170::{
+    honesty_live_map_load_method_names_residual_wave170,
+    honesty_live_map_load_nav_commands_residual_wave170,
+    honesty_live_map_load_residual_pack_wave170, simulate_live_map_load_honesty,
+};
 pub use host_loading_screen_residual_wave135::{
     honesty_loading_screen_nav_commands_residual_wave135,
     honesty_loading_screen_residual_pack_wave135, honesty_loading_screen_stages_residual_wave135,
@@ -1722,7 +1728,8 @@ pub use host_start_game_loading_residual_wave169::{
     honesty_start_game_from_ui_loading_source,
     honesty_start_game_loading_method_names_residual_wave169,
     honesty_start_game_loading_nav_commands_residual_wave169,
-    honesty_start_game_loading_residual_pack_wave169, simulate_start_game_loading_honesty,
+    honesty_start_game_loading_residual_pack_wave169, resolve_retail_map_path,
+    simulate_start_game_loading_honesty, DEFAULT_SKIRMISH_MAP_WAVE169, LONE_EAGLE_MAP_WAVE169,
 };
 pub use host_structure_inventory_residual_wave149::{
     honesty_structure_inventory_command_names_residual_wave149,

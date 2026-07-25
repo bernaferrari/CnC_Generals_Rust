@@ -4686,6 +4686,23 @@ impl CnCGameEngine {
                     format!("click_start_game_loading_miss_{action}")
                 };
             }
+            "click_live_map_load" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "defcon" | "lone_eagle" | "prepare" | "load" => {
+                        crate::game_logic::simulate_live_map_load_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_map_load_residual_pack_wave170(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_map_load_ok_{action}")
+                } else {
+                    format!("click_live_map_load_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
