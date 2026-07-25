@@ -691,6 +691,12 @@ impl ControlBar {
     // C++ ControlBarCommand.cpp:678-891
     // ---------------------------------------------------------------------------
 
+    /// Wave 249: host/presentation path has no dual-world factory objects.
+    #[inline]
+    fn dual_world_registry_unavailable() -> bool {
+        OBJECT_REGISTRY.is_empty()
+    }
+
     fn get_object_production_info(&self, obj_id: u32) -> (usize, bool) {
         // Presentation residual first (host path has no dual-world registry modules).
         if !self.build_queue_data.is_empty() {
@@ -785,6 +791,10 @@ impl ControlBar {
             || self.displayed_queue_count > 0
         {
             return true;
+        }
+        // Wave 249: presentation residual above; empty dual-world → false.
+        if Self::dual_world_registry_unavailable() {
+            return false;
         }
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             return false;
@@ -2435,6 +2445,10 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     fn update_portrait_for_object(&mut self, obj_id: u32) {
+        // Wave 249: host empty dual-world — keep presentation residual portrait.
+        if Self::dual_world_registry_unavailable() {
+            return;
+        }
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             // Presentation residual already owns portrait/health/queue via
             // sync_selection_display_from_presentation — do not wipe it.
@@ -2508,6 +2522,10 @@ impl ControlBar {
     }
 
     pub fn set_portrait_by_object_id(&mut self, obj_id: Option<u32>) {
+        // Wave 249: host empty dual-world short-circuit (portrait residual stays).
+        if Self::dual_world_registry_unavailable() {
+            return;
+        }
         if let Some(id) = obj_id {
             self.update_portrait_for_object(id);
         } else {
