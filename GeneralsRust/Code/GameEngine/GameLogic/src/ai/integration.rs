@@ -31,6 +31,12 @@ use super::skirmish_player::AISkirmishPlayer;
 use super::states::{AIStateMachine, AIStateType};
 use super::{AiError, THE_AI};
 
+/// Wave 285: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 fn state_from_id(state_id: u32) -> Option<AIStateType> {
     let match_id = |state: AIStateType| (state_id == state as u32).then_some(state);
 
@@ -392,6 +398,11 @@ impl AiIntegrationManager {
         object_id: ObjectID,
         name: &str,
     ) -> Result<Arc<RwLock<AIStateMachine>>, AiError> {
+        // Wave 285: empty dual-world → invalid object.
+        if dual_world_registry_unavailable() {
+            return Err(AiError::InvalidObject);
+        }
+
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
             return Err(AiError::InvalidObject);
         };
@@ -949,6 +960,11 @@ impl AiIntegrationManager {
 
     /// Determine unit role based on object ID/type
     fn determine_unit_role(&self, object_id: ObjectID) -> UnitRole {
+        // Wave 285: empty dual-world → generic light role.
+        if dual_world_registry_unavailable() {
+            return UnitRole::Light;
+        }
+
         OBJECT_REGISTRY
             .with_object(object_id, |obj| {
                 if obj.is_kind_of(KindOf::Hero) {
