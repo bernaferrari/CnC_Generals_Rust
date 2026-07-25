@@ -24,6 +24,12 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Wave 302: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 // ObjectStatusMaskType constants
 const OBJECT_STATUS_IS_FIRING_WEAPON: ObjectStatusMaskType =
     ObjectStatusMaskType::from_status(ObjectStatusTypes::IsFiringWeapon);
@@ -282,6 +288,11 @@ impl StealthUpdate {
 
     /// Mark unit as detected for a duration
     pub fn mark_as_detected(&mut self, num_frames: UnsignedInt) {
+        // Wave 302: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -318,6 +329,11 @@ impl StealthUpdate {
 
     /// Check if unit is currently attacking
     fn is_attacking(&self) -> Bool {
+        // Wave 302: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -336,6 +352,11 @@ impl StealthUpdate {
 
     /// Get current velocity magnitude of the unit
     fn get_velocity(&self) -> Real {
+        // Wave 302: empty dual-world → 0.0.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -357,6 +378,11 @@ impl StealthUpdate {
 
     /// Check if unit is firing primary weapon
     fn is_firing_primary(&self) -> Bool {
+        // Wave 302: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -377,6 +403,11 @@ impl StealthUpdate {
 
     /// Check if unit is firing secondary weapon
     fn is_firing_secondary(&self) -> Bool {
+        // Wave 302: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -397,6 +428,11 @@ impl StealthUpdate {
 
     /// Check if unit is firing tertiary weapon
     fn is_firing_tertiary(&self) -> Bool {
+        // Wave 302: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -417,6 +453,11 @@ impl StealthUpdate {
 
     /// Check if unit is currently taking damage
     fn is_taking_damage(&self) -> Bool {
+        // Wave 302: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -451,6 +492,11 @@ impl StealthUpdate {
 
     /// Check if unit has riders attacking
     fn has_riders_attacking(&self) -> Bool {
+        // Wave 302: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -485,6 +531,11 @@ impl StealthUpdate {
 
     /// Check if unit is using special ability
     fn is_using_ability(&self) -> Bool {
+        // Wave 302: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -503,6 +554,11 @@ impl StealthUpdate {
 
     /// Check if black market is available for the controlling player
     fn check_black_market_available(&self, _player_id: Int) -> Bool {
+        // Wave 302: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(owner_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -581,6 +637,11 @@ impl StealthUpdate {
     /// Check if unit is too close to a hostile target (stealth reveal condition)
     /// Returns true if stealth should be broken due to distance
     fn check_distance_to_targets(&self) -> Bool {
+        // Wave 302: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // Implement proximity checks (C++ StealthUpdate.cpp:675-693)
         // This requires partition manager query APIs which may not be fully exposed yet
         // The logic checks if the unit's current victim is within reveal distance
@@ -608,6 +669,11 @@ impl StealthUpdate {
 
     /// Check if unit can stealth based on all conditions including distance
     pub fn allowed_to_stealth(&self) -> Bool {
+        // Wave 302: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if !self.enabled {
             return false;
         }
@@ -775,6 +841,11 @@ impl StealthUpdate {
 
 impl UpdateModuleInterface for StealthUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 302: empty dual-world → Frames(1).
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Frames(1);
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
