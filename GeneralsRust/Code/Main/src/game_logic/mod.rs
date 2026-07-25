@@ -238,6 +238,7 @@ pub mod host_live_command_guard_log_residual_wave198;
 pub mod host_live_command_non_attack_order_target_residual_wave207;
 pub mod host_live_command_order_target_log_residual_wave205;
 pub mod host_live_command_player_probe_residual_wave242;
+pub mod host_live_command_processor_dual_world_empty_gate_residual_wave275;
 pub mod host_live_command_production_construction_log_residual_wave199;
 pub mod host_live_command_rally_log_residual_wave200;
 pub mod host_live_command_selection_log_residual_wave206;
@@ -1831,6 +1832,12 @@ pub use host_live_command_player_probe_residual_wave242::{
     honesty_live_command_player_probe_nav_commands_residual_wave242,
     honesty_live_command_player_probe_residual_pack_wave242,
     simulate_live_command_player_probe_honesty,
+};
+pub use host_live_command_processor_dual_world_empty_gate_residual_wave275::{
+    honesty_live_command_processor_dual_world_empty_gate_method_names_residual_wave275,
+    honesty_live_command_processor_dual_world_empty_gate_nav_commands_residual_wave275,
+    honesty_live_command_processor_dual_world_empty_gate_residual_pack_wave275,
+    simulate_live_command_processor_dual_world_empty_gate_honesty,
 };
 pub use host_live_command_production_construction_log_residual_wave199::{
     honesty_live_command_production_construction_log_method_names_residual_wave199,
