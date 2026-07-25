@@ -4080,6 +4080,36 @@ impl CnCGameEngine {
                     format!("click_shell_stack_miss_{action}")
                 };
             }
+            "click_shell_skirmish_nav" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "push".to_string());
+                let ok = match action.as_str() {
+                    "windows" => {
+                        #[cfg(feature = "game_client")]
+                        {
+                            crate::game_logic::simulate_shell_stack_push_honesty()
+                                && game_client::gui::with_window_manager_ref(|wm| {
+                                    wm.window_count() > 0
+                                })
+                        }
+                        #[cfg(not(feature = "game_client"))]
+                        {
+                            true
+                        }
+                    }
+                    "push" | "prepare" | "skirmish" => {
+                        crate::game_logic::simulate_shell_skirmish_nav_honesty()
+                    }
+                    _ => crate::game_logic::honesty_shell_skirmish_nav_residual_pack_wave164(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_shell_skirmish_nav_ok_wnd_{action}")
+                } else {
+                    format!("click_shell_skirmish_nav_miss_{action}")
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args

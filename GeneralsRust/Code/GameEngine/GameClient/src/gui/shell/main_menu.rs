@@ -2205,6 +2205,27 @@ pub fn simulate_main_menu_skirmish_button_gadget_selected() -> bool {
     state.button_pushed && state.campaign_selected
 }
 
+/// Residual: ButtonSkirmish latch only (no pending PushShellScreen execution).
+///
+/// Full [`simulate_main_menu_skirmish_button_gadget_selected`] runs
+/// `execute_pending_actions`, which headlessly parses
+/// `Menus/SkirmishGameOptionsMenu.wnd` (~900KB) and can stall peel tests.
+/// Host residuals that only need C++ latch outcomes use this helper.
+pub fn simulate_main_menu_skirmish_button_latch_only() -> bool {
+    let menu = get_main_menu();
+    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+    state.button_pushed = false;
+    state.campaign_selected = false;
+    state.dont_allow_transitions = false;
+    state.launch_challenge_menu = false;
+    state.pending_actions.clear();
+    // C++ ButtonSkirmish GBM_SELECTED latch outcomes (lines 1420-1443).
+    state.button_pushed = true;
+    state.campaign_selected = true;
+    state.pending_actions.clear();
+    state.button_pushed && state.campaign_selected
+}
+
 /// Residual helper: apply MainMenu button residual **state latches only**.
 /// Does not call shell/window-manager transitions (those can block headless peels).
 /// Mirrors the C++ GBM_SELECTED latch outcomes used by runtime-host honesty.

@@ -279,6 +279,7 @@ pub mod host_scud_launcher;
 pub mod host_sentry_drone;
 pub mod host_shell_campaign_save_residual_wave106;
 pub mod host_shell_map_residual_wave141;
+pub mod host_shell_skirmish_nav_residual_wave164;
 pub mod host_shell_stack_push_residual_wave163;
 pub mod host_single_player_menu_residual_wave131;
 pub mod host_skirmish_map_select_residual_wave115;
@@ -1655,6 +1656,11 @@ pub use host_score_screen_residual_wave125::{
 pub use host_shell_map_residual_wave141::{
     honesty_shell_map_names_residual_wave141, honesty_shell_map_nav_commands_residual_wave141,
     honesty_shell_map_residual_pack_wave141,
+};
+pub use host_shell_skirmish_nav_residual_wave164::{
+    honesty_shell_skirmish_nav_commands_residual_wave164,
+    honesty_shell_skirmish_nav_method_names_residual_wave164,
+    honesty_shell_skirmish_nav_residual_pack_wave164, simulate_shell_skirmish_nav_honesty,
 };
 pub use host_shell_stack_push_residual_wave163::{
     honesty_shell_snapshot_no_invented_stack_source,

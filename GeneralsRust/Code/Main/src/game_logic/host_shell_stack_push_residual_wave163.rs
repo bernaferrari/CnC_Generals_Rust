@@ -134,12 +134,32 @@ pub fn simulate_shell_stack_push_honesty() -> bool {
             return false;
         }
         // Reset stack for deterministic residual (test isolation).
-        while shell.get_screen_count() > 0 {
+        // pop_immediate destroys layout windows; tolerate destroy errors and
+        // continue until empty or a hard failure stops progress.
+        let mut guard = 0;
+        while shell.get_screen_count() > 0 && guard < 16 {
+            guard += 1;
+            let before = shell.get_screen_count();
             if shell.pop_immediate().is_err() {
                 break;
             }
+            if shell.get_screen_count() >= before {
+                break;
+            }
         }
+        // If stack still non-empty, reuse top when it is already MainMenu.
         if shell.get_screen_count() != 0 {
+            let top = shell
+                .top()
+                .map(|l| l.get_filename().to_string())
+                .unwrap_or_default()
+                .replace('\\', "/")
+                .to_ascii_lowercase();
+            if top.contains("mainmenu.wnd") {
+                shell.set_shell_active(true);
+                return shell.is_shell_active() && shell.get_screen_count() > 0;
+            }
+            // Cannot safely clear — fail closed rather than double-push leak.
             return false;
         }
         if shell.push("Menus/MainMenu.wnd", false).is_err() {

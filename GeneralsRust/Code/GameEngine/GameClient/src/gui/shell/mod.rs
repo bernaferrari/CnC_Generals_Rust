@@ -38,8 +38,9 @@ pub use main_menu::{
     simulate_main_menu_options_button_gadget_selected,
     simulate_main_menu_replay_button_gadget_selected,
     simulate_main_menu_single_player_button_gadget_selected,
-    simulate_main_menu_skirmish_button_gadget_selected, DisplaySettings, DropdownType,
-    GameDifficulty, MainMenu, MainMenuError, MainMenuResult, MainMenuState, ShowSide,
+    simulate_main_menu_skirmish_button_gadget_selected,
+    simulate_main_menu_skirmish_button_latch_only, DisplaySettings, DropdownType, GameDifficulty,
+    MainMenu, MainMenuError, MainMenuResult, MainMenuState, ShowSide,
 };
 
 // Re-export replay menu types
