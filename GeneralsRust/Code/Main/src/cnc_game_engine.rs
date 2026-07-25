@@ -4778,6 +4778,23 @@ impl CnCGameEngine {
                     format!("click_presentation_client_boundary_miss_{action}")
                 };
             }
+            "click_golden_map_host_victory" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "clear" | "formula" | "prepare" => {
+                        crate::game_logic::simulate_golden_map_host_victory_honesty()
+                    }
+                    _ => crate::game_logic::honesty_golden_map_host_victory_residual_pack_wave175(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_golden_map_host_victory_ok_{action}")
+                } else {
+                    format!("click_golden_map_host_victory_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();

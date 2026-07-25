@@ -186,6 +186,7 @@ pub mod host_gattling_tank;
 pub mod host_generals_exp_residual_wave138;
 pub mod host_gla_rebel;
 pub mod host_gla_worker;
+pub mod host_golden_map_host_victory_residual_wave175;
 pub mod host_gps_scrambler;
 pub mod host_hacker_disable;
 pub mod host_hacker_income;
@@ -1551,6 +1552,12 @@ pub use host_gameworld_authority_residual_wave153::{
 pub use host_generals_exp_residual_wave138::{
     honesty_generals_exp_control_names_residual_wave138,
     honesty_generals_exp_nav_commands_residual_wave138, honesty_generals_exp_residual_pack_wave138,
+};
+pub use host_golden_map_host_victory_residual_wave175::{
+    honesty_golden_map_host_victory_method_names_residual_wave175,
+    honesty_golden_map_host_victory_nav_commands_residual_wave175,
+    honesty_golden_map_host_victory_residual_pack_wave175,
+    simulate_golden_map_host_victory_honesty,
 };
 pub use host_idle_worker_residual_wave137::{
     honesty_idle_worker_control_names_residual_wave137,
