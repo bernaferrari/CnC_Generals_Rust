@@ -21,6 +21,12 @@ use game_engine::common::thing::module::{
 use log::{trace, warn};
 use std::f32::consts::PI;
 
+/// Wave 283: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Handle type exposed to gameplay systems for interacting with stealth state.
 pub type StealthUpdateHandle = Arc<Mutex<StealthController>>;
 
@@ -270,6 +276,11 @@ impl StealthController {
     }
 
     fn current_status(&self) -> Result<ObjectStatusMaskType, StealthUpdateError> {
+        // Wave 283: empty dual-world → unavailable.
+        if dual_world_registry_unavailable() {
+            return Err(StealthUpdateError::new("dual-world registry unavailable"));
+        }
+
         OBJECT_REGISTRY
             .with_object(self.object_id, |guard| guard.get_status_bits())
             .ok_or_else(|| {
@@ -300,6 +311,10 @@ impl StealthController {
 
     pub fn update_stealth(&mut self, _frame_time: f32) -> Result<(), StealthUpdateError> {
         if !self.enabled {
+            return Ok(());
+        }
+        // Wave 283: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
             return Ok(());
         }
 
@@ -475,6 +490,11 @@ impl StealthController {
         frames: UnsignedInt,
         current_frame: UnsignedInt,
     ) -> Result<(), StealthUpdateError> {
+        // Wave 283: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.data.team_disguised {
             return Ok(());
         }
@@ -531,6 +551,11 @@ impl StealthController {
     }
 
     fn allowed_to_stealth_runtime(&mut self, object: &Object, current_frame: UnsignedInt) -> bool {
+        // Wave 283: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let flags = self.data.stealth_level_mask;
         let status = object.get_status_bits();
 
@@ -684,6 +709,11 @@ impl StealthController {
     }
 
     fn is_too_close_to_current_target(&self, object: &Object) -> bool {
+        // Wave 283: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.data.reveal_distance_from_target <= 0.0 {
             return false;
         }
@@ -702,6 +732,11 @@ impl StealthController {
     }
 
     fn check_black_market_available(&self, owner: &Object) -> bool {
+        // Wave 283: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(player) = owner.get_controlling_player() else {
             return false;
         };
@@ -807,6 +842,11 @@ impl StealthUpdateModule {
     }
 
     fn register_with_object(&self) {
+        // Wave 283: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
             guard.set_stealth_module(self.controller.clone());
         });
