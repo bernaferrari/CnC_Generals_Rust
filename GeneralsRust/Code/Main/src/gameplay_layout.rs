@@ -765,6 +765,191 @@ pub fn simulate_main_menu_wnd_prepare_load_honesty() -> bool {
         && h.window_count > 0
 }
 
+// ---------------------------------------------------------------------------
+// SkirmishGameOptionsMenu.wnd resolve/validate residual (no full WM load)
+// ---------------------------------------------------------------------------
+
+/// Candidate locations for SkirmishGameOptionsMenu.wnd (extracted BIG / WindowZH trees).
+pub const SKIRMISH_OPTIONS_WND_CANDIDATES: &[&str] = &[
+    "windows_game/extracted_big_files/WindowZH/Window/Menus/SkirmishGameOptionsMenu.wnd",
+    "windows_game/extracted_big_files_v2/WindowZH/Window/Menus/SkirmishGameOptionsMenu.wnd",
+    "../windows_game/extracted_big_files/WindowZH/Window/Menus/SkirmishGameOptionsMenu.wnd",
+    "../windows_game/extracted_big_files_v2/WindowZH/Window/Menus/SkirmishGameOptionsMenu.wnd",
+    "Window/Menus/SkirmishGameOptionsMenu.wnd",
+    "Data/Window/Menus/SkirmishGameOptionsMenu.wnd",
+    "Menus/SkirmishGameOptionsMenu.wnd",
+    "SkirmishGameOptionsMenu.wnd",
+];
+
+/// Retail SkirmishGameOptionsMenu.wnd WINDOWTYPE token residual count.
+pub const SKIRMISH_OPTIONS_WND_WINDOW_TOKEN_COUNT_RESIDUAL: usize = 73;
+
+/// Retail named `SkirmishGameOptionsMenu.wnd:…` residual count (non-empty suffixes).
+pub const SKIRMISH_OPTIONS_WND_NAMED_COUNT_RESIDUAL: usize = 70;
+
+/// Key SkirmishGameOptionsMenu.wnd named-child residual table (shell start path).
+pub const SKIRMISH_OPTIONS_WND_KEY_NAMES_RESIDUAL: &[&str] = &[
+    "SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenuParent",
+    "SkirmishGameOptionsMenu.wnd:ButtonStart",
+    "SkirmishGameOptionsMenu.wnd:ButtonBack",
+    "SkirmishGameOptionsMenu.wnd:ButtonReset",
+    "SkirmishGameOptionsMenu.wnd:ButtonSelectMap",
+    "SkirmishGameOptionsMenu.wnd:ComboBoxStartingCash",
+    "SkirmishGameOptionsMenu.wnd:CheckboxLimitSuperweapons",
+    "SkirmishGameOptionsMenu.wnd:SliderGameSpeed",
+    "SkirmishGameOptionsMenu.wnd:MapWindow",
+    "SkirmishGameOptionsMenu.wnd:ListboxInfo",
+];
+
+/// Resolve SkirmishGameOptionsMenu.wnd on disk (retail WindowZH trees).
+pub fn resolve_skirmish_options_wnd_path() -> Option<PathBuf> {
+    for c in SKIRMISH_OPTIONS_WND_CANDIDATES {
+        let p = Path::new(c);
+        if p.is_file() {
+            return Some(p.to_path_buf());
+        }
+    }
+    let prefixes = ["", "../", "../../"];
+    for prefix in prefixes {
+        for c in SKIRMISH_OPTIONS_WND_CANDIDATES {
+            let p = Path::new(prefix).join(c);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// Validate SkirmishGameOptionsMenu.wnd is a non-empty retail layout (not a silent no-op).
+///
+/// Fail-closed: does **not** run full WindowManager parse (file is ~900KB and can
+/// stall headless peels). Token/header residual only.
+pub fn validate_skirmish_options_wnd_file(path: &Path) -> Result<(), String> {
+    let meta = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;
+    if !meta.is_file() {
+        return Err("not a file".into());
+    }
+    if meta.len() == 0 {
+        return Err("empty layout file".into());
+    }
+    // Require substantial retail size (MainMenu is ~tens of KB; skirmish options ~900KB).
+    if meta.len() < 1024 {
+        return Err(format!("layout too small: {} bytes", meta.len()));
+    }
+    let sample = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
+    let text = String::from_utf8_lossy(&sample);
+    let head_len = sample.len().min(4096);
+    let head = String::from_utf8_lossy(&sample[..head_len]);
+    if !head.contains("FILE_VERSION") && !text.contains("FILE_VERSION") {
+        return Err("missing FILE_VERSION".into());
+    }
+    if !head.contains("WINDOW") && !text.contains("WINDOW") {
+        return Err("missing WINDOW block".into());
+    }
+    if !text.contains("SkirmishGameOptionsMenu") {
+        return Err("missing SkirmishGameOptionsMenu name token".into());
+    }
+    if !text.contains("ButtonStart") {
+        return Err("missing ButtonStart name token".into());
+    }
+    // Key-name residual hits
+    let mut hits = 0usize;
+    for key in SKIRMISH_OPTIONS_WND_KEY_NAMES_RESIDUAL {
+        if text.contains(key) {
+            hits += 1;
+        }
+    }
+    if hits < SKIRMISH_OPTIONS_WND_KEY_NAMES_RESIDUAL.len() {
+        return Err(format!(
+            "key name residual hits {hits}/{}",
+            SKIRMISH_OPTIONS_WND_KEY_NAMES_RESIDUAL.len()
+        ));
+    }
+    // Token floors (full-file scan; still cheaper than WindowManager tree build).
+    let window_tokens = text.matches("WINDOWTYPE").count();
+    if window_tokens < SKIRMISH_OPTIONS_WND_WINDOW_TOKEN_COUNT_RESIDUAL / 2 {
+        return Err(format!(
+            "WINDOWTYPE count {window_tokens} below residual floor"
+        ));
+    }
+    Ok(())
+}
+
+/// Host-testable honesty flags for SkirmishGameOptionsMenu.wnd resolve/validate.
+#[derive(Debug, Clone)]
+pub struct SkirmishOptionsWndHonesty {
+    pub path_resolved: bool,
+    pub path: Option<PathBuf>,
+    pub wnd_validated: bool,
+    pub assets_unavailable: bool,
+    pub named_key_hits: usize,
+    pub detail: String,
+}
+
+impl SkirmishOptionsWndHonesty {
+    /// Shell residual ok when resolved+validated, or assets honestly unavailable.
+    pub fn shell_residual_ok(&self) -> bool {
+        (self.path_resolved && self.wnd_validated)
+            || (self.assets_unavailable && !self.path_resolved)
+    }
+}
+
+/// Build SkirmishGameOptionsMenu.wnd honesty residual (validate-only; no WM load).
+pub fn skirmish_options_wnd_honesty() -> SkirmishOptionsWndHonesty {
+    match resolve_skirmish_options_wnd_path() {
+        None => SkirmishOptionsWndHonesty {
+            path_resolved: false,
+            path: None,
+            wnd_validated: false,
+            assets_unavailable: true,
+            named_key_hits: 0,
+            detail: "SkirmishGameOptionsMenu.wnd not found in candidate paths".into(),
+        },
+        Some(path) => match validate_skirmish_options_wnd_file(&path) {
+            Ok(()) => {
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                let hits = SKIRMISH_OPTIONS_WND_KEY_NAMES_RESIDUAL
+                    .iter()
+                    .filter(|k| text.contains(*k))
+                    .count();
+                SkirmishOptionsWndHonesty {
+                    path_resolved: true,
+                    path: Some(path),
+                    wnd_validated: true,
+                    assets_unavailable: false,
+                    named_key_hits: hits,
+                    detail: format!(
+                        "SkirmishGameOptionsMenu.wnd validated key_hits={}/{}",
+                        hits,
+                        SKIRMISH_OPTIONS_WND_KEY_NAMES_RESIDUAL.len()
+                    ),
+                }
+            }
+            Err(e) => SkirmishOptionsWndHonesty {
+                path_resolved: true,
+                path: Some(path),
+                wnd_validated: false,
+                assets_unavailable: false,
+                named_key_hits: 0,
+                detail: format!("SkirmishGameOptionsMenu.wnd validate failed: {e}"),
+            },
+        },
+    }
+}
+
+/// Residual peel: resolve+validate SkirmishGameOptionsMenu.wnd (no full parse).
+pub fn simulate_skirmish_options_wnd_prepare_honesty() -> bool {
+    let h = skirmish_options_wnd_honesty();
+    if !h.shell_residual_ok() {
+        return false;
+    }
+    if !h.path_resolved {
+        return true;
+    }
+    h.wnd_validated && h.named_key_hits == SKIRMISH_OPTIONS_WND_KEY_NAMES_RESIDUAL.len()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -953,6 +1138,26 @@ mod tests {
                 h.window_count >= MAIN_MENU_WND_NAMED_COUNT_RESIDUAL / 2,
                 "window_count={} expected substantial tree: {}",
                 h.window_count,
+                h.detail
+            );
+        }
+    }
+
+    #[test]
+    fn skirmish_options_wnd_honesty_residual_live() {
+        let h = skirmish_options_wnd_honesty();
+        assert!(
+            h.shell_residual_ok(),
+            "SkirmishGameOptionsMenu.wnd residual: {}",
+            h.detail
+        );
+        assert!(simulate_skirmish_options_wnd_prepare_honesty());
+        if h.path_resolved {
+            assert!(h.wnd_validated, "{}", h.detail);
+            assert_eq!(
+                h.named_key_hits,
+                SKIRMISH_OPTIONS_WND_KEY_NAMES_RESIDUAL.len(),
+                "key names residual: {}",
                 h.detail
             );
         }

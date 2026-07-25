@@ -284,6 +284,7 @@ pub mod host_shell_skirmish_nav_residual_wave164;
 pub mod host_shell_stack_push_residual_wave163;
 pub mod host_single_player_menu_residual_wave131;
 pub mod host_skirmish_map_select_residual_wave115;
+pub mod host_skirmish_options_wnd_residual_wave166;
 pub mod host_skirmish_rules_residual_wave117;
 pub mod host_skirmish_slot_config_residual_wave116;
 pub mod host_slave_drones;
@@ -1686,6 +1687,11 @@ pub use host_skirmish_map_select_residual_wave115::{
     honesty_skirmish_map_select_names_residual_wave115,
     honesty_skirmish_map_select_nav_steps_residual_wave115,
     honesty_skirmish_map_select_residual_pack_wave115,
+};
+pub use host_skirmish_options_wnd_residual_wave166::{
+    honesty_skirmish_options_wnd_method_names_residual_wave166,
+    honesty_skirmish_options_wnd_nav_commands_residual_wave166,
+    honesty_skirmish_options_wnd_residual_pack_wave166, simulate_skirmish_options_wnd_honesty,
 };
 pub use host_skirmish_rules_residual_wave117::{
     honesty_skirmish_game_speed_controls_residual_wave117,

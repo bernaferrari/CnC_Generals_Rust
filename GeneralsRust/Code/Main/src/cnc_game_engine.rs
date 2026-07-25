@@ -4379,6 +4379,31 @@ impl CnCGameEngine {
                     }
                 }
             }
+            "click_skirmish_options_wnd" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "validate".to_string());
+                let ok = match action.as_str() {
+                    "resolve" => {
+                        crate::gameplay_layout::resolve_skirmish_options_wnd_path().is_some()
+                            || crate::gameplay_layout::skirmish_options_wnd_honesty()
+                                .assets_unavailable
+                    }
+                    "validate" | "prepare" => {
+                        crate::gameplay_layout::simulate_skirmish_options_wnd_prepare_honesty()
+                    }
+                    "start" | "button_start" => {
+                        crate::game_logic::simulate_skirmish_options_wnd_honesty()
+                    }
+                    _ => crate::game_logic::honesty_skirmish_options_wnd_residual_pack_wave166(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_skirmish_options_wnd_ok_{action}")
+                } else {
+                    format!("click_skirmish_options_wnd_miss_{action}")
+                };
+            }
             "open_load_game" => {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]

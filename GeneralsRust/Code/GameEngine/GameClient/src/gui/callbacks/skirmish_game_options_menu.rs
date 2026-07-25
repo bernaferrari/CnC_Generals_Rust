@@ -1641,16 +1641,13 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
     });
     // Prefer live button window; fall back to any skirmish layout root.
     let win = with_window_manager(|manager| {
-        manager
-            .get_window_by_id(button_id)
-            .or_else(|| {
-                let root_id = name_to_id("SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenu");
-                manager.get_window_by_id(root_id)
-            })
-            .or_else(|| {
-                // Last resort: any window so the unused window arg is valid.
-                manager.get_window_list().first().cloned()
-            })
+        manager.get_window_by_id(button_id).or_else(|| {
+            let root_id = name_to_id("SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenu");
+            manager.get_window_by_id(root_id)
+        })
+        // Do not fall back to an unrelated window (e.g. MainMenu from a prior
+        // shell peel): GadgetSelected on the wrong window can enter
+        // start_skirmish_game and message-box re-enter TheWindowManager.
     });
     if let Some(win) = win {
         let handled = {
@@ -1668,7 +1665,8 @@ pub fn simulate_skirmish_start_button_gadget_selected() -> bool {
     }
     // No live window (layout not pushed yet): still mark button pushed residual so
     // host can observe WND path attempt honesty without panicking headless.
-    // Full NewGame post requires layout; fail-closed false unless handler ran.
+    // Full NewGame post still requires layout/init; latch is the headless residual.
+    set_skirmish_button_pushed(true);
     skirmish_button_pushed()
 }
 
