@@ -98,6 +98,10 @@ pub struct ExecutableSmokeResult {
     pub presentation_frame_ok: bool,
     /// No live GameLogic dual-reads while presentation owned collect (status residual).
     pub presentation_live_fallback_ok: bool,
+    /// InGame observed gameworld_presentation_entities>0 at least once (shadow observe-path).
+    pub gameworld_presentation_entities_ok: bool,
+    /// Peak InGame gameworld_presentation_entities from runtime-host status.
+    pub max_gameworld_presentation_entities: u32,
     pub select_similar_cmd_ok: bool,
     pub select_on_screen_cmd_ok: bool,
     pub select_structures_cmd_ok: bool,
@@ -194,6 +198,8 @@ impl Default for ExecutableSmokeResult {
             box_select_cmd_ok: false,
             presentation_frame_ok: false,
             presentation_live_fallback_ok: false,
+            gameworld_presentation_entities_ok: false,
+            max_gameworld_presentation_entities: 0,
             select_similar_cmd_ok: false,
             select_on_screen_cmd_ok: false,
             select_structures_cmd_ok: false,
@@ -244,6 +250,7 @@ struct StatusSnap {
     match_over: bool,
     victory_label: String,
     presentation_frame_ok: bool,
+    gameworld_presentation_entities: u32,
     shell_screen_count: u32,
     shell_top_wnd: String,
     shell_active: bool,
@@ -289,6 +296,9 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
                     v.trim().to_ascii_lowercase().as_str(),
                     "1" | "true" | "yes" | "on"
                 );
+            }
+            "gameworld_presentation_entities" => {
+                snap.gameworld_presentation_entities = v.trim().parse().unwrap_or(0);
             }
             "shell_screen_count" => {
                 snap.shell_screen_count = v.trim().parse().unwrap_or(0);
@@ -655,6 +665,8 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut box_select_detail = String::new();
     let mut saw_presentation_frame_ok = false;
     let mut saw_presentation_live_fallback_ok = false;
+    let mut saw_gameworld_presentation_entities_ok = false;
+    let mut max_gameworld_presentation_entities: u32 = 0;
     let mut presentation_detail = String::new();
     let mut saw_shell_wnd_ok = false;
     let mut shell_wnd_detail = String::new();
@@ -794,6 +806,11 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
             }
             if snap.presentation_frame_ok && snap.presentation_live_fallback_reads == 0 {
                 saw_presentation_live_fallback_ok = true;
+            }
+            if snap.gameworld_presentation_entities > 0 {
+                saw_gameworld_presentation_entities_ok = true;
+                max_gameworld_presentation_entities =
+                    max_gameworld_presentation_entities.max(snap.gameworld_presentation_entities);
             }
             if snap.presentation_frame_ok || snap.presentation_live_fallback_reads > 0 {
                 presentation_detail = format!(
@@ -2341,6 +2358,10 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.box_select_cmd_ok = saw_box_select_ok;
                         result.presentation_frame_ok = saw_presentation_frame_ok;
                         result.presentation_live_fallback_ok = saw_presentation_live_fallback_ok;
+                        result.gameworld_presentation_entities_ok =
+                            saw_gameworld_presentation_entities_ok;
+                        result.max_gameworld_presentation_entities =
+                            max_gameworld_presentation_entities;
                         result.shell_wnd_ok = saw_shell_wnd_ok;
                         result.max_render_item_count = max_render_item_count;
                         result.max_render_alive_objects = max_render_alive_objects;
@@ -2474,13 +2495,21 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     // Soft when display never reached InGame (assets/GPU unavailable).
     let presentation_boundary_ok = !result.reached_ingame
         || (result.presentation_frame_ok && result.presentation_live_fallback_ok);
+    // Wave 188: when InGame has a presentation frame and non-zero render alives,
+    // require GameWorld observe-path entity count (shadow presentation view).
+    // Empty worlds / no maps remain soft-ok (entities_ok false is fine when alives==0).
+    let gameworld_presentation_boundary_ok = !result.reached_ingame
+        || !result.presentation_frame_ok
+        || result.max_render_alive_objects == 0
+        || result.gameworld_presentation_entities_ok;
     result.host_vertical_slice_ok = result.skirmish_start_wnd_ok
         && result.reached_ingame
         && result.gameplay_cmd_ok
         && result.construct_cmd_ok
         && result.train_cmd_ok
         && result.executable_host_ok
-        && presentation_boundary_ok;
+        && presentation_boundary_ok
+        && gameworld_presentation_boundary_ok;
     result
 }
 
@@ -2509,7 +2538,7 @@ fn executable_host_ok_from_residuals(reached_ingame: bool, shell_wnd_ok: bool) -
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} host_vertical_slice={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} host_vertical_slice={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -2564,6 +2593,8 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.waypoint_cmd_ok,
         r.box_select_cmd_ok,
         r.presentation_frame_ok,
+        r.gameworld_presentation_entities_ok,
+        r.max_gameworld_presentation_entities,
         r.max_render_item_count,
         r.render_items_stable_ok,
         r.max_render_alive_objects,
