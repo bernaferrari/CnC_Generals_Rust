@@ -211,6 +211,7 @@ pub mod host_nuclear_tanks;
 pub mod host_nuke_cannon;
 pub mod host_object_register_drawable_residual_wave104;
 pub mod host_oil_derrick;
+pub mod host_options_menu_residual_wave126;
 pub mod host_overlord_addons;
 pub mod host_overlord_gun;
 pub mod host_paradrop;
@@ -1459,6 +1460,10 @@ pub use host_main_menu_skirmish_nav_residual_wave114::{
     honesty_main_menu_skirmish_names_residual_wave114,
     honesty_main_menu_skirmish_nav_residual_pack_wave114,
     honesty_main_menu_skirmish_nav_steps_residual_wave114,
+};
+pub use host_options_menu_residual_wave126::{
+    honesty_options_menu_control_names_residual_wave126,
+    honesty_options_menu_nav_commands_residual_wave126, honesty_options_menu_residual_pack_wave126,
 };
 pub use host_quit_menu_residual_wave123::{
     honesty_quit_menu_control_names_residual_wave123,

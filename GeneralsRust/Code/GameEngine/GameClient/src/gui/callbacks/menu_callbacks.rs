@@ -2081,6 +2081,176 @@ pub fn get_menu_manager() -> Arc<RwLock<MenuManager>> {
     THE_MENU_MANAGER.with(|manager| manager.clone())
 }
 
+/// Residual: last OptionsMenu action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualOptionsMenuAction {
+    None = 0,
+    Accept = 1,
+    Back = 2,
+    Defaults = 3,
+    Keyboard = 4,
+    AdvancedAccept = 5,
+    AdvancedBack = 6,
+    FirewallRefresh = 7,
+}
+
+static RESIDUAL_OPTIONS_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_OPTIONS_BOUND: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn residual_options_action_store(action: ResidualOptionsMenuAction) {
+    RESIDUAL_OPTIONS_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last OptionsMenu residual action.
+pub fn residual_options_menu_last_action() -> ResidualOptionsMenuAction {
+    match RESIDUAL_OPTIONS_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualOptionsMenuAction::Accept,
+        2 => ResidualOptionsMenuAction::Back,
+        3 => ResidualOptionsMenuAction::Defaults,
+        4 => ResidualOptionsMenuAction::Keyboard,
+        5 => ResidualOptionsMenuAction::AdvancedAccept,
+        6 => ResidualOptionsMenuAction::AdvancedBack,
+        7 => ResidualOptionsMenuAction::FirewallRefresh,
+        _ => ResidualOptionsMenuAction::None,
+    }
+}
+
+/// Residual: whether OptionsMenu control IDs were bound.
+pub fn residual_options_menu_is_bound() -> bool {
+    RESIDUAL_OPTIONS_BOUND.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn with_options_menu_mut<R>(f: impl FnOnce(&mut OptionsMenu) -> R) -> R {
+    let menu = {
+        let manager = get_menu_manager();
+        let guard = manager.read().unwrap_or_else(|e| e.into_inner());
+        guard.get_options_menu()
+    };
+    let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut menu)
+}
+
+/// Residual: bind OptionsMenu control IDs (no layout load / populate required).
+pub fn simulate_options_menu_bind_controls() -> bool {
+    with_options_menu_mut(|menu| {
+        menu.init_ids();
+        menu.ignore_selected = false;
+        menu.initialized = true;
+        RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        true
+    })
+}
+
+/// Residual: fire ButtonAccept without apply_options / close_menu side effects.
+pub fn simulate_options_menu_accept_button_gadget_selected() -> bool {
+    with_options_menu_mut(|menu| {
+        if !residual_options_menu_is_bound() {
+            menu.init_ids();
+            menu.ignore_selected = false;
+            menu.initialized = true;
+            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        residual_options_action_store(ResidualOptionsMenuAction::Accept);
+        true
+    })
+}
+
+/// Residual: fire ButtonBack without destroy_options_layout.
+pub fn simulate_options_menu_back_button_gadget_selected() -> bool {
+    with_options_menu_mut(|menu| {
+        if !residual_options_menu_is_bound() {
+            menu.init_ids();
+            menu.ignore_selected = false;
+            menu.initialized = true;
+            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        residual_options_action_store(ResidualOptionsMenuAction::Back);
+        true
+    })
+}
+
+/// Residual: fire ButtonDefaults without apply_default_controls widget writes.
+pub fn simulate_options_menu_defaults_button_gadget_selected() -> bool {
+    with_options_menu_mut(|menu| {
+        if !residual_options_menu_is_bound() {
+            menu.init_ids();
+            menu.ignore_selected = false;
+            menu.initialized = true;
+            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        residual_options_action_store(ResidualOptionsMenuAction::Defaults);
+        true
+    })
+}
+
+/// Residual: fire ButtonKeyboardOptions without shell push.
+pub fn simulate_options_menu_keyboard_button_gadget_selected() -> bool {
+    with_options_menu_mut(|menu| {
+        if !residual_options_menu_is_bound() {
+            menu.init_ids();
+            menu.ignore_selected = false;
+            menu.initialized = true;
+            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        residual_options_action_store(ResidualOptionsMenuAction::Keyboard);
+        true
+    })
+}
+
+/// Residual: fire ButtonAdvanceAccept without advanced panel hide.
+pub fn simulate_options_menu_advanced_accept_button_gadget_selected() -> bool {
+    with_options_menu_mut(|menu| {
+        if !residual_options_menu_is_bound() {
+            menu.init_ids();
+            menu.ignore_selected = false;
+            menu.initialized = true;
+            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        residual_options_action_store(ResidualOptionsMenuAction::AdvancedAccept);
+        true
+    })
+}
+
+/// Residual: fire ButtonAdvanceBack without detail combo restore.
+pub fn simulate_options_menu_advanced_back_button_gadget_selected() -> bool {
+    with_options_menu_mut(|menu| {
+        if !residual_options_menu_is_bound() {
+            menu.init_ids();
+            menu.ignore_selected = false;
+            menu.initialized = true;
+            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        residual_options_action_store(ResidualOptionsMenuAction::AdvancedBack);
+        true
+    })
+}
+
+/// Residual: fire ButtonFirewallRefresh without global write.
+pub fn simulate_options_menu_firewall_refresh_button_gadget_selected() -> bool {
+    with_options_menu_mut(|menu| {
+        if !residual_options_menu_is_bound() {
+            menu.init_ids();
+            menu.ignore_selected = false;
+            menu.initialized = true;
+            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        // Mirror C++ residual intent: mark override without applying prefs.
+        menu.firewall_behavior_override = Some(0);
+        residual_options_action_store(ResidualOptionsMenuAction::FirewallRefresh);
+        true
+    })
+}
+
+/// Residual: bind + Accept composite (save settings honesty).
+pub fn simulate_options_menu_prepare_accept() -> bool {
+    if !simulate_options_menu_bind_controls() {
+        return false;
+    }
+    simulate_options_menu_accept_button_gadget_selected()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
