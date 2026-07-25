@@ -551,3 +551,173 @@ mod tests {
         );
     }
 }
+
+/// Residual: last PopupReplay action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualPopupReplayAction {
+    None = 0,
+    SelectSlot = 1,
+    Save = 2,
+    Back = 3,
+    SetName = 4,
+}
+
+static RESIDUAL_POPUP_REPLAY_ACTION: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_POPUP_REPLAY_SLOT: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(-1);
+static RESIDUAL_POPUP_REPLAY_NAME: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+fn residual_popup_replay_action_store(action: ResidualPopupReplayAction) {
+    RESIDUAL_POPUP_REPLAY_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last PopupReplay residual action.
+pub fn residual_popup_replay_last_action() -> ResidualPopupReplayAction {
+    match RESIDUAL_POPUP_REPLAY_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualPopupReplayAction::SelectSlot,
+        2 => ResidualPopupReplayAction::Save,
+        3 => ResidualPopupReplayAction::Back,
+        4 => ResidualPopupReplayAction::SetName,
+        _ => ResidualPopupReplayAction::None,
+    }
+}
+
+/// Residual: last selected ListboxGames slot (-1 if none).
+pub fn residual_popup_replay_selected_slot() -> Option<i32> {
+    let slot = RESIDUAL_POPUP_REPLAY_SLOT.load(std::sync::atomic::Ordering::Relaxed);
+    if slot < 0 {
+        None
+    } else {
+        Some(slot)
+    }
+}
+
+/// Residual: last residual replay name text.
+pub fn residual_popup_replay_name() -> String {
+    RESIDUAL_POPUP_REPLAY_NAME
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+fn ensure_popup_replay_control_ids(state: &mut PopupReplayState) {
+    if state.button_back == 0 {
+        state.button_back = NameKeyGenerator::name_to_key("PopupReplay.wnd:ButtonBack") as i32;
+    }
+    if state.button_save == 0 {
+        state.button_save = NameKeyGenerator::name_to_key("PopupReplay.wnd:ButtonSave") as i32;
+    }
+    if state.listbox_games == 0 {
+        state.listbox_games = NameKeyGenerator::name_to_key("PopupReplay.wnd:ListboxGames") as i32;
+    }
+    if state.text_entry_replay_name == 0 {
+        state.text_entry_replay_name =
+            NameKeyGenerator::name_to_key("PopupReplay.wnd:TextEntryReplayName") as i32;
+    }
+}
+
+/// Residual: bind PopupReplay control IDs (no layout load required).
+pub fn simulate_popup_replay_bind_controls() -> bool {
+    let state_handle = popup_replay_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_popup_replay_control_ids(&mut state);
+    let _ = (
+        state.button_back,
+        state.button_save,
+        state.listbox_games,
+        state.text_entry_replay_name,
+    );
+    true
+}
+
+/// Residual: select ListboxGames slot without live listbox widget.
+pub fn simulate_popup_replay_select_slot(slot_index: i32) -> bool {
+    if slot_index < 0 {
+        return false;
+    }
+    let state_handle = popup_replay_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_popup_replay_control_ids(&mut state);
+    RESIDUAL_POPUP_REPLAY_SLOT.store(slot_index, std::sync::atomic::Ordering::Relaxed);
+    residual_popup_replay_action_store(ResidualPopupReplayAction::SelectSlot);
+    residual_popup_replay_selected_slot() == Some(slot_index)
+}
+
+/// Residual: set replay name without live text entry widget.
+pub fn simulate_popup_replay_set_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let state_handle = popup_replay_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_popup_replay_control_ids(&mut state);
+    if let Ok(mut guard) = RESIDUAL_POPUP_REPLAY_NAME.lock() {
+        *guard = name.to_string();
+    } else {
+        let mut guard = RESIDUAL_POPUP_REPLAY_NAME
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *guard = name.to_string();
+    }
+    residual_popup_replay_action_store(ResidualPopupReplayAction::SetName);
+    residual_popup_replay_name() == name
+}
+
+/// Residual: fire ButtonSave without filesystem write.
+pub fn simulate_popup_replay_save_button_gadget_selected() -> bool {
+    let state_handle = popup_replay_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_popup_replay_control_ids(&mut state);
+    let name = residual_popup_replay_name();
+    if name.is_empty() {
+        // C++ ignores Save with empty filename.
+        return false;
+    }
+    residual_popup_replay_action_store(ResidualPopupReplayAction::Save);
+    true
+}
+
+/// Residual: fire ButtonBack without score_screen_enable_controls / close.
+pub fn simulate_popup_replay_back_button_gadget_selected() -> bool {
+    let state_handle = popup_replay_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_popup_replay_control_ids(&mut state);
+    residual_popup_replay_action_store(ResidualPopupReplayAction::Back);
+    RESIDUAL_POPUP_REPLAY_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut guard) = RESIDUAL_POPUP_REPLAY_NAME.lock() {
+        guard.clear();
+    } else {
+        RESIDUAL_POPUP_REPLAY_NAME
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+    }
+    true
+}
+
+/// Residual: name + Save composite (pre-write honesty).
+pub fn simulate_popup_replay_prepare_save(name: &str) -> bool {
+    if !simulate_popup_replay_bind_controls() {
+        return false;
+    }
+    if !simulate_popup_replay_set_name(name) {
+        return false;
+    }
+    simulate_popup_replay_save_button_gadget_selected()
+}
+
+/// Residual: select slot + set name + Save composite.
+pub fn simulate_popup_replay_prepare_save_from_slot(slot_index: i32, name: &str) -> bool {
+    if !simulate_popup_replay_bind_controls() {
+        return false;
+    }
+    if !simulate_popup_replay_select_slot(slot_index) {
+        return false;
+    }
+    if !simulate_popup_replay_set_name(name) {
+        return false;
+    }
+    simulate_popup_replay_save_button_gadget_selected()
+}

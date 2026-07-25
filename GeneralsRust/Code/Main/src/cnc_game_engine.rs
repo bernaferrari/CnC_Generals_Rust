@@ -2506,6 +2506,64 @@ impl CnCGameEngine {
                     "click_diplomacy_miss".into()
                 };
             }
+            "open_popup_replay" => {
+                // Retail ScoreScreen → PopupReplay residual open.
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_popup_replay_bind_controls();
+                }
+                self.enter_shell_menu_from_runtime_host(Some("PopupReplay"));
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_popup_replay_ok_wnd".into()
+                } else {
+                    "open_popup_replay_ok".into()
+                };
+            }
+            "click_popup_replay" => {
+                // Retail PopupReplay list/name/Save/Back residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "save".to_string());
+                let slot = args
+                    .get("slot")
+                    .and_then(|v| v.parse::<i32>().ok())
+                    .unwrap_or(0);
+                let name = args
+                    .get("name")
+                    .cloned()
+                    .unwrap_or_else(|| "Replay".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_popup_replay_back_button_gadget_selected,
+                        simulate_popup_replay_prepare_save,
+                        simulate_popup_replay_prepare_save_from_slot,
+                        simulate_popup_replay_save_button_gadget_selected,
+                        simulate_popup_replay_select_slot, simulate_popup_replay_set_name,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "select" | "slot" => simulate_popup_replay_select_slot(slot),
+                        "name" | "set_name" => simulate_popup_replay_set_name(&name),
+                        "back" => simulate_popup_replay_back_button_gadget_selected(),
+                        "prepare_save_slot" => {
+                            simulate_popup_replay_prepare_save_from_slot(slot, &name)
+                        }
+                        "prepare_save" => simulate_popup_replay_prepare_save(&name),
+                        _ => {
+                            let _ = simulate_popup_replay_set_name(&name);
+                            simulate_popup_replay_save_button_gadget_selected()
+                        }
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_popup_replay_ok_wnd_{action}")
+                } else {
+                    "click_popup_replay_miss".into()
+                };
+            }
             "open_single_player_menu" => {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]
