@@ -37,6 +37,12 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
 use parking_lot::{Mutex, RwLock};
 
+/// Wave 270: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Downcasting support for Drawable trait objects
 /// Reference: C++ Drawable.cpp uses dynamic_cast for type-safe downcasting
 pub trait DrawableDowncast {
@@ -1983,6 +1989,11 @@ impl BasicDrawable {
     /// Flash contained objects when this drawable is selected.
     /// Matches C++ Drawable::onSelected() -> contain->clientVisibleContainedFlashAsSelected()
     fn flash_contained_objects(&self, object_id: u32) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Get the object and check if it has a contain module
         use gamelogic::object::registry::OBJECT_REGISTRY;
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
@@ -2133,6 +2144,11 @@ impl BasicDrawable {
     }
 
     fn is_object_kind_of(&self, kind: gamelogic::common::types::KindOf) -> bool {
+        // Wave 270: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         self.object_id.is_some_and(|obj_id| {
             OBJECT_REGISTRY
                 .get_object(obj_id)
@@ -2141,6 +2157,11 @@ impl BasicDrawable {
     }
 
     fn object_stealth_visuals(&self) -> Option<(bool, f32)> {
+        // Wave 270: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let object_id = self.object_id?;
         let obj_arc = OBJECT_REGISTRY.get_object(object_id)?;
         let stealth = obj_arc.read().ok()?.get_stealth()?;
@@ -2250,6 +2271,11 @@ impl BasicDrawable {
     }
 
     fn bound_object_indicator_color(&self) -> Option<(u8, u8, u8)> {
+        // Wave 270: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let object_id = self.object_id?;
         let object_arc = OBJECT_REGISTRY.get_object(object_id)?;
         let object = object_arc.read().ok()?;
@@ -2658,6 +2684,11 @@ impl BasicDrawable {
     }
 
     fn compute_health_region_from_object(&self) -> Option<IRegion2D> {
+        // Wave 270: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let obj_id = self.object_id?;
         let obj_arc = OBJECT_REGISTRY.get_object(obj_id)?;
         let obj_guard = obj_arc.read().ok()?;
@@ -2693,6 +2724,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_health_bar(&mut self, health_region: &IRegion2D) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.overlay_data.health_region = Some(*health_region);
         self.overlay_data.visible = true;
 
@@ -2712,6 +2748,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_veterancy(&mut self, _health_region: &IRegion2D) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(obj_id) = self.object_id {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
                 return;
@@ -2726,6 +2767,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_construct_percent(&mut self, _health_region: &IRegion2D) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(obj_id) = self.object_id {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
                 return;
@@ -2776,6 +2822,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_ammo(&mut self, _health_region: &IRegion2D) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ parity: Drawable.cpp drawAmmo (lines 2861-2912)
         // Ammo pips only show for selected/moused-over local player objects.
         // C++ gates on: TheGlobalData->m_showObjectHealth && (isSelected() || mousedOver)
@@ -2809,6 +2860,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_contained(&mut self, _health_region: &IRegion2D) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ parity: Drawable.cpp drawContained (lines 2915-2986)
         if !self.selected_or_moused_over_for_icon_pips() {
             self.overlay_data.show_contained = false;
@@ -2859,6 +2915,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_healing(&mut self, _health_region: &IRegion2D) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ parity: Drawable.cpp drawHealing (lines 3212-3301)
         // Shows healing icon when last healing was within HEALING_ICON_DISPLAY_TIME (90 frames = 3s).
         const HEALING_ICON_DISPLAY_TIME: u32 = 90; // 3 seconds at 30 FPS
@@ -2918,6 +2979,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_enthusiastic(&mut self, _health_region: &IRegion2D) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ parity: Drawable.cpp drawEnthusiastic (lines 3306-3373)
         let Some(obj_id) = self.object_id else {
             return;
@@ -2948,6 +3014,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_demoralized(&mut self, _health_region: &IRegion2D) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ parity: Drawable.cpp drawDemoralized (lines 3378-3426)
         // Gated by #ifdef ALLOW_DEMORALIZE in C++; we always compute the state.
         let Some(obj_id) = self.object_id else {
@@ -2983,6 +3054,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_bombed(&mut self, _health_region: &IRegion2D) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ parity: Drawable.cpp drawBombed (lines 3435-3609)
         let Some(obj_id) = self.object_id else {
             return;
@@ -3041,6 +3117,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_disabled(&mut self, _health_region: &IRegion2D) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ parity: Drawable.cpp drawDisabled (lines 3614-3667)
         // Checks: DISABLED_HACKED || DISABLED_PARALYZED || DISABLED_EMP ||
         //         DISABLED_SUBDUED || DISABLED_UNDERPOWERED
@@ -3071,6 +3152,11 @@ impl BasicDrawable {
     }
 
     pub fn draw_icon_ui(&mut self) {
+        // Wave 270: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let region = self.compute_health_region();
 
         // C++ parity: Drawable.cpp drawIconUI() dispatch order (lines 2738-2788):
@@ -3175,6 +3261,11 @@ impl BasicDrawable {
         victim_pos: Option<&Vector3>,
         damage_radius: f32,
     ) -> bool {
+        // Wave 270: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // C++ applies recoil impulse if recoil_amount != 0
         if recoil_amount != 0.0 {
             let mut adjusted_angle = recoil_angle;
@@ -3840,6 +3931,11 @@ impl Drawable for BasicDrawable {
     }
 
     fn draw_ui_text(&self) -> Result<(), Box<dyn Error>> {
+        // Wave 270: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(object_id) = self.object_id else {
             return Ok(());
         };
