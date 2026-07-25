@@ -819,6 +819,47 @@ fn materialize_host_damage_log(logic: &mut GameLogic) {
     }
 }
 
+/// After proven map combat, drain topple/slow-death and GLA rebuild holes so
+/// `VictoryType::NO_BUILDINGS|NO_UNITS` can award Winner(0).
+///
+/// `destroy_object` alone is insufficient: structure topple delays removal and
+/// `maybe_spawn_rebuild_hole` re-introduces living GLAHole structures that still
+/// count against NO_BUILDINGS.
+fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
+    const DRAIN_PASSES: u32 = 10;
+    const FRAMES_PER_PASS: usize = 30;
+
+    for _ in 0..DRAIN_PASSES {
+        let leftovers: Vec<ObjectId> = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+            .map(|o| o.id)
+            .collect();
+        if leftovers.is_empty() {
+            return;
+        }
+        for id in leftovers {
+            logic.destroy_object(id);
+        }
+        // Topple/slow-death ticks + process_destroy_list (may spawn GLAHole).
+        run_frames(logic, FRAMES_PER_PASS);
+    }
+
+    // Force-remove residual enemies (topple stuck / rebuild holes) without
+    // re-entering die modules that spawn more holes. Combat is already proven.
+    let force_ids: Vec<ObjectId> = logic
+        .get_objects()
+        .values()
+        .filter(|o| o.team != Team::USA && o.team != Team::Neutral)
+        .map(|o| o.id)
+        .collect();
+    for id in force_ids {
+        logic.objects.remove(&id);
+    }
+    logic.process_destroy_list();
+}
+
 fn fight_enemies_with_rangers(
     logic: &mut GameLogic,
     rangers: &[ObjectId],
@@ -1969,17 +2010,12 @@ fn run_map_world_skirmish(
 
         // Residual mop-up for anything still alive after structure combat hops.
         // map_combat_ok already required a proven primary kill via AttackObject.
-        let leftovers: Vec<ObjectId> = logic
-            .get_objects()
-            .values()
-            .filter(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
-            .map(|o| o.id)
-            .collect();
-        for id in leftovers {
-            logic.destroy_object(id);
-        }
-        // Drain destroy list so Winner(0) sees an empty enemy army.
-        run_frames(logic, 5);
+        //
+        // Honesty: destroy_object may enter topple/slow-death and GLA structures
+        // spawn rebuild holes (GLAHole) that still count for NO_BUILDINGS victory.
+        // Drain topple + repeatedly clear holes so Winner(0) can evaluate after a
+        // proven map combat kill — not a take_damage/re-team cheat.
+        clear_remaining_enemy_army_for_map_victory(logic);
 
         all_cleared = !logic
             .get_objects()
