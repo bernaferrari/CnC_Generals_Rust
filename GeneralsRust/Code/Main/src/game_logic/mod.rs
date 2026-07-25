@@ -306,6 +306,7 @@ mod host_transition_damage_fx;
 pub mod host_troop_crawler;
 pub mod host_tunnel_network;
 pub mod host_ui_presentation_residual;
+pub mod host_under_construction_residual_wave148;
 pub mod host_unit_training;
 mod host_upgrade_die;
 mod host_upgrade_module_residuals;
@@ -1608,4 +1609,9 @@ pub use host_skirmish_slot_config_residual_wave116::{
 pub use host_smudge_residual_wave145::{
     honesty_smudge_method_names_residual_wave145, honesty_smudge_nav_commands_residual_wave145,
     honesty_smudge_residual_pack_wave145,
+};
+pub use host_under_construction_residual_wave148::{
+    honesty_under_construction_method_names_residual_wave148,
+    honesty_under_construction_nav_commands_residual_wave148,
+    honesty_under_construction_residual_pack_wave148,
 };
