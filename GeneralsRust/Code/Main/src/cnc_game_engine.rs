@@ -5642,6 +5642,23 @@ impl CnCGameEngine {
                     format!("click_live_pick_object_presentation_only_miss_{action}")
                 };
             }
+            "click_live_bootstrap_camera_presentation_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_bootstrap_camera_presentation_only_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_bootstrap_camera_presentation_only_residual_pack_wave223(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_bootstrap_camera_presentation_only_ok_{action}")
+                } else {
+                    format!("click_live_bootstrap_camera_presentation_only_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -8174,19 +8191,31 @@ impl CnCGameEngine {
         game_logic: &GameLogic,
         current_player_id: u32,
         defaults: StartupCameraDefaults,
+        // Wave 223: prefer presentation freeze for bounds/base/heights when installed.
+        presentation: Option<&crate::presentation_frame::PresentationFrame>,
     ) -> (Vec3, Vec3, f32) {
         const DEFAULT_VIEW_WIDTH: f32 = 640.0;
         const DEFAULT_VIEW_HEIGHT: f32 = 480.0;
-        let (world_min, world_max) = game_logic.world_bounds();
+        let (world_min, world_max) = if let Some(pres) = presentation {
+            pres.world_env.world_bounds_vec3()
+        } else {
+            game_logic.world_bounds()
+        };
         let world_center = Vec3::new(
             (world_min.x + world_max.x) * 0.5,
             (world_min.y + world_max.y) * 0.5,
             (world_min.z + world_max.z) * 0.5,
         );
 
-        let metadata_initial_camera = game_logic
-            .last_parsed_map_settings()
-            .and_then(|meta| meta.initial_camera_position);
+        let metadata_initial_camera: Option<Vec3> = if let Some(pres) = presentation {
+            // Prefer frozen camera_focus residual when installed.
+            pres.camera_focus.map(|f| Vec3::new(f[0], f[1], f[2]))
+        } else {
+            game_logic
+                .last_parsed_map_settings()
+                .and_then(|meta| meta.initial_camera_position)
+                .map(|pos| Vec3::new(pos.x, pos.y, pos.z))
+        };
         let metadata_target = metadata_initial_camera.map(|pos| Vec2::new(pos.x, pos.y));
 
         let clamp_focus_to_world = |focus: Vec2| {
@@ -8195,11 +8224,17 @@ impl CnCGameEngine {
                 focus.y.clamp(world_min.z, world_max.z),
             )
         };
-        let team_target = game_logic
-            .get_player(current_player_id)
-            .map(|player| player.team)
-            .and_then(|team| game_logic.team_base_position(team))
-            .map(|pos| Vec2::new(pos.x, pos.z));
+        let team_target = if let Some(pres) = presentation {
+            // Wave 223: frozen local team base; no live get_player/team_base dual-read.
+            pres.local_team_base_position
+                .map(|pos| Vec2::new(pos.x, pos.z))
+        } else {
+            game_logic
+                .get_player(current_player_id)
+                .map(|player| player.team)
+                .and_then(|team| game_logic.team_base_position(team))
+                .map(|pos| Vec2::new(pos.x, pos.z))
+        };
         let focus_2d = clamp_focus_to_world(Self::select_startup_camera_focus(
             game_logic.isInShellGame(),
             metadata_target,
@@ -8210,11 +8245,19 @@ impl CnCGameEngine {
         // Match C++ W3DView::lookAt(): unlike the old 2D View::lookAt(), the W3D path writes the
         // requested world coordinate directly into m_pos and builds the camera transform from that.
         let terrain_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
-        let (camera_anchor_ground_height, terrain_height_max) =
-            Self::sample_startup_camera_heights(game_logic, terrain_target, world_center.y, None);
+        let (camera_anchor_ground_height, terrain_height_max) = Self::sample_startup_camera_heights(
+            game_logic,
+            terrain_target,
+            world_center.y,
+            presentation,
+        );
         let focus_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
-        let (focus_ground_height, _) =
-            Self::sample_startup_camera_heights(game_logic, focus_target, world_center.y, None);
+        let (focus_ground_height, _) = Self::sample_startup_camera_heights(
+            game_logic,
+            focus_target,
+            world_center.y,
+            presentation,
+        );
 
         // Keep the C++ zoom/offset sampling from the top-left anchor, but aim the modern
         // Rust camera at the requested scene focus. This remains the closest visible match for the
@@ -9088,6 +9131,8 @@ impl CnCGameEngine {
                     &self.game_logic,
                     self.current_player_id,
                     startup_camera_defaults,
+                    // Wave 223: pass presentation freeze when installed.
+                    self.last_presentation_frame.as_ref(),
                 );
             self.sync_orbit_from_camera_transform();
         }
@@ -14400,6 +14445,8 @@ impl CnCGameEngine {
                 &self.game_logic,
                 self.current_player_id,
                 startup_camera_defaults,
+                // Wave 223: pass presentation freeze when installed.
+                self.last_presentation_frame.as_ref(),
             );
         self.sync_orbit_from_camera_transform();
         // Dual-tick residual close: map load → presentation seed → InGame HUD/units
