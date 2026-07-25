@@ -87,6 +87,17 @@ pub fn honesty_execute_rally_records_source() -> bool {
         None => return false,
     };
     let body = &src[i..src.len().min(i + 900)];
+    // Wave 233: executor may call unit_command_set_rally_point (records host_rally_log).
+    if body.contains("unit_command_set_rally_point") {
+        let gl = include_str!("game_logic.rs");
+        let gi = match gl.find("pub fn unit_command_set_rally_point") {
+            Some(gi) => gi,
+            None => return false,
+        };
+        let gbody = &gl[gi..gl.len().min(gi + 700)];
+        return gbody.contains("host_rally_log::record")
+            && gbody.contains("rally_point = Some(location)");
+    }
     body.contains("host_rally_log::record") && body.contains("rally_point = Some(location)")
 }
 
