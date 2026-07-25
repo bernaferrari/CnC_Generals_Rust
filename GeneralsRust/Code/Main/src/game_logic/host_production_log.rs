@@ -18,6 +18,11 @@ pub enum HostProductionEvent {
         template_name: String,
         spawned: ObjectId,
     },
+    /// Player cancelled a queued item (Wave 199).
+    Cancel {
+        producer: ObjectId,
+        template_name: String,
+    },
 }
 
 thread_local! {
@@ -46,6 +51,15 @@ pub fn record_complete(producer: ObjectId, template_name: impl Into<String>, spa
             producer,
             template_name: template_name.into(),
             spawned,
+        });
+    });
+}
+
+pub fn record_cancel(producer: ObjectId, template_name: impl Into<String>) {
+    LOG.with(|log| {
+        log.borrow_mut().push(HostProductionEvent::Cancel {
+            producer,
+            template_name: template_name.into(),
         });
     });
 }

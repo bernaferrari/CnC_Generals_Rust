@@ -2999,6 +2999,11 @@ impl GameWorldShadow {
                 HostProductionEvent::Enqueue { producer, .. } => {
                     enqueue_producers.insert(producer.0);
                 }
+                HostProductionEvent::Cancel { producer, .. } => {
+                    // Wave 199: cancel refreshes producer queue from host snapshot.
+                    enqueue_producers.insert(producer.0);
+                    n += 1;
+                }
                 HostProductionEvent::Complete {
                     spawned,
                     template_name,

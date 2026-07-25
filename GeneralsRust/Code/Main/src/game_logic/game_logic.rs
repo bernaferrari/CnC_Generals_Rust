@@ -24326,6 +24326,8 @@ impl GameLogic {
                 team_ord,
                 [position.x, position.y, position.z],
             );
+            // Wave 199: GameWorld SetConstruction sole-tick / progress last-writer.
+            crate::game_logic::host_construction_progress_log::record(id, 0.0, true, 0.0);
             if let Some(obj) = self.get_objects_mut().get_mut(&id) {
                 obj.record_model_mesh_from_template();
                 obj.record_kind_of_bits_from_template();
@@ -64891,6 +64893,10 @@ impl GameLogic {
                     player.power_available,
                 );
             }
+            crate::game_logic::host_production_log::record_cancel(
+                producer_id,
+                template_name.clone(),
+            );
             return true;
         }
 
