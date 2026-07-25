@@ -877,14 +877,14 @@ impl CommandSystem {
     where
         F: FnMut(&Object) -> bool,
     {
-        let player = match game_logic.get_player(player_id) {
-            Some(player) => player,
-            None => return false,
+        // Wave 242: team via player_team probe (no &Player dual-read).
+        let Some(player_team) = game_logic.player_team(player_id) else {
+            return false;
         };
 
         let mut units = Vec::new();
         for (&id, obj) in game_logic.get_objects().iter() {
-            if obj.team == player.team && obj.is_selectable() && predicate(obj) {
+            if obj.team == player_team && obj.is_selectable() && predicate(obj) {
                 units.push(id);
             }
         }
@@ -935,9 +935,10 @@ impl CommandSystem {
 
         let game_logic = game_logic?;
         let target = game_logic.get_object(target_id)?;
-        let player = game_logic.get_player(player_id)?;
+        // Wave 242: team via player_team probe (no &Player dual-read).
+        let player_team = game_logic.player_team(player_id)?;
 
-        if target.team != player.team {
+        if target.team != player_team {
             return None;
         }
 
@@ -1291,19 +1292,17 @@ impl CommandSystem {
             );
         };
 
-        let player = match game_logic.get_player(player_id) {
-            Some(player) => player,
-            None => {
-                return self.create_command(
-                    CommandType::CreateSelectedGroup {
-                        create_new: !context.modifier_keys.shift,
-                        units: Vec::new(),
-                    },
-                    &[],
-                    player_id,
-                    context.modifier_keys,
-                );
-            }
+        // Wave 242: team via player_team probe (no &Player dual-read).
+        let Some(player_team) = game_logic.player_team(player_id) else {
+            return self.create_command(
+                CommandType::CreateSelectedGroup {
+                    create_new: !context.modifier_keys.shift,
+                    units: Vec::new(),
+                },
+                &[],
+                player_id,
+                context.modifier_keys,
+            );
         };
 
         let drag_start = context.drag_start.unwrap_or(context.screen_position);
@@ -1325,7 +1324,7 @@ impl CommandSystem {
 
         let mut units = Vec::new();
         for (&id, obj) in game_logic.get_objects().iter() {
-            if obj.team != player.team || !obj.is_selectable() {
+            if obj.team != player_team || !obj.is_selectable() {
                 continue;
             }
             let p = obj.get_position();
@@ -1647,12 +1646,12 @@ impl CommandSystem {
         player_id: u32,
         game_logic: &mut GameLogic,
     ) -> CommandResult {
-        let player = match game_logic.get_player(player_id) {
-            Some(player) => player,
-            None => return CommandResult::InvalidCommand,
+        // Wave 242: team via player_team probe (no &Player dual-read).
+        let Some(team) = game_logic.player_team(player_id) else {
+            return CommandResult::InvalidCommand;
         };
 
-        if let Some(position) = game_logic.command_center_position(player.team) {
+        if let Some(position) = game_logic.command_center_position(team) {
             game_logic.request_camera_focus(position);
             CommandResult::Success
         } else {
@@ -1765,8 +1764,9 @@ impl CommandSystem {
         units: &[ObjectId],
         game_logic: &mut GameLogic,
     ) -> CommandResult {
-        // Wave 231: selection last-writes via select_objects / unit_select_if_team (status log Wave 206).
-        if game_logic.get_player(player_id).is_none() {
+        // Wave 242: selection last-writes via select_objects / unit_select_if_team
+        // and player_* probes (no &Player / &mut Player dual-read). Wave 231 residual.
+        if !game_logic.player_exists(player_id) {
             return CommandResult::InvalidCommand;
         }
         if create_new {
@@ -1774,15 +1774,11 @@ impl CommandSystem {
             log::debug!(
                 "Player {} selected {} units",
                 player_id,
-                game_logic
-                    .get_player(player_id)
-                    .map(|p| p.selected_objects.len())
-                    .unwrap_or(0)
+                game_logic.player_selected_count(player_id)
             );
             return CommandResult::Success;
         }
-        let player_team = game_logic.get_player(player_id).map(|p| p.team);
-        let Some(player_team) = player_team else {
+        let Some(player_team) = game_logic.player_team(player_id) else {
             return CommandResult::InvalidCommand;
         };
         let mut added = Vec::new();
@@ -1791,21 +1787,13 @@ impl CommandSystem {
                 added.push(unit_id);
             }
         }
-        if let Some(player) = game_logic.get_player_mut(player_id) {
-            for id in added {
-                if !player.selected_objects.contains(&id) {
-                    player.selected_objects.push(id);
-                }
-            }
-            log::debug!(
-                "Player {} selected {} units",
-                player_id,
-                player.selected_objects.len()
-            );
-            CommandResult::Success
-        } else {
-            CommandResult::InvalidCommand
-        }
+        game_logic.player_extend_selection(player_id, &added);
+        log::debug!(
+            "Player {} selected {} units",
+            player_id,
+            game_logic.player_selected_count(player_id)
+        );
+        CommandResult::Success
     }
 
     /// Validate if selected units can capture target structure residual.
@@ -2213,11 +2201,8 @@ impl CommandSystem {
 
     /// Get current selected units for a player
     pub fn get_selected_units(&self, player_id: u32, game_logic: &GameLogic) -> Vec<ObjectId> {
-        if let Some(player) = game_logic.get_player(player_id) {
-            player.selected_objects.clone()
-        } else {
-            Vec::new()
-        }
+        // Wave 242: selection via player_selected_objects probe.
+        game_logic.player_selected_objects(player_id)
     }
 
     /// Clear command queue

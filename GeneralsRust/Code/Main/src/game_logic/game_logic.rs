@@ -25226,6 +25226,28 @@ impl GameLogic {
         }
     }
 
+    /// Wave 242: extend selection without exposing `&mut Player`.
+    #[inline]
+    pub fn player_extend_selection(&mut self, id: u32, units: &[ObjectId]) {
+        let Some(p) = self.players.get_mut(&id) else {
+            return;
+        };
+        for unit in units {
+            if !p.selected_objects.contains(unit) {
+                p.selected_objects.push(*unit);
+            }
+        }
+    }
+
+    /// Wave 242: selection count without exposing `&Player`.
+    #[inline]
+    pub fn player_selected_count(&self, id: u32) -> usize {
+        self.players
+            .get(&id)
+            .map(|p| p.selected_objects.len())
+            .unwrap_or(0)
+    }
+
     /// Get mutable player by ID
     pub fn get_player_mut(&mut self, player_id: u32) -> Option<&mut Player> {
         self.players.get_mut(&player_id)
