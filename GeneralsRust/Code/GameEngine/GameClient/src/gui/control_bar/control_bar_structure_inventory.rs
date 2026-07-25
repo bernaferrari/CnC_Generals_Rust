@@ -92,3 +92,129 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
 
     Ok(())
 }
+
+/// Residual: last structure-inventory action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualStructureInventoryAction {
+    None = 0,
+    Populate = 1,
+    Exit = 2,
+    Evacuate = 3,
+    Stop = 4,
+    Clear = 5,
+}
+
+static RESIDUAL_SI_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_SI_MAX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static RESIDUAL_SI_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static RESIDUAL_SI_EXIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_SI_EVACUATE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_SI_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn residual_si_action_store(action: ResidualStructureInventoryAction) {
+    RESIDUAL_SI_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last structure-inventory residual action.
+pub fn residual_structure_inventory_last_action() -> ResidualStructureInventoryAction {
+    match RESIDUAL_SI_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualStructureInventoryAction::Populate,
+        2 => ResidualStructureInventoryAction::Exit,
+        3 => ResidualStructureInventoryAction::Evacuate,
+        4 => ResidualStructureInventoryAction::Stop,
+        5 => ResidualStructureInventoryAction::Clear,
+        _ => ResidualStructureInventoryAction::None,
+    }
+}
+
+/// Residual: presentation max garrison latch.
+pub fn residual_structure_inventory_max_garrison() -> usize {
+    RESIDUAL_SI_MAX.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: presentation garrisoned count latch.
+pub fn residual_structure_inventory_garrisoned_count() -> usize {
+    RESIDUAL_SI_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: exit command visible latch.
+pub fn residual_structure_inventory_exit_visible() -> bool {
+    RESIDUAL_SI_EXIT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: evacuate command visible latch.
+pub fn residual_structure_inventory_evacuate_visible() -> bool {
+    RESIDUAL_SI_EVACUATE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: stop command visible latch.
+pub fn residual_structure_inventory_stop_visible() -> bool {
+    RESIDUAL_SI_STOP.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Retail structure inventory command names residual.
+pub const STRUCTURE_INVENTORY_EXIT_COMMAND_NAME: &str = "Command_StructureExit";
+pub const STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME: &str = "Command_Evacuate";
+pub const STRUCTURE_INVENTORY_STOP_COMMAND_NAME: &str = "Command_Stop";
+
+/// Residual: populate inventory from presentation counts (no OBJECT_REGISTRY).
+pub fn simulate_structure_inventory_populate(max_garrison: usize, garrisoned_count: usize) -> bool {
+    if max_garrison == 0 {
+        return false;
+    }
+    let count = garrisoned_count.min(max_garrison);
+    RESIDUAL_SI_MAX.store(max_garrison, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_EXIT.store(true, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_EVACUATE.store(count > 0, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_STOP.store(count > 0, std::sync::atomic::Ordering::Relaxed);
+    residual_si_action_store(ResidualStructureInventoryAction::Populate);
+    residual_structure_inventory_exit_visible()
+}
+
+/// Residual: clear inventory residual.
+pub fn simulate_structure_inventory_clear() -> bool {
+    RESIDUAL_SI_MAX.store(0, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_EXIT.store(false, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_EVACUATE.store(false, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_STOP.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_si_action_store(ResidualStructureInventoryAction::Clear);
+    !residual_structure_inventory_exit_visible()
+}
+
+/// Residual: exit command name residual.
+pub fn simulate_structure_inventory_exit_command_name() -> &'static str {
+    residual_si_action_store(ResidualStructureInventoryAction::Exit);
+    STRUCTURE_INVENTORY_EXIT_COMMAND_NAME
+}
+
+/// Residual: evacuate command name residual.
+pub fn simulate_structure_inventory_evacuate_command_name() -> &'static str {
+    residual_si_action_store(ResidualStructureInventoryAction::Evacuate);
+    STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME
+}
+
+/// Residual: stop command name residual.
+pub fn simulate_structure_inventory_stop_command_name() -> &'static str {
+    residual_si_action_store(ResidualStructureInventoryAction::Stop);
+    STRUCTURE_INVENTORY_STOP_COMMAND_NAME
+}
+
+/// Residual: populate occupied garrison composite (exit+evacuate+stop).
+pub fn simulate_structure_inventory_prepare_occupied(
+    max_garrison: usize,
+    garrisoned_count: usize,
+) -> bool {
+    if garrisoned_count == 0 || max_garrison == 0 {
+        return false;
+    }
+    if !simulate_structure_inventory_populate(max_garrison, garrisoned_count) {
+        return false;
+    }
+    residual_structure_inventory_exit_visible()
+        && residual_structure_inventory_evacuate_visible()
+        && residual_structure_inventory_stop_visible()
+}

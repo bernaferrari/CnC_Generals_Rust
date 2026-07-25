@@ -3714,6 +3714,53 @@ impl CnCGameEngine {
                     "click_under_construction_miss".into()
                 };
             }
+            "click_structure_inventory" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let max_g = args
+                    .get("max")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(10);
+                let count = args
+                    .get("count")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(3);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::control_bar::{
+                        simulate_structure_inventory_clear,
+                        simulate_structure_inventory_evacuate_command_name,
+                        simulate_structure_inventory_exit_command_name,
+                        simulate_structure_inventory_populate,
+                        simulate_structure_inventory_prepare_occupied,
+                        simulate_structure_inventory_stop_command_name,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "populate" => simulate_structure_inventory_populate(max_g, count),
+                        "clear" => simulate_structure_inventory_clear(),
+                        "exit" => {
+                            simulate_structure_inventory_exit_command_name()
+                                == "Command_StructureExit"
+                        }
+                        "evacuate" => {
+                            simulate_structure_inventory_evacuate_command_name()
+                                == "Command_Evacuate"
+                        }
+                        "stop" => {
+                            simulate_structure_inventory_stop_command_name() == "Command_Stop"
+                        }
+                        _ => simulate_structure_inventory_prepare_occupied(max_g, count),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_structure_inventory_ok_wnd_{action}")
+                } else {
+                    "click_structure_inventory_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
