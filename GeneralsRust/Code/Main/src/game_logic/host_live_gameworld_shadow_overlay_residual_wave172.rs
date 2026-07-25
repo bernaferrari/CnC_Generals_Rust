@@ -88,10 +88,10 @@ pub fn honesty_seed_presentation_shadow_overlay_source() -> bool {
         None => return false,
     };
     let body = &src[i..src.len().min(i + 2200)];
+    // Wave 195: seed uses build_for_engine which applies GW overlay/rebuild internally.
     body.contains("gameworld_shadow")
         && body.contains("sync_from_host")
-        && body.contains("overlay_gameworld_shadow")
-        && body.contains("build_from_logic")
+        && body.contains("build_for_engine")
 }
 
 /// Live residual: map load → shadow sync → probe → presentation overlay.

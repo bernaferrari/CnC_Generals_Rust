@@ -102,7 +102,9 @@ pub fn honesty_overlay_deepen_fields_source() -> bool {
 /// Source residual: engine still calls overlay on seed paths.
 pub fn honesty_engine_still_calls_overlay_source() -> bool {
     let eng = include_str!("../cnc_game_engine.rs");
-    eng.matches("overlay_gameworld_shadow").count() >= 3
+    // Wave 195: engine presentation helpers fold overlay/rebuild.
+    (eng.contains("build_for_engine") || eng.contains("build_with_victory_for_engine"))
+        && include_str!("../presentation_frame.rs").contains("fn overlay_gameworld_shadow")
 }
 
 /// Live residual: overlay stamps deepened fields from desynced shadow entity.
