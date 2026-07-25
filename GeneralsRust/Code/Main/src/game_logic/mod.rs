@@ -249,6 +249,7 @@ pub mod host_live_hotkey_move_attack_selection_presentation_only_residual_wave22
 pub mod host_live_local_team_presentation_only_residual_wave220;
 pub mod host_live_map_load_residual_wave170;
 pub mod host_live_os_input_command_path_residual_wave209;
+pub mod host_live_path_guard_authority_api_residual_wave225;
 pub mod host_live_pick_object_presentation_only_residual_wave222;
 pub mod host_live_presentation_append_missing_residual_wave192;
 pub mod host_live_presentation_build_for_engine_residual_wave195;
@@ -1845,6 +1846,12 @@ pub use host_live_os_input_command_path_residual_wave209::{
     honesty_live_os_input_command_path_nav_commands_residual_wave209,
     honesty_live_os_input_command_path_residual_pack_wave209,
     simulate_live_os_input_command_path_honesty,
+};
+pub use host_live_path_guard_authority_api_residual_wave225::{
+    honesty_live_path_guard_authority_api_method_names_residual_wave225,
+    honesty_live_path_guard_authority_api_nav_commands_residual_wave225,
+    honesty_live_path_guard_authority_api_residual_pack_wave225,
+    simulate_live_path_guard_authority_api_honesty,
 };
 pub use host_live_pick_object_presentation_only_residual_wave222::{
     honesty_live_pick_object_presentation_only_method_names_residual_wave222,

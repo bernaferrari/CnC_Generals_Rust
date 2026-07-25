@@ -5676,6 +5676,23 @@ impl CnCGameEngine {
                     format!("click_live_force_complete_authority_api_miss_{action}")
                 };
             }
+            "click_live_path_guard_authority_api" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_path_guard_authority_api_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_path_guard_authority_api_residual_pack_wave225(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_path_guard_authority_api_ok_{action}")
+                } else {
+                    format!("click_live_path_guard_authority_api_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -17395,11 +17412,8 @@ impl CnCGameEngine {
 
     /// Clear movement path / waypoints on selection residual (Alt+Z).
     fn clear_selected_path_waypoints(&mut self) {
-        let selected = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_else(|| self.selected_objects.clone());
+        // Wave 225: selection via presentation-first ui_selected_ids; mutation via GameLogic API.
+        let selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
             if self.sticky_waypoint_mode {
                 self.sticky_waypoint_mode = false;
@@ -17411,14 +17425,8 @@ impl CnCGameEngine {
         }
         let mut any = false;
         for id in selected {
-            if let Some(obj) = self.game_logic.get_object_mut(id) {
-                if !obj.movement.path.is_empty() || obj.movement.target_position.is_some() {
-                    obj.movement.path.clear();
-                    obj.movement.current_path_index = 0;
-                    obj.movement.target_position = None;
-                    obj.status.moving = false;
-                    any = true;
-                }
+            if self.game_logic.clear_unit_movement_path(id) {
+                any = true;
             }
         }
         if self.sticky_waypoint_mode {
@@ -17481,40 +17489,20 @@ impl CnCGameEngine {
     }
 
     fn adjust_selected_guard_radius(&mut self, delta: f32) {
-        let selected = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_else(|| self.selected_objects.clone());
+        // Wave 225: selection via presentation-first ui_selected_ids; mutation via GameLogic API.
+        let selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
             return;
         }
         let mut any = false;
         let mut last_r = 0.0_f32;
         for id in selected {
-            if let Some(obj) = self.game_logic.get_object_mut(id) {
-                let guarding = matches!(
-                    obj.ai_state,
-                    crate::game_logic::AIState::GuardingArea
-                        | crate::game_logic::AIState::GuardingObject
-                ) || obj.guard_position.is_some()
-                    || obj.guard_target.is_some();
-                if !guarding && obj.guard_radius <= 0.0 {
-                    // Allow setting radius even if not yet guarding so next Guard uses it.
-                    let base = obj.selection_radius.max(20.0) * 2.0;
-                    obj.guard_radius = (base + delta).clamp(30.0, 400.0);
-                } else {
-                    let cur = if obj.guard_radius > 1.0 {
-                        obj.guard_radius
-                    } else {
-                        obj.selection_radius.max(20.0) * 2.0
-                    };
-                    obj.guard_radius = (cur + delta).clamp(30.0, 400.0);
-                }
-                last_r = obj.guard_radius;
+            if let Some(r) = self.game_logic.adjust_unit_guard_radius(id, delta) {
+                last_r = r;
                 any = true;
             }
         }
+
         if any {
             let msg = format!("Guard radius: {last_r:.0}");
             self.game_hud.push_info_message(&msg);
