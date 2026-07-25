@@ -1414,6 +1414,9 @@ pub struct CnCGameEngine {
     /// Optional GameWorld shadow session (stable ObjectId→EntityId). Opt-in:
     /// `GENERALS_GAMEWORLD_SHADOW=1`. Not production authority.
     gameworld_shadow: Option<crate::gameworld_shadow::GameWorldShadow>,
+    /// Observe-path entity count from GameWorld presentation view after coupled tick
+    /// (architecture residual: GameWorld → presentation without Main dual-read).
+    last_gameworld_presentation_entity_count: usize,
     /// Last presentation-overlaid UI state (selection health/minimap identity retained
     /// after render build so consumers are not dropped each frame).
     last_ui_state: Option<GameUIState>,
@@ -2183,6 +2186,7 @@ impl CnCGameEngine {
             match_over,
             victory_label,
             presentation_frame_ok: self.last_presentation_frame.is_some(),
+            gameworld_presentation_entities: self.last_gameworld_presentation_entity_count as u32,
             shell_screen_count: {
                 #[cfg(feature = "game_client")]
                 {
@@ -4966,6 +4970,23 @@ impl CnCGameEngine {
                     format!("click_live_gameworld_fire_special_power_ok_{action}")
                 } else {
                     format!("click_live_gameworld_fire_special_power_miss_{action}")
+                };
+            }
+            "click_live_gameworld_presentation_view" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "view" | "engine" | "prepare" => {
+                        crate::game_logic::simulate_live_gameworld_presentation_view_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_gameworld_presentation_view_residual_pack_wave186(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_gameworld_presentation_view_ok_{action}")
+                } else {
+                    format!("click_live_gameworld_presentation_view_miss_{action}")
                 };
             }
             "save_game" | "quicksave" => {
@@ -9103,6 +9124,7 @@ impl CnCGameEngine {
             } else {
                 None
             },
+            last_gameworld_presentation_entity_count: 0,
             last_ui_state: None,
             resource_manager,
             save_file_manager,
@@ -11233,8 +11255,13 @@ impl CnCGameEngine {
                 if !probe.full_match() {
                     log::warn!("{}", probe.format_report());
                 }
+                // Architecture residual: observe-path presentation from GameWorld
+                // (no live Main GameLogic dual-read for this view).
+                let gw_view = crate::gameworld_shadow::presentation_view_from_shadow(shadow, 0);
+                self.last_gameworld_presentation_entity_count = gw_view.entities.len();
             } else {
                 let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&mut self.game_logic);
+                self.last_gameworld_presentation_entity_count = 0;
             }
             if couple_shadow {
                 crate::gameworld_shadow::end_shadow_coupled_tick();
@@ -19314,6 +19341,8 @@ struct RuntimeHostSnapshot {
     victory_label: String,
     /// PresentationFrame installed for client/render residual.
     presentation_frame_ok: bool,
+    /// GameWorld observe-path presentation entity count (after coupled shadow tick).
+    gameworld_presentation_entities: u32,
     /// Shell screen stack depth residual (retail WND push honesty).
     shell_screen_count: u32,
     /// Top shell layout filename residual (e.g. Menus/MainMenu.wnd).
@@ -19485,6 +19514,7 @@ impl RuntimeHostBridge {
             match_over: false,
             victory_label: String::new(),
             presentation_frame_ok: false,
+            gameworld_presentation_entities: 0,
             shell_screen_count: 0,
             shell_top_wnd: String::new(),
             shell_active: false,
@@ -19549,6 +19579,10 @@ impl RuntimeHostBridge {
         payload.push_str(&format!(
             "presentation_frame_ok={}\n",
             snapshot.presentation_frame_ok
+        ));
+        payload.push_str(&format!(
+            "gameworld_presentation_entities={}\n",
+            snapshot.gameworld_presentation_entities
         ));
         payload.push_str(&format!(
             "shell_screen_count={}\n",
