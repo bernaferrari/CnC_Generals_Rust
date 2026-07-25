@@ -875,19 +875,14 @@ impl CommandSystem {
         mut predicate: F,
     ) -> bool
     where
-        F: FnMut(&Object) -> bool,
+        F: FnMut(ObjectId) -> bool,
     {
-        // Wave 242: team via player_team probe (no &Player dual-read).
+        // Wave 242/245: team + selectable ids via probes (no get_objects dual-read).
         let Some(player_team) = game_logic.player_team(player_id) else {
             return false;
         };
 
-        let mut units = Vec::new();
-        for (&id, obj) in game_logic.get_objects().iter() {
-            if obj.team == player_team && obj.is_selectable() && predicate(obj) {
-                units.push(id);
-            }
-        }
+        let units = game_logic.selectable_unit_ids_for_team_where(player_team, |id| predicate(id));
 
         if units.is_empty() {
             return false;
@@ -933,32 +928,21 @@ impl CommandSystem {
             ));
         }
 
+        // Wave 245: boot residual via unit/selection probes (no get_object dual-read).
         let game_logic = game_logic?;
-        let target = game_logic.get_object(target_id)?;
-        // Wave 242: team via player_team probe (no &Player dual-read).
         let player_team = game_logic.player_team(player_id)?;
-
-        if target.team != player_team {
+        let target_team = game_logic.unit_team(target_id)?;
+        if target_team != player_team {
             return None;
         }
-
-        let template_name = target.template_name.clone();
-        let object_type = target.object_type;
-        let mut units: Vec<ObjectId> = game_logic
-            .get_objects()
-            .iter()
-            .filter_map(|(&id, obj)| {
-                if obj.team == target.team
-                    && obj.is_selectable()
-                    && (obj.template_name == template_name
-                        || (modifier_keys.alt && obj.object_type == object_type))
-                {
-                    Some(id)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let template_name = game_logic.unit_template_name(target_id)?;
+        let object_type = game_logic.unit_object_type(target_id)?;
+        let mut units = game_logic.selectable_similar_unit_ids(
+            target_team,
+            &template_name,
+            object_type,
+            modifier_keys.alt,
+        );
 
         if units.is_empty() {
             return None;
@@ -1211,43 +1195,39 @@ impl CommandSystem {
                     return cmd;
                 }
             } else if let Some(gl) = game_logic {
-                if let Some(target_obj) = gl.get_object(target_id) {
-                    // Boot residual only — no presentation target freeze.
-                    if self.can_gather_from_target(selected_units, target_obj, gl) {
-                        return CommandType::Gather { target_id };
+                // Wave 245: boot residual via ObjectId probes (no get_object dual-read).
+                if self.can_gather_from_target(selected_units, target_id, gl) {
+                    return CommandType::Gather { target_id };
+                }
+                if self.can_capture_building(selected_units, target_id, gl) {
+                    let prefer_capture = gl.unit_team(target_id) == Some(Team::Neutral)
+                        || !self.can_attack_target(selected_units, target_id, gl);
+                    if prefer_capture {
+                        return CommandType::CaptureBuilding { target_id };
                     }
-                    if self.can_capture_building(selected_units, target_obj, gl) {
-                        let prefer_capture = target_obj.team == Team::Neutral
-                            || !self.can_attack_target(selected_units, target_obj, gl);
-                        if prefer_capture {
-                            return CommandType::CaptureBuilding { target_id };
-                        }
-                    }
-                    if self.can_attack_target(selected_units, target_obj, gl) {
-                        return CommandType::AttackObject { target_id };
-                    }
-                    if self.can_resume_construction(selected_units, target_obj, gl) {
-                        return CommandType::ResumeConstruction { target_id };
-                    }
-                    if self.can_repair_target(selected_units, target_obj, gl) {
-                        return CommandType::Repair { target_id };
-                    }
-                    if self.can_enter_target(selected_units, target_obj, gl) {
-                        return CommandType::Enter { target_id };
-                    }
-                    if self.can_get_serviced_at_target(selected_units, target_obj, gl) {
-                        let target_building_type = target_obj
-                            .building_data
-                            .as_ref()
-                            .map(|b| b.building_type)
-                            .unwrap_or(BuildingType::CommandCenter);
-                        if target_building_type == BuildingType::HealPad
-                            || target_obj.is_medical_facility()
-                        {
-                            return CommandType::GetHealed { target_id };
-                        } else {
-                            return CommandType::GetRepaired { target_id };
-                        }
+                }
+                if self.can_attack_target(selected_units, target_id, gl) {
+                    return CommandType::AttackObject { target_id };
+                }
+                if self.can_resume_construction(selected_units, target_id, gl) {
+                    return CommandType::ResumeConstruction { target_id };
+                }
+                if self.can_repair_target(selected_units, target_id, gl) {
+                    return CommandType::Repair { target_id };
+                }
+                if self.can_enter_target(selected_units, target_id, gl) {
+                    return CommandType::Enter { target_id };
+                }
+                if self.can_get_serviced_at_target(selected_units, target_id, gl) {
+                    let target_building_type = gl
+                        .unit_building_type(target_id)
+                        .unwrap_or(BuildingType::CommandCenter);
+                    if target_building_type == BuildingType::HealPad
+                        || gl.unit_is_medical_facility(target_id)
+                    {
+                        return CommandType::GetHealed { target_id };
+                    } else {
+                        return CommandType::GetRepaired { target_id };
                     }
                 }
             }
@@ -1322,16 +1302,9 @@ impl CommandSystem {
         let min_z = drag_start_world.z.min(drag_end_world.z);
         let max_z = drag_start_world.z.max(drag_end_world.z);
 
-        let mut units = Vec::new();
-        for (&id, obj) in game_logic.get_objects().iter() {
-            if obj.team != player_team || !obj.is_selectable() {
-                continue;
-            }
-            let p = obj.get_position();
-            if p.x >= min_x && p.x <= max_x && p.z >= min_z && p.z <= max_z {
-                units.push(id);
-            }
-        }
+        // Wave 245: box-select via selectable_unit_ids_in_bounds (no get_objects dual-read).
+        let units =
+            game_logic.selectable_unit_ids_in_bounds(player_team, min_x, max_x, min_z, max_z);
 
         self.create_command(
             CommandType::CreateSelectedGroup {
@@ -1786,20 +1759,23 @@ impl CommandSystem {
     fn can_capture_building(
         &self,
         units: &[ObjectId],
-        target: &Object,
+        target_id: ObjectId,
         game_logic: &GameLogic,
     ) -> bool {
         use crate::game_logic::host_hero_abilities::{
             can_capture_without_upgrade, is_black_lotus_template,
         };
-        if !target.is_kind_of(crate::game_logic::KindOf::Structure)
-            || !target.is_alive()
-            || target.status.under_construction
-            || target.status.sold
+        // Wave 245: target probes (no &Object dual-read).
+        if !game_logic.unit_is_kind_of(target_id, crate::game_logic::KindOf::Structure)
+            || !game_logic.unit_is_alive(target_id)
+            || game_logic.unit_under_construction(target_id)
+            || game_logic.unit_is_sold(target_id)
         {
             return false;
         }
-        // Wave 244: unit capability probes (no &Object dual-read on selected units).
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
         for &unit_id in units {
             if !game_logic.unit_is_alive(unit_id) || !game_logic.unit_can_move(unit_id) {
                 continue;
@@ -1807,7 +1783,7 @@ impl CommandSystem {
             let Some(unit_team) = game_logic.unit_team(unit_id) else {
                 continue;
             };
-            if unit_team == target.team {
+            if unit_team == target_team {
                 continue;
             }
             let template = game_logic.unit_template_name(unit_id).unwrap_or_default();
@@ -1827,18 +1803,21 @@ impl CommandSystem {
     fn can_attack_target(
         &self,
         units: &[ObjectId],
-        target: &Object,
+        target_id: ObjectId,
         game_logic: &GameLogic,
     ) -> bool {
-        // Wave 244: unit capability probes (no &Object dual-read on selected units).
-        if target.is_dead() {
+        // Wave 244/245: unit + target probes (no &Object dual-read).
+        if game_logic.unit_is_dead(target_id) || !game_logic.unit_exists(target_id) {
             return false;
         }
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
         for &unit_id in units {
             if game_logic.unit_can_attack(unit_id)
                 && game_logic
                     .unit_team(unit_id)
-                    .is_some_and(|t| t != target.team)
+                    .is_some_and(|t| t != target_team)
             {
                 return true;
             }
@@ -2020,26 +1999,23 @@ impl CommandSystem {
     fn can_gather_from_target(
         &self,
         units: &[ObjectId],
-        target: &Object,
+        target_id: ObjectId,
         game_logic: &GameLogic,
     ) -> bool {
-        if !target.is_alive() {
+        // Wave 245: target/unit probes (no &Object dual-read).
+        if !game_logic.unit_is_alive(target_id) || !game_logic.unit_is_resource_target(target_id) {
             return false;
         }
-        let target_is_resource = target.is_kind_of(KindOf::Harvestable)
-            || target.is_kind_of(KindOf::Resource)
-            || target.object_type == crate::game_logic::ObjectType::Supply;
-        if !target_is_resource {
+        let Some(target_team) = game_logic.unit_team(target_id) else {
             return false;
-        }
-        // Wave 244: unit capability probes (no &Object dual-read on selected units).
+        };
         for &unit_id in units {
             if game_logic.unit_is_worker(unit_id)
                 && game_logic.unit_is_alive(unit_id)
                 && game_logic.unit_can_move(unit_id)
                 && game_logic
                     .unit_team(unit_id)
-                    .is_some_and(|t| t == target.team)
+                    .is_some_and(|t| t == target_team)
             {
                 return true;
             }
@@ -2051,24 +2027,26 @@ impl CommandSystem {
     fn can_resume_construction(
         &self,
         units: &[ObjectId],
-        target: &Object,
+        target_id: ObjectId,
         game_logic: &GameLogic,
     ) -> bool {
-        if !target.is_kind_of(crate::game_logic::KindOf::Structure)
-            || !target.is_alive()
-            || !target.status.under_construction
+        // Wave 245: target/unit probes (no &Object dual-read).
+        if !game_logic.unit_is_kind_of(target_id, crate::game_logic::KindOf::Structure)
+            || !game_logic.unit_is_alive(target_id)
+            || !game_logic.unit_under_construction(target_id)
         {
             return false;
         }
-        // Wave 244: unit capability probes (no &Object dual-read on selected units).
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
         for &unit_id in units {
-            // Dozer / worker residual (can_repair covers builders).
             if game_logic.unit_can_repair(unit_id)
                 && game_logic.unit_is_alive(unit_id)
                 && game_logic.unit_can_move(unit_id)
                 && game_logic
                     .unit_team(unit_id)
-                    .is_some_and(|t| t == target.team || target.team == Team::Neutral)
+                    .is_some_and(|t| t == target_team || target_team == Team::Neutral)
             {
                 return true;
             }
@@ -2080,24 +2058,25 @@ impl CommandSystem {
     fn can_repair_target(
         &self,
         units: &[ObjectId],
-        target: &Object,
+        target_id: ObjectId,
         game_logic: &GameLogic,
     ) -> bool {
-        // Host residual: dozer/worker → damaged ally/neutral structure (not under construction).
-        // Fail-closed: not full ActionManager canRepairObject edge matrix.
-        if !target.is_kind_of(crate::game_logic::KindOf::Structure)
-            || !target.is_alive()
-            || target.status.under_construction
-            || !target.is_damaged()
+        // Wave 245: target/unit probes (no &Object dual-read).
+        if !game_logic.unit_is_kind_of(target_id, crate::game_logic::KindOf::Structure)
+            || !game_logic.unit_is_alive(target_id)
+            || game_logic.unit_under_construction(target_id)
+            || !game_logic.unit_needs_service(target_id)
         {
             return false;
         }
-        // Wave 244: unit capability probes (no &Object dual-read on selected units).
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
         for &unit_id in units {
             if game_logic.unit_can_repair(unit_id)
                 && game_logic
                     .unit_team(unit_id)
-                    .is_some_and(|t| t == target.team || target.team == Team::Neutral)
+                    .is_some_and(|t| t == target_team || target_team == Team::Neutral)
             {
                 return true;
             }
@@ -2109,25 +2088,29 @@ impl CommandSystem {
     fn can_enter_target(
         &self,
         units: &[ObjectId],
-        target: &Object,
+        target_id: ObjectId,
         game_logic: &GameLogic,
     ) -> bool {
-        if !target.can_contain() || !target.is_alive() || target.status.under_construction {
+        // Wave 245: target/unit probes (no &Object dual-read).
+        if !game_logic.unit_can_contain(target_id)
+            || !game_logic.unit_is_alive(target_id)
+            || game_logic.unit_under_construction(target_id)
+        {
             return false;
         }
 
-        let target_has_occupants = !target.contained_units().is_empty();
-        // Structures + Overlord BattleBunker residual: infantry/heroes only.
-        let infantry_only = target.is_kind_of(KindOf::Structure)
-            || (target.is_overlord_style_container() && target.overlord_bunker_slot_capacity() > 0);
+        let target_has_occupants = game_logic.unit_has_occupants(target_id);
+        let infantry_only = game_logic.unit_enter_infantry_only(target_id);
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
 
-        // Wave 244: unit capability probes (no &Object dual-read on selected units).
         for &unit_id in units {
             let Some(unit_team) = game_logic.unit_team(unit_id) else {
                 continue;
             };
 
-            if unit_id == target.id
+            if unit_id == target_id
                 || !game_logic.unit_is_alive(unit_id)
                 || game_logic.unit_under_construction(unit_id)
                 || !game_logic.unit_can_move(unit_id)
@@ -2143,15 +2126,15 @@ impl CommandSystem {
                 continue;
             }
 
-            let target_contains_unit = target.contained_units().contains(&unit_id);
-            let target_has_space = target.has_capacity_for(1);
+            let target_contains_unit = game_logic.unit_contains(target_id, unit_id);
+            let target_has_space = game_logic.unit_has_capacity_for(target_id, 1);
             if !target_contains_unit && !target_has_space {
                 continue;
             }
 
-            if target.team != unit_team
-                && target.team != Team::Neutral
-                && (target.is_faction_structure() || target_has_occupants)
+            if target_team != unit_team
+                && target_team != Team::Neutral
+                && (game_logic.unit_is_faction_structure(target_id) || target_has_occupants)
             {
                 continue;
             }
@@ -2166,24 +2149,25 @@ impl CommandSystem {
     fn can_get_serviced_at_target(
         &self,
         units: &[ObjectId],
-        target: &Object,
+        target_id: ObjectId,
         game_logic: &GameLogic,
     ) -> bool {
-        if !target.is_alive() || target.status.under_construction {
+        // Wave 245: target/unit probes (no &Object dual-read).
+        if !game_logic.unit_is_alive(target_id) || game_logic.unit_under_construction(target_id) {
             return false;
         }
 
-        let target_building_type = target
-            .building_data
-            .as_ref()
-            .map(|b| b.building_type)
+        let target_building_type = game_logic
+            .unit_building_type(target_id)
             .unwrap_or(BuildingType::CommandCenter);
+        let Some(target_team) = game_logic.unit_team(target_id) else {
+            return false;
+        };
 
-        // Wave 244: unit capability probes (no &Object dual-read on selected units).
         for &unit_id in units {
             if !game_logic
                 .unit_team(unit_id)
-                .is_some_and(|t| t == target.team)
+                .is_some_and(|t| t == target_team)
                 || !game_logic.unit_is_alive(unit_id)
                 || !game_logic.unit_can_move(unit_id)
                 || !game_logic.unit_needs_service(unit_id)
@@ -2193,7 +2177,6 @@ impl CommandSystem {
 
             let can_use_service = match target_building_type {
                 BuildingType::HealPad => game_logic.unit_is_kind_of(unit_id, KindOf::Infantry),
-                // USA RepairPad + China WarFactory RepairDock residual.
                 BuildingType::RepairPad | BuildingType::WarFactory => {
                     game_logic.unit_is_kind_of(unit_id, KindOf::Vehicle)
                         && !game_logic.unit_is_kind_of(unit_id, KindOf::Aircraft)

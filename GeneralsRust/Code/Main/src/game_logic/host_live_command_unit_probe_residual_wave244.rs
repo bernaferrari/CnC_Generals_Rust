@@ -106,7 +106,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// Source residual: can_* / attack / classify use unit probes.
 pub fn honesty_command_unit_probe_source() -> bool {
     let gl = include_str!("game_logic.rs");
-    let cs = include_str!("../command_system.rs");
+    let cs_full = include_str!("../command_system.rs");
+    let cs = cs_full.split("#[cfg(test)]").next().unwrap_or(cs_full);
     if !(gl.contains("pub fn unit_team(")
         && gl.contains("pub fn unit_is_alive(")
         && gl.contains("pub fn unit_is_worker(")
@@ -131,11 +132,12 @@ pub fn honesty_command_unit_probe_source() -> bool {
         if body.contains("get_object(") {
             return false;
         }
-        if !body.contains("Wave 244") && name != "fn execute_attack_command(" {
-            // execute_attack has Wave 230/244 marker
-            if !(name == "fn execute_attack_command(" && body.contains("Wave 230/244")) {
-                return false;
-            }
+        // Wave 244/245: either wave marker is honest for unit-probe peels.
+        if !(body.contains("Wave 244")
+            || body.contains("Wave 245")
+            || body.contains("Wave 230/244"))
+        {
+            return false;
         }
     }
     let Some(classify) = fn_body(cs, "fn classify_right_click_target_from_presentation(") else {
