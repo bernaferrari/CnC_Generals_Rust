@@ -84,15 +84,19 @@ pub fn honesty_executable_presentation_boundary_residual_pack_wave176() -> bool 
 /// Source residual: executable vertical slice requires presentation boundary on InGame.
 pub fn honesty_executable_vertical_presentation_gate_source() -> bool {
     let src = include_str!("../executable_smoke.rs");
-    let i = match src.find("host_vertical_slice_ok =") {
-        Some(i) => i,
-        None => return false,
+    // Prefer the presentation_boundary_ok definition (may sit above host_vertical_slice_ok).
+    let i = src
+        .find("let presentation_boundary_ok")
+        .or_else(|| src.find("host_vertical_slice_ok ="));
+    let Some(i) = i else {
+        return false;
     };
-    let body = &src[i.saturating_sub(400)..src.len().min(i + 500)];
+    let body = &src[i.saturating_sub(200)..src.len().min(i + 900)];
     body.contains("presentation_boundary_ok")
         && body.contains("presentation_frame_ok")
         && body.contains("presentation_live_fallback_ok")
         && body.contains("reached_ingame")
+        && body.contains("host_vertical_slice_ok")
 }
 
 /// Source residual: execute remains presentation-only (no live GameLogic arg).
