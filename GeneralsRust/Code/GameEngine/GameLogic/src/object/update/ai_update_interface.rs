@@ -31,6 +31,12 @@ use crate::object::{CrushSquishTestType, Object};
 use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::weapon::WeaponSlotType;
 
+/// Wave 282: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 // ---------------------------------------------------------------------------
 // Constants from C++ AIUpdate.h
 // ---------------------------------------------------------------------------
@@ -926,6 +932,10 @@ impl AIUpdateInterface {
             return;
         }
         self.waiting_for_path = false;
+        // Wave 282: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
 
         if self.is_safe_path {
             self.destroy_path();
@@ -972,6 +982,11 @@ impl AIUpdateInterface {
     }
 
     fn compute_attack_path(&mut self, victim_id: Option<ObjectID>) -> bool {
+        // Wave 282: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let now = TheGameLogic::get_frame();
         if self.path_timestamp_is_recent(now) && self.path.is_some() && self.is_blocked_and_stuck {
             self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
@@ -1701,6 +1716,11 @@ impl AIUpdateInterface {
     }
 
     fn owner_locomotor_inputs(&self) -> Option<(Coord3D, Real, LocoBodyDamageType)> {
+        // Wave 282: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.with_object(self.owner_object_id, |owner| {
             (
                 *owner.get_position(),
@@ -1841,6 +1861,11 @@ impl AIUpdateInterface {
         &self,
         entries: &[AsciiString],
     ) -> Option<(usize, AsciiString, u32)> {
+        // Wave 282: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.owner_object_id == INVALID_ID {
             return None;
         }
@@ -2016,6 +2041,11 @@ impl AIUpdateInterface {
     }
 
     fn self_collision_snapshot(&self) -> Option<CollisionObjectSnapshot> {
+        // Wave 282: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.with_object(self.owner_object_id, |obj| {
             let (velocity, has_physics) = Self::physics_velocity(obj);
             CollisionObjectSnapshot {
@@ -2038,6 +2068,11 @@ impl AIUpdateInterface {
     }
 
     fn other_collision_snapshot(other_id: ObjectID) -> Option<CollisionObjectSnapshot> {
+        // Wave 282: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let (
             id,
             position,
@@ -2084,6 +2119,11 @@ impl AIUpdateInterface {
     }
 
     fn can_crush_or_squish(&self, other_id: ObjectID) -> bool {
+        // Wave 282: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         OBJECT_REGISTRY
             .with_object(self.owner_object_id, |owner| {
                 OBJECT_REGISTRY
@@ -2273,6 +2313,11 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::needToRotate – returns true if we need to rotate
     /// to point in our path's direction.  Ported from AIUpdate.cpp:1380.
     pub fn need_to_rotate(&self) -> bool {
+        // Wave 282: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.waiting_for_path {
             return true;
         }
