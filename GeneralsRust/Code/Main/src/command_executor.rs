@@ -1473,6 +1473,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.set_force_attack(false);
                 unit.set_target(Some(target_id));
                 unit.set_ai_state(AIState::Attacking);
+                // Wave 197: GameWorld shadow parity — attack-target last-writer drain.
+                crate::game_logic::host_attack_log::record(unit_id, Some(target_id));
                 any_attacker = true;
             }
         }
@@ -1525,6 +1527,7 @@ impl<'a> CommandExecutor<'a> {
         for (unit_id, _) in ordered {
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.set_target(Some(target_id));
+                crate::game_logic::host_attack_log::record(unit_id, Some(target_id));
                 unit.set_force_attack(true);
                 unit.set_ai_state(AIState::Attacking);
                 any_attacker = true;
@@ -2233,6 +2236,7 @@ impl<'a> CommandExecutor<'a> {
             // C++ stop clears guard/waypoint residual anchors.
             unit.set_guard_position(None);
             unit.set_guard_target(None);
+            crate::game_logic::host_attack_log::record(unit_id, None);
             unit.end_guard_retaliate();
             unit.set_ai_state(AIState::Idle);
         }
