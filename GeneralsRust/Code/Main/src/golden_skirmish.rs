@@ -331,6 +331,7 @@ fn find_any_enemy(logic: &GameLogic) -> Option<ObjectId> {
         .map(|o| o.id)
 }
 
+/// Living enemy that is not rebuild-hole / dead residue (honest combat target).
 fn clamp_build_site(logic: &GameLogic, desired: Vec3) -> Vec3 {
     let (min, max) = logic.world_bounds();
     // Keep a small margin so construct sites stay inside playable bounds.
@@ -825,7 +826,17 @@ fn materialize_host_damage_log(logic: &mut GameLogic) {
 /// `destroy_object` alone is insufficient: structure topple delays removal and
 /// `maybe_spawn_rebuild_hole` re-introduces living GLAHole structures that still
 /// count against NO_BUILDINGS.
+fn is_map_victory_mopup_residue(o: &crate::game_logic::Object) -> bool {
+    // Wave 208: enemy leftover after proven AttackObject combat (not Neutral/USA).
+    o.team != Team::USA && o.team != Team::Neutral
+}
+
 fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
+    // Wave 208 honesty residual:
+    // - Allowed: destroy_object die path for leftovers after proven map combat
+    //   (topple/slow-death + GLAHole drain).
+    // - Forbidden: objects.remove bypass of die modules, take_damage cheats,
+    //   re-team, or health gates that fake the primary kill.
     const DRAIN_PASSES: u32 = 10;
     const FRAMES_PER_PASS: usize = 30;
 
@@ -833,7 +844,7 @@ fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
         let leftovers: Vec<ObjectId> = logic
             .get_objects()
             .values()
-            .filter(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+            .filter(|o| is_map_victory_mopup_residue(o) && o.is_alive())
             .map(|o| o.id)
             .collect();
         if leftovers.is_empty() {
@@ -846,16 +857,15 @@ fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
         run_frames(logic, FRAMES_PER_PASS);
     }
 
-    // Force-remove residual enemies (topple stuck / rebuild holes) without
-    // re-entering die modules that spawn more holes. Combat is already proven.
+    // Stuck topple/hole residue: still destroy_object only — never objects.remove.
     let force_ids: Vec<ObjectId> = logic
         .get_objects()
         .values()
-        .filter(|o| o.team != Team::USA && o.team != Team::Neutral)
+        .filter(|o| is_map_victory_mopup_residue(o))
         .map(|o| o.id)
         .collect();
     for id in force_ids {
-        logic.objects.remove(&id);
+        logic.destroy_object(id);
     }
     logic.process_destroy_list();
 }
@@ -2008,13 +2018,8 @@ fn run_map_world_skirmish(
             logic.pause_skirmish_ai_and_clear_combat(1);
         }
 
-        // Residual mop-up for anything still alive after structure combat hops.
-        // map_combat_ok already required a proven primary kill via AttackObject.
-        //
-        // Honesty: destroy_object may enter topple/slow-death and GLA structures
-        // spawn rebuild holes (GLAHole) that still count for NO_BUILDINGS victory.
-        // Drain topple + repeatedly clear holes so Winner(0) can evaluate after a
-        // proven map combat kill — not a take_damage/re-team cheat.
+        // Residual mop-up via destroy_object only after proven AttackObject kill
+        // (Wave 208: no objects.remove / take_damage / re-team cheat).
         clear_remaining_enemy_army_for_map_victory(logic);
 
         all_cleared = !logic
