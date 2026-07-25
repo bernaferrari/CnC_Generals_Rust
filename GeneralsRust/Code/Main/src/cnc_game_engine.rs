@@ -3956,6 +3956,26 @@ impl CnCGameEngine {
                     "click_control_bar_scheme_miss".into()
                 };
             }
+            "click_presentation_boundary" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let wnd_ok = match action.as_str() {
+                    "execute" => crate::graphics::simulate_presentation_boundary_execute_source(),
+                    "collect" => crate::graphics::simulate_presentation_boundary_collect_source(),
+                    "fallback" => {
+                        crate::graphics::simulate_presentation_boundary_fallback_counter_source()
+                    }
+                    "cnc" => crate::graphics::simulate_presentation_boundary_cnc_execute_source(),
+                    _ => crate::graphics::simulate_presentation_boundary_prepare_honesty(),
+                };
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_presentation_boundary_ok_wnd_{action}")
+                } else {
+                    "click_presentation_boundary_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
