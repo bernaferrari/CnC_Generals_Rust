@@ -129,6 +129,7 @@ pub mod host_booby_trap;
 pub mod host_bunker_buster;
 pub mod host_car_bomb;
 pub mod host_cash_bounty;
+pub mod host_challenge_generals_residual_wave152;
 pub mod host_challenge_menu_residual_wave120;
 pub mod host_cia_intelligence;
 pub mod host_cleanup_area;
@@ -1456,6 +1457,11 @@ impl Default for Weapon {
 pub use host_beacon_residual_wave142::{
     honesty_beacon_control_names_residual_wave142, honesty_beacon_nav_commands_residual_wave142,
     honesty_beacon_residual_pack_wave142,
+};
+pub use host_challenge_generals_residual_wave152::{
+    honesty_challenge_generals_method_names_residual_wave152,
+    honesty_challenge_generals_nav_commands_residual_wave152,
+    honesty_challenge_generals_residual_pack_wave152,
 };
 pub use host_challenge_menu_residual_wave120::{
     honesty_challenge_menu_control_names_residual_wave120,
