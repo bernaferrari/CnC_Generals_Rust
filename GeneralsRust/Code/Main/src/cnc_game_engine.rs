@@ -2048,9 +2048,7 @@ impl CnCGameEngine {
             .as_ref()
             .map(crate::skirmish_config::local_faction_from_config)
             .unwrap_or_else(|| {
-                self.game_logic
-                    .get_player(self.current_player_id)
-                    .map(|p| p.team.get_name().to_string())
+                self.ui_local_player_team_name()
                     .unwrap_or_else(|| "USA".to_string())
             });
 
@@ -5827,6 +5825,23 @@ impl CnCGameEngine {
                     format!("click_live_command_executor_more_authority_api_ok_{action}")
                 } else {
                     format!("click_live_command_executor_more_authority_api_miss_{action}")
+                };
+            }
+            "click_live_engine_presentation_player_ui" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_engine_presentation_player_ui_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_engine_presentation_player_ui_residual_pack_wave234(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_engine_presentation_player_ui_ok_{action}")
+                } else {
+                    format!("click_live_engine_presentation_player_ui_miss_{action}")
                 };
             }
             "save_game" | "quicksave" => {
@@ -12267,7 +12282,7 @@ impl CnCGameEngine {
             let team = if let Some(frame) = self.last_presentation_frame.as_ref() {
                 frame.player_team(event.player_id)
             } else {
-                self.game_logic.get_player(event.player_id).map(|p| p.team)
+                self.ui_player_team(event.player_id)
             };
             if let Some(team) = team {
                 self.game_logic
@@ -13158,7 +13173,7 @@ impl CnCGameEngine {
             .last_presentation_frame
             .as_ref()
             .map(|f| f.local_team())
-            .or_else(|| self.game_logic.get_player(player_id).map(|p| p.team))
+            .or_else(|| self.ui_player_team(player_id))
             .unwrap_or(crate::game_logic::Team::USA);
         let frame = self.last_presentation_frame.as_ref()?;
         let cands: Vec<_> = frame
@@ -13249,6 +13264,78 @@ impl CnCGameEngine {
             .get_player(self.current_player_id)
             .map(|p| p.team)
             .unwrap_or(crate::game_logic::Team::USA)
+    }
+
+    /// Wave 234: player roster probe prefers presentation freeze.
+    fn ui_player_info(
+        &self,
+        player_id: u32,
+    ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            if let Some(p) = frame.player_info(player_id).cloned() {
+                return Some(p);
+            }
+        }
+        self.game_logic.get_player(player_id).map(|p| {
+            crate::presentation_frame::PresentationPlayerInfo {
+                id: p.id,
+                name: p.name.clone(),
+                team: p.team,
+                is_alive: p.is_alive,
+                is_local: p.is_local || p.id == self.current_player_id,
+                is_ai: self.game_logic.ai_manager_contains_player(player_id),
+                color_rgb: p.color_rgb,
+            }
+        })
+    }
+
+    #[inline]
+    fn ui_player_team(&self, player_id: u32) -> Option<crate::game_logic::Team> {
+        self.ui_player_info(player_id).map(|p| p.team)
+    }
+
+    #[inline]
+    fn ui_player_name(&self, player_id: u32) -> Option<String> {
+        self.ui_player_info(player_id).map(|p| p.name)
+    }
+
+    #[inline]
+    fn ui_local_player_team_name(&self) -> Option<String> {
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            return Some(frame.local_team().get_name().to_string());
+        }
+        self.game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.team.get_name().to_string())
+    }
+
+    /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
+    fn ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
+        if let Some(id) = self.selected_objects.first().copied() {
+            return Some(id);
+        }
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            if let Some(id) = frame.selected.first().copied() {
+                return Some(id);
+            }
+            if let Some(id) = frame.selection_ids_for_consumers().first().copied() {
+                return Some(id);
+            }
+        }
+        self.game_logic
+            .get_player(self.current_player_id)
+            .and_then(|p| p.selected_objects.first().copied())
+    }
+
+    /// Wave 234: local science purchase points prefer presentation freeze.
+    fn ui_local_science_purchase_points(&self) -> i32 {
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            return frame.local_science_purchase_points();
+        }
+        self.game_logic
+            .get_player(self.current_player_id)
+            .map(|p| p.science_purchase_points)
+            .unwrap_or(0)
     }
 
     #[inline]
@@ -14223,9 +14310,7 @@ impl CnCGameEngine {
             .map(|p| p.local_team.get_name().to_string())
             .or_else(|| {
                 // Boot residual only.
-                self.game_logic
-                    .get_player(self.current_player_id)
-                    .map(|p| p.team.get_name().to_string())
+                self.ui_local_player_team_name()
             })
             .unwrap_or_else(|| "USA".to_string());
 
@@ -14284,9 +14369,7 @@ impl CnCGameEngine {
             .map(|p| p.local_team.get_name().to_string())
             .or_else(|| {
                 // Boot residual only — presentation local_team owns InGame save metadata.
-                self.game_logic
-                    .get_player(self.current_player_id)
-                    .map(|player| player.team.get_name().to_string())
+                self.ui_local_player_team_name()
             })
             .unwrap_or_else(|| "Neutral".to_string());
 
@@ -16681,9 +16764,7 @@ impl CnCGameEngine {
                 .map(|p| p.name.clone())
                 .unwrap_or_else(|| format!("Player{}", self.current_player_id))
         } else {
-            self.game_logic
-                .get_player(self.current_player_id)
-                .map(|p| p.name.clone())
+            self.ui_player_name(self.current_player_id)
                 .unwrap_or_else(|| format!("Player{}", self.current_player_id))
         };
         self.chat_panel.set_local_player_name(&name);
@@ -17248,17 +17329,16 @@ impl CnCGameEngine {
 
     /// Purchase next available GeneralsExperience science residual (Alt+G).
     fn try_purchase_next_generals_science(&mut self) {
+        // Wave 234: science points/team prefer presentation freeze for UI gate.
         let player_id = self.current_player_id;
-        let Some(player) = self.game_logic.get_player(player_id) else {
-            return;
-        };
-        if player.science_purchase_points <= 0 {
+        let spp = self.ui_local_science_purchase_points();
+        if spp <= 0 {
             let msg = "No science purchase points";
             self.game_hud.push_info_message(msg);
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        let team = player.team;
+        let team = self.local_team_for_ui();
         // Retail-ish purchasable science order residual (fail-closed vs full Science.ini tree).
         let candidates: &[&str] = match team {
             crate::game_logic::Team::China => &[
@@ -17286,19 +17366,27 @@ impl CnCGameEngine {
                 "SCIENCE_SpyDrone",
             ],
         };
-        let unlocked = player.unlocked_sciences.clone();
-        let spp = player.science_purchase_points;
-        let _ = player;
+        // Wave 234: unlocked sciences prefer presentation freeze.
+        let unlocked: Vec<String> = if let Some(frame) = self.last_presentation_frame.as_ref() {
+            frame.local_unlocked_sciences.clone()
+        } else {
+            self.game_logic
+                .get_player(player_id)
+                .map(|p| p.unlocked_sciences.iter().cloned().collect())
+                .unwrap_or_default()
+        };
 
         let mut chosen = None;
         for &name in candidates {
             if unlocked.iter().any(|s| s.eq_ignore_ascii_case(name)) {
                 continue;
             }
-            // Probe without spending via can-capable if available.
-            if let Some(p) = self.game_logic.get_player(player_id) {
-                if !p.is_capable_of_purchasing_science(name) {
-                    continue;
+            // Probe capability without long-lived dual-read: only when no frame.
+            if self.last_presentation_frame.is_none() {
+                if let Some(p) = self.game_logic.get_player(player_id) {
+                    if !p.is_capable_of_purchasing_science(name) {
+                        continue;
+                    }
                 }
             }
             chosen = Some(name.to_string());
@@ -18217,11 +18305,8 @@ impl CnCGameEngine {
 
     /// Snap camera to centroid of current selection residual (Alt+Space).
     fn center_camera_on_selection(&mut self) {
-        let selected = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_else(|| self.selected_objects.clone());
+        // Wave 234: selection prefers engine/presentation freeze.
+        let selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
             let msg = "Nothing selected";
             self.game_hud.push_info_message(msg);
@@ -18275,11 +18360,7 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        let id = self.selected_objects.first().copied().or_else(|| {
-            self.game_logic
-                .get_player(self.current_player_id)
-                .and_then(|p| p.selected_objects.first().copied())
-        });
+        let id = self.ui_selection_seed_id();
         let Some(id) = id else {
             let msg = "Select a unit to follow";
             self.game_hud.push_info_message(msg);
@@ -18346,11 +18427,7 @@ impl CnCGameEngine {
 
     /// Retail SELECT_MATCHING_UNITS (KEY_E) residual — type-select from current selection.
     fn select_matching_units_hotkey(&mut self) {
-        let seed = self.selected_objects.first().copied().or_else(|| {
-            self.game_logic
-                .get_player(self.current_player_id)
-                .and_then(|p| p.selected_objects.first().copied())
-        });
+        let seed = self.ui_selection_seed_id();
         let Some(seed) = seed else {
             return;
         };
@@ -18465,14 +18542,8 @@ impl CnCGameEngine {
         location: Vec3,
         target_object: Option<ObjectId>,
     ) {
-        let mut selected = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_default();
-        if selected.is_empty() {
-            selected = self.selected_objects.clone();
-        }
+        // Wave 234: selection prefers engine/presentation freeze.
+        let mut selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
             return;
         }
@@ -18605,14 +18676,8 @@ impl CnCGameEngine {
         let mouse_pos = self.mouse_world_position;
 
         // Prefer live player selection; fall back to engine selection residual.
-        let mut selected = self
-            .game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_default();
-        if selected.is_empty() {
-            selected = self.selected_objects.clone();
-        }
+        // Wave 234: selection prefers engine/presentation freeze.
+        let mut selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
             return;
         }
@@ -19041,12 +19106,8 @@ impl CnCGameEngine {
             };
         }
 
-        let has_selection = !self.selected_objects.is_empty()
-            || self
-                .game_logic
-                .get_player(self.current_player_id)
-                .map(|p| !p.selected_objects.is_empty())
-                .unwrap_or(false);
+        // Wave 234: selection presence prefers engine/presentation freeze.
+        let has_selection = !self.ui_selected_ids(self.current_player_id).is_empty();
 
         let hover = self.find_object_at_position(self.mouse_world_position, true);
         let ctrl = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
@@ -19070,10 +19131,7 @@ impl CnCGameEngine {
                 let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
                     frame.local_team()
                 } else {
-                    self.game_logic
-                        .get_player(self.current_player_id)
-                        .map(|p| p.team)
-                        .unwrap_or(crate::game_logic::Team::USA)
+                    self.local_team_for_ui()
                 };
                 let friendly = if let Some(frame) = self.last_presentation_frame.as_ref() {
                     frame
