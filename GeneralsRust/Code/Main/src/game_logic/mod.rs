@@ -223,6 +223,7 @@ pub mod host_neutron_shell;
 pub mod host_nuclear_tanks;
 pub mod host_nuke_cannon;
 pub mod host_object_register_drawable_residual_wave104;
+pub mod host_ocl_timer_residual_wave146;
 pub mod host_oil_derrick;
 pub mod host_options_menu_residual_wave126;
 pub mod host_overlord_addons;
@@ -1533,6 +1534,10 @@ pub use host_map_select_menu_residual_wave132::{
 pub use host_message_box_residual_wave128::{
     honesty_message_box_control_names_residual_wave128,
     honesty_message_box_nav_commands_residual_wave128, honesty_message_box_residual_pack_wave128,
+};
+pub use host_ocl_timer_residual_wave146::{
+    honesty_ocl_timer_method_names_residual_wave146,
+    honesty_ocl_timer_nav_commands_residual_wave146, honesty_ocl_timer_residual_pack_wave146,
 };
 pub use host_options_menu_residual_wave126::{
     honesty_options_menu_control_names_residual_wave126,

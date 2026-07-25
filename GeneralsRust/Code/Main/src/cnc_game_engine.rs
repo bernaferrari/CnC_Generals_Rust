@@ -3583,6 +3583,45 @@ impl CnCGameEngine {
                     "click_smudge_miss".into()
                 };
             }
+            "click_ocl_timer" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let remaining = args
+                    .get("remaining")
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .unwrap_or(870);
+                let total = args
+                    .get("total")
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .unwrap_or(900);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::control_bar::{
+                        simulate_ocl_timer_format, simulate_ocl_timer_frames_to_display,
+                        simulate_ocl_timer_prepare_display, simulate_ocl_timer_should_update,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "format" => {
+                            let _ = simulate_ocl_timer_format(remaining, 0.5);
+                            true
+                        }
+                        "frames" => {
+                            let _ = simulate_ocl_timer_frames_to_display(remaining, total);
+                            true
+                        }
+                        "should_update" => simulate_ocl_timer_should_update(0, remaining),
+                        _ => simulate_ocl_timer_prepare_display(remaining, total).is_some(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_ocl_timer_ok_wnd_{action}")
+                } else {
+                    "click_ocl_timer_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args

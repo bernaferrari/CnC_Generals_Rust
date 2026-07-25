@@ -32,6 +32,13 @@ pub mod control_bar_command_processing;
 pub mod control_bar_multi_select;
 pub mod control_bar_observer;
 pub mod control_bar_ocl_timer;
+pub use control_bar_ocl_timer::{
+    format_ocl_timer_display, ocl_frames_to_display, residual_ocl_timer_last_action,
+    residual_ocl_timer_progress_milli, residual_ocl_timer_seconds, should_update_timer_text,
+    simulate_ocl_timer_format, simulate_ocl_timer_frames_to_display,
+    simulate_ocl_timer_prepare_display, simulate_ocl_timer_should_update, OCLTimerDisplayState,
+    ResidualOclTimerAction,
+};
 pub mod control_bar_print_positions;
 pub mod control_bar_resizer;
 pub mod control_bar_scheme;
