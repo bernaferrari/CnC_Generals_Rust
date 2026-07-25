@@ -36,6 +36,12 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 299: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const INVALID_PARTICLE_SYSTEM_ID: ParticleSystemID = 0;
 const INVALID_DRAWABLE_ID: DrawableID = 0;
 const MAX_OUTER_NODES: usize = 16;
@@ -792,6 +798,11 @@ impl ParticleUplinkCannonUpdate {
     }
 
     fn set_logical_status(&mut self, status: PUCStatus) {
+        // Wave 299: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.status != status {
             if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
                 None
@@ -854,6 +865,11 @@ impl ParticleUplinkCannonUpdate {
     }
 
     fn get_object_id_and_position(&self) -> Option<(ObjectID, Coord3D)> {
+        // Wave 299: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let object_arc = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -908,6 +924,11 @@ impl ParticleUplinkCannonUpdate {
     }
 
     fn create_outer_node_particle_systems(&mut self, intensity: IntensityTypes) {
+        // Wave 299: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let name = match intensity {
             IntensityTypes::Light => {
                 &self
@@ -985,6 +1006,11 @@ impl ParticleUplinkCannonUpdate {
     }
 
     fn calculate_up_bone_positions(&mut self) -> Bool {
+        // Wave 299: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1186,6 +1212,11 @@ impl ParticleUplinkCannonUpdate {
 
 impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 299: empty dual-world → None sleep.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::None;
+        }
+
         if self.invalid_settings {
             return UpdateSleepTime::None; // C++ checks this first
         }
@@ -1737,6 +1768,11 @@ impl SpecialPowerUpdateInterface for ParticleUplinkCannonUpdate {
     }
 
     fn set_special_power_overridable_destination(&mut self, loc: &Coord3D) {
+        // Wave 299: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1773,6 +1809,11 @@ impl BehaviorModuleInterface for ParticleUplinkCannonUpdate {
         Some(self)
     }
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 299: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.module_data.special_power_template.is_none() {
             self.invalid_settings = true;
             return Ok(());
