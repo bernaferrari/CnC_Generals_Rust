@@ -2457,6 +2457,55 @@ impl CnCGameEngine {
                     "click_message_box_miss".into()
                 };
             }
+            "toggle_diplomacy" => {
+                // Retail Diplomacy toggle residual without layout/animate.
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_diplomacy_toggle_show();
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "toggle_diplomacy_ok_wnd".into()
+                } else {
+                    "toggle_diplomacy_miss".into()
+                };
+            }
+            "click_diplomacy" => {
+                // Retail Diplomacy radio/mute/hide residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "ingame".to_string());
+                let slot = args
+                    .get("slot")
+                    .and_then(|v| v.parse::<i32>().ok())
+                    .unwrap_or(0);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_diplomacy_hide, simulate_diplomacy_mute_slot,
+                        simulate_diplomacy_prepare_ingame, simulate_diplomacy_radio_buddies,
+                        simulate_diplomacy_radio_ingame, simulate_diplomacy_reset,
+                        simulate_diplomacy_toggle_hide, simulate_diplomacy_unmute_slot,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "hide" => simulate_diplomacy_hide(),
+                        "toggle_hide" => simulate_diplomacy_toggle_hide(),
+                        "reset" => simulate_diplomacy_reset(),
+                        "buddies" => simulate_diplomacy_radio_buddies(),
+                        "mute" => simulate_diplomacy_mute_slot(slot),
+                        "unmute" => simulate_diplomacy_unmute_slot(slot),
+                        "prepare_ingame" => simulate_diplomacy_prepare_ingame(),
+                        _ => simulate_diplomacy_radio_ingame(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_diplomacy_ok_wnd_{action}")
+                } else {
+                    "click_diplomacy_miss".into()
+                };
+            }
             "open_single_player_menu" => {
                 let mut wnd_ok = false;
                 #[cfg(feature = "game_client")]

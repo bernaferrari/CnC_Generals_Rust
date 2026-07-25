@@ -916,3 +916,177 @@ mod tests {
         }
     }
 }
+
+/// Residual: last Diplomacy action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualDiplomacyAction {
+    None = 0,
+    ToggleShow = 1,
+    ToggleHide = 2,
+    Hide = 3,
+    Reset = 4,
+    RadioInGame = 5,
+    RadioBuddies = 6,
+    Mute = 7,
+    Unmute = 8,
+}
+
+static RESIDUAL_DIPLOMACY_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_DIPLOMACY_ACTIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static RESIDUAL_DIPLOMACY_MUTE_SLOT: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(-1);
+
+fn residual_diplomacy_action_store(action: ResidualDiplomacyAction) {
+    RESIDUAL_DIPLOMACY_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last Diplomacy residual action.
+pub fn residual_diplomacy_last_action() -> ResidualDiplomacyAction {
+    match RESIDUAL_DIPLOMACY_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualDiplomacyAction::ToggleShow,
+        2 => ResidualDiplomacyAction::ToggleHide,
+        3 => ResidualDiplomacyAction::Hide,
+        4 => ResidualDiplomacyAction::Reset,
+        5 => ResidualDiplomacyAction::RadioInGame,
+        6 => ResidualDiplomacyAction::RadioBuddies,
+        7 => ResidualDiplomacyAction::Mute,
+        8 => ResidualDiplomacyAction::Unmute,
+        _ => ResidualDiplomacyAction::None,
+    }
+}
+
+/// Residual: diplomacy active latch (independent of live layout).
+pub fn residual_diplomacy_is_active() -> bool {
+    RESIDUAL_DIPLOMACY_ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: last mute/unmute slot (-1 if none).
+pub fn residual_diplomacy_mute_slot() -> Option<i32> {
+    let slot = RESIDUAL_DIPLOMACY_MUTE_SLOT.load(std::sync::atomic::Ordering::Relaxed);
+    if slot < 0 {
+        None
+    } else {
+        Some(slot)
+    }
+}
+
+/// Residual: bind Diplomacy control name keys (no layout load).
+pub fn simulate_diplomacy_bind_controls() -> bool {
+    let _ = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonInGame");
+    let _ = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonBuddies");
+    let _ = NameKeyGenerator::name_to_key("Diplomacy.wnd:InGameParent");
+    let _ = NameKeyGenerator::name_to_key("Diplomacy.wnd:BuddiesParent");
+    let _ = NameKeyGenerator::name_to_key("Diplomacy.wnd:SoloParent");
+    let _ = NameKeyGenerator::name_to_key("Diplomacy.wnd:ButtonHide");
+    let _ = NameKeyGenerator::name_to_key("Diplomacy.wnd:ButtonMute0");
+    let _ = NameKeyGenerator::name_to_key("Diplomacy.wnd:ButtonUnMute0");
+    true
+}
+
+/// Residual: toggle show without layout/animate.
+pub fn simulate_diplomacy_toggle_show() -> bool {
+    let system = get_diplomacy_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
+    callbacks.active = true;
+    RESIDUAL_DIPLOMACY_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+    residual_diplomacy_action_store(ResidualDiplomacyAction::ToggleShow);
+    residual_diplomacy_is_active()
+}
+
+/// Residual: toggle hide without layout/animate.
+pub fn simulate_diplomacy_toggle_hide() -> bool {
+    let system = get_diplomacy_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
+    callbacks.active = false;
+    RESIDUAL_DIPLOMACY_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_diplomacy_action_store(ResidualDiplomacyAction::ToggleHide);
+    !residual_diplomacy_is_active()
+}
+
+/// Residual: hide without layout teardown.
+pub fn simulate_diplomacy_hide() -> bool {
+    let system = get_diplomacy_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
+    callbacks.active = false;
+    RESIDUAL_DIPLOMACY_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+    residual_diplomacy_action_store(ResidualDiplomacyAction::Hide);
+    true
+}
+
+/// Residual: reset without clearing live widgets.
+pub fn simulate_diplomacy_reset() -> bool {
+    let system = get_diplomacy_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
+    callbacks.active = false;
+    callbacks.players.clear();
+    callbacks.briefing_list.clear();
+    RESIDUAL_DIPLOMACY_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_DIPLOMACY_MUTE_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
+    residual_diplomacy_action_store(ResidualDiplomacyAction::Reset);
+    true
+}
+
+/// Residual: select InGame radio without parent show/hide.
+pub fn simulate_diplomacy_radio_ingame() -> bool {
+    let _ = simulate_diplomacy_bind_controls();
+    residual_diplomacy_action_store(ResidualDiplomacyAction::RadioInGame);
+    true
+}
+
+/// Residual: select Buddies radio without parent show/hide.
+pub fn simulate_diplomacy_radio_buddies() -> bool {
+    let _ = simulate_diplomacy_bind_controls();
+    residual_diplomacy_action_store(ResidualDiplomacyAction::RadioBuddies);
+    true
+}
+
+/// Residual: mute slot without live mute side effects beyond callbacks map.
+pub fn simulate_diplomacy_mute_slot(slot: i32) -> bool {
+    if slot < 0 {
+        return false;
+    }
+    let system = get_diplomacy_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
+    let _ = callbacks.set_player_muted(slot, true);
+    RESIDUAL_DIPLOMACY_MUTE_SLOT.store(slot, std::sync::atomic::Ordering::Relaxed);
+    residual_diplomacy_action_store(ResidualDiplomacyAction::Mute);
+    residual_diplomacy_mute_slot() == Some(slot)
+}
+
+/// Residual: unmute slot residual.
+pub fn simulate_diplomacy_unmute_slot(slot: i32) -> bool {
+    if slot < 0 {
+        return false;
+    }
+    let system = get_diplomacy_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    let mut callbacks = callbacks.write().unwrap_or_else(|e| e.into_inner());
+    let _ = callbacks.set_player_muted(slot, false);
+    RESIDUAL_DIPLOMACY_MUTE_SLOT.store(slot, std::sync::atomic::Ordering::Relaxed);
+    residual_diplomacy_action_store(ResidualDiplomacyAction::Unmute);
+    true
+}
+
+/// Residual: show + InGame radio composite.
+pub fn simulate_diplomacy_prepare_ingame() -> bool {
+    if !simulate_diplomacy_bind_controls() {
+        return false;
+    }
+    if !simulate_diplomacy_toggle_show() {
+        return false;
+    }
+    simulate_diplomacy_radio_ingame()
+}
