@@ -41,6 +41,14 @@ pub use control_bar_ocl_timer::{
 };
 pub mod control_bar_print_positions;
 pub mod control_bar_resizer;
+pub use control_bar_resizer::{
+    residual_control_bar_resizer_base_resolution, residual_control_bar_resizer_last_action,
+    residual_control_bar_resizer_window_count, simulate_control_bar_resizer_add_window,
+    simulate_control_bar_resizer_clear, simulate_control_bar_resizer_get_optimal_size,
+    simulate_control_bar_resizer_prepare_default, simulate_control_bar_resizer_resize,
+    simulate_control_bar_resizer_set_base_resolution, IniControlBarResizer,
+    ResidualControlBarResizerAction, ResizerWindow,
+};
 pub mod control_bar_scheme;
 pub mod control_bar_structure_inventory;
 pub mod control_bar_under_construction;

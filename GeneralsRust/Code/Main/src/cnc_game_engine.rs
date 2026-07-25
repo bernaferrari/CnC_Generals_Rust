@@ -3622,6 +3622,52 @@ impl CnCGameEngine {
                     "click_ocl_timer_miss".into()
                 };
             }
+            "click_control_bar_resizer" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let name = args
+                    .get("name")
+                    .cloned()
+                    .unwrap_or_else(|| "ControlBar.wnd:ControlBarParent".to_string());
+                let width = args
+                    .get("width")
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .unwrap_or(1024);
+                let height = args
+                    .get("height")
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .unwrap_or(768);
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::control_bar::{
+                        simulate_control_bar_resizer_add_window,
+                        simulate_control_bar_resizer_clear,
+                        simulate_control_bar_resizer_get_optimal_size,
+                        simulate_control_bar_resizer_prepare_default,
+                        simulate_control_bar_resizer_resize,
+                        simulate_control_bar_resizer_set_base_resolution,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "add" => simulate_control_bar_resizer_add_window(&name),
+                        "clear" => simulate_control_bar_resizer_clear(),
+                        "base" => simulate_control_bar_resizer_set_base_resolution(width, height),
+                        "resize" => simulate_control_bar_resizer_resize(width, height),
+                        "optimal" => {
+                            let _ = simulate_control_bar_resizer_get_optimal_size();
+                            true
+                        }
+                        _ => simulate_control_bar_resizer_prepare_default(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_control_bar_resizer_ok_wnd_{action}")
+                } else {
+                    "click_control_bar_resizer_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args
