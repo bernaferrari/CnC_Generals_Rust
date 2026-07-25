@@ -2602,6 +2602,64 @@ impl CnCGameEngine {
                     "click_score_screen_miss".into()
                 };
             }
+            "open_options_menu" => {
+                // Retail OptionsMenu residual open (shell or in-game overlay).
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    wnd_ok = game_client::gui::callbacks::simulate_options_menu_bind_controls();
+                }
+                self.enter_shell_menu_from_runtime_host(Some("Options"));
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    "open_options_menu_ok_wnd".into()
+                } else {
+                    "open_options_menu_ok".into()
+                };
+            }
+            "click_options_menu" => {
+                // Retail Options Accept/Back/Defaults/Keyboard/Advanced residual.
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "accept".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::callbacks::{
+                        simulate_options_menu_accept_button_gadget_selected,
+                        simulate_options_menu_advanced_accept_button_gadget_selected,
+                        simulate_options_menu_advanced_back_button_gadget_selected,
+                        simulate_options_menu_back_button_gadget_selected,
+                        simulate_options_menu_defaults_button_gadget_selected,
+                        simulate_options_menu_firewall_refresh_button_gadget_selected,
+                        simulate_options_menu_keyboard_button_gadget_selected,
+                        simulate_options_menu_prepare_accept,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "back" => simulate_options_menu_back_button_gadget_selected(),
+                        "defaults" | "default" => {
+                            simulate_options_menu_defaults_button_gadget_selected()
+                        }
+                        "keyboard" => simulate_options_menu_keyboard_button_gadget_selected(),
+                        "advanced_accept" => {
+                            simulate_options_menu_advanced_accept_button_gadget_selected()
+                        }
+                        "advanced_back" => {
+                            simulate_options_menu_advanced_back_button_gadget_selected()
+                        }
+                        "firewall" | "firewall_refresh" => {
+                            simulate_options_menu_firewall_refresh_button_gadget_selected()
+                        }
+                        "prepare_accept" => simulate_options_menu_prepare_accept(),
+                        _ => simulate_options_menu_accept_button_gadget_selected(),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_options_menu_ok_wnd_{action}")
+                } else {
+                    "click_options_menu_miss".into()
+                };
+            }
             "open_difficulty_menu" => {
                 let campaign = args
                     .get("campaign")
