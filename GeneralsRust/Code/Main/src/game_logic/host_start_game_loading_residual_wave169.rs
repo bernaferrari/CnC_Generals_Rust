@@ -114,24 +114,48 @@ pub fn honesty_start_game_from_ui_loading_source() -> bool {
 }
 
 /// Resolve a retail map directory or .map file for `map_name`.
+///
+/// Walks cwd + up to 6 parents so residuals work from `Code/Main`,
+/// `GeneralsRust/`, or the monorepo root (matches map_frame_scenario).
 pub fn resolve_retail_map_path(map_name: &str) -> Option<PathBuf> {
     let map_name = map_name.trim();
     if map_name.is_empty() {
         return None;
     }
-    for root in MAP_ROOT_CANDIDATES_WAVE169 {
-        let dir = Path::new(root).join(map_name);
-        let map_file = dir.join(format!("{map_name}.map"));
-        if map_file.is_file() {
-            return Some(map_file);
+
+    let mut bases: Vec<PathBuf> = vec![PathBuf::from(".")];
+    if let Ok(cwd) = std::env::current_dir() {
+        bases.push(cwd.clone());
+        let mut b = cwd;
+        for _ in 0..6 {
+            if let Some(parent) = b.parent() {
+                b = parent.to_path_buf();
+                bases.push(b.clone());
+            } else {
+                break;
+            }
         }
-        // Some trees use the directory alone with internal .map
-        if dir.is_dir() {
-            if let Ok(rd) = std::fs::read_dir(&dir) {
-                for ent in rd.flatten() {
-                    let p = ent.path();
-                    if p.extension().and_then(|e| e.to_str()) == Some("map") {
-                        return Some(p);
+    }
+
+    for base in bases {
+        for root in MAP_ROOT_CANDIDATES_WAVE169 {
+            let root_path = if Path::new(root).is_absolute() {
+                PathBuf::from(root)
+            } else {
+                base.join(root)
+            };
+            let dir = root_path.join(map_name);
+            let map_file = dir.join(format!("{map_name}.map"));
+            if map_file.is_file() {
+                return Some(map_file);
+            }
+            if dir.is_dir() {
+                if let Ok(rd) = std::fs::read_dir(&dir) {
+                    for ent in rd.flatten() {
+                        let p = ent.path();
+                        if p.extension().and_then(|e| e.to_str()) == Some("map") {
+                            return Some(p);
+                        }
                     }
                 }
             }
