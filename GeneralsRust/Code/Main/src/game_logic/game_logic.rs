@@ -25152,6 +25152,19 @@ impl GameLogic {
             .unwrap_or(false)
     }
 
+    /// Wave 239: team probe without exposing `&Player`.
+    #[inline]
+    pub fn player_team(&self, id: u32) -> Option<Team> {
+        self.players.get(&id).map(|p| p.team)
+    }
+
+    /// Wave 239: command-center world pose for a player's team (camera boot residual).
+    #[inline]
+    pub fn player_command_center_position(&self, id: u32) -> Option<glam::Vec3> {
+        let team = self.player_team(id)?;
+        self.command_center_position(team)
+    }
+
     /// Get mutable player by ID
     pub fn get_player_mut(&mut self, player_id: u32) -> Option<&mut Player> {
         self.players.get_mut(&player_id)

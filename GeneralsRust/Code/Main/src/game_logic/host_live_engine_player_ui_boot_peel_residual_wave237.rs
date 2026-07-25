@@ -117,7 +117,9 @@ pub fn honesty_engine_player_ui_boot_peel_source() -> bool {
     let Some(reset) = fn_body(eng, "fn reset_camera_view_hotkey(") else {
         return false;
     };
-    reset.contains("Wave 237") && reset.contains("ui_player_team")
+    // Wave 239: boot focus may use player_command_center_position probe.
+    (reset.contains("Wave 237") || reset.contains("Wave 239"))
+        && (reset.contains("ui_player_team") || reset.contains("player_command_center_position"))
 }
 
 /// Live residual: source honesty pack latches.

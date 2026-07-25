@@ -5912,6 +5912,23 @@ impl CnCGameEngine {
                     format!("click_live_player_probe_api_miss_{action}")
                 };
             }
+            "click_live_player_team_probe" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_player_team_probe_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_player_team_probe_residual_pack_wave239(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_player_team_probe_ok_{action}")
+                } else {
+                    format!("click_live_player_team_probe_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -8464,9 +8481,9 @@ impl CnCGameEngine {
             pres.local_team_base_position
                 .map(|pos| Vec2::new(pos.x, pos.z))
         } else {
+            // Wave 239: boot residual via player_team probe (no &Player expose).
             game_logic
-                .get_player(current_player_id)
-                .map(|player| player.team)
+                .player_team(current_player_id)
                 .and_then(|team| game_logic.team_base_position(team))
                 .map(|pos| Vec2::new(pos.x, pos.z))
         };
@@ -17067,10 +17084,10 @@ impl CnCGameEngine {
                 })
                 .unwrap_or(self.camera_target)
         } else if let Some(pos) = self
-            .ui_player_team(self.current_player_id)
-            .and_then(|team| self.game_logic.command_center_position(team))
+            .game_logic
+            .player_command_center_position(self.current_player_id)
         {
-            // Wave 237: boot residual via ui_player_team helper.
+            // Wave 239: boot residual via player_command_center_position probe.
             pos
         } else {
             self.camera_target
