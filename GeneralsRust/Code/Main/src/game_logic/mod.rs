@@ -218,6 +218,7 @@ pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
 pub mod host_live_ai_group_dual_world_empty_gate_residual_wave253;
+pub mod host_live_ai_integration_dual_world_empty_gate_residual_wave285;
 pub mod host_live_ai_legacy_states_dual_world_empty_gate_residual_wave257;
 pub mod host_live_ai_mod_dual_world_empty_gate_residual_wave263;
 pub mod host_live_ai_player_dual_world_empty_gate_residual_wave255;
@@ -1722,6 +1723,12 @@ pub use host_live_ai_group_dual_world_empty_gate_residual_wave253::{
     honesty_live_ai_group_dual_world_empty_gate_nav_commands_residual_wave253,
     honesty_live_ai_group_dual_world_empty_gate_residual_pack_wave253,
     simulate_live_ai_group_dual_world_empty_gate_honesty,
+};
+pub use host_live_ai_integration_dual_world_empty_gate_residual_wave285::{
+    honesty_live_ai_integration_dual_world_empty_gate_method_names_residual_wave285,
+    honesty_live_ai_integration_dual_world_empty_gate_nav_commands_residual_wave285,
+    honesty_live_ai_integration_dual_world_empty_gate_residual_pack_wave285,
+    simulate_live_ai_integration_dual_world_empty_gate_honesty,
 };
 pub use host_live_ai_legacy_states_dual_world_empty_gate_residual_wave257::{
     honesty_live_ai_legacy_states_dual_world_empty_gate_method_names_residual_wave257,
