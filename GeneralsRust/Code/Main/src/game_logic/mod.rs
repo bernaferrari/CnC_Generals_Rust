@@ -233,6 +233,7 @@ pub mod host_live_command_selection_log_residual_wave206;
 pub mod host_live_command_sell_deselect_log_residual_wave212;
 pub mod host_live_control_group_camera_presentation_only_residual_wave216;
 pub mod host_live_evacuate_contain_log_residual_wave201;
+pub mod host_live_force_complete_authority_api_residual_wave224;
 pub mod host_live_gameworld_construction_writeback_residual_wave181;
 pub mod host_live_gameworld_damage_channel_residual_wave182;
 pub mod host_live_gameworld_economy_movement_residual_wave183;
@@ -1749,6 +1750,12 @@ pub use host_live_evacuate_contain_log_residual_wave201::{
     honesty_live_evacuate_contain_log_nav_commands_residual_wave201,
     honesty_live_evacuate_contain_log_residual_pack_wave201,
     simulate_live_evacuate_contain_log_honesty,
+};
+pub use host_live_force_complete_authority_api_residual_wave224::{
+    honesty_live_force_complete_authority_api_method_names_residual_wave224,
+    honesty_live_force_complete_authority_api_nav_commands_residual_wave224,
+    honesty_live_force_complete_authority_api_residual_pack_wave224,
+    simulate_live_force_complete_authority_api_honesty,
 };
 pub use host_live_gameworld_construction_writeback_residual_wave181::{
     honesty_live_gameworld_construction_writeback_method_names_residual_wave181,

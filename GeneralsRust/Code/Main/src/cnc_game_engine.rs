@@ -5659,6 +5659,23 @@ impl CnCGameEngine {
                     format!("click_live_bootstrap_camera_presentation_only_miss_{action}")
                 };
             }
+            "click_live_force_complete_authority_api" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_force_complete_authority_api_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_force_complete_authority_api_residual_pack_wave224(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_force_complete_authority_api_ok_{action}")
+                } else {
+                    format!("click_live_force_complete_authority_api_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -5783,10 +5800,8 @@ impl CnCGameEngine {
                         };
                         unfinished.sort_by_key(|id| id.0);
                         for id in unfinished.into_iter().take(2) {
-                            if let Some(obj) = self.game_logic.get_object_mut(id) {
-                                obj.construction_percent = 1.0;
-                                obj.status.under_construction = false;
-                                obj.health.current = obj.health.maximum;
+                            // Wave 224: authority mutation via GameLogic API (no engine get_object_mut).
+                            if self.game_logic.force_complete_construction(id) {
                                 force_completed.push(id);
                             }
                         }
@@ -5915,27 +5930,8 @@ impl CnCGameEngine {
                             .next()
                             .or_else(|| any.into_iter().next());
                         if let Some(id) = pick {
-                            if let Some(obj) = self.game_logic.get_object_mut(id) {
-                                let need_bd = obj.building_data.is_none()
-                                    || obj
-                                        .building_data
-                                        .as_ref()
-                                        .map(|b| {
-                                            !matches!(
-                                                b.building_type,
-                                                crate::game_logic::BuildingType::Barracks
-                                            )
-                                        })
-                                        .unwrap_or(true);
-                                if need_bd
-                                    && (obj.template_name.to_ascii_lowercase().contains("barracks")
-                                        || obj.is_kind_of(crate::game_logic::KindOf::FSBarracks))
-                                {
-                                    obj.building_data = Some(crate::game_logic::BuildingData::new(
-                                        crate::game_logic::BuildingType::Barracks,
-                                    ));
-                                }
-                            }
+                            // Wave 224: authority mutation via GameLogic API (no engine get_object_mut).
+                            let _ = self.game_logic.ensure_barracks_building_data(id);
                         }
                         pick.or_else(|| {
                             self.last_presentation_frame
