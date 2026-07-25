@@ -225,6 +225,7 @@ pub mod host_live_gameworld_projectile_ai_residual_wave184;
 pub mod host_live_gameworld_shadow_overlay_residual_wave172;
 pub mod host_live_map_load_residual_wave170;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
+pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_seed_residual_wave171;
 pub mod host_loading_screen_residual_wave135;
 pub mod host_main_menu_buttons_residual_wave118;
@@ -1678,6 +1679,12 @@ pub use host_live_presentation_gameworld_overlay_residual_wave187::{
     honesty_live_presentation_gameworld_overlay_nav_commands_residual_wave187,
     honesty_live_presentation_gameworld_overlay_residual_pack_wave187,
     simulate_live_presentation_gameworld_overlay_honesty,
+};
+pub use host_live_presentation_overlay_deepen_residual_wave189::{
+    honesty_live_presentation_overlay_deepen_method_names_residual_wave189,
+    honesty_live_presentation_overlay_deepen_nav_commands_residual_wave189,
+    honesty_live_presentation_overlay_deepen_residual_pack_wave189,
+    simulate_live_presentation_overlay_deepen_honesty,
 };
 pub use host_live_presentation_seed_residual_wave171::{
     honesty_live_presentation_seed_method_names_residual_wave171,
