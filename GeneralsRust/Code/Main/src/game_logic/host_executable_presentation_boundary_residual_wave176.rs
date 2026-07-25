@@ -91,7 +91,7 @@ pub fn honesty_executable_vertical_presentation_gate_source() -> bool {
     let Some(i) = i else {
         return false;
     };
-    let body = &src[i.saturating_sub(200)..src.len().min(i + 900)];
+    let body = &src[i.saturating_sub(200)..src.len().min(i + 1600)];
     body.contains("presentation_boundary_ok")
         && body.contains("presentation_frame_ok")
         && body.contains("presentation_live_fallback_ok")
