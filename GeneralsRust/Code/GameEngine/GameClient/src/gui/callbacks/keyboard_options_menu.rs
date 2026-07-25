@@ -620,3 +620,176 @@ pub fn keyboard_options_menu_system(
         _ => WindowMsgHandled::Ignored,
     }
 }
+
+/// Residual: last KeyboardOptionsMenu action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualKeyboardOptionsAction {
+    None = 0,
+    SelectCategory = 1,
+    SelectCommand = 2,
+    Assign = 3,
+    ResetAll = 4,
+    Back = 5,
+}
+
+static RESIDUAL_KB_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static RESIDUAL_KB_CATEGORY: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+static RESIDUAL_KB_COMMAND: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+fn residual_kb_action_store(action: ResidualKeyboardOptionsAction) {
+    RESIDUAL_KB_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Residual: last KeyboardOptions residual action.
+pub fn residual_keyboard_options_last_action() -> ResidualKeyboardOptionsAction {
+    match RESIDUAL_KB_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ResidualKeyboardOptionsAction::SelectCategory,
+        2 => ResidualKeyboardOptionsAction::SelectCommand,
+        3 => ResidualKeyboardOptionsAction::Assign,
+        4 => ResidualKeyboardOptionsAction::ResetAll,
+        5 => ResidualKeyboardOptionsAction::Back,
+        _ => ResidualKeyboardOptionsAction::None,
+    }
+}
+
+/// Residual: last selected category index.
+pub fn residual_keyboard_options_category_index() -> usize {
+    RESIDUAL_KB_CATEGORY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Residual: last selected command index (-1 if none).
+pub fn residual_keyboard_options_command_index() -> Option<usize> {
+    let idx = RESIDUAL_KB_COMMAND.load(std::sync::atomic::Ordering::Relaxed);
+    if idx < 0 {
+        None
+    } else {
+        Some(idx as usize)
+    }
+}
+
+fn ensure_keyboard_options_control_ids(state: &mut KeyboardOptionsMenuState) {
+    if state.parent_id == 0 {
+        state.parent_id = name_to_id("KeyboardOptionsMenu.wnd:ParentKeyboardOptionsMenu");
+    }
+    if state.button_back_id == 0 {
+        state.button_back_id = name_to_id("KeyboardOptionsMenu.wnd:ButtonBack");
+    }
+    if state.combo_category_id == 0 {
+        state.combo_category_id = name_to_id("KeyboardOptionsMenu.wnd:ComboBoxCategoryList");
+    }
+    if state.list_command_id == 0 {
+        state.list_command_id = name_to_id("KeyboardOptionsMenu.wnd:ListBoxCommandList");
+    }
+    if state.text_description_id == 0 {
+        state.text_description_id = name_to_id("KeyboardOptionsMenu.wnd:StaticTextDescription");
+    }
+    if state.text_current_hotkey_id == 0 {
+        state.text_current_hotkey_id =
+            name_to_id("KeyboardOptionsMenu.wnd:StaticTextCurrentHotkey");
+    }
+    if state.button_reset_all_id == 0 {
+        state.button_reset_all_id = name_to_id("KeyboardOptionsMenu.wnd:ButtonResetAll");
+    }
+    if state.text_assign_hotkey_id == 0 {
+        state.text_assign_hotkey_id = name_to_id("KeyboardOptionsMenu.wnd:TextEntryAssignHotkey");
+    }
+    if state.button_assign_id == 0 {
+        state.button_assign_id = name_to_id("KeyboardOptionsMenu.wnd:ButtonAssign");
+    }
+}
+
+/// Residual: bind KeyboardOptionsMenu control IDs (no layout load required).
+pub fn simulate_keyboard_options_bind_controls() -> bool {
+    let state_handle = keyboard_options_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_keyboard_options_control_ids(&mut state);
+    let _ = (
+        state.parent_id,
+        state.button_back_id,
+        state.combo_category_id,
+        state.list_command_id,
+        state.button_reset_all_id,
+        state.button_assign_id,
+    );
+    true
+}
+
+/// Residual: select category without live combo widget.
+pub fn simulate_keyboard_options_select_category(category_index: usize) -> bool {
+    let state_handle = keyboard_options_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_keyboard_options_control_ids(&mut state);
+    state.selected_category_index = category_index;
+    // Clear command selection when category changes (C++ populate_command_list path).
+    state.selected_command_index = None;
+    RESIDUAL_KB_CATEGORY.store(category_index, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_KB_COMMAND.store(-1, std::sync::atomic::Ordering::Relaxed);
+    residual_kb_action_store(ResidualKeyboardOptionsAction::SelectCategory);
+    residual_keyboard_options_category_index() == category_index
+}
+
+/// Residual: select command list row without live listbox widget.
+pub fn simulate_keyboard_options_select_command(command_index: usize) -> bool {
+    let state_handle = keyboard_options_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_keyboard_options_control_ids(&mut state);
+    state.selected_command_index = Some(command_index);
+    RESIDUAL_KB_COMMAND.store(command_index as i32, std::sync::atomic::Ordering::Relaxed);
+    residual_kb_action_store(ResidualKeyboardOptionsAction::SelectCommand);
+    residual_keyboard_options_command_index() == Some(command_index)
+}
+
+/// Residual: fire ButtonAssign without mutating the real command map.
+pub fn simulate_keyboard_options_assign_button_gadget_selected() -> bool {
+    let state_handle = keyboard_options_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_keyboard_options_control_ids(&mut state);
+    if residual_keyboard_options_command_index().is_none() && state.selected_command_index.is_none()
+    {
+        // C++ ignores Assign with no selection.
+        return false;
+    }
+    residual_kb_action_store(ResidualKeyboardOptionsAction::Assign);
+    true
+}
+
+/// Residual: fire ButtonResetAll without rewriting command map entries.
+pub fn simulate_keyboard_options_reset_all_button_gadget_selected() -> bool {
+    let state_handle = keyboard_options_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_keyboard_options_control_ids(&mut state);
+    state.selected_category_index = 0;
+    state.selected_command_index = None;
+    RESIDUAL_KB_CATEGORY.store(0, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_KB_COMMAND.store(-1, std::sync::atomic::Ordering::Relaxed);
+    residual_kb_action_store(ResidualKeyboardOptionsAction::ResetAll);
+    true
+}
+
+/// Residual: fire ButtonBack (shell pop residual latch).
+pub fn simulate_keyboard_options_back_button_gadget_selected() -> bool {
+    let state_handle = keyboard_options_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_keyboard_options_control_ids(&mut state);
+    residual_kb_action_store(ResidualKeyboardOptionsAction::Back);
+    true
+}
+
+/// Residual: category + command + Assign composite (pre-commit honesty).
+pub fn simulate_keyboard_options_prepare_assign(
+    category_index: usize,
+    command_index: usize,
+) -> bool {
+    if !simulate_keyboard_options_bind_controls() {
+        return false;
+    }
+    if !simulate_keyboard_options_select_category(category_index) {
+        return false;
+    }
+    if !simulate_keyboard_options_select_command(command_index) {
+        return false;
+    }
+    simulate_keyboard_options_assign_button_gadget_selected()
+}
