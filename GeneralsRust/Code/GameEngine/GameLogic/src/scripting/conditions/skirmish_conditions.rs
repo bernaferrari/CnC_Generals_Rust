@@ -24,6 +24,12 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+/// Wave 292: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 fn has_hostile_object_near_owned_objects<F>(
     player: &crate::player::Player,
     radius: f32,
@@ -132,6 +138,11 @@ fn player_has_ready_special_power(
     player: &crate::player::Player,
     template: &SpecialPowerTemplate,
 ) -> bool {
+    // Wave 292: empty dual-world → fail-closed.
+    if dual_world_registry_unavailable() {
+        return false;
+    }
+
     let required_science = template.get_required_science();
     if required_science != crate::common::science::SCIENCE_INVALID
         && !player.has_science(required_science)
@@ -237,6 +248,11 @@ impl ScriptCondition for SkirmishSpecialPowerReadyFromNamedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 292: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(player) => player,
             None => return Ok(false),
@@ -315,6 +331,11 @@ impl ScriptCondition for SkirmishCommandButtonReadyCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 292: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let team_name = get_str_param(parameters, "team")?;
         let factory = get_team_factory();
         let factory_guard = factory.lock().map_err(|e| {
@@ -623,6 +644,11 @@ impl ScriptCondition for SkirmishBuildingsDestroyedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 292: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
             None => return Ok(false),
@@ -689,6 +715,11 @@ impl ScriptCondition for SkirmishUnitsDestroyedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 292: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
             None => return Ok(false),
@@ -756,6 +787,11 @@ impl ScriptCondition for SkirmishEnemyInAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 292: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
             None => return Ok(false),
@@ -819,6 +855,11 @@ impl ScriptCondition for SkirmishAllUnitsGarrisonedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 292: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let team_name = get_str_param(parameters, "team")?;
         let factory = get_team_factory();
         let factory_guard = factory.lock().map_err(|e| {
@@ -1084,6 +1125,11 @@ impl ScriptCondition for SkirmishTeamNearPositionCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 292: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let team_name = get_str_param(parameters, "team")?;
         let x = super::super::actions::get_float_param(parameters, "x")? as f32;
         let y = super::super::actions::get_float_param(parameters, "y")? as f32;
@@ -1246,6 +1292,11 @@ impl ScriptCondition for SkirmishStructureCountCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 292: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
             None => return Ok(false),
@@ -1314,6 +1365,11 @@ impl ScriptCondition for SkirmishUnitCountCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Wave 292: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
             None => return Ok(false),
