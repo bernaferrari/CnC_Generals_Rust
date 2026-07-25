@@ -6125,6 +6125,23 @@ impl CnCGameEngine {
                     format!("click_live_presentation_time_frozen_probe_miss_{action}")
                 };
             }
+            "click_live_presentation_visual_speed_probe" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_presentation_visual_speed_probe_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_presentation_visual_speed_probe_residual_pack_wave251(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_presentation_visual_speed_probe_ok_{action}")
+                } else {
+                    format!("click_live_presentation_visual_speed_probe_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -11896,7 +11913,13 @@ impl CnCGameEngine {
         }
 
         let dt = dt.max(0.0);
-        let visual_dt = dt * self.game_logic.visual_speed_multiplier().max(0.0);
+        // Wave 251: prefer presentation visual speed residual when a frame is installed.
+        let visual_speed = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|p| p.visual_speed_multiplier)
+            .unwrap_or_else(|| self.game_logic.visual_speed_multiplier());
+        let visual_dt = dt * visual_speed.max(0.0);
 
         // Diagnostic: log first few Menu update_internal calls
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
@@ -12830,13 +12853,19 @@ impl CnCGameEngine {
             .as_ref()
             .map(|p| p.time_frozen_for_simulation)
             .unwrap_or_else(|| self.game_logic.is_time_frozen_for_simulation());
+        // Wave 251: prefer presentation visual speed residual when a frame is installed.
+        let visual_speed = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|p| p.visual_speed_multiplier)
+            .unwrap_or_else(|| self.game_logic.visual_speed_multiplier());
         let render_time_delta = if time_frozen {
             0.0
         } else {
             self.last_frame_timing
                 .map(|t| t.delta_seconds())
                 .unwrap_or(0.0)
-                * self.game_logic.visual_speed_multiplier().max(0.0)
+                * visual_speed.max(0.0)
         };
         let startup_frame = self.shell_start_frame();
         let current_startup_logic_frame = self.current_startup_logic_frame();
@@ -15567,7 +15596,11 @@ impl CnCGameEngine {
             self.script_fps_limit,
             global_data.writable.use_fps_limit,
             global_data.writable.frames_per_second_limit,
-            self.game_logic.visual_speed_multiplier(),
+            // Wave 251: prefer presentation visual speed residual when installed.
+            self.last_presentation_frame
+                .as_ref()
+                .map(|p| p.visual_speed_multiplier)
+                .unwrap_or_else(|| self.game_logic.visual_speed_multiplier()),
             global_data.tivo_fast_mode,
             self.game_logic.isInReplayGame(),
         );
