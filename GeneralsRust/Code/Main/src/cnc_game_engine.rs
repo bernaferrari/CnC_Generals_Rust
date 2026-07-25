@@ -5895,6 +5895,23 @@ impl CnCGameEngine {
                     format!("click_live_engine_player_ui_boot_peel_miss_{action}")
                 };
             }
+            "click_live_player_probe_api" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_player_probe_api_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_player_probe_api_residual_pack_wave238(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_player_probe_api_ok_{action}")
+                } else {
+                    format!("click_live_player_probe_api_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -12119,12 +12136,9 @@ impl CnCGameEngine {
                 {
                     pres.apply_to_control_bar(&mut self.control_bar);
                 }
-            } else if let Some(player) = self.game_logic.get_player(self.current_player_id) {
-                // Boot residual only — presentation path above owns InGame HUD resources.
-                // Use effective_supplies so economy-authority pending deltas are visible.
-                let money = player.effective_supplies() as i32;
-                let power = player.power_available;
-                let max_power = player.power_produced.max(0);
+            } else {
+                // Wave 238: boot residual via ui_local_economy (no &Player dual-read).
+                let (money, power, max_power) = self.ui_local_economy();
                 self.game_hud.update_resources(money, power, max_power);
             }
 
@@ -13379,10 +13393,29 @@ impl CnCGameEngine {
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.local_science_purchase_points();
         }
+        // Wave 238: boot residual via GameLogic probe (no &Player expose).
         self.game_logic
-            .get_player(self.current_player_id)
-            .map(|p| p.science_purchase_points)
-            .unwrap_or(0)
+            .player_science_purchase_points(self.current_player_id)
+    }
+
+    /// Wave 238: local economy prefers presentation freeze.
+    fn ui_local_economy(
+        &self,
+    ) -> (
+        i32, /*money*/
+        i32, /*power*/
+        i32, /*max_power*/
+    ) {
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            let money = frame.local_supplies as i32;
+            let power = frame.local_power;
+            let max_power = frame.local_power_produced.max(0);
+            return (money, power, max_power);
+        }
+        self.game_logic
+            .player_economy(self.current_player_id)
+            .map(|(supplies, power, produced, _consumed)| (supplies as i32, power, produced.max(0)))
+            .unwrap_or((0, 0, 0))
     }
 
     #[inline]
@@ -17419,14 +17452,11 @@ impl CnCGameEngine {
                 "SCIENCE_SpyDrone",
             ],
         };
-        // Wave 237: unlocked sciences prefer presentation freeze; boot dual-read only.
+        // Wave 238: unlocked sciences prefer presentation freeze; boot via probe API.
         let unlocked: Vec<String> = if let Some(frame) = self.last_presentation_frame.as_ref() {
             frame.local_unlocked_sciences.clone()
         } else {
-            self.game_logic
-                .get_player(player_id)
-                .map(|p| p.unlocked_sciences.iter().cloned().collect())
-                .unwrap_or_default()
+            self.game_logic.player_unlocked_sciences(player_id)
         };
 
         let mut chosen = None;
@@ -17434,14 +17464,12 @@ impl CnCGameEngine {
             if unlocked.iter().any(|s| s.eq_ignore_ascii_case(name)) {
                 continue;
             }
-            // Wave 237: InGame capability fail-open from presentation unlocked list;
-            // boot-only live is_capable probe when no frame.
-            if self.last_presentation_frame.is_none() {
-                if let Some(p) = self.game_logic.get_player(player_id) {
-                    if !p.is_capable_of_purchasing_science(name) {
-                        continue;
-                    }
-                }
+            // Wave 238: InGame fail-open from presentation unlocked list;
+            // boot-only capability probe without &Player expose.
+            if self.last_presentation_frame.is_none()
+                && !self.game_logic.player_can_purchase_science(player_id, name)
+            {
+                continue;
             }
             chosen = Some(name.to_string());
             break;
