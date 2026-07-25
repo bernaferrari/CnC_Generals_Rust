@@ -26,6 +26,12 @@ use crate::terrain::THE_TERRAIN_LOGIC;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
+/// Wave 280: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Configuration data for TunnelContain module
 #[derive(Debug, Clone)]
 pub struct TunnelContainModuleData {
@@ -122,6 +128,11 @@ impl TunnelContain {
     /// Add an object to the tunnel network contain list.
     /// Matches C++ TunnelContain::addToContainList (TunnelContain.cpp:46-50)
     pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 280: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Contain object not found")?;
@@ -146,6 +157,11 @@ impl TunnelContain {
 
     /// Add object to containment while keeping storage in the player tunnel tracker.
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 280: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Contain object not found")?;
@@ -194,6 +210,11 @@ impl TunnelContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
+        // Wave 280: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Contain object not found")?;
@@ -246,6 +267,11 @@ impl TunnelContain {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> GameResult<()> {
+        // Wave 280: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if let Some(controlling_player) =
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
         {
@@ -296,6 +322,11 @@ impl TunnelContain {
     /// Kill all contained objects.
     /// Matches C++ TunnelContain::killAllContained (TunnelContain.cpp:126-141)
     pub fn kill_all_contained(&mut self) -> GameResult<()> {
+        // Wave 280: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if let Some(controlling_player) =
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
         {
@@ -325,6 +356,11 @@ impl TunnelContain {
     /// Called when an object enters the tunnel.
     /// Matches C++ TunnelContain::onContaining (TunnelContain.cpp:171-186)
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
+        // Wave 280: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -357,6 +393,11 @@ impl TunnelContain {
     /// Called when an object exits the tunnel.
     /// Matches C++ TunnelContain::onRemoving (TunnelContain.cpp:189-208)
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        // Wave 280: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -439,6 +480,11 @@ impl TunnelContain {
     }
 
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
+        // Wave 280: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         loop {
             let next_obj = {
                 self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
@@ -584,6 +630,11 @@ impl TunnelContain {
     }
 
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
+        // Wave 280: empty dual-world → sleep forever (no factory walks).
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         self.base.update()?;
 
         if let Some(controlling_player) =
@@ -706,6 +757,11 @@ impl TunnelContain {
 
     /// Get the owning object (short-lived Arc; prefer `with_owner_object`).
     fn get_object(&self) -> GameResult<Arc<RwLock<Object>>> {
+        // Wave 280: empty dual-world → no owner object.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world registry unavailable".into());
+        }
+
         let id = self.owner_object_id()?;
         crate::helpers::TheGameLogic::find_object_by_id(id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
