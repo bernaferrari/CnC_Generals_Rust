@@ -50,6 +50,12 @@ pub const STEALTH_NOT_WHILE_FIRING_WEAPON: u32 = STEALTH_NOT_WHILE_FIRING_PRIMAR
     | STEALTH_NOT_WHILE_FIRING_TERTIARY;
 pub const STEALTH_NOT_WHILE_RIDERS_ATTACKING: u32 = 0x00000100;
 
+/// Wave 259: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Stealth update module data - matches C++ StealthUpdateModuleData (lines 53-82)
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -284,6 +290,11 @@ impl StealthUpdateController {
         frames: UnsignedInt,
         current_frame: UnsignedInt,
     ) -> Result<(), String> {
+        // Wave 259: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Can't grant if using disguise system
         if self.can_disguise() {
             return Ok(());
@@ -360,6 +371,11 @@ impl StealthUpdateController {
         stealth_owner_id: ObjectID,
         current_frame: UnsignedInt,
     ) -> bool {
+        // Wave 259: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let allowed = OBJECT_REGISTRY
             .with_object(self.object_id, |obj_guard| {
                 let status = obj_guard.get_status_bits();
@@ -524,6 +540,11 @@ impl StealthUpdateController {
     /// Mark object as detected
     /// Matches C++ StealthUpdate::markAsDetected lines 846-912
     pub fn mark_as_detected(&mut self, num_frames: UnsignedInt, current_frame: UnsignedInt) {
+        // Wave 259: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let stealth_delay = self.data.stealth_delay;
 
         // Remove disguise if active (lines 875-878)
@@ -603,6 +624,11 @@ impl StealthUpdateController {
         target_template: Option<String>,
         _current_frame: UnsignedInt,
     ) {
+        // Wave 259: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(template) = target_template {
             // Start disguising (lines 919-940)
             self.disguise_as_template_name = Some(template.clone());
@@ -665,6 +691,11 @@ impl StealthUpdateController {
     /// Change visual disguise (swap drawable)
     /// Matches C++ StealthUpdate::changeVisualDisguise lines 960-1097
     fn change_visual_disguise(&mut self) {
+        // Wave 259: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // This is a complex function that swaps the object's drawable
         // See C++ lines 960-1097 for full implementation
         // Drawable swapping requires GameClient integration (lines 976-1008)
@@ -703,6 +734,11 @@ impl StealthUpdateController {
     /// Calculate stealth look type for a player
     /// Matches C++ StealthUpdate::calcStealthedStatusForPlayer lines 436-528
     pub fn calc_stealth_look_for_player(&self, player_id: u32) -> StealthLookType {
+        // Wave 259: empty dual-world → no look residual.
+        if dual_world_registry_unavailable() {
+            return StealthLookType::None;
+        }
+
         let Some((dead, status_bits, object_team)) =
             OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
                 (
@@ -771,6 +807,11 @@ impl StealthUpdateController {
     /// Update stealth state each frame
     /// Matches C++ StealthUpdate::update lines 568-813
     pub fn update(&mut self, current_frame: UnsignedInt) -> Result<(), String> {
+        // Wave 259: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Restore disguise after load (lines 572-589)
         if self.xfer_restore_disguise {
             self.change_visual_disguise();
@@ -1030,6 +1071,12 @@ impl StealthUpdateController {
     }
 
     fn calc_stealth_owner(&self) -> ObjectID {
+        // Wave 259: empty dual-world → self id only (no rider resolve).
+
+        if dual_world_registry_unavailable() {
+            return self.object_id;
+        }
+
         // Matches C++ StealthUpdate::calcStealthOwner lines 531-556
         if !self.data.use_rider_stealth {
             return self.object_id;
@@ -1078,6 +1125,12 @@ impl StealthUpdateController {
     }
 
     fn is_too_close_to_current_target(&self, max_distance: Real) -> bool {
+        // Wave 259: empty dual-world → fail-closed.
+
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         OBJECT_REGISTRY
             .with_object(self.object_id, |obj_guard| {
                 let Some(target_pos) = obj_guard.get_current_victim_pos() else {
@@ -1200,6 +1253,12 @@ impl Module for StealthUpdate {
     }
 
     fn on_object_created(&mut self) {
+        // Wave 259: empty dual-world → no factory object walks.
+
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Initialize stealth status if innate (C++ lines 132-136)
         if self.data.innate_stealth {
             let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
