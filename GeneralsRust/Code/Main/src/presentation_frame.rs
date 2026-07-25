@@ -2307,6 +2307,10 @@ pub struct PresentationFrame {
     /// Architecture residual: GameWorld last-writer presentation identity count.
     #[serde(default)]
     pub gameworld_overlay_stamped: usize,
+    /// Count of RenderableObjects created from GameWorld entities missing on host frame
+    /// (Wave 192 append_missing_from_gameworld). Fail-closed: not full build_from_gameworld cutover.
+    #[serde(default)]
+    pub gameworld_appended: usize,
 }
 
 impl PresentationFrame {
@@ -3419,6 +3423,7 @@ impl PresentationFrame {
             dual_tick,
             world_env: PresentationWorldEnv::from_logic(logic),
             gameworld_overlay_stamped: 0,
+            gameworld_appended: 0,
         }
     }
 
@@ -5756,6 +5761,243 @@ impl PresentationFrame {
         }
         self.gameworld_overlay_stamped = updated;
         updated
+    }
+    /// Sparse RenderableObject from a GameWorld entity (Wave 192).
+    ///
+    /// Fills identity/pose/HP/motion/selection from the borrow-first entity store.
+    /// Host-only presentation fields stay at safe defaults until a later cutover.
+    /// Fail-closed: not full build_from_logic parity (weapons, FOW grid, FX, etc.).
+    pub fn renderable_from_gameworld_entity(
+        host_id: crate::game_logic::ObjectId,
+        ent: &gamelogic::world::entities::Entity,
+    ) -> RenderableObject {
+        let team = match ent.team_ordinal {
+            0 => crate::game_logic::Team::USA,
+            1 => crate::game_logic::Team::China,
+            2 => crate::game_logic::Team::GLA,
+            _ => crate::game_logic::Team::Neutral,
+        };
+        let p = ent.transform.position;
+        let pos = glam::Vec3::new(p.x, p.y, p.z);
+        let vel = glam::Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
+        let move_destination = ent.move_target.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+        let attack_target = ent
+            .attack_target
+            .map(|eid| crate::game_logic::ObjectId(eid.get()));
+        let health_max = if ent.max_health > 0.0 {
+            ent.max_health
+        } else if ent.health > 0.0 {
+            ent.health
+        } else {
+            1.0
+        };
+        let moving = vel.length_squared() > 1e-6 || move_destination.is_some();
+        RenderableObject {
+            id: host_id,
+            template_name: ent.template.name.clone(),
+            team,
+            team_color: ent.team_color,
+            position: pos,
+            orientation: ent.transform.orientation,
+            topple_lean_radians: 0.0,
+            move_destination,
+            target_location: None,
+            guard_target: None,
+            using_ability: false,
+            airborne_target: false,
+            move_max_speed: ent.move_max_speed,
+            velocity: vel,
+            ai_state_ordinal: 0,
+            attack_target,
+            path_waypoints: Vec::new(),
+            path_len: 0,
+            path_index: 0,
+            occupant_count: 0,
+            production_queue: Vec::new(),
+            rally_point: None,
+            guard_position: None,
+            garrisoned_units: Vec::new(),
+            max_garrison: 0,
+            power_provided: 0,
+            power_consumed: 0,
+            stored_supplies: 0,
+            health_current: ent.health.max(0.0),
+            health_max,
+            selected: ent.selected,
+            is_deployed: false,
+            selection_flash_remaining: 0,
+            destroyed: ent.destroyed || ent.health <= 0.0,
+            model_condition_bits: 0,
+            radar_active: false,
+            radar_extend_complete: false,
+            production_door_phase: 0,
+            body_damage_state: ent.body_damage_state,
+            damage_fx_name: None,
+            bone_fx_name: None,
+            poison_tinted: false,
+            undetected_defector: false,
+            defector_flash: false,
+            death_fx_name: None,
+            death_type_name: String::new(),
+            under_construction: ent.under_construction,
+            construction_percent: ent.construction_percent,
+            sold: ent.sold,
+            unselectable: false,
+            is_rebuild_hole: ent.is_rebuild_hole,
+            reconstructing: ent.reconstructing,
+            veterancy: PresentationVeterancy::Rookie,
+            experience_points: 0.0,
+            moving,
+            attacking: attack_target.is_some(),
+            is_firing_weapon: false,
+            is_aiming_weapon: false,
+            disabled_emp: false,
+            disabled_paralyzed: false,
+            weapons_jammed: false,
+            masked: false,
+            ignoring_stealth: false,
+            repulsor: false,
+            stealthed: false,
+            detected: false,
+            effectively_stealthed: false,
+            disabled: false,
+            contained_by: None,
+            force_attack: false,
+            has_weapon: false,
+            weapon_range: 0.0,
+            weapon_damage: 0.0,
+            weapon_min_range: 0.0,
+            weapon_reload_time: 0.0,
+            weapon_ammo: 0,
+            ammo_pip_total: 0,
+            ammo_pip_full: 0,
+            weapon_ready_percent: 0,
+            weapon_can_target_air: false,
+            weapon_can_target_ground: false,
+            weapon_projectile_speed: 0.0,
+            armed_riders_upgrade_weapon_set: false,
+            weapon_set_player_upgrade: false,
+            camo_stealth_look: 0,
+            disguise_as_template: None,
+            disguise_as_team: None,
+            disguised: false,
+            disabled_subdued: false,
+            is_carbomb: false,
+            hijacked: false,
+            disguise_transition_opacity: 1.0,
+            detection_range: 0.0,
+            detection_rate_frames: 0,
+            stealth_breaks_on_attack: false,
+            stealth_breaks_on_move: false,
+            innate_stealth: false,
+            weapon_bonus_frenzy_until_frame: 0,
+            continuous_fire_consecutive: 0,
+            continuous_fire_coast_until_frame: 0,
+            battle_plan_sight_scalar_applied: 1.0,
+            special_power_ready: false,
+            special_power_cooldown: 0.0,
+            special_power_cooldown_remaining: 0.0,
+            object_type: PresentationObjectType::Neutral,
+            applied_upgrades: Vec::new(),
+            has_secondary_weapon: false,
+            secondary_weapon_range: 0.0,
+            secondary_weapon_damage: 0.0,
+            turret_angle_deg: 0.0,
+            turret_pitch_deg: 0.0,
+            turret_idle_scanning: false,
+            weapon_bonus_enthusiastic: false,
+            weapon_bonus_subliminal: false,
+            weapon_bonus_horde: false,
+            weapon_bonus_nationalism: false,
+            weapon_bonus_frenzy: false,
+            weapon_bonus_frenzy_level: 0,
+            weapon_bonus_battle_plan_bombardment: false,
+            weapon_bonus_battle_plan_hold_the_line: false,
+            weapon_bonus_battle_plan_search_and_destroy: false,
+            continuous_fire_level: 0,
+            faerie_fire_until_frame: 0,
+            hive_slave_count: 0,
+            hive_slave_hp: 0.0,
+            ai_attitude: 0,
+            camo_friendly_opacity: 1.0,
+            vision_spied_mask: 0,
+            cheer_timer: 0.0,
+            is_humvee_transport: false,
+            is_listening_outpost_transport: false,
+            is_troop_crawler_transport: false,
+            is_helix_transport: false,
+            has_overlord_gattling_addon: false,
+            has_overlord_propaganda_addon: false,
+            is_battle_bus_transport: false,
+            is_technical_transport: false,
+            is_combat_cycle_transport: false,
+            combat_cycle_rider: 0,
+            is_tunnel_network: false,
+            is_combat_chinook_transport: false,
+            max_transport: 0,
+            overlord_bunker_capacity: 0,
+            passengers_allowed_to_fire: false,
+            display_name: ent.template.name.clone(),
+            demo_suicided_detonating: false,
+            turret_holding: false,
+            last_damage_source_host: 0,
+            command_set_override: String::new(),
+            command_set_name: String::new(),
+            is_detector: false,
+            active_weapon_slot: 0,
+            overcharge_enabled: false,
+            show_health_bar: true,
+            guard_radius: 0.0,
+            has_mine: false,
+            kind_of: Vec::new(),
+            is_structure: false,
+            is_unit: true,
+            is_mobile: true,
+            can_produce: false,
+            building_type: None,
+            model_key: Some(ent.template.name.clone()),
+            mesh_scale: 1.0,
+            selection_radius: if ent.selection_radius > 0.0 {
+                ent.selection_radius
+            } else {
+                10.0
+            },
+            engine_bridged: false,
+            fow_visibility: crate::fow_rendering::ObjectVisibility::VISIBLE,
+            ground_height: PRESENTATION_DEFAULT_GROUND_HEIGHT,
+            ground_height_from_terrain: false,
+        }
+    }
+
+    /// Append sparse RenderableObjects for GameWorld entities not already on the
+    /// host-built frame (Wave 192). Uses host ObjectId when the shadow map has one;
+    /// otherwise synthesizes `ObjectId(0x8000_0000 | entity_id)`.
+    ///
+    /// Call after `overlay_gameworld_shadow`. Counts land in `gameworld_appended`.
+    /// Fail-closed: not full `build_from_gameworld` cutover / playable_claim.
+    pub fn append_missing_from_gameworld(
+        &mut self,
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+    ) -> usize {
+        let existing: std::collections::HashSet<u32> =
+            self.objects.iter().map(|o| o.id.0).collect();
+        let mut appended = 0usize;
+        for ent in shadow.world().world().entities() {
+            if ent.destroyed && ent.health <= 0.0 {
+                continue;
+            }
+            let host_id = shadow
+                .host_for_entity(ent.id)
+                .unwrap_or_else(|| crate::game_logic::ObjectId(0x8000_0000 | ent.id.get()));
+            if existing.contains(&host_id.0) {
+                continue;
+            }
+            self.objects
+                .push(Self::renderable_from_gameworld_entity(host_id, ent));
+            appended += 1;
+        }
+        self.gameworld_appended = self.gameworld_appended.saturating_add(appended);
+        appended
     }
 
     /// Lookup snapshot FOW for an object (local player). None if not on the frame.
