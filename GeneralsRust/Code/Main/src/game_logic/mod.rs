@@ -331,6 +331,7 @@ mod host_upgrade_module_residuals;
 pub mod host_upgrades;
 pub mod host_usa_pilot;
 pub mod host_usa_tanks;
+pub mod host_w3d_main_menu_init_residual_wave168;
 mod host_wave_guide;
 pub mod host_weapon_laser;
 pub mod host_window_video_residual_wave154;
@@ -1734,6 +1735,13 @@ pub use host_under_construction_residual_wave148::{
     honesty_under_construction_method_names_residual_wave148,
     honesty_under_construction_nav_commands_residual_wave148,
     honesty_under_construction_residual_pack_wave148,
+};
+pub use host_w3d_main_menu_init_residual_wave168::{
+    honesty_main_menu_wnd_layoutinit_token, honesty_w3d_main_menu_init_bind_source,
+    honesty_w3d_main_menu_init_method_names_residual_wave168,
+    honesty_w3d_main_menu_init_nav_commands_residual_wave168,
+    honesty_w3d_main_menu_init_residual_pack_wave168, honesty_w3d_main_menu_init_wrapper_source,
+    simulate_w3d_main_menu_init_honesty,
 };
 pub use host_window_video_residual_wave154::{
     honesty_window_video_method_names_residual_wave154,
