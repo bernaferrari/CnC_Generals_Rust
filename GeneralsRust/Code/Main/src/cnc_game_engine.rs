@@ -4761,6 +4761,23 @@ impl CnCGameEngine {
                     format!("click_single_authority_miss_{action}")
                 };
             }
+            "click_presentation_client_boundary" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "execute" | "client" | "prepare" => {
+                        crate::game_logic::simulate_presentation_client_boundary_honesty()
+                    }
+                    _ => crate::game_logic::honesty_presentation_client_boundary_residual_pack_wave174(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_presentation_client_boundary_ok_{action}")
+                } else {
+                    format!("click_presentation_client_boundary_miss_{action}")
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();

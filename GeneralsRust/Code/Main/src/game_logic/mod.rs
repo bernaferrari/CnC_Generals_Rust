@@ -254,6 +254,7 @@ pub mod host_popup_communicator_residual_wave139;
 pub mod host_popup_replay_residual_wave130;
 mod host_preorder_create;
 pub mod host_presentation_boundary_residual_wave157;
+pub mod host_presentation_client_boundary_residual_wave174;
 pub mod host_production_buildable_command_residual;
 pub mod host_propaganda;
 pub mod host_quad_cannon;
@@ -1671,6 +1672,12 @@ pub use host_presentation_boundary_residual_wave157::{
     honesty_presentation_boundary_nav_commands_residual_wave157,
     honesty_presentation_boundary_residual_pack_wave157,
     honesty_presentation_boundary_source_markers_residual_wave157,
+};
+pub use host_presentation_client_boundary_residual_wave174::{
+    honesty_presentation_client_boundary_method_names_residual_wave174,
+    honesty_presentation_client_boundary_nav_commands_residual_wave174,
+    honesty_presentation_client_boundary_residual_pack_wave174,
+    simulate_presentation_client_boundary_honesty,
 };
 pub use host_quit_menu_residual_wave123::{
     honesty_quit_menu_control_names_residual_wave123,
