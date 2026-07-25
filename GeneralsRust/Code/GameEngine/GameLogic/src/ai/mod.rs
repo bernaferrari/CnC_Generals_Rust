@@ -92,6 +92,11 @@ pub mod search_qualifiers {
 }
 
 pub fn resolve_attack_priority_info_for_object(owner_id: ObjectID) -> Option<AttackPriorityInfo> {
+    // Wave 263: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     let mut priority_set_name = String::new();
 
     if let Ok(engine_lock) = get_script_engine().read() {
@@ -268,6 +273,13 @@ pub enum AiCommandType {
 }
 
 // Skill set structure
+
+/// Wave 263: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Debug, Clone)]
 pub struct SkillSet {
     pub num_skills: i32,
@@ -854,6 +866,11 @@ impl AiGroup {
     }
 
     pub fn set_attitude(&mut self, attitude: AttitudeType) -> Result<(), AiError> {
+        // Wave 263: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let module_attitude = to_module_attitude(attitude);
         for obj_id in &self.member_list {
             let Some(ai) = OBJECT_REGISTRY
@@ -871,6 +888,11 @@ impl AiGroup {
     }
 
     pub fn get_attitude(&self) -> Result<AttitudeType, AiError> {
+        // Wave 263: empty dual-world → empty group residual.
+        if dual_world_registry_unavailable() {
+            return Err(AiError::EmptyGroup);
+        }
+
         for obj_id in &self.member_list {
             let Some(ai) = OBJECT_REGISTRY
                 .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
@@ -887,6 +909,11 @@ impl AiGroup {
     }
 
     pub fn is_idle(&self) -> bool {
+        // Wave 263: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // C++ AIGroup::isIdle — every AI member idle or effectively dead.
         let mut is_idle = true;
         for obj_id in &self.member_list {
@@ -909,6 +936,11 @@ impl AiGroup {
     }
 
     pub fn is_busy(&self) -> bool {
+        // Wave 263: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // C++ AIGroup::isBusy — every AI member busy and alive; empty → true.
         let mut is_busy = true;
         for obj_id in &self.member_list {
@@ -938,6 +970,11 @@ impl AiGroup {
     }
 
     pub fn get_center(&self) -> Option<Coord3D> {
+        // Wave 263: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let mut count = 0;
         let mut center = Coord3D::new(0.0, 0.0, 0.0);
 
@@ -1001,6 +1038,11 @@ impl AiGroup {
         add_waypoint: bool,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 263: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ AIGroup::groupMoveToPosition residual (shared with ai/group.rs AIGroup).
         use crate::common::{FormationID, KindOf};
         use crate::path::PATHFIND_CELL_SIZE_F;
@@ -1166,6 +1208,11 @@ impl AiGroup {
         add_waypoint: bool,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 263: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         use crate::common::{FormationID, KindOf};
         let center = self.get_center().unwrap_or(*position);
         let mut movers: Vec<(ObjectId, f32)> = Vec::new();
@@ -1220,6 +1267,12 @@ impl AiGroup {
         center: &Coord3D,
         is_formation: bool,
     ) -> Coord3D {
+        // Wave 263: empty dual-world → passthrough destination.
+        if dual_world_registry_unavailable() {
+            let _ = (object_id, center, is_formation);
+            return *group_dest;
+        }
+
         OBJECT_REGISTRY
             .with_object(object_id, |obj| {
                 let pos = obj.get_position();
@@ -1258,6 +1311,11 @@ impl AiGroup {
         &self,
         _special_power_id: u32,
     ) -> Option<Arc<RwLock<Object>>> {
+        // Wave 263: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         self.member_list
             .iter()
             .find_map(|obj_id| OBJECT_REGISTRY.get_object(*obj_id))
@@ -1267,12 +1325,22 @@ impl AiGroup {
         &self,
         _command_button_id: u32,
     ) -> Option<Arc<RwLock<Object>>> {
+        // Wave 263: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         self.member_list
             .iter()
             .find_map(|obj_id| OBJECT_REGISTRY.get_object(*obj_id))
     }
 
     fn recompute(&mut self) {
+        // Wave 263: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !self.dirty {
             return;
         }
@@ -1299,6 +1367,11 @@ impl AiGroup {
     }
 
     fn dispatch_command_to_members(&self, params: &AiCommandParams) {
+        // Wave 263: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for obj_id in &self.member_list {
             let Some(ai) = OBJECT_REGISTRY
                 .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
@@ -1336,6 +1409,11 @@ fn from_module_attitude(attitude: AIAttitudeType) -> AttitudeType {
 
 impl AiCommandInterface for AiGroup {
     fn ai_do_command(&mut self, params: &AiCommandParams) -> Result<(), AiError> {
+        // Wave 263: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for obj_id in &self.member_list {
             let dispatch_started = Instant::now();
             if let Some(ai) = OBJECT_REGISTRY
@@ -1543,6 +1621,11 @@ impl AI {
         info: Option<&AttackPriorityInfo>,
         optional_filter: Option<&dyn PartitionFilter>,
     ) -> Result<Option<ObjectId>, AiError> {
+        // Wave 263: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         let Some((me_pos, can_attack)) = OBJECT_REGISTRY.with_object(me, |me_guard| {
             (*me_guard.get_position(), me_guard.is_able_to_attack())
         }) else {
@@ -1747,6 +1830,11 @@ impl AI {
         range: Real,
         qualifiers: u32,
     ) -> Result<Option<ObjectId>, AiError> {
+        // Wave 263: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         let Some(me_pos) = OBJECT_REGISTRY.with_object(me, |me_guard| *me_guard.get_position())
         else {
             return Err(AiError::InvalidObject);
@@ -1812,6 +1900,11 @@ impl AI {
         me: ObjectId,
         range: Real,
     ) -> Result<Option<ObjectId>, AiError> {
+        // Wave 263: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         let ai_data = self.ai_data.read().unwrap();
         if !ai_data.enable_repulsors {
             return Ok(None);
@@ -1872,6 +1965,11 @@ impl AI {
         object: ObjectId,
         factors_to_consider: u32,
     ) -> Result<Real, AiError> {
+        // Wave 263: empty dual-world → Ok(0.0).
+        if dual_world_registry_unavailable() {
+            return Ok(0.0);
+        }
+
         let Some((mut range, player_is_human, attitude)) =
             OBJECT_REGISTRY.with_object(object, |obj_guard| {
                 let range = obj_guard.get_vision_range();
@@ -2374,6 +2472,11 @@ impl Pathfinder {
         from: &Coord3D,
         to: &Coord3D,
     ) -> Option<Vec<Coord3D>> {
+        // Wave 263: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let locomotor = locomotor_set.get_default_locomotor()?;
         let Ok(loco_guard) = locomotor.lock() else {
             return None;
@@ -3204,6 +3307,11 @@ impl Pathfinder {
         positions: &[Coord3D],
         is_fence: bool,
     ) {
+        // Wave 263: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = is_fence;
         let mut scratch = Vec::new();
         if let Some(fp) = OBJECT_REGISTRY
@@ -3226,6 +3334,11 @@ impl Pathfinder {
     }
 
     pub fn remove_object_from_map(&mut self, object_id: ObjectID, positions: &[Coord3D]) {
+        // Wave 263: empty dual-world → no factory object walks.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let mut scratch = Vec::new();
         if let Some(fp) = OBJECT_REGISTRY
             .with_object(object_id, |obj_guard| {
