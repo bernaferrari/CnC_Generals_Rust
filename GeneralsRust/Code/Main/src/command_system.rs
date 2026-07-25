@@ -1706,42 +1706,28 @@ impl CommandSystem {
 
         // Find a constructor unit
         for &unit_id in units {
-            let team = match game_logic.get_object(unit_id) {
-                Some(unit) if unit.can_construct() => unit.team,
-                Some(_) => continue,
-                None => continue,
+            // Wave 243: constructor team + economy via probes (no &Object/&mut Player dual-read).
+            let Some(team) = game_logic.unit_team_if_can_construct(unit_id) else {
+                continue;
+            };
+            let Some(player_id) = game_logic.player_id_for_team(team) else {
+                continue;
             };
 
-            {
-                let Some(player) = game_logic.get_player_mut_by_team(team) else {
-                    continue;
-                };
-
-                if !player.spend_resources(&build_cost) {
-                    return CommandResult::InvalidCommand;
-                }
+            if !game_logic.try_spend_player_resources(player_id, &build_cost) {
+                return CommandResult::InvalidCommand;
             }
 
             let created =
                 game_logic.create_object_under_construction(template_name, team, location);
             if created.is_none() {
-                if let Some(player) = game_logic.get_player_mut_by_team(team) {
-                    player.resources.supplies = player
-                        .resources
-                        .supplies
-                        .saturating_add(build_cost.supplies);
-                }
+                game_logic.player_refund_supplies(player_id, build_cost.supplies);
                 return CommandResult::InvalidCommand;
             }
 
             // Wave 232: dozer construct last-writes via GameLogic authority API.
             if !game_logic.unit_command_begin_construct(unit_id, location) {
-                if let Some(player) = game_logic.get_player_mut_by_team(team) {
-                    player.resources.supplies = player
-                        .resources
-                        .supplies
-                        .saturating_add(build_cost.supplies);
-                }
+                game_logic.player_refund_supplies(player_id, build_cost.supplies);
                 return CommandResult::InvalidCommand;
             }
 
