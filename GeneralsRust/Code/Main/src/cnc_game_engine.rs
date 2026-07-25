@@ -3513,6 +3513,42 @@ impl CnCGameEngine {
                     "click_eva_miss".into()
                 };
             }
+            "click_ime" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let text = args
+                    .get("text")
+                    .cloned()
+                    .unwrap_or_else(|| "nihao".to_string());
+                let mut wnd_ok = false;
+                #[cfg(feature = "game_client")]
+                {
+                    use game_client::gui::{
+                        simulate_ime_clear_candidates, simulate_ime_disable, simulate_ime_enable,
+                        simulate_ime_end_composition, simulate_ime_prepare_composition_cycle,
+                        simulate_ime_reset, simulate_ime_result_string,
+                        simulate_ime_start_composition, simulate_ime_update_composition,
+                    };
+                    wnd_ok = match action.as_str() {
+                        "enable" => simulate_ime_enable(),
+                        "disable" => simulate_ime_disable(),
+                        "start" => simulate_ime_start_composition(),
+                        "update" => simulate_ime_update_composition(&text, text.chars().count()),
+                        "result" => simulate_ime_result_string(&text),
+                        "clear" => simulate_ime_clear_candidates(),
+                        "end" => simulate_ime_end_composition(),
+                        "reset" => simulate_ime_reset(),
+                        _ => simulate_ime_prepare_composition_cycle(&text),
+                    };
+                }
+                self.runtime_host_last_gameplay_cmd = if wnd_ok {
+                    format!("click_ime_ok_wnd_{action}")
+                } else {
+                    "click_ime_miss".into()
+                };
+            }
             "click_campaign_start" => {
                 // Retail MainMenu campaign side + difficulty residual composite.
                 let campaign = args

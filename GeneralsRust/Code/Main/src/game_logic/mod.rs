@@ -192,6 +192,7 @@ mod host_highlander_body;
 pub mod host_historic_bonus;
 pub mod host_humvee;
 pub mod host_idle_worker_residual_wave137;
+pub mod host_ime_residual_wave144;
 pub mod host_in_game_chat_residual_wave136;
 pub mod host_inferno_cannon;
 pub mod host_jarmen_kell;
@@ -1487,6 +1488,10 @@ pub use host_generals_exp_residual_wave138::{
 pub use host_idle_worker_residual_wave137::{
     honesty_idle_worker_control_names_residual_wave137,
     honesty_idle_worker_nav_commands_residual_wave137, honesty_idle_worker_residual_pack_wave137,
+};
+pub use host_ime_residual_wave144::{
+    honesty_ime_message_names_residual_wave144, honesty_ime_nav_commands_residual_wave144,
+    honesty_ime_residual_pack_wave144,
 };
 pub use host_in_game_chat_residual_wave136::{
     honesty_in_game_chat_control_names_residual_wave136,
