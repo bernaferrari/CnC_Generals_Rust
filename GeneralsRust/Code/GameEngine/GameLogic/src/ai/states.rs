@@ -50,6 +50,12 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Wave 257: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 fn is_cliff_at(pos: &Coord3D) -> bool {
     get_terrain_logic()
         .read()
@@ -1394,6 +1400,11 @@ impl AIStateMachine {
     }
 
     pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 257: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.base.get_goal_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -2046,6 +2057,11 @@ impl ClassicState for AIIdleState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         // C++ AIIdleState::update() from AIStates.cpp line 1369
 
         // Do initialization on first update (C++ line 1373)
@@ -3080,6 +3096,11 @@ impl ClassicState for AIFollowState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let target_id = self
             .base
             .get_machine_goal_object_id()
@@ -3097,6 +3118,11 @@ impl ClassicState for AIFollowState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         if self.target_id == INVALID_ID {
             return Ok(StateReturnType::Failure);
         }
@@ -3660,6 +3686,11 @@ impl ClassicState for AIFaceObjectState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -3900,6 +3931,11 @@ impl ClassicState for AIRappelIntoState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -4138,6 +4174,11 @@ impl ClassicState for AIMoveAwayFromRepulsorsState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         self.base.set_adjusts_destination(false);
 
         let owner = self
@@ -4406,6 +4447,11 @@ impl ClassicState for AIMoveToState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         // C++ AIMoveToState::onEnter() from AIStates.cpp line 1999
 
         // C++ line 1599-1601: Check immobile status — fail immediately if object can't move
@@ -4499,6 +4545,11 @@ impl ClassicState for AIMoveToState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         // C++ AIMoveToState::update() from AIStates.cpp line 2052
 
         // Update goal position if tracking an object (C++ line 2068)
@@ -6164,6 +6215,11 @@ impl ClassicState for AIAttackObjectState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -6311,6 +6367,11 @@ impl ClassicState for AIAttackObjectState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -6884,6 +6945,11 @@ impl ClassicState for AIPickUpCrateState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let goal_id = self
             .base
             .base
@@ -6935,6 +7001,11 @@ impl AIAttackSquadState {
     }
 
     fn choose_victim(&mut self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 257: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let squad = self.base.get_machine_goal_squad()?;
         let owner = self.base.get_machine_owner()?;
         let owner_guard = owner.read().ok()?;
@@ -7378,6 +7449,11 @@ impl ClassicState for AIGuardState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -7505,6 +7581,11 @@ impl ClassicState for AIGuardRetaliateState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -7677,6 +7758,11 @@ impl AIHuntState {
     }
 
     fn find_hunt_victim(&self, owner: &Object) -> Option<Arc<RwLock<Object>>> {
+        // Wave 257: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let owner_id = owner.get_id();
         let attack_info = resolve_attack_priority_info_for_object(owner_id);
 
@@ -7983,6 +8069,11 @@ impl ClassicState for AIDockState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -8243,6 +8334,11 @@ impl ClassicState for AIEnterState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         self.entry_to_clear = INVALID_ID;
 
         let owner = self
@@ -8303,6 +8399,11 @@ impl ClassicState for AIEnterState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .base
@@ -8415,6 +8516,11 @@ impl ClassicState for AIEnterState {
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        // Wave 257: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.base.classic_on_exit(_exit)?;
         if let Some(owner) = self.base.base.get_machine_owner() {
             if let Ok(owner_guard) = owner.read() {
@@ -8493,6 +8599,11 @@ impl ClassicState for AIExitState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         self.entry_to_clear = INVALID_ID;
 
         let owner = self
@@ -8527,6 +8638,11 @@ impl ClassicState for AIExitState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -8581,6 +8697,11 @@ impl ClassicState for AIExitState {
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        // Wave 257: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(owner_guard) = owner.read() {
                 if self.entry_to_clear != INVALID_ID {
@@ -8651,6 +8772,11 @@ impl ClassicState for AIExitInstantlyState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         self.entry_to_clear = INVALID_ID;
 
         let owner = self
@@ -8708,6 +8834,11 @@ impl ClassicState for AIExitInstantlyState {
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        // Wave 257: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(owner_guard) = owner.read() {
                 if self.entry_to_clear != INVALID_ID {
@@ -8840,6 +8971,11 @@ impl ClassicState for AIDeadState {
 /// The "killer" object's relationship perspective is used to determine enemies.
 /// C++ Reference: AIStates.cpp:391 findEnemyInContainer()
 fn find_enemy_in_container(killer: &Object, building: &Object) -> Option<ObjectID> {
+    // Wave 257: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     let Some(contain) = building.get_contain() else {
         return None;
     };
@@ -8873,6 +9009,11 @@ fn find_enemy_in_container(killer: &Object, building: &Object) -> Option<ObjectI
 /// Returns the number of enemies killed.
 /// C++ Reference: AIStates.cpp:415 killEnemiesInContainer()
 fn kill_enemies_in_container(killer_id: ObjectID, building: &Object, max_to_kill: i32) -> i32 {
+    // Wave 257: empty dual-world → zero.
+    if dual_world_registry_unavailable() {
+        return 0;
+    }
+
     let mut num_killed = 0;
     while num_killed < max_to_kill {
         let Some(enemy_id) = OBJECT_REGISTRY
@@ -9002,6 +9143,11 @@ fn out_of_weapon_range_position_state(base: &State) -> Result<bool, String> {
 }
 
 fn want_to_squish_target_state(base: &State) -> Result<bool, String> {
+    // Wave 257: empty dual-world → Ok(false).
+    if dual_world_registry_unavailable() {
+        return Ok(false);
+    }
+
     let owner = base
         .get_machine_owner()
         .ok_or_else(|| "attack condition missing owner".to_string())?;
@@ -9058,6 +9204,11 @@ fn cannot_possibly_attack_object_state(
     base: &State,
     user_data: &StateTransitionUserData,
 ) -> Result<bool, String> {
+    // Wave 257: empty dual-world → Ok(false).
+    if dual_world_registry_unavailable() {
+        return Ok(false);
+    }
+
     let owner = base
         .get_machine_owner()
         .ok_or_else(|| "attack condition missing owner".to_string())?;
@@ -9468,6 +9619,11 @@ impl ClassicState for AIAttackAimAtTargetState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -9612,6 +9768,11 @@ impl ClassicState for AIAttackAimAtTargetState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -9836,6 +9997,11 @@ impl ClassicState for AIAttackFireWeaponState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .get_machine_owner()
@@ -10199,6 +10365,11 @@ impl AIAttackPursueTargetState {
     }
 
     fn compute_path(&mut self) -> Result<bool, String> {
+        // Wave 257: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let owner = self
             .base
             .base
@@ -10279,6 +10450,11 @@ impl AIAttackPursueTargetState {
     }
 
     fn update_internal(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .base
@@ -10427,6 +10603,11 @@ impl ClassicState for AIAttackPursueTargetState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .base
@@ -10598,6 +10779,11 @@ impl AIAttackApproachTargetState {
     }
 
     fn compute_path(&mut self) -> Result<bool, String> {
+        // Wave 257: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let owner = self
             .base
             .base
@@ -10698,6 +10884,11 @@ impl AIAttackApproachTargetState {
     }
 
     fn update_internal(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .base
@@ -10862,6 +11053,11 @@ impl ClassicState for AIAttackApproachTargetState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let owner = self
             .base
             .base
@@ -10986,6 +11182,11 @@ impl ClassicState for AIAttackApproachTargetState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
         let mut code = self.update_internal()?;
 
         if self.follow && self.attacking_object {
@@ -11421,6 +11622,11 @@ impl Snapshotable for AIAttackObjectState {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // Wave 257: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
