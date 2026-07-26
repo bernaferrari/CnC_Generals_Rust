@@ -31,6 +31,12 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 373: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct DemoTrapUpdateModuleData {
     pub base: BehaviorModuleData,
@@ -260,6 +266,11 @@ impl DemoTrapUpdate {
     }
 
     pub fn detonate(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 373: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.detonated {
             return Ok(());
         }
@@ -298,6 +309,11 @@ impl DemoTrapUpdate {
 
 impl UpdateModuleInterface for DemoTrapUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 373: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         if self.detonated {
             return UPDATE_SLEEP_NONE;
         }
@@ -552,6 +568,11 @@ impl BehaviorModuleInterface for DemoTrapUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 373: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
