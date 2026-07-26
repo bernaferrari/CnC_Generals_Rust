@@ -1,14 +1,15 @@
 //! Wave 175 residual peels: golden map-host victory honesty residual
-//! (post-combat mop-up drains topple/GLAHole; map_host_playable_ok requires
-//! !synthetic_combat + combat_no_teleport_ok; never flips shell `playable_claim`).
+//! (Wave 451: mop-up default-off; map_host_playable_ok requires proven map
+//! combat + combat_no_mopup_ok + combat_no_teleport_ok; never flips shell
+//! `playable_claim`).
 //!
 //! Orthogonal to Wave 174 presentation/GameClient boundary residual.
 //! Host residual only — network deferred.
 //!
 //! Sources (golden_skirmish map path):
-//! - `clear_remaining_enemy_army_for_map_victory` after proven combat
+//! - `clear_remaining_enemy_army_for_map_victory` gated by mop-up env (default off)
 //! - `map_host_playable_ok` fail-closed formula
-//! - `synthetic_combat=false` only when map victory proven
+//! - `synthetic_combat=false` when map combat proven (victory wipe optional)
 //!
 //! Fail-closed:
 //! - Does not run full golden combat inside shell_smoke (gate owns that)
@@ -81,32 +82,33 @@ pub fn honesty_golden_map_host_victory_residual_pack_wave175() -> bool {
         && honesty_golden_map_host_victory_nav_commands_residual_wave175()
 }
 
-/// Source residual: mop-up helper drains topple/holes after map combat.
+/// Source residual: mop-up helper exists and is opt-in gated (Wave 451 default off).
 pub fn honesty_clear_remaining_enemy_army_source() -> bool {
     let src = include_str!("../golden_skirmish.rs");
     src.contains("fn clear_remaining_enemy_army_for_map_victory")
         && src.contains("maybe_spawn_rebuild_hole")
         && src.contains("GLAHole")
         && src.contains("clear_remaining_enemy_army_for_map_victory(logic)")
+        && src.contains("golden_mopup_destroy_enabled")
 }
 
-/// Source residual: map_host_playable_ok formula is fail-closed.
+/// Source residual: map_host_playable_ok formula is fail-closed (Wave 451 mop-up-off).
 pub fn honesty_map_host_playable_formula_source() -> bool {
     let src = include_str!("../golden_skirmish.rs");
     let i = match src.find("let map_host_playable_ok =") {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 700)];
+    let body = &src[i..src.len().min(i + 900)];
     body.contains("map_loaded")
-        && body.contains("!synthetic_combat")
-        && body.contains("outcome.victory")
+        && body.contains("outcome.fought")
         && body.contains("outcome.map_combat_ok")
+        && body.contains("outcome.combat_no_mopup_ok")
         && body.contains("outcome.combat_no_teleport_ok")
         && body.contains("outcome.combat_realistic_speed_ok")
 }
 
-/// Source residual: synthetic_combat false only after proven map victory chain.
+/// Source residual: synthetic_combat false after proven map combat (victory wipe optional).
 pub fn honesty_synthetic_combat_false_on_map_victory_source() -> bool {
     let src = include_str!("../golden_skirmish.rs");
     let i = match src.find("let synthetic_combat =") {
@@ -115,10 +117,9 @@ pub fn honesty_synthetic_combat_false_on_map_victory_source() -> bool {
     };
     let body = &src[i..src.len().min(i + 400)];
     body.contains("map_loaded")
-        && body.contains("outcome.victory")
         && body.contains("outcome.map_combat_ok")
         && body.contains("outcome.same_world_production_ok")
-        && body.contains("outcome.same_world_victory_ok")
+        && body.contains("outcome.fought")
 }
 
 /// Live residual: source honesty only (full golden owned by golden_skirmish_gate).

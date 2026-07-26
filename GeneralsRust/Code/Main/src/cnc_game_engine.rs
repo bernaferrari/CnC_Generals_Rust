@@ -5375,21 +5375,23 @@ impl CnCGameEngine {
                     format!("click_live_command_non_attack_order_target_miss_{action}")
                 };
             }
-            "click_live_golden_mopup_honesty" => {
+            "click_live_golden_mopup_default_off" => {
                 let action = args
                     .get("action")
                     .map(|v| v.trim().to_ascii_lowercase())
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
-                    "live" | "prepare" => crate::game_logic::simulate_live_golden_mopup_honesty(),
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_golden_mopup_default_off_honesty()
+                    }
                     _ => {
                         crate::game_logic::honesty_live_golden_mopup_honesty_residual_pack_wave208()
                     }
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
-                    format!("click_live_golden_mopup_honesty_ok_{action}")
+                    format!("click_live_golden_mopup_default_off_ok_{action}")
                 } else {
-                    format!("click_live_golden_mopup_honesty_miss_{action}")
+                    format!("click_live_golden_mopup_default_off_miss_{action}")
                 };
             }
             "click_live_os_input_command_path" => {
