@@ -233,6 +233,7 @@ pub mod host_live_bootstrap_camera_presentation_only_residual_wave223;
 pub mod host_live_bridge_behavior_dual_world_empty_gate_residual_wave301;
 pub mod host_live_camera_height_probe_residual_wave241;
 pub mod host_live_cave_contain_dual_world_empty_gate_residual_wave279;
+pub mod host_live_cleanup_hazard_dual_world_empty_gate_residual_wave317;
 pub mod host_live_client_dual_world_empty_gate_residual_wave249;
 pub mod host_live_cmd_filter_env_presentation_only_residual_wave217;
 pub mod host_live_collision_system_dual_world_empty_gate_residual_wave313;
@@ -1844,6 +1845,12 @@ pub use host_live_cave_contain_dual_world_empty_gate_residual_wave279::{
     honesty_live_cave_contain_dual_world_empty_gate_nav_commands_residual_wave279,
     honesty_live_cave_contain_dual_world_empty_gate_residual_pack_wave279,
     simulate_live_cave_contain_dual_world_empty_gate_honesty,
+};
+pub use host_live_cleanup_hazard_dual_world_empty_gate_residual_wave317::{
+    honesty_live_cleanup_hazard_dual_world_empty_gate_method_names_residual_wave317,
+    honesty_live_cleanup_hazard_dual_world_empty_gate_nav_commands_residual_wave317,
+    honesty_live_cleanup_hazard_dual_world_empty_gate_residual_pack_wave317,
+    simulate_live_cleanup_hazard_dual_world_empty_gate_honesty,
 };
 pub use host_live_client_dual_world_empty_gate_residual_wave249::{
     honesty_live_client_dual_world_empty_gate_method_names_residual_wave249,
