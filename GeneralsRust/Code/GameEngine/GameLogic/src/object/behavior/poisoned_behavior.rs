@@ -22,6 +22,12 @@ use game_engine::common::thing::module::{
 };
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 377: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct PoisonedBehaviorModuleData {
     pub base: BehaviorModuleData,
@@ -117,6 +123,11 @@ impl PoisonedBehavior {
     }
 
     fn set_wake_frame(&self, sleep_time: UpdateSleepTime) {
+        // Wave 377: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -132,6 +143,11 @@ impl PoisonedBehavior {
     }
 
     fn set_poison_tint(&self, enabled: bool) {
+        // Wave 377: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -207,6 +223,11 @@ fn frame_delta(now: UnsignedInt, frame: UnsignedInt) -> Option<UnsignedInt> {
 
 impl UpdateModuleInterface for PoisonedBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 377: empty dual-world → Ok(Forever).
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         let now = TheGameLogic::get_frame();
         if self.poison_overall_stop_frame == 0 {
             return Ok(UpdateSleepTime::Forever);
