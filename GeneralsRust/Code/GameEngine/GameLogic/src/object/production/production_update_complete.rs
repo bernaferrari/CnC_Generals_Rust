@@ -46,6 +46,12 @@ use game_engine::common::thing::module::{
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 
+/// Wave 365: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Quantity modifier for multi-unit production
 /// Matches C++ QuantityModifier struct from ProductionUpdate.h line 94
 #[derive(Debug, Clone)]
@@ -404,6 +410,11 @@ impl ProductionUpdateComplete {
     }
 
     fn sync_actively_constructing_flag(&mut self) {
+        // Wave 365: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let should_set = self.current_production.is_some() || !self.queue.is_empty();
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
             if let Ok(mut guard) = owner.write() {
@@ -417,6 +428,11 @@ impl ProductionUpdateComplete {
     }
 
     fn set_hold_door_open(&mut self, exit_door: usize, hold_it: bool) {
+        // Wave 365: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if exit_door >= DOOR_COUNT_MAX {
             return;
         }
@@ -812,6 +828,11 @@ impl ProductionUpdateComplete {
     /// Update door animations
     /// Matches C++ updateDoors lines 513-583
     fn update_doors(&mut self, current_frame: u32) {
+        // Wave 365: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for door_idx in 0..self.data.num_door_animations.min(DOOR_COUNT_MAX as i32) as usize {
             let door = &mut self.doors[door_idx];
 
@@ -861,6 +882,11 @@ impl ProductionUpdateComplete {
     /// Update construction complete animation
     /// Matches C++ lines 600-619
     fn update_construction_complete(&mut self, current_frame: u32) {
+        // Wave 365: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.construction_complete_frame > 0 {
             let elapsed = current_frame - self.construction_complete_frame;
             if elapsed > self.data.construction_complete_duration {
@@ -877,6 +903,11 @@ impl ProductionUpdateComplete {
     }
 
     fn build_player_modifiers(&self, template_name: Option<&str>) -> PlayerBuildModifiers {
+        // Wave 365: empty dual-world → default modifiers.
+        if dual_world_registry_unavailable() {
+            return PlayerBuildModifiers::default();
+        }
+
         let mut mods = PlayerBuildModifiers::default();
 
         let Some(player) = crate::object::registry::OBJECT_REGISTRY
@@ -990,6 +1021,11 @@ impl ProductionUpdateComplete {
     /// Spawn a completed unit
     /// Matches C++ lines 706-856
     fn spawn_unit(&mut self, current_frame: u32) -> Result<(), String> {
+        // Wave 365: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if let Some(ref mut prod) = self.current_production {
             // Check if we've produced all units in this batch
             if prod.quantity_remaining() <= 0 {
@@ -1193,6 +1229,11 @@ impl UpdateModuleInterface for ProductionUpdateComplete {
 
 impl ProductionUpdateInterface for ProductionUpdateComplete {
     fn can_produce(&self, _template_name: &str) -> bool {
+        // Wave 365: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.queue.is_full() {
             return false;
         }
