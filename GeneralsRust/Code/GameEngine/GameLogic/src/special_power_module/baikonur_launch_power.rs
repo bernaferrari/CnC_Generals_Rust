@@ -8,6 +8,12 @@ use crate::common::*;
 use crate::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use crate::player::PlayerIndex;
 
+/// Wave 400: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Debug, Clone)]
 pub struct BaikonurLaunchPowerData {
     pub base: SpecialPowerModuleData,
@@ -54,6 +60,11 @@ impl BaikonurLaunchPower {
     }
 
     fn open_launch_door(&self) {
+        // Wave 400: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner_id) = self.owner_id else {
             return;
         };
@@ -67,6 +78,11 @@ impl BaikonurLaunchPower {
     }
 
     fn owner_is_disabled(&self) -> bool {
+        // Wave 400: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(owner_id) = self.owner_id else {
             return false;
         };
@@ -80,6 +96,11 @@ impl BaikonurLaunchPower {
     }
 
     fn resolve_team(&self) -> Result<std::sync::Arc<std::sync::RwLock<crate::team::Team>>, String> {
+        // Wave 400: empty dual-world → Err.
+        if dual_world_registry_unavailable() {
+            return Err("Baikonur launch owner object not found".to_string());
+        }
+
         let owner_id = self
             .owner_id
             .ok_or_else(|| "Baikonur launch requires owning object".to_string())?;
@@ -235,6 +256,13 @@ impl SpecialPowerModuleInterface for BaikonurLaunchPower {
         targeting: Option<&TargetingInfo>,
         current_frame: UnsignedInt,
     ) -> ActivationResult {
+        // Wave 400: empty dual-world → Failed.
+        if dual_world_registry_unavailable() {
+            return ActivationResult::Failed {
+                reason: "empty dual-world".to_string(),
+            };
+        }
+
         if targeting.is_none() {
             // Matches C++ BaikonurLaunchPower::doSpecialPower (no target).
             if self.is_on_cooldown() {
