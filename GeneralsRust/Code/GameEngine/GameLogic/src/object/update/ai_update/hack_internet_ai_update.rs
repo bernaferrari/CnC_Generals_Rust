@@ -21,6 +21,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 358: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
     "YES",
     "STEALTHED",
@@ -453,6 +459,11 @@ impl HackInternetAIUpdate {
     }
 
     fn enter_unpacking(&mut self) {
+        // Wave 358: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
@@ -489,6 +500,11 @@ impl HackInternetAIUpdate {
     }
 
     fn enter_packing(&mut self) {
+        // Wave 358: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
@@ -522,6 +538,11 @@ impl HackInternetAIUpdate {
     }
 
     fn enter_hacking(&mut self) {
+        // Wave 358: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
@@ -544,6 +565,11 @@ impl HackInternetAIUpdate {
     }
 
     fn update_unpacking(&mut self, frames_remaining: UnsignedInt) {
+        // Wave 358: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
@@ -564,6 +590,11 @@ impl HackInternetAIUpdate {
     }
 
     fn update_packing(&mut self, frames_remaining: UnsignedInt) {
+        // Wave 358: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if frames_remaining > 0 {
             self.state = HackInternetState::Packing {
                 frames_remaining: frames_remaining.saturating_sub(1),
@@ -583,6 +614,11 @@ impl HackInternetAIUpdate {
         &mut self,
         frames_remaining: UnsignedInt,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 358: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return Ok(());
         };
@@ -610,6 +646,11 @@ impl HackInternetAIUpdate {
     }
 
     fn do_cash_update(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 358: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return Ok(());
         };
@@ -696,6 +737,11 @@ impl HackInternetAIUpdate {
     }
 
     fn get_pack_time(&self) -> UnsignedInt {
+        // Wave 358: empty dual-world → base pack time.
+        if dual_world_registry_unavailable() {
+            return self.data.pack_time;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return self.data.pack_time;
         };
@@ -709,6 +755,11 @@ impl HackInternetAIUpdate {
     }
 
     fn get_cash_update_delay(&self) -> UnsignedInt {
+        // Wave 358: empty dual-world → base cash delay.
+        if dual_world_registry_unavailable() {
+            return self.data.cash_update_delay;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return self.data.cash_update_delay;
         };
