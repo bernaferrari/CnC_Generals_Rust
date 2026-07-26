@@ -30,6 +30,12 @@ use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData,
 use glam::Vec4;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 362: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const SC_PHASE_COUNT: usize = 4;
 const MAX_IDX: usize = 32;
 
@@ -381,6 +387,11 @@ impl StructureCollapseUpdate {
     }
 
     fn do_phase_stuff(&self, phase: StructureCollapsePhaseType, target: &Coord3D) {
+        // Wave 362: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let phase_idx = phase.idx();
         let list_size = self.module_data.fxs[phase_idx].len();
         if list_size > 0 {
@@ -439,6 +450,11 @@ impl StructureCollapseUpdate {
     }
 
     fn do_collapse_done_stuff(&self) {
+        // Wave 362: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -468,6 +484,11 @@ impl StructureCollapseUpdate {
     /// Begin the structure collapse animation
     /// C++ Reference: StructureCollapseUpdate.cpp - beginStructureCollapse()
     pub fn begin_collapse(&mut self, _damage_info: &crate::damage::DamageInfo) {
+        // Wave 362: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let current_frame = TheGameLogic::get_frame();
 
         // Calculate random delay within range
@@ -498,6 +519,11 @@ impl StructureCollapseUpdate {
 
 impl UpdateModuleInterface for StructureCollapseUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 362: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         let now = TheGameLogic::get_frame();
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
@@ -628,6 +654,11 @@ impl DieModuleInterface for StructureCollapseUpdate {
         &mut self,
         damage_info: &crate::damage::DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 362: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
