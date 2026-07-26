@@ -27,6 +27,12 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 402: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const SLAVED_UPDATE_RATE: Int = (LOGICFRAMES_PER_SECOND / 4) as Int;
 const STRAY_MULTIPLIER: Real = 2.0;
 const CLOSE_ENOUGH: Real = 15.0;
@@ -481,10 +487,20 @@ impl SlavedUpdate {
     }
 
     fn object_arc(&self) -> Option<Arc<RwLock<GameObject>>> {
+        // Wave 402: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         TheGameLogic::find_object_by_id(self.object_id)
     }
 
     fn master_arc(&self) -> Option<Arc<RwLock<GameObject>>> {
+        // Wave 402: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.slaver == INVALID_ID {
             return None;
         }
@@ -537,6 +553,11 @@ impl SlavedUpdate {
     }
 
     fn do_attack_logic(&mut self, target_id: ObjectID) {
+        // Wave 402: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(me_arc) = self.object_arc() else {
             return;
         };
@@ -1268,6 +1289,11 @@ impl SlavedUpdateInterface for SlavedUpdate {
         &mut self,
         master_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 402: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(master) = crate::helpers::TheGameLogic::find_object_by_id(master_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(master_id))
         else {
