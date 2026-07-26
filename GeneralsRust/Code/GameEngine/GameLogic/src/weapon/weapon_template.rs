@@ -29,6 +29,12 @@ use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::thing::module::ModuleInterfaceType;
 
+/// Wave 356: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Maximum shots limit constant matching C++
 #[allow(dead_code)]
 pub const NO_MAX_SHOTS_LIMIT: i32 = 0x7fffffff;
@@ -271,6 +277,11 @@ impl WeaponTemplate {
     }
 
     fn target_is_infantry(victim_obj: Option<ObjectID>) -> bool {
+        // Wave 356: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(victim_id) = victim_obj else {
             return false;
         };
@@ -530,6 +541,11 @@ impl WeaponTemplate {
         thing_we_collided_with: ObjectID,
         intended_victim_id: ObjectID, // Could be INVALID_OBJECT_ID for position shots
     ) -> bool {
+        // Wave 356: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(projectile_obj) = crate::helpers::TheGameLogic::find_object_by_id(projectile)
         else {
             return false;
@@ -677,6 +693,11 @@ impl WeaponTemplate {
         projectile_id: &mut Option<ObjectID>,
         inflict_damage: bool,
     ) -> GameLogicResult<u32> {
+        // Wave 356: empty dual-world → Ok(0).
+        if dual_world_registry_unavailable() {
+            return Ok(0);
+        }
+
         *projectile_id = None;
 
         // C++ line 775: Validate source and target
@@ -1106,6 +1127,11 @@ impl WeaponTemplate {
         victim_pos: Option<&Coord3D>,
         bonus: &WeaponBonus,
     ) -> f32 {
+        // Wave 356: empty dual-world → 0.0.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         let _ = victim_pos; // C++ ignores victim position once victim object is known.
         let primary_damage = self.get_primary_damage(bonus);
         let Some(victim_id) = victim_obj else {
@@ -1146,6 +1172,11 @@ impl WeaponTemplate {
     ///
     /// Matches C++ TheGameLogic->findObjectByID(objID)->getPosition()
     fn get_object_position(&self, obj_id: ObjectID) -> GameLogicResult<Coord3D> {
+        // Wave 356: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return Err(GameLogicError::InvalidObject(obj_id));
+        }
+
         // Interface with object registry to get position (C++ Weapon.cpp line 790, 799)
         // C++ code: const Coord3D* sourcePos = sourceObj->getPosition()
         //
@@ -1170,6 +1201,11 @@ impl WeaponTemplate {
     ///
     /// Matches C++ sourceObject->getVeterancyLevel() from Weapon.cpp line 889
     fn get_object_veterancy_level(&self, obj_id: ObjectID) -> VeterancyLevel {
+        // Wave 356: empty dual-world → Regular.
+        if dual_world_registry_unavailable() {
+            return VeterancyLevel::Regular;
+        }
+
         // Interface with object system to get veterancy (C++ line 889, 903, 946)
         // C++ code: VeterancyLevel v = sourceObj->getVeterancyLevel()
         //
@@ -1218,6 +1254,11 @@ impl WeaponTemplate {
         target_id: ObjectID,
         affects_mask: u32,
     ) -> bool {
+        // Wave 356: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(target_id) else {
             return false;
         };
@@ -1288,6 +1329,11 @@ impl WeaponTemplate {
         damage_pos: &Coord3D,
         target_pos: &Coord3D,
     ) -> GameLogicResult<()> {
+        // Wave 356: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Build DamageInfo and apply to object (C++ lines 1378-1438)
         // C++ code: target->attemptDamage(&damageInfo)
         //
@@ -1389,6 +1435,11 @@ impl WeaponTemplate {
         bonus: &WeaponBonus,
         is_projectile_detonation: bool,
     ) -> GameLogicResult<()> {
+        // Wave 356: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // C++ line 1199-1203: Validation
         if source_obj == 0 {
             return Ok(()); // Must have a source
@@ -1715,6 +1766,11 @@ impl WeaponTemplate {
         weapon_slot: WeaponSlotType,
         specific_barrel_to_use: i32,
     ) -> GameLogicResult<Option<ObjectID>> {
+        // Wave 356: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         if self.projectile_name.is_empty() {
             return Ok(None);
         }
@@ -1893,6 +1949,11 @@ impl WeaponTemplate {
         victim_obj: Option<ObjectID>,
         victim_pos: Option<&Coord3D>,
     ) -> GameLogicResult<Option<ObjectID>> {
+        // Wave 356: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         if self.laser_name.is_empty() {
             return Ok(None);
         }
@@ -2744,6 +2805,11 @@ mod tests {
     }
 
     fn reset_collision_objects() {
+        // Wave 356: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         crate::object::registry::OBJECT_REGISTRY.clear();
         crate::system::game_logic::get_game_logic()
             .lock()
