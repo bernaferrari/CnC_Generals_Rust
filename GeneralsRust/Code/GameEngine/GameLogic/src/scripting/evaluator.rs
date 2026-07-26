@@ -29,6 +29,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
+/// Wave 343: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Script Evaluator matching C++ ScriptEngine evaluation logic
 pub struct ScriptEvaluator {
     engine: Arc<RwLock<Option<ScriptEngine>>>,
@@ -113,6 +119,11 @@ impl ScriptEvaluator {
 
     /// Evaluate a single condition matching C++ EvaluateCondition
     pub fn evaluate_condition(&self, condition: &mut Condition) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         const SLOW_SCRIPT_CONDITION_WARN_MS: u64 = 40;
         let condition_type = condition.get_condition_type();
         let eval_started = Instant::now();
@@ -2200,6 +2211,11 @@ impl ScriptEvaluator {
     }
 
     fn evaluate_named_inside_area_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedInsideArea condition missing unit parameter".to_string(),
@@ -2849,6 +2865,11 @@ impl ScriptEvaluator {
 
     /// Evaluate named destroyed condition
     fn evaluate_named_destroyed_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedDestroyed condition missing unit parameter".to_string(),
@@ -2875,6 +2896,11 @@ impl ScriptEvaluator {
     }
 
     fn evaluate_named_created_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedCreated condition missing unit parameter".to_string(),
@@ -2958,6 +2984,11 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedAttackedByObjecttype condition missing unit parameter".to_string(),
@@ -3010,6 +3041,11 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let team_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "TeamAttackedByObjecttype condition missing team parameter".to_string(),
@@ -3072,6 +3108,11 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedAttackedByPlayer condition missing unit parameter".to_string(),
@@ -3144,6 +3185,11 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let team_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "TeamAttackedByPlayer condition missing team parameter".to_string(),
@@ -3204,6 +3250,11 @@ impl ScriptEvaluator {
     }
 
     fn evaluate_named_dying_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration("NamedDying condition missing unit parameter".to_string())
         })?;
@@ -3290,6 +3341,11 @@ impl ScriptEvaluator {
         &self,
         condition: &mut Condition,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let type_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "BuiltByPlayer condition missing type parameter".to_string(),
@@ -3348,6 +3404,11 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedBuildingIsEmpty condition missing unit parameter".to_string(),
@@ -3379,6 +3440,11 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "BuildingEnteredByPlayer condition missing player parameter".to_string(),
@@ -3432,6 +3498,11 @@ impl ScriptEvaluator {
     }
 
     fn evaluate_named_discovered_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedDiscovered condition missing unit parameter".to_string(),
@@ -3487,6 +3558,11 @@ impl ScriptEvaluator {
     }
 
     fn evaluate_team_discovered_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let team_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "TeamDiscovered condition missing team parameter".to_string(),
@@ -3645,6 +3721,11 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedOwnedByPlayer condition missing unit parameter".to_string(),
@@ -3978,6 +4059,11 @@ impl ScriptEvaluator {
     }
 
     fn evaluate_unit_health_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration("UnitHealth condition missing unit parameter".to_string())
         })?;
@@ -4033,6 +4119,11 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "UnitHasObjectStatus condition missing unit parameter".to_string(),
@@ -4066,6 +4157,11 @@ impl ScriptEvaluator {
         condition: &Condition,
         entire_team: bool,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let team_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "TeamHasObjectStatus condition missing team parameter".to_string(),
@@ -4236,6 +4332,11 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedHasFreeContainerSlots condition missing unit parameter".to_string(),
@@ -4265,6 +4366,11 @@ impl ScriptEvaluator {
     }
 
     fn evaluate_unit_emptied_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "UnitEmptied condition missing unit parameter".to_string(),
@@ -4366,6 +4472,11 @@ impl ScriptEvaluator {
         midway: bool,
         complete: bool,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "SpecialPower condition missing player parameter".to_string(),
@@ -4428,6 +4539,11 @@ impl ScriptEvaluator {
         condition: &Condition,
         from_named: bool,
     ) -> GameLogicResult<bool> {
+        // Wave 343: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let player_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "PlayerBuiltUpgrade condition missing player parameter".to_string(),
