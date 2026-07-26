@@ -21,6 +21,12 @@ use game_engine::common::thing::KindOfMaskType;
 use log::{debug, warn};
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 434: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Debug, Clone)]
 pub struct SpyVisionUpdateModuleData {
     module_tag_name_key: NameKeyType,
@@ -166,6 +172,11 @@ impl SpyVisionController {
     }
 
     fn do_activation_work_for_current_owner(&mut self, setting: bool) {
+        // Wave 434: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.currently_active = setting;
 
         let Some(spying_player_id) = OBJECT_REGISTRY
@@ -337,6 +348,11 @@ impl SpyVisionUpdate {
     }
 
     fn maybe_trigger_upgrade(&mut self) {
+        // Wave 434: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !self.data.needs_upgrade || self.upgrade_mux.is_already_upgraded() {
             return;
         }
