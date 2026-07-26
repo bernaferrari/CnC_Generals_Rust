@@ -26,6 +26,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 327: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct NeutronBlastBehaviorModuleData {
     pub base: BehaviorModuleData,
@@ -113,6 +119,11 @@ impl NeutronBlastBehavior {
     }
 
     fn neutron_blast_to_object(&self, source_id: ObjectID, target_id: ObjectID) {
+        // Wave 327: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !self.module_data.affect_allies {
             let is_ally = OBJECT_REGISTRY
                 .with_object(source_id, |source| {
@@ -181,6 +192,11 @@ impl DieModuleInterface for NeutronBlastBehavior {
         &mut self,
         _damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 327: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(source_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {

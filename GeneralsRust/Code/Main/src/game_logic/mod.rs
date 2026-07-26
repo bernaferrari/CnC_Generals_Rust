@@ -299,6 +299,7 @@ pub mod host_live_local_team_presentation_only_residual_wave220;
 pub mod host_live_map_load_residual_wave170;
 pub mod host_live_max_health_upgrade_dual_world_empty_gate_residual_wave314;
 pub mod host_live_mouse_input_presentation_only_residual_wave236;
+pub mod host_live_neutron_blast_dual_world_empty_gate_residual_wave327;
 pub mod host_live_object_manager_dual_world_empty_gate_residual_wave304;
 pub mod host_live_object_mod_dual_world_empty_gate_residual_wave264;
 pub mod host_live_object_registry_empty_fastpath_residual_wave247;
@@ -2247,6 +2248,12 @@ pub use host_live_mouse_input_presentation_only_residual_wave236::{
     honesty_live_mouse_input_presentation_only_nav_commands_residual_wave236,
     honesty_live_mouse_input_presentation_only_residual_pack_wave236,
     simulate_live_mouse_input_presentation_only_honesty,
+};
+pub use host_live_neutron_blast_dual_world_empty_gate_residual_wave327::{
+    honesty_live_neutron_blast_dual_world_empty_gate_method_names_residual_wave327,
+    honesty_live_neutron_blast_dual_world_empty_gate_nav_commands_residual_wave327,
+    honesty_live_neutron_blast_dual_world_empty_gate_residual_pack_wave327,
+    simulate_live_neutron_blast_dual_world_empty_gate_honesty,
 };
 pub use host_live_object_manager_dual_world_empty_gate_residual_wave304::{
     honesty_live_object_manager_dual_world_empty_gate_method_names_residual_wave304,
