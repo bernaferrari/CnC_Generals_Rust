@@ -15,6 +15,12 @@ use crate::common::{
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 413: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // Forward declarations - assume these exist
 use crate::common::{
     GameLogic, GameLogicRandomValue, GameLogicRandomValueReal, ModelConditionFlags,
@@ -613,6 +619,11 @@ impl SlowDeathBehavior {
         &self,
         f: impl FnOnce(&Object) -> R,
     ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 413: empty dual-world → Err.
+        if dual_world_registry_unavailable() {
+            return Err("Object not found".into());
+        }
+
         let id = self.get_object_id();
         if id == INVALID_ID {
             return Err("Object not set".into());
@@ -626,6 +637,11 @@ impl SlowDeathBehavior {
         &self,
         f: impl FnOnce(&mut Object) -> R,
     ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 413: empty dual-world → Err.
+        if dual_world_registry_unavailable() {
+            return Err("Object not found".into());
+        }
+
         let id = self.get_object_id();
         if id == INVALID_ID {
             return Err("Object not set".into());
@@ -636,6 +652,11 @@ impl SlowDeathBehavior {
     }
 
     fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 413: empty dual-world → Err.
+        if dual_world_registry_unavailable() {
+            return Err("Object not found".into());
+        }
+
         let id = self.get_object_id();
         if id == INVALID_ID {
             return Err("Object not set".into());
@@ -737,6 +758,11 @@ impl UpdateModuleInterface for SlowDeathBehavior {
     /// Update the slow death behavior each frame
     /// (Matches C++ SlowDeathBehavior::update at line 359)
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 413: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return Ok(UPDATE_SLEEP_FOREVER);
+        }
+
         // Assert that slow death is activated (C++ line 362)
         if !self.is_slow_death_activated() {
             return Err("SlowDeathBehavior::update called when not activated".into());
