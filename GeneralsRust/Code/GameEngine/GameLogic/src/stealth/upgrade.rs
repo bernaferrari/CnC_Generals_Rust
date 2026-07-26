@@ -11,6 +11,12 @@ use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use log::{debug, warn};
 use std::sync::Arc;
 
+/// Wave 438: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Type of stealth upgrade
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StealthUpgradeType {
@@ -145,6 +151,11 @@ impl StealthUpgrade {
 
     /// Apply the stealth upgrade
     pub fn apply_upgrade(&mut self) -> Result<(), String> {
+        // Wave 438: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.is_applied {
             return Ok(()); // Already applied
         }
@@ -189,6 +200,11 @@ impl StealthUpgrade {
 
     /// Remove the stealth upgrade
     pub fn remove_upgrade(&mut self) -> Result<(), String> {
+        // Wave 438: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if !self.is_applied {
             return Ok(());
         }
