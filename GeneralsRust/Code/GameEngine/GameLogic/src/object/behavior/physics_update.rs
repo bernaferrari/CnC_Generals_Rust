@@ -25,6 +25,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use glam::{Mat4, Quat, Vec3};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Wave 316: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const DEFAULT_MASS: Real = 1.0;
 const DEFAULT_SHOCK_YAW: Real = 0.05;
 const DEFAULT_SHOCK_PITCH: Real = 0.025;
@@ -204,6 +210,11 @@ impl PhysicsBehaviorHandle {
     }
 
     fn object_arc(&self) -> Option<Arc<RwLock<GameObject>>> {
+        // Wave 316: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
@@ -247,6 +258,11 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn apply_force(&mut self, force: &Vec3) {
+        // Wave 316: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !force.x.is_finite() || !force.y.is_finite() || !force.z.is_finite() {
             return;
         }
@@ -355,6 +371,11 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn apply_angular_velocity(&mut self, angular_velocity: &Vec3) {
+        // Wave 316: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ applies angular rates via Rotate_X/Y/Z with pitchRollYawFactor scaling.
         // angular_velocity.x = roll rate, .y = pitch rate, .z = yaw rate (per frame).
         let factor = self.module_data.pitch_roll_yaw_factor;
@@ -418,6 +439,11 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn apply_random_rotation(&mut self) {
+        // Wave 316: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.state.has_flag(FLAG_STICK_TO_GROUND) {
             return;
         }
@@ -447,6 +473,11 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn set_stunned(&mut self, stunned: bool) {
+        // Wave 316: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.state.set_flag(FLAG_IS_STUNNED, stunned);
         if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
             None
@@ -659,6 +690,11 @@ impl PhysicsBehaviorUpdate {
 
 impl UpdateModuleInterface for PhysicsBehaviorUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 316: empty dual-world → Forever sleep.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -901,6 +937,11 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 316: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
