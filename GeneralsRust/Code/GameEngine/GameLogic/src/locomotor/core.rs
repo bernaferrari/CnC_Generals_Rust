@@ -19,6 +19,12 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 423: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // ============================================================================
 // ENUMS AND CONSTANTS
 // ============================================================================
@@ -2533,6 +2539,11 @@ impl Locomotor {
         end: Coord3D,
         pathfinding: &mut crate::ai::pathfinding_system::PathfindingSystem,
     ) -> Result<Option<crate::ai::pathfinding_system::Path>, Box<dyn Error>> {
+        // Wave 423: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         use crate::ai::pathfinding_system::{PathRequest, PathResult};
 
         // Convert locomotor and requester capabilities to pathfinding capabilities.
@@ -2667,6 +2678,11 @@ impl Locomotor {
         mut capabilities: MovementCapabilities,
         requester: ObjectID,
     ) -> MovementCapabilities {
+        // Wave 423: empty dual-world → pass through.
+        if dual_world_registry_unavailable() {
+            return capabilities;
+        }
+
         if let Some(is_crusher) =
             OBJECT_REGISTRY.with_object(requester, |guard| guard.get_crusher_level() > 0)
         {
