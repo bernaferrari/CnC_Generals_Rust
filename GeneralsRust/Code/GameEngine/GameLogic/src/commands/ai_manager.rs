@@ -26,6 +26,12 @@ use crate::common::{CommandSourceType, Coord3D, ObjectID};
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::registry::OBJECT_REGISTRY;
 
+/// Wave 425: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Global per-unit command queues. Each unit has its own FIFO queue.
 /// Indexed by ObjectID.
 pub struct UnitCommandQueueManager {
@@ -329,6 +335,11 @@ impl AIManager for AIManagerImpl {
     }
 
     fn queue_waypoint_for_object(&mut self, object_id: ObjectID, pos: Coord3D) {
+        // Wave 425: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(ai) = OBJECT_REGISTRY
             .with_object(object_id, |obj_guard| obj_guard.get_ai_update_interface())
             .flatten()
@@ -339,6 +350,11 @@ impl AIManager for AIManagerImpl {
     }
 
     fn execute_waypoint_queue_for_object(&mut self, object_id: ObjectID) {
+        // Wave 425: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(ai) = OBJECT_REGISTRY
             .with_object(object_id, |obj_guard| obj_guard.get_ai_update_interface())
             .flatten()
@@ -377,6 +393,11 @@ fn execute_ai_command_on_unit(
     ai_cmd: AiCommandType,
     cmd_source: CommandSourceType,
 ) {
+    // Wave 425: empty dual-world → no-op.
+    if dual_world_registry_unavailable() {
+        return;
+    }
+
     let Some(ai) = OBJECT_REGISTRY
         .with_object(object_id, |obj_guard| obj_guard.get_ai_update_interface())
         .flatten()
@@ -417,6 +438,11 @@ pub fn update_unit_command_queues(current_frame: u32) {
 }
 
 fn should_advance_unit_queue(object_id: ObjectID) -> bool {
+    // Wave 425: empty dual-world → false.
+    if dual_world_registry_unavailable() {
+        return false;
+    }
+
     let Some(ai) = OBJECT_REGISTRY
         .with_object(object_id, |obj_guard| obj_guard.get_ai_update_interface())
         .flatten()
