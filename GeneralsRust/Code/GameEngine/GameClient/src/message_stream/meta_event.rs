@@ -52,6 +52,12 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
 use gamelogic::scripting::engine::get_script_engine;
 
+/// Wave 345: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    gamelogic::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const MOD_CTRL: u32 = 1;
 const MOD_ALT: u32 = 2;
 const MOD_SHIFT: u32 = 4;
@@ -418,6 +424,11 @@ fn format_extent_debug(geometry: &GeometryInfo) -> String {
 }
 
 fn apply_extent_adjust_to_local_selection(spec: ExtentAdjustSpec) {
+    // Wave 345: empty dual-world → no-op.
+    if dual_world_registry_unavailable() {
+        return;
+    }
+
     for object_id in local_selection_object_ids() {
         let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
             continue;
@@ -1013,8 +1024,8 @@ fn last_plane_lock_object_id_state() -> &'static RwLock<Option<u32>> {
 
 fn next_plane_camera_lock_object_id() -> Option<u32> {
     let mut candidates: Vec<u32> = Vec::new();
-    // Dual-world residual: scan OBJECT_REGISTRY when populated (host path empty).
-    if !OBJECT_REGISTRY.is_empty() {
+    // Wave 345: scan dual-world registry only when populated.
+    if !dual_world_registry_unavailable() {
         for object in OBJECT_REGISTRY.get_all_objects() {
             let Ok(object_guard) = object.read() else {
                 continue;
@@ -1259,6 +1270,11 @@ fn dump_player_object_counts(include_all_objects: bool) {
 }
 
 fn report_object_id_lookup_performance() {
+    // Wave 345: empty dual-world → no-op.
+    if dual_world_registry_unavailable() {
+        return;
+    }
+
     for number_lookups in [10_000_u32, 100_000_u32, 1_000_000_u32] {
         let start = Instant::now();
         for test_index in 1..number_lookups {
@@ -1289,6 +1305,11 @@ fn report_drawable_id_lookup_performance() {
 }
 
 fn kill_local_player_selection() {
+    // Wave 345: empty dual-world → no-op.
+    if dual_world_registry_unavailable() {
+        return;
+    }
+
     let selected_ids = local_selection_object_ids();
 
     for object_id in selected_ids {
@@ -1315,8 +1336,8 @@ fn kill_all_enemy_objects_for_local_player() {
         return;
     };
 
-    // Dual-world cheat residual. Host path has no OBJECT_REGISTRY world to kill.
-    if OBJECT_REGISTRY.is_empty() {
+    // Wave 345: empty dual-world → no-op.
+    if dual_world_registry_unavailable() {
         return;
     }
     for object in OBJECT_REGISTRY.get_all_objects() {
@@ -1343,6 +1364,11 @@ fn first_selected_object_id_for_local_player() -> Option<u32> {
 }
 
 fn adjust_local_selection_veterancy(delta: i32) {
+    // Wave 345: empty dual-world → no-op.
+    if dual_world_registry_unavailable() {
+        return;
+    }
+
     for object_id in local_selection_object_ids() {
         let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
             continue;
@@ -1599,9 +1625,9 @@ fn map_meta_time_of_day_to_logic_time_of_day(time_of_day: TimeOfDay) -> LogicTim
 fn refresh_drawable_time_of_day(time_of_day: TimeOfDay) {
     let mapped = map_meta_time_of_day_to_logic_time_of_day(time_of_day);
     let mut applied = 0usize;
-    // Dual-world residual: drawables bound through OBJECT_REGISTRY.
-    // Host residual: registry empty is fine — Main presentation shell owns drawable TOD.
-    if OBJECT_REGISTRY.is_empty() {
+    // Wave 345: empty dual-world → host presentation residual only.
+    // Main presentation shell owns drawable TOD when registry is empty.
+    if dual_world_registry_unavailable() {
         let _ = (mapped, applied);
         return;
     }
@@ -1624,9 +1650,9 @@ fn refresh_drawable_time_of_day(time_of_day: TimeOfDay) {
 fn refresh_drawable_model_conditions() {
     let clear = ModelConditionFlags::empty();
     let set = ModelConditionFlags::empty();
-    // Dual-world residual only. Host presentation path refreshes model conditions
-    // via PresentationFrame / drawable shell tick — no OBJECT_REGISTRY required.
-    if OBJECT_REGISTRY.is_empty() {
+    // Wave 345: empty dual-world → host presentation residual only.
+    // PresentationFrame / drawable shell tick owns model conditions when empty.
+    if dual_world_registry_unavailable() {
         let _ = (clear, set);
         return;
     }
