@@ -15,6 +15,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::sync::{Arc, RwLock};
 
+/// Wave 355: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const DEFAULT_APPROACH_VECTOR_SIZE: usize = 10;
 const DYNAMIC_APPROACH_VECTOR_FLAG: i32 = -1;
 const SINGLE_DOCK_BONE_START_INDEX: usize = 0;
@@ -154,6 +160,11 @@ impl DockUpdate {
     }
 
     fn load_dock_positions(&mut self) {
+        // Wave 355: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some((ignore_bones, drawable)) =
             crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
                 (
@@ -215,6 +226,11 @@ impl DockUpdate {
     }
 
     fn compute_approach_position(&mut self, position_index: usize, docker: &Object) -> Coord3D {
+        // Wave 355: empty dual-world → Coord3D::ZERO.
+        if dual_world_registry_unavailable() {
+            return Coord3D::ZERO;
+        }
+
         if !self.positions_loaded {
             self.load_dock_positions();
         }
@@ -295,6 +311,11 @@ impl DockUpdate {
 
 impl BehaviorModuleInterface for DockUpdate {
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 355: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.active_docker == INVALID_ID && !self.dock_crippled {
             for (index, reached) in self.approach_position_reached.iter().enumerate() {
                 if *reached {
@@ -358,6 +379,11 @@ impl BehaviorModule for DockUpdate {
 }
 
 fn resolve_dock_object(id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+    // Wave 355: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     if id == INVALID_ID {
         return None;
     }
@@ -395,6 +421,11 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 355: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
         };
@@ -569,6 +600,11 @@ impl DockUpdateInterface for DockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 355: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let zero = Coord3D::ZERO;
         if self.enter_position == zero {
             if let Some(obj) = resolve_dock_object(obj_id) {
@@ -603,6 +639,11 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 355: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
         };
@@ -634,6 +675,11 @@ impl DockUpdateInterface for DockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 355: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let zero = Coord3D::ZERO;
         if self.enter_position == zero {
             if let Some(obj) = resolve_dock_object(obj_id) {
@@ -658,6 +704,11 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 355: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
         };
@@ -688,6 +739,11 @@ impl DockUpdateInterface for DockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 355: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let zero = Coord3D::ZERO;
         if self.enter_position == zero {
             if let Some(obj) = resolve_dock_object(obj_id) {
@@ -712,6 +768,11 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 355: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
         };
@@ -1327,6 +1388,11 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         obj_id: ObjectID,
         _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 355: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(false);
         };
