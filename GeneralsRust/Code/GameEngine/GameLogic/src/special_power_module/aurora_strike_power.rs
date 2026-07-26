@@ -17,6 +17,12 @@ use crate::object_creation_list::live_creation_context;
 use crate::player::player_list;
 use std::sync::{Arc, RwLock};
 
+/// Wave 439: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const CREATE_ABOVE_LOCATION_HEIGHT: Real = 300.0;
 const MAX_ADJUST_RADIUS: Real = 500.0;
 const AURORA_COUNT: Int = 2;
@@ -170,6 +176,11 @@ impl AuroraStrikePower {
         player_id: ObjectID,
         targeting: &TargetingInfo,
     ) -> Result<(), String> {
+        // Wave 439: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         log::info!(
             "Aurora Strike activated at position {:?}, {} bombers",
             targeting.position,
@@ -376,6 +387,12 @@ impl SpecialPowerModuleInterface for AuroraStrikePower {
         targeting: Option<&TargetingInfo>,
         current_frame: UnsignedInt,
     ) -> ActivationResult {
+        // Wave 439: empty dual-world → Failed.
+        if dual_world_registry_unavailable() {
+            return ActivationResult::Failed {
+                reason: "Object registry unavailable".to_string(),
+            };
+        }
         if let Err(reason) = self.validate_targeting(targeting) {
             return ActivationResult::InvalidTarget { reason };
         }
