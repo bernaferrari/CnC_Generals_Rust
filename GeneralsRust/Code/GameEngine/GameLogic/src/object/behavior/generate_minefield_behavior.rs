@@ -28,6 +28,12 @@ use game_engine::common::thing::module::{
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
+/// Wave 386: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 trait Coord3DExt {
     #[allow(dead_code)]
     fn distance_to(&self, other: &Coord3D) -> f32;
@@ -568,6 +574,11 @@ impl GenerateMinefieldBehavior {
 
     /// Update the behavior (called each frame)
     pub fn update(&mut self, _current_frame: u32) -> BehaviorResult<UpdateSleepTime> {
+        // Wave 386: empty dual-world → Ok(Forever).
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         let mut state = self.state.write().unwrap();
 
         if self.config.upgradable && !state.upgraded && state.generated {
@@ -625,6 +636,11 @@ impl GenerateMinefieldBehavior {
 
     /// Get minefield target position
     pub fn get_minefield_target(&self) -> Option<Coord3D> {
+        // Wave 386: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let state = self.state.read().unwrap();
         if let Some(target) = state.target {
             return Some(target);
@@ -635,6 +651,11 @@ impl GenerateMinefieldBehavior {
 
     /// Place mines in the minefield
     pub fn place_mines(&self) -> BehaviorResult<()> {
+        // Wave 386: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let mut state = self.state.write().unwrap();
 
         if state.generated {
@@ -1017,6 +1038,11 @@ impl GenerateMinefieldBehavior {
     /// Place a single mine at a specific position
     /// C++ Reference: GenerateMinefieldBehavior.cpp - placeMineAt() lines 171-221
     fn place_mine_at(&self, position: &Coord3D, mine_template: &str) -> BehaviorResult<ObjectId> {
+        // Wave 386: empty dual-world → ObjectNotFound.
+        if dual_world_registry_unavailable() {
+            return Err(BehaviorError::ObjectNotFound { id: self.object_id });
+        }
+
         let owner = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
             .ok_or(BehaviorError::ObjectNotFound { id: self.object_id })?;
 
@@ -1133,6 +1159,11 @@ impl GenerateMinefieldBehavior {
     /// Get object geometry information
     /// C++ Reference: Uses getObject()->getGeometryInfo()
     fn get_object_geometry(&self) -> BehaviorResult<GeometryInfo> {
+        // Wave 386: empty dual-world → ObjectNotFound.
+        if dual_world_registry_unavailable() {
+            return Err(BehaviorError::ObjectNotFound { id: self.object_id });
+        }
+
         if let Some(info) =
             crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
                 let pos = obj_guard.get_position();
@@ -1235,6 +1266,11 @@ impl GenerateMinefieldBehavior {
     /// Remove a single mine from the game
     /// C++ Reference: GenerateMinefieldBehavior.cpp lines 459-463
     fn remove_mine(&self, mine_id: ObjectId) -> BehaviorResult<()> {
+        // Wave 386: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // C++ lines 459-463:
         // Object *obj = TheGameLogic->findObjectByID(objID);
         // if (obj) { TheGameLogic->destroyObject(obj); }
