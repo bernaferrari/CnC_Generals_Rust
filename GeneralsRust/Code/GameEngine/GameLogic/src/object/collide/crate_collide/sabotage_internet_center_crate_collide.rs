@@ -7,9 +7,20 @@ use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 391: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 fn resolve_crate_object(
     id: ObjectID,
 ) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
+    // Wave 391: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     if id == crate::common::INVALID_ID {
         return None;
     }
@@ -413,6 +424,11 @@ impl LegacyCollideAdapter for SabotageInternetCenterCrateCollide {
         loc: &CollideCoord3D,
         normal: &CollideCoord3D,
     ) -> Result<(), GameError> {
+        // Wave 391: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let _ = (loc, normal);
 
         if SabotageInternetCenterCrateCollide::is_valid_to_execute(self, other_id)? {
@@ -472,6 +488,11 @@ fn disable_hacker(obj: Arc<RwLock<Object>>, frame: u32) -> Result<(), GameError>
 }
 
 fn disable_hacker_id(object_id: ObjectID, frame: u32) -> Result<(), GameError> {
+    // Wave 391: empty dual-world → Ok(()).
+    if dual_world_registry_unavailable() {
+        return Ok(());
+    }
+
     let applied = OBJECT_REGISTRY.with_object_mut(object_id, |obj_lock| {
         obj_lock.set_disabled_until(DisabledType::DisabledHacked, frame);
     });
@@ -486,6 +507,11 @@ fn disable_internet_center_spy_vision(
     obj_id: crate::common::ObjectID,
     frame: u32,
 ) -> Result<(), GameError> {
+    // Wave 391: empty dual-world → Ok(()).
+    if dual_world_registry_unavailable() {
+        return Ok(());
+    }
+
     let applied = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_lock| {
         if obj_lock.is_kind_of(KindOf::FSInternetCenter) {
             for module in obj_lock.get_behavior_modules() {
