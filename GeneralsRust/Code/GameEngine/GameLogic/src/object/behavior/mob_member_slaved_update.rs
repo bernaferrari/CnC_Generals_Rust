@@ -19,6 +19,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 374: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const MAX_SQUIRRELLINESS: Real = 1.0;
 const DEFAULT_MUST_CATCH_UP_RADIUS: Int = 50;
 const DEFAULT_NO_NEED_TO_CATCH_UP_RADIUS: Int = 25;
@@ -208,6 +214,11 @@ impl MobMemberSlavedUpdate {
 
 impl UpdateModuleInterface for MobMemberSlavedUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 374: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -402,6 +413,11 @@ impl SlavedUpdateInterface for MobMemberSlavedUpdate {
         &mut self,
         master_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 374: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(master) = crate::helpers::TheGameLogic::find_object_by_id(master_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(master_id))
         else {
@@ -420,6 +436,11 @@ impl SlavedUpdateInterface for MobMemberSlavedUpdate {
         &mut self,
         _damage_info: Option<&crate::damage::DamageInfo>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 374: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -437,6 +458,11 @@ impl SlavedUpdateInterface for MobMemberSlavedUpdate {
         &mut self,
         damage_info: &mut crate::damage::DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 374: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
