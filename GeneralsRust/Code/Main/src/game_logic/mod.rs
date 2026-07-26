@@ -333,6 +333,7 @@ pub mod host_live_player_dual_world_empty_gate_residual_wave268;
 pub mod host_live_player_field_probe_residual_wave240;
 pub mod host_live_player_probe_api_residual_wave238;
 pub mod host_live_player_team_probe_residual_wave239;
+pub mod host_live_pow_truck_ai_dual_world_empty_gate_residual_wave354;
 pub mod host_live_presentation_append_missing_residual_wave192;
 pub mod host_live_presentation_build_for_engine_residual_wave195;
 pub mod host_live_presentation_build_from_gameworld_residual_wave193;
@@ -2476,6 +2477,12 @@ pub use host_live_player_team_probe_residual_wave239::{
     honesty_live_player_team_probe_method_names_residual_wave239,
     honesty_live_player_team_probe_nav_commands_residual_wave239,
     honesty_live_player_team_probe_residual_pack_wave239, simulate_live_player_team_probe_honesty,
+};
+pub use host_live_pow_truck_ai_dual_world_empty_gate_residual_wave354::{
+    honesty_live_pow_truck_ai_dual_world_empty_gate_method_names_residual_wave354,
+    honesty_live_pow_truck_ai_dual_world_empty_gate_nav_commands_residual_wave354,
+    honesty_live_pow_truck_ai_dual_world_empty_gate_residual_pack_wave354,
+    simulate_live_pow_truck_ai_dual_world_empty_gate_honesty,
 };
 pub use host_live_presentation_append_missing_residual_wave192::{
     honesty_live_presentation_append_missing_method_names_residual_wave192,

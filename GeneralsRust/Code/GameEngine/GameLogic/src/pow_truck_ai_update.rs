@@ -16,6 +16,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 354: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug, Clone)]
 pub struct POWTruckAIUpdateData {
@@ -339,6 +345,11 @@ impl POWTruckAIUpdate {
         cmd_source: CommandSourceType,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 354: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let prisoner = TheGameLogic::find_object_by_id(prisoner_id);
         if self
             .validate_target(owner_id, prisoner.as_ref(), cmd_source)
@@ -364,6 +375,11 @@ impl POWTruckAIUpdate {
         prisoner_id: ObjectID,
         cmd_source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 354: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let owner_arc = TheGameLogic::find_object_by_id(self.owner_id);
         let prisoner_arc = TheGameLogic::find_object_by_id(prisoner_id);
         let (Some(owner_arc), Some(prisoner_arc)) = (owner_arc, prisoner_arc) else {
@@ -462,6 +478,11 @@ impl POWTruckAIUpdate {
         cmd_source: CommandSourceType,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 354: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let prisoner = TheGameLogic::find_object_by_id(prisoner_id);
         if self
             .validate_target(owner_id, prisoner.as_ref(), cmd_source)
@@ -516,6 +537,11 @@ impl POWTruckAIUpdate {
         owner_id: ObjectID,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 354: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.ai_mode == POWTruckAIMode::Manual {
             return Ok(());
         }
@@ -544,6 +570,11 @@ impl POWTruckAIUpdate {
         owner_id: ObjectID,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 354: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         const FIND_DELAY: UnsignedInt = LOGICFRAMES_PER_SECOND;
 
         if self.ai_mode == POWTruckAIMode::Manual {
@@ -602,6 +633,11 @@ impl POWTruckAIUpdate {
         owner_id: ObjectID,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 354: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let target = TheGameLogic::find_object_by_id(self.target_id);
         if self
             .validate_target(owner_id, target.as_ref(), ai.get_last_command_source())
@@ -631,6 +667,11 @@ impl POWTruckAIUpdate {
         owner_id: ObjectID,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 354: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let prison = TheGameLogic::find_object_by_id(self.prison_id);
         if prison.is_none() {
             self.do_return_prisoners(owner_id, ai)?;
@@ -650,6 +691,11 @@ impl POWTruckAIUpdate {
         target: Option<&Arc<RwLock<Object>>>,
         cmd_source: CommandSourceType,
     ) -> Result<(), String> {
+        // Wave 354: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".into());
+        }
+
         let Some(target_arc) = target else {
             return Err("missing target".into());
         };
@@ -686,6 +732,11 @@ impl POWTruckAIUpdate {
         prison_id: Option<ObjectID>,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 354: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.set_task(POWTruckTask::Waiting, None);
 
         let prison_id = prison_id.or_else(|| self.find_best_prison(owner_id));
@@ -723,6 +774,11 @@ impl POWTruckAIUpdate {
     }
 
     fn find_best_prison(&self, owner_id: ObjectID) -> Option<ObjectID> {
+        // Wave 354: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let owner_arc = TheGameLogic::find_object_by_id(owner_id)?;
         let owner_guard = owner_arc.read().ok()?;
         let prison_id = owner_guard.get_producer_id();
@@ -737,13 +793,19 @@ impl POWTruckAIUpdate {
         owner_id: ObjectID,
         cmd_source: CommandSourceType,
     ) -> Option<ObjectID> {
+        // Wave 354: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let owner_arc = TheGameLogic::find_object_by_id(owner_id)?;
         let owner_guard = owner_arc.read().ok()?;
 
         let mut closest_target: Option<ObjectID> = None;
         let mut closest_dist_sq: Real = Real::MAX;
         // Host path: empty dual-world registry residual.
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+        // Wave 354: empty dual-world residual.
+        if dual_world_registry_unavailable() {
             return None;
         }
         for obj_id in crate::object::registry::OBJECT_REGISTRY.get_all_object_ids() {
@@ -830,6 +892,11 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
     }
 
     fn unload_prisoners_to_prison(&mut self, prison_id: ObjectID) {
+        // Wave 354: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(prison) = TheGameLogic::find_object_by_id(prison_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(prison_id))
         else {
