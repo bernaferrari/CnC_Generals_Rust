@@ -10,6 +10,13 @@ use crate::common::types::{
     MODELCONDITION_DOOR_1_WAITING_OPEN, MODELCONDITION_DOOR_1_WAITING_TO_CLOSE,
     OBJECT_STATUS_UNDER_CONSTRUCTION,
 };
+
+/// Wave 382: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Rust conversion: 2025
 use crate::common::{AsciiString, Coord3D, ModuleData, ObjectID, Real, UnsignedInt};
 use crate::helpers::TheFXList;
@@ -328,6 +335,11 @@ impl MissileLauncherBuildingUpdate {
     }
 
     fn get_power_ready_frame(&self) -> u32 {
+        // Wave 382: empty dual-world → 0.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -347,6 +359,11 @@ impl MissileLauncherBuildingUpdate {
     }
 
     fn is_power_ready(&self) -> bool {
+        // Wave 382: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -389,6 +406,11 @@ impl MissileLauncherBuildingUpdate {
 
 impl UpdateModuleInterface for MissileLauncherBuildingUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 382: empty dual-world → Ok(Forever).
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -466,6 +488,11 @@ impl SpecialPowerUpdateInterface for MissileLauncherBuildingUpdate {
         _waypoint: Option<&crate::object::special_power_module::Waypoint>,
         _command_options: crate::modules::SpecialPowerCommandOptions,
     ) -> bool {
+        // Wave 382: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // C++ version asserts template matches, but we'll assume it for now
         let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
             None
