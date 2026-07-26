@@ -26,6 +26,12 @@ use game_engine::system::geometry::GeometryType as EngineGeometryType;
 use log::trace;
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 408: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Legacy compatibility – the original code makes our geometry a 1.0 radius disk.
 const TARGET_COLLISION_RADIUS: f32 = 1.0;
 
@@ -132,6 +138,14 @@ impl SquishCollide {
     }
 
     fn owner_handle(&self) -> Result<Arc<RwLock<Object>>, CollisionError> {
+        // Wave 408: empty dual-world → InvalidObject.
+        if dual_world_registry_unavailable() {
+            return Err(CollisionError::InvalidObject(format!(
+                "SquishCollide owner {} missing from registry",
+                self.owner_id
+            )));
+        }
+
         OBJECT_REGISTRY.get_object(self.owner_id).ok_or_else(|| {
             CollisionError::InvalidObject(format!(
                 "SquishCollide owner {} missing from registry",
@@ -152,6 +166,11 @@ impl SquishCollide {
     }
 
     fn should_allow_squish(&self, owner: &OwnerSnapshot, target: &TargetSnapshot) -> bool {
+        // Wave 408: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         OBJECT_REGISTRY
             .with_object(owner.id, |owner_guard| {
                 let goal_matches_target = if let Some(ai) = owner_guard.get_ai_update_interface() {
@@ -204,6 +223,11 @@ impl SquishCollide {
     }
 
     fn apply_crush(&self, source_id: ObjectId) -> Result<(), CollisionError> {
+        // Wave 408: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let applied = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner| {
             let mut damage_info = DamageInfo {
                 input: DamageInfoInput {
