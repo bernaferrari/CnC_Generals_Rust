@@ -461,6 +461,7 @@ pub mod host_live_ui_command_selection_presentation_only_residual_wave219;
 pub mod host_live_ui_helpers_presentation_only_residual_wave215;
 pub mod host_live_ui_producer_presentation_only_residual_wave214;
 pub mod host_live_unit_dual_world_empty_gate_residual_wave258;
+pub mod host_live_unit_exit_dual_world_empty_gate_residual_wave432;
 pub mod host_live_veterancy_crate_collide_dual_world_empty_gate_residual_wave368;
 pub mod host_live_victory_dual_world_empty_gate_residual_wave294;
 pub mod host_live_wander_ai_dual_world_empty_gate_residual_wave430;
@@ -3323,6 +3324,12 @@ pub use host_live_unit_dual_world_empty_gate_residual_wave258::{
     honesty_live_unit_dual_world_empty_gate_nav_commands_residual_wave258,
     honesty_live_unit_dual_world_empty_gate_residual_pack_wave258,
     simulate_live_unit_dual_world_empty_gate_honesty,
+};
+pub use host_live_unit_exit_dual_world_empty_gate_residual_wave432::{
+    honesty_live_unit_exit_dual_world_empty_gate_method_names_residual_wave432,
+    honesty_live_unit_exit_dual_world_empty_gate_nav_commands_residual_wave432,
+    honesty_live_unit_exit_dual_world_empty_gate_residual_pack_wave432,
+    simulate_live_unit_exit_dual_world_empty_gate_honesty,
 };
 pub use host_live_veterancy_crate_collide_dual_world_empty_gate_residual_wave368::{
     honesty_live_veterancy_crate_collide_dual_world_empty_gate_method_names_residual_wave368,
