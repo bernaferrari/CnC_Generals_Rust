@@ -17,6 +17,12 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, SupplyWarehouseDockInterface};
 use std::sync::{Arc, RwLock};
 
+/// Wave 405: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Supply warehouse dock configuration data
 #[derive(Debug, Clone)]
 pub struct SupplyWarehouseDockUpdateData {
@@ -158,6 +164,11 @@ impl SupplyWarehouseDockUpdate {
     }
 
     fn update_drawable_supply_status(&self) {
+        // Wave 405: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id())
         else {
             return;
@@ -176,6 +187,11 @@ impl SupplyWarehouseDockUpdate {
 
     /// Handle supply truck docking and loading.
     fn perform_supply_transfer(&mut self, docker: &Arc<RwLock<Object>>) -> Result<bool, String> {
+        // Wave 405: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         if self.is_crippled || self.boxes_stored == 0 {
             return Ok(false);
         }
@@ -389,6 +405,11 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         obj_id: ObjectID,
         _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 405: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         // Perform supply transfer to truck
         {
             let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
@@ -430,6 +451,11 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         &mut self,
         crippled: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 405: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if crippled {
             let active_id = self.base.active_docker_id();
             if active_id != INVALID_ID {
