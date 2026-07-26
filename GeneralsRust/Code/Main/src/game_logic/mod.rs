@@ -217,6 +217,7 @@ pub mod host_keyboard_options_residual_wave124;
 pub mod host_leaflet_drop;
 mod host_lifetime_update;
 pub mod host_listening_outpost;
+pub mod host_live_a10_strike_dual_world_empty_gate_residual_wave330;
 pub mod host_live_active_body_dual_world_empty_gate_residual_wave291;
 pub mod host_live_ai_build_list_dual_world_empty_gate_residual_wave293;
 pub mod host_live_ai_group_dual_world_empty_gate_residual_wave253;
@@ -1761,6 +1762,12 @@ pub use host_keyboard_options_residual_wave124::{
     honesty_keyboard_options_control_names_residual_wave124,
     honesty_keyboard_options_nav_commands_residual_wave124,
     honesty_keyboard_options_residual_pack_wave124,
+};
+pub use host_live_a10_strike_dual_world_empty_gate_residual_wave330::{
+    honesty_live_a10_strike_dual_world_empty_gate_method_names_residual_wave330,
+    honesty_live_a10_strike_dual_world_empty_gate_nav_commands_residual_wave330,
+    honesty_live_a10_strike_dual_world_empty_gate_residual_pack_wave330,
+    simulate_live_a10_strike_dual_world_empty_gate_honesty,
 };
 pub use host_live_active_body_dual_world_empty_gate_residual_wave291::{
     honesty_live_active_body_dual_world_empty_gate_method_names_residual_wave291,
