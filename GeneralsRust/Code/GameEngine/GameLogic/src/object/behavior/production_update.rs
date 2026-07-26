@@ -16,6 +16,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 376: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct ProductionUpdateModuleData {
     pub base: BehaviorModuleData,
@@ -75,6 +81,11 @@ pub struct ProductionUpdate {
 
 impl ProductionUpdate {
     fn sync_actively_constructing_flag(&self) {
+        // Wave 376: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let should_set =
             self.is_producing || self.current_entry.is_some() || !self.production_queue.is_empty();
         let Some(object) = (if self.object_id == crate::common::INVALID_ID {
@@ -143,6 +154,11 @@ impl ProductionUpdate {
 
 impl UpdateModuleInterface for ProductionUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 376: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         let current_frame = TheGameLogic::get_frame();
 
         if self.is_producing && !self.is_paused {
@@ -222,6 +238,11 @@ impl BehaviorModuleInterface for ProductionUpdate {
 
 impl ProductionUpdateInterface for ProductionUpdate {
     fn can_produce(&self, template_name: &str) -> bool {
+        // Wave 376: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.production_queue.len() >= self.module_data.max_queue_entries as usize {
             return false;
         }
@@ -359,6 +380,11 @@ impl ProductionUpdateInterface for ProductionUpdate {
     }
 
     fn set_hold_door_open(&mut self, _exit_door: usize, hold_it: bool) {
+        // Wave 376: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if hold_it {
             if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
                 None
