@@ -8,6 +8,13 @@
 
 #[cfg(feature = "allow_surrender")]
 use std::any::Any;
+
+/// Wave 364: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[cfg(feature = "allow_surrender")]
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
@@ -154,6 +161,11 @@ impl PropagandaCenterBehavior {
     }
 
     fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        // Wave 364: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -162,6 +174,11 @@ impl PropagandaCenterBehavior {
     }
 
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 364: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -178,6 +195,11 @@ impl PropagandaCenterBehavior {
     }
 
     fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 364: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let _ = self.prison_behavior.on_delete();
         for &brainwashed_id in &self.brainwashed_list {
             if let Some(object) = TheGameLogic::find_object_by_id(brainwashed_id) {
@@ -191,6 +213,11 @@ impl PropagandaCenterBehavior {
     }
 
     fn process_brainwashing(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 364: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let current_frame = TheGameLogic::get_frame();
 
         if self.brainwashing_subject_id != INVALID_ID {
@@ -368,6 +395,11 @@ impl ContainModuleInterface for PropagandaCenterBehavior {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 364: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -381,6 +413,11 @@ impl ContainModuleInterface for PropagandaCenterBehavior {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 364: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
