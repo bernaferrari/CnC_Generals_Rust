@@ -21,6 +21,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 409: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct WeaponBonusUpdateModuleData {
     pub base: BehaviorModuleData,
@@ -104,6 +110,11 @@ impl WeaponBonusUpdate {
 
 impl UpdateModuleInterface for WeaponBonusUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 409: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
