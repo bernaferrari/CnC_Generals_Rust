@@ -37,6 +37,12 @@ use crate::object::behavior::behavior_module::{
 };
 use crate::object::{Object as GameObject, Object, INVALID_ID as OBJECT_INVALID_ID};
 
+/// Wave 310: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Heal rate in frames per second (C++ line 526)
 const HEAL_RATE_FRAMES: UnsignedInt = LOGICFRAMES_PER_SECOND / 5;
 const FOREVER: UnsignedInt = u32::MAX;
@@ -355,6 +361,11 @@ impl ParkingPlaceBehavior {
     }
 
     fn set_hold_door_open(&self, door: u32, open: Bool) {
+        // Wave 310: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -380,6 +391,11 @@ impl ParkingPlaceBehavior {
     /// Build parking info from bones
     /// Matches C++ ParkingPlaceBehavior::buildInfo (line 56)
     fn build_info(&mut self) {
+        // Wave 310: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.got_info {
             return;
         }
@@ -912,6 +928,11 @@ impl UpdateModuleInterface for ParkingPlaceBehavior {
     /// Update callback - handle healing
     /// Matches C++ ParkingPlaceBehavior::update (line 649)
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 310: empty dual-world → None sleep.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::None;
+        }
+
         // Keep buildInfo and dead-purged stuff up to date for client to peek at
         self.build_info();
         self.purge_dead();
@@ -1327,6 +1348,11 @@ impl ModuleExitInterface for ParkingPlaceBehavior {
         obj_id: ObjectID,
         door: ModuleExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 310: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -1639,6 +1665,11 @@ impl ParkingPlaceBehaviorInterfaceTrait for ParkingPlaceBehavior {
         new_team: Arc<RwLock<Team>>,
         detection_time: UnsignedInt,
     ) {
+        // Wave 310: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.build_info();
         self.purge_dead();
 
