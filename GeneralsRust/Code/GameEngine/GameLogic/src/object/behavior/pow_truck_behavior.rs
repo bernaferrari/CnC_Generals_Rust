@@ -23,6 +23,12 @@ use crate::object::contain::{OpenContain, OpenContainModuleData};
 use crate::object::Object;
 use log::warn;
 
+/// Wave 366: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug, Clone)]
 pub struct POWTruckBehaviorModuleData {
@@ -102,6 +108,11 @@ impl POWTruckBehavior {
     }
 
     fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        // Wave 366: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -110,6 +121,11 @@ impl POWTruckBehavior {
     }
 
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 366: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -151,6 +167,11 @@ impl UpdateModuleInterface for POWTruckBehavior {
 #[cfg(feature = "allow_surrender")]
 impl CollideModuleInterface for POWTruckBehavior {
     fn on_collision(&mut self, object_id: ObjectID, other_id: ObjectID) {
+        // Wave 366: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if object_id == other_id {
             return;
         }
@@ -253,6 +274,11 @@ impl ContainModuleInterface for POWTruckBehavior {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 366: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -266,6 +292,11 @@ impl ContainModuleInterface for POWTruckBehavior {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 366: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -357,6 +388,11 @@ impl LegacyCollideAdapter for POWTruckCollideAdapter {
         &self,
         other_id: crate::common::ObjectID,
     ) -> Result<bool, GameError> {
+        // Wave 366: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
         else {
