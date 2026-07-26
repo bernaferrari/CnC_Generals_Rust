@@ -30,6 +30,12 @@ use super::behavior_module::{
     xfer_update_module_base_state, BridgeScaffoldBehaviorInterface, ScaffoldTargetMotion,
 };
 
+/// Wave 335: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// BridgeScaffoldBehaviorModuleData - configuration container for scaffolds
 #[derive(Debug, Clone)]
 pub struct BridgeScaffoldBehaviorModuleData {
@@ -141,6 +147,11 @@ impl BridgeScaffoldBehavior {
         thing: Arc<dyn ModuleThing>,
         module_data: Arc<BridgeScaffoldBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 335: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".into());
+        }
+
         let module_object = thing
             .as_object()
             .ok_or_else(|| "BridgeScaffoldBehavior requires an owning object".to_string())?;
@@ -193,6 +204,11 @@ impl BridgeScaffoldBehavior {
         &self,
         f: impl FnOnce(&GameObject) -> R,
     ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 335: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".into());
+        }
+
         let id = self.owner_object_id();
         if id == OBJECT_INVALID_ID {
             return Err("BridgeScaffoldBehavior missing owning object id".into());
@@ -206,6 +222,11 @@ impl BridgeScaffoldBehavior {
         &self,
         f: impl FnOnce(&mut GameObject) -> R,
     ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 335: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".into());
+        }
+
         let id = self.owner_object_id();
         if id == OBJECT_INVALID_ID {
             return Err("BridgeScaffoldBehavior missing owning object id".into());
@@ -218,6 +239,11 @@ impl BridgeScaffoldBehavior {
     fn get_object(
         &self,
     ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 335: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".into());
+        }
+
         let id = self.owner_object_id();
         if id == OBJECT_INVALID_ID {
             return Err("BridgeScaffoldBehavior missing owning object id".into());
