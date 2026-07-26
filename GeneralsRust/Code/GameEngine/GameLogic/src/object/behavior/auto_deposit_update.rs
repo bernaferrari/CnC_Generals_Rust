@@ -21,6 +21,12 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 394: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // Upgrade pair structure for supply boost. Matches C++ lines 47-76
 #[derive(Clone, Debug)]
 pub struct UpgradePair {
@@ -119,6 +125,11 @@ impl AutoDepositUpdate {
         &mut self,
         player: Option<Arc<RwLock<crate::common::Player>>>,
     ) {
+        // Wave 394: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Reset deposit frame. Matches C++ line 98
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         self.deposit_on_frame = current_frame + self.module_data.deposit_frame;
@@ -165,6 +176,11 @@ impl AutoDepositUpdate {
 
     /// Get the upgraded supply boost amount. Matches C++ lines 195-218
     fn get_upgraded_supply_boost(&self) -> Int {
+        // Wave 394: empty dual-world → 0.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         // Get controlling player
         let object = match (if self.object_id == crate::common::INVALID_ID {
             None
@@ -211,6 +227,11 @@ impl AutoDepositUpdate {
 impl UpdateModuleInterface for AutoDepositUpdate {
     /// Main update loop. Matches C++ lines 122-192
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 394: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         // Matches C++ TheGameLogic->getFrame() (line 124)
         let current_frame = crate::helpers::TheGameLogic::get_frame();
 
