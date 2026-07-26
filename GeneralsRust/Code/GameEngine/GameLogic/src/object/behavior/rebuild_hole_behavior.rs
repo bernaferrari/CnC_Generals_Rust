@@ -31,6 +31,12 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, Thing as ModuleThing};
 
+/// Wave 331: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // ============================================================================
 // Module data
 // ============================================================================
@@ -176,6 +182,11 @@ impl RebuildHoleBehavior {
     }
 
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 331: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         TheGameLogic::find_object_by_id(self.object_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
@@ -209,6 +220,11 @@ impl RebuildHoleBehavior {
     }
 
     fn transfer_attackers(&self, from_id: ObjectID, to_id: ObjectID) {
+        // Wave 331: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(game_logic) = crate::system::game_logic::get_game_logic().lock().ok() else {
             return;
         };
@@ -224,6 +240,11 @@ impl RebuildHoleBehavior {
     }
 
     fn transfer_bombs(&self, reconstruction: &Object) {
+        // Wave 331: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(game_logic) = crate::system::game_logic::get_game_logic().lock().ok() else {
             return;
         };
@@ -478,6 +499,11 @@ impl RebuildHoleBehavior {
 
 impl UpdateModuleInterface for RebuildHoleBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 331: empty dual-world → Forever sleep.
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         if self.get_object_id() == INVALID_ID {
             return Ok(UpdateSleepTime::Forever);
         }
@@ -548,6 +574,11 @@ impl BehaviorModuleInterface for RebuildHoleBehavior {
         &mut self,
         _damage_info: &crate::common::DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 331: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.worker_id != INVALID_ID {
             if let Some(worker) = TheGameLogic::find_object_by_id(self.worker_id) {
                 if let Ok(worker_guard) = worker.read() {
@@ -573,6 +604,11 @@ impl RebuildHoleBehaviorInterface for RebuildHoleBehavior {
         rebuild_template: Arc<dyn crate::common::ThingTemplate>,
         spawner_id: ObjectID,
     ) {
+        // Wave 331: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.rebuild_template = Some(rebuild_template);
         self.spawner_object_id = spawner_id;
 
