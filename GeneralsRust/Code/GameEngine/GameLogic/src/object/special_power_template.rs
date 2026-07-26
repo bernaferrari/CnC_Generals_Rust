@@ -16,6 +16,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+/// Wave 342: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 pub use crate::common::audio::AudioEventRts;
 
 /// Academy classification type for tracking player behavior
@@ -331,6 +337,11 @@ impl SpecialPowerStore {
     /// Check if an object can use a special power.
     /// Matches C++ `SpecialPowerStore::canUseSpecialPower`.
     pub fn can_use_special_power(&self, object_id: u32, template: &SpecialPowerTemplate) -> bool {
+        // Wave 342: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         use crate::object::registry::OBJECT_REGISTRY;
 
         OBJECT_REGISTRY
