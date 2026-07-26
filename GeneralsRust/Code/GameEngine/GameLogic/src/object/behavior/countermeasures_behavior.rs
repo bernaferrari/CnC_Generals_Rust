@@ -36,6 +36,12 @@ use game_engine::common::thing::module::{
     Thing as ModuleThing,
 };
 
+/// Wave 328: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 pub type ObjectId = ObjectID;
 pub const INVALID_OBJECT_ID: ObjectId = OBJECT_INVALID_ID;
 
@@ -637,6 +643,11 @@ impl CountermeasuresBehavior {
     }
 
     fn is_object_valid(&self, object_id: ObjectId) -> bool {
+        // Wave 328: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         object_id != OBJECT_INVALID_ID && OBJECT_REGISTRY.with_object(object_id, |_| ()).is_some()
     }
 
@@ -657,6 +668,11 @@ impl CountermeasuresBehavior {
     }
 
     fn calculate_distance_squared(&self, obj1_id: ObjectId, obj2_id: ObjectId) -> f32 {
+        // Wave 328: empty dual-world → far distance.
+        if dual_world_registry_unavailable() {
+            return 100.0;
+        }
+
         let Some(pos1) = OBJECT_REGISTRY.with_object(obj1_id, |g| *g.get_position()) else {
             return 100.0;
         };
@@ -695,6 +711,13 @@ impl CountermeasuresBehavior {
     }
 
     fn get_object(&self) -> BehaviorResult<Arc<RwLock<GameObject>>> {
+        // Wave 328: empty dual-world → ObjectNotFound.
+        if dual_world_registry_unavailable() {
+            return Err(BehaviorError::ObjectNotFound {
+                id: self.owner_object_id(),
+            });
+        }
+
         let id = self.owner_object_id();
         if id == OBJECT_INVALID_ID {
             return Err(BehaviorError::ObjectNotFound { id });
@@ -778,6 +801,11 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
         &mut self,
         missile_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 328: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if missile_id == OBJECT_INVALID_ID {
             return Ok(());
         }
@@ -884,6 +912,11 @@ impl UpgradeModuleInterface for CountermeasuresBehavior {
     }
 
     fn apply_upgrade(&mut self, upgrade_mask: crate::common::UpgradeMaskType) -> bool {
+        // Wave 328: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
         let object_id = self.object_id;
         OBJECT_REGISTRY
