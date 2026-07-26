@@ -228,6 +228,7 @@ pub mod host_live_ai_state_machine_dual_world_empty_gate_residual_wave267;
 pub mod host_live_ai_states_dual_world_empty_gate_residual_wave254;
 pub mod host_live_ai_update_interface_dual_world_empty_gate_residual_wave282;
 pub mod host_live_async_player_dual_world_empty_gate_residual_wave290;
+pub mod host_live_auto_heal_dual_world_empty_gate_residual_wave306;
 pub mod host_live_bootstrap_camera_presentation_only_residual_wave223;
 pub mod host_live_bridge_behavior_dual_world_empty_gate_residual_wave301;
 pub mod host_live_camera_height_probe_residual_wave241;
@@ -1803,6 +1804,12 @@ pub use host_live_async_player_dual_world_empty_gate_residual_wave290::{
     honesty_live_async_player_dual_world_empty_gate_nav_commands_residual_wave290,
     honesty_live_async_player_dual_world_empty_gate_residual_pack_wave290,
     simulate_live_async_player_dual_world_empty_gate_honesty,
+};
+pub use host_live_auto_heal_dual_world_empty_gate_residual_wave306::{
+    honesty_live_auto_heal_dual_world_empty_gate_method_names_residual_wave306,
+    honesty_live_auto_heal_dual_world_empty_gate_nav_commands_residual_wave306,
+    honesty_live_auto_heal_dual_world_empty_gate_residual_pack_wave306,
+    simulate_live_auto_heal_dual_world_empty_gate_honesty,
 };
 pub use host_live_bootstrap_camera_presentation_only_residual_wave223::{
     honesty_live_bootstrap_camera_presentation_only_method_names_residual_wave223,
