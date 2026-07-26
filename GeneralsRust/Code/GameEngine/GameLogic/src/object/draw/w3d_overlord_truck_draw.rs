@@ -9,6 +9,12 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
 
+/// Wave 442: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct W3DOverlordTruckDrawModuleData {
     pub base: W3DTruckDrawModuleData,
@@ -108,6 +114,11 @@ impl DrawModule for W3DOverlordTruckDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         self.base.do_draw_module(transform_mtx);
 
+        // Wave 442: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(((tint, tint_status), rider_id)) = self.owner_id.and_then(|id| {
             crate::object::registry::OBJECT_REGISTRY
                 .with_object(id, |owner_guard| {
@@ -157,6 +168,11 @@ impl DrawModule for W3DOverlordTruckDraw {
     }
     fn set_hidden(&mut self, hidden: bool) {
         DrawModule::set_hidden(&mut self.base, hidden);
+
+        // Wave 442: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
 
         let Some(rider_id) = self.owner_id.and_then(|id| {
             crate::object::registry::OBJECT_REGISTRY
