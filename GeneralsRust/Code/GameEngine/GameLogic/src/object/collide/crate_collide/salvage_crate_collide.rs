@@ -18,7 +18,18 @@ use crate::{GameLogicRandomValue, GameLogicRandomValueReal};
 use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 390: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 fn resolve_crate_object(id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+    // Wave 390: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     if id == crate::common::INVALID_ID {
         return None;
     }
