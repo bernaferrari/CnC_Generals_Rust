@@ -15,6 +15,12 @@ use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
+/// Wave 370: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Configuration data for HealContain module
 #[derive(Debug, Clone)]
 pub struct HealContainModuleData {
@@ -95,6 +101,11 @@ impl HealContain {
 
     /// Get the object this module belongs to
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 370: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -105,6 +116,11 @@ impl HealContain {
 
     /// Update method called once per frame
     pub fn update(&mut self, module_data: &HealContainModuleData) -> GameResult<UpdateSleepTime> {
+        // Wave 370: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::None);
+        }
+
         // Extend base functionality
         self.base.update()?;
 
@@ -150,6 +166,11 @@ impl HealContain {
 
     /// Perform healing on a single object for a single frame
     pub fn do_heal(&mut self, obj_id: ObjectID, frames_for_full_heal: u32) -> GameResult<bool> {
+        // Wave 370: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let mut done_healing = false;
 
         let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
@@ -290,6 +311,11 @@ impl Snapshotable for HealContain {
 
 impl ContainModuleInterface for HealContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
+        // Wave 370: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
             if let Ok(obj_guard) = obj.read() {
                 return self.base.is_valid_container_for(&*obj_guard, true);
@@ -299,6 +325,11 @@ impl ContainModuleInterface for HealContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+        // Wave 370: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let obj = TheGameLogic::find_object_by_id(object_id)
             .ok_or_else(|| format!("Contain object {} not found", object_id))?;
         self.base
@@ -312,6 +343,11 @@ impl ContainModuleInterface for HealContain {
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+        // Wave 370: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let obj = match TheGameLogic::find_object_by_id(object_id) {
             Some(obj) => obj,
             None => return Ok(()),
