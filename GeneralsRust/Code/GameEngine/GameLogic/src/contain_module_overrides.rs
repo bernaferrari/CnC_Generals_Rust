@@ -398,6 +398,61 @@ fn resolve_owner_info(thing: &Arc<dyn ModuleThing>) -> (ObjectID, Coord3D) {
     (owner_id, position)
 }
 
+/// Wave 449: host-only / missing-owner factory path — fail closed instead of panic.
+struct MissingOwnerModule {
+    module_name_key: NameKeyType,
+    data: Arc<dyn ModuleData>,
+}
+
+impl MissingOwnerModule {
+    fn new(module_name: &str, data: Arc<dyn ModuleData>) -> Self {
+        Self {
+            module_name_key: NameKeyGenerator::name_to_key(module_name),
+            data,
+        }
+    }
+}
+
+impl Module for MissingOwnerModule {
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn ModuleData {
+        self.data.as_ref()
+    }
+}
+
+impl Snapshotable for MissingOwnerModule {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+fn missing_owner_module(module_name: &str, module_data: Arc<dyn ModuleData>) -> Box<dyn Module> {
+    warn!("Wave 449: {module_name} factory missing owner object; installing no-op module");
+    Box::new(MissingOwnerModule::new(module_name, module_data))
+}
+
+fn missing_owner_module_auto(
+    module_name: &str,
+    module_data: &Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    missing_owner_module(module_name, Arc::clone(module_data))
+}
+
 fn resolve_drawable_id(thing: &Arc<dyn ModuleThing>) -> u32 {
     thing
         .as_drawable()
@@ -497,10 +552,17 @@ where
     let engine_data: Arc<dyn ModuleData> = data_arc.clone();
     let legacy_data: Arc<dyn LegacyModuleData> = data_arc;
     let owner_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .unwrap_or_else(|| panic!("{module_name} requires a valid object"));
-    let behavior = create(object, legacy_data)
-        .unwrap_or_else(|err| panic!("{module_name} init failed: {err}"));
+    // Wave 449: missing dual-world/host owner → no-op module (no panic).
+    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+        return missing_owner_module(module_name, engine_data);
+    };
+    let behavior = match create(object, legacy_data) {
+        Ok(behavior) => behavior,
+        Err(err) => {
+            warn!("{module_name} init failed: {err}; installing no-op module");
+            return missing_owner_module(module_name, engine_data);
+        }
+    };
     Box::new(ActiveBehaviorModule::new(
         module_name,
         engine_data,
@@ -791,8 +853,10 @@ fn battle_plan_update_module_factory(
         cloned_module_data::<BattlePlanUpdateModuleData>("BattlePlanUpdate", &module_data);
     let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
     let owner_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("BattlePlanUpdate requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("BattlePlanUpdate", &module_data);
+    };
     let behavior =
         BattlePlanUpdate::new(object, engine_data).expect("BattlePlanUpdate failed to initialize");
     Box::new(BattlePlanUpdateModule::new(
@@ -824,8 +888,10 @@ fn cleanup_hazard_update_module_factory(
         cloned_module_data::<CleanupHazardUpdateModuleData>("CleanupHazardUpdate", &module_data);
     let engine_data: Arc<dyn crate::common::ModuleData> = data_arc.clone();
     let owner_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("CleanupHazardUpdate requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("CleanupHazardUpdate", &module_data);
+    };
     let behavior = CleanupHazardUpdate::new(object, engine_data)
         .expect("CleanupHazardUpdate failed to initialize");
     Box::new(CleanupHazardUpdateModule::new(
@@ -944,8 +1010,10 @@ fn mob_member_slaved_update_module_factory(
         &module_data,
     );
     let owner_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("MobMemberSlavedUpdate requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("MobMemberSlavedUpdate", &module_data);
+    };
     let legacy_data: Arc<dyn LegacyModuleData> = data_arc.clone();
     let behavior = MobMemberSlavedUpdate::new(object, legacy_data)
         .expect("MobMemberSlavedUpdate failed to initialize");
@@ -1091,8 +1159,14 @@ fn countermeasures_behavior_module_factory(
         "CountermeasuresBehavior",
         &module_data,
     );
-    let behavior = CountermeasuresBehavior::from_module_thing(thing, data_arc.clone())
-        .expect("CountermeasuresBehavior requires a valid object owner");
+    let behavior = match CountermeasuresBehavior::from_module_thing(thing, data_arc.clone()) {
+        Ok(behavior) => behavior,
+        Err(_) => {
+            // Wave 449: missing owner → no-op module.
+            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+            return missing_owner_module("CountermeasuresBehavior", data_for_missing);
+        }
+    };
     Box::new(CountermeasuresBehaviorModule::new(
         behavior,
         &AsciiString::from("CountermeasuresBehavior"),
@@ -1122,8 +1196,14 @@ fn dumb_projectile_behavior_module_factory(
         "DumbProjectileBehavior",
         &module_data,
     );
-    let behavior = DumbProjectileBehavior::from_module_thing(thing, data_arc.clone())
-        .expect("DumbProjectileBehavior requires a valid object owner");
+    let behavior = match DumbProjectileBehavior::from_module_thing(thing, data_arc.clone()) {
+        Ok(behavior) => behavior,
+        Err(_) => {
+            // Wave 449: missing owner → no-op module.
+            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+            return missing_owner_module("DumbProjectileBehavior", data_for_missing);
+        }
+    };
     Box::new(DumbProjectileBehaviorModule::new(
         behavior,
         &AsciiString::from("DumbProjectileBehavior"),
@@ -1150,8 +1230,14 @@ fn bridge_behavior_module_factory(
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
     let data_arc = cloned_module_data::<BridgeBehaviorModuleData>("BridgeBehavior", &module_data);
-    let behavior = BridgeBehavior::from_module_thing(thing, data_arc.clone())
-        .expect("BridgeBehavior requires a valid object owner");
+    let behavior = match BridgeBehavior::from_module_thing(thing, data_arc.clone()) {
+        Ok(behavior) => behavior,
+        Err(_) => {
+            // Wave 449: missing owner → no-op module.
+            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+            return missing_owner_module("BridgeBehavior", data_for_missing);
+        }
+    };
     Box::new(BridgeBehaviorModule::new(
         behavior,
         &AsciiString::from("BridgeBehavior"),
@@ -1181,8 +1267,14 @@ fn bridge_scaffold_behavior_module_factory(
         "BridgeScaffoldBehavior",
         &module_data,
     );
-    let behavior = BridgeScaffoldBehavior::from_module_thing(thing, data_arc.clone())
-        .expect("BridgeScaffoldBehavior requires a valid object owner");
+    let behavior = match BridgeScaffoldBehavior::from_module_thing(thing, data_arc.clone()) {
+        Ok(behavior) => behavior,
+        Err(_) => {
+            // Wave 449: missing owner → no-op module.
+            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+            return missing_owner_module("BridgeScaffoldBehavior", data_for_missing);
+        }
+    };
     Box::new(BridgeScaffoldBehaviorModule::new(
         behavior,
         &AsciiString::from("BridgeScaffoldBehavior"),
@@ -1210,8 +1302,14 @@ fn bridge_tower_behavior_module_factory(
 ) -> Box<dyn Module> {
     let data_arc =
         cloned_module_data::<BridgeTowerBehaviorModuleData>("BridgeTowerBehavior", &module_data);
-    let behavior = BridgeTowerBehavior::from_module_thing(thing, data_arc.clone())
-        .expect("BridgeTowerBehavior requires a valid object owner");
+    let behavior = match BridgeTowerBehavior::from_module_thing(thing, data_arc.clone()) {
+        Ok(behavior) => behavior,
+        Err(_) => {
+            // Wave 449: missing owner → no-op module.
+            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+            return missing_owner_module("BridgeTowerBehavior", data_for_missing);
+        }
+    };
     Box::new(BridgeTowerBehaviorModule::new(
         behavior,
         &AsciiString::from("BridgeTowerBehavior"),
@@ -1238,14 +1336,22 @@ fn structure_collapse_update_module_factory(
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
-    let owner = TheGameLogic::find_object_by_id(owner_id)
-        .expect("StructureCollapseUpdate requires a valid object owner");
+    let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("StructureCollapseUpdate", &module_data);
+    };
     let data_arc = cloned_module_data::<StructureCollapseUpdateModuleData>(
         "StructureCollapseUpdate",
         &module_data,
     );
-    let behavior = StructureCollapseUpdate::new_with_data(owner, data_arc.clone())
-        .expect("StructureCollapseUpdate requires a valid object owner");
+    let behavior = match StructureCollapseUpdate::new_with_data(owner, data_arc.clone()) {
+        Ok(behavior) => behavior,
+        Err(_) => {
+            // Wave 449: missing owner → no-op module.
+            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+            return missing_owner_module("StructureCollapseUpdate", data_for_missing);
+        }
+    };
     Box::new(StructureCollapseUpdateModule::new(
         behavior,
         &AsciiString::from("StructureCollapseUpdate"),
@@ -1272,14 +1378,22 @@ fn structure_topple_update_module_factory(
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
-    let owner = TheGameLogic::find_object_by_id(owner_id)
-        .expect("StructureToppleUpdate requires a valid object owner");
+    let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("StructureToppleUpdate", &module_data);
+    };
     let data_arc = cloned_module_data::<StructureToppleUpdateModuleData>(
         "StructureToppleUpdate",
         &module_data,
     );
-    let behavior = StructureToppleUpdate::new_with_data(owner, data_arc.clone())
-        .expect("StructureToppleUpdate requires a valid object owner");
+    let behavior = match StructureToppleUpdate::new_with_data(owner, data_arc.clone()) {
+        Ok(behavior) => behavior,
+        Err(_) => {
+            // Wave 449: missing owner → no-op module.
+            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+            return missing_owner_module("StructureToppleUpdate", data_for_missing);
+        }
+    };
     Box::new(StructureToppleUpdateModule::new(
         behavior,
         &AsciiString::from("StructureToppleUpdate"),
@@ -1306,12 +1420,20 @@ fn grant_stealth_behavior_module_factory(
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
-    let owner = TheGameLogic::find_object_by_id(owner_id)
-        .expect("GrantStealthBehavior requires a valid object owner");
+    let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("GrantStealthBehavior", &module_data);
+    };
     let data_arc =
         cloned_module_data::<GrantStealthBehaviorModuleData>("GrantStealthBehavior", &module_data);
-    let behavior = GrantStealthBehavior::new_with_data(owner, data_arc.clone())
-        .expect("GrantStealthBehavior requires a valid object owner");
+    let behavior = match GrantStealthBehavior::new_with_data(owner, data_arc.clone()) {
+        Ok(behavior) => behavior,
+        Err(_) => {
+            // Wave 449: missing owner → no-op module.
+            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+            return missing_owner_module("GrantStealthBehavior", data_for_missing);
+        }
+    };
     Box::new(GrantStealthBehaviorModule::new(
         behavior,
         &AsciiString::from("GrantStealthBehavior"),
@@ -1367,8 +1489,14 @@ fn transition_damage_fx_module_factory(
 ) -> Box<dyn Module> {
     let data_arc =
         cloned_module_data::<TransitionDamageFXModuleData>("TransitionDamageFX", &module_data);
-    let behavior = TransitionDamageFX::from_module_thing(thing, data_arc.clone())
-        .expect("TransitionDamageFX requires a valid object owner");
+    let behavior = match TransitionDamageFX::from_module_thing(thing, data_arc.clone()) {
+        Ok(behavior) => behavior,
+        Err(_) => {
+            // Wave 449: missing owner → no-op module.
+            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+            return missing_owner_module("TransitionDamageFX", data_for_missing);
+        }
+    };
     Box::new(TransitionDamageFXModule::new(
         behavior,
         &AsciiString::from("TransitionDamageFX"),
@@ -1395,8 +1523,13 @@ fn emp_update_module_factory(
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
-    let owner =
-        TheGameLogic::find_object_by_id(owner_id).expect("EMPUpdate requires a valid object owner");
+    let owner = match TheGameLogic::find_object_by_id(owner_id) {
+        Some(object) => object,
+        None => {
+            // Wave 449: missing owner → no-op module.
+            return missing_owner_module_auto("EMPUpdate", &module_data);
+        }
+    };
     let data_arc = cloned_module_data::<EMPUpdateModuleData>("EMPUpdate", &module_data);
     let behavior =
         EMPUpdate::new_with_data(owner, data_arc.clone()).expect("EMPUpdate failed to initialize");
@@ -1472,8 +1605,13 @@ fn spawn_behavior_module_factory(
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
-    let owner =
-        TheGameLogic::find_object_by_id(owner_id).expect("SpawnBehavior requires a valid object");
+    let owner = match TheGameLogic::find_object_by_id(owner_id) {
+        Some(object) => object,
+        None => {
+            // Wave 449: missing owner → no-op module.
+            return missing_owner_module_auto("SpawnBehavior", &module_data);
+        }
+    };
     let data_arc = cloned_module_data::<SpawnBehaviorModuleData>("SpawnBehavior", &module_data);
     let behavior = SpawnBehavior::new_with_data(
         owner
@@ -1510,8 +1648,10 @@ fn particle_uplink_cannon_update_module_factory(
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
-    let owner = TheGameLogic::find_object_by_id(owner_id)
-        .expect("ParticleUplinkCannonUpdate requires a valid object");
+    let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("ParticleUplinkCannonUpdate", &module_data);
+    };
     let data_arc = cloned_module_data::<ParticleUplinkCannonUpdateModuleData>(
         "ParticleUplinkCannonUpdate",
         &module_data,
@@ -2263,8 +2403,10 @@ fn convert_to_car_bomb_crate_collide_module_factory(
         CrateCollideDataAdapter<ConvertToCarBombCrateCollideModuleData>,
     >("ConvertToCarBombCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("ConvertToCarBombCrateCollide requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("ConvertToCarBombCrateCollide", &module_data);
+    };
     let collide = ConvertToCarBombCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "ConvertToCarBombCrateCollide",
@@ -2297,8 +2439,11 @@ fn convert_to_hijacked_vehicle_crate_collide_module_factory(
         CrateCollideDataAdapter<ConvertToHijackedVehicleCrateCollideModuleData>,
     >("ConvertToHijackedVehicleCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .unwrap_or_else(|| panic!("ConvertToHijackedVehicleCrateCollide requires a valid object"));
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+        return missing_owner_module("ConvertToHijackedVehicleCrateCollide", data_for_missing);
+    };
     let collide = ConvertToHijackedVehicleCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "ConvertToHijackedVehicleCrateCollide",
@@ -2362,8 +2507,11 @@ fn sabotage_command_center_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageCommandCenterCrateCollideModuleData>,
     >("SabotageCommandCenterCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .unwrap_or_else(|| panic!("SabotageCommandCenterCrateCollide requires a valid object"));
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+        return missing_owner_module("SabotageCommandCenterCrateCollide", data_for_missing);
+    };
     let collide = SabotageCommandCenterCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageCommandCenterCrateCollide",
@@ -2394,8 +2542,11 @@ fn sabotage_fake_building_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageFakeBuildingCrateCollideModuleData>,
     >("SabotageFakeBuildingCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .unwrap_or_else(|| panic!("SabotageFakeBuildingCrateCollide requires a valid object"));
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+        return missing_owner_module("SabotageFakeBuildingCrateCollide", data_for_missing);
+    };
     let collide = SabotageFakeBuildingCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageFakeBuildingCrateCollide",
@@ -2428,8 +2579,10 @@ fn sabotage_internet_center_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageInternetCenterCrateCollideModuleData>,
     >("SabotageInternetCenterCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("SabotageInternetCenterCrateCollide requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("SabotageInternetCenterCrateCollide", &module_data);
+    };
     let collide = SabotageInternetCenterCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageInternetCenterCrateCollide",
@@ -2462,8 +2615,10 @@ fn sabotage_military_factory_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageMilitaryFactoryCrateCollideModuleData>,
     >("SabotageMilitaryFactoryCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("SabotageMilitaryFactoryCrateCollide requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("SabotageMilitaryFactoryCrateCollide", &module_data);
+    };
     let collide = SabotageMilitaryFactoryCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageMilitaryFactoryCrateCollide",
@@ -2494,8 +2649,10 @@ fn sabotage_power_plant_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotagePowerPlantCrateCollideModuleData>,
     >("SabotagePowerPlantCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("SabotagePowerPlantCrateCollide requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("SabotagePowerPlantCrateCollide", &module_data);
+    };
     let collide = SabotagePowerPlantCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotagePowerPlantCrateCollide",
@@ -2526,8 +2683,11 @@ fn sabotage_superweapon_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageSuperweaponCrateCollideModuleData>,
     >("SabotageSuperweaponCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .unwrap_or_else(|| panic!("SabotageSuperweaponCrateCollide requires a valid object"));
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+        return missing_owner_module("SabotageSuperweaponCrateCollide", data_for_missing);
+    };
     let collide = SabotageSuperweaponCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSuperweaponCrateCollide",
@@ -2558,8 +2718,10 @@ fn sabotage_supply_center_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageSupplyCenterCrateCollideModuleData>,
     >("SabotageSupplyCenterCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("SabotageSupplyCenterCrateCollide requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("SabotageSupplyCenterCrateCollide", &module_data);
+    };
     let collide = SabotageSupplyCenterCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSupplyCenterCrateCollide",
@@ -2593,8 +2755,10 @@ fn sabotage_supply_dropzone_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageSupplyDropzoneCrateCollideModuleData>,
     >("SabotageSupplyDropzoneCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("SabotageSupplyDropzoneCrateCollide requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("SabotageSupplyDropzoneCrateCollide", &module_data);
+    };
     let collide = SabotageSupplyDropzoneCrateCollide::new(&object, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSupplyDropzoneCrateCollide",
@@ -3078,8 +3242,11 @@ fn minefield_behavior_module_factory(
     let data_arc =
         cloned_module_data::<MinefieldBehaviorModuleData>("MinefieldBehavior", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .unwrap_or_else(|| panic!("MinefieldBehavior requires owning object {object_id}"));
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+        return missing_owner_module("MinefieldBehavior", data_for_missing);
+    };
     let behavior = MinefieldBehavior::new(object, Arc::clone(&data_arc))
         .expect("MinefieldBehavior failed to initialize");
     let module_name = AsciiString::from("MinefieldBehavior");
@@ -3150,8 +3317,10 @@ fn missile_launcher_building_update_module_factory(
     );
     let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
     let owner_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("MissileLauncherBuildingUpdate requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("MissileLauncherBuildingUpdate", &module_data);
+    };
     let behavior = MissileLauncherBuildingUpdate::new(object, engine_data)
         .expect("MissileLauncherBuildingUpdate failed to initialize");
     Box::new(MissileLauncherBuildingUpdateModule::new(
@@ -3275,8 +3444,10 @@ fn special_ability_update_module_factory(
         cloned_module_data::<SpecialAbilityUpdateModuleData>("SpecialAbilityUpdate", &module_data);
     let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
     let owner_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("SpecialAbilityUpdate requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("SpecialAbilityUpdate", &module_data);
+    };
     let behavior = SpecialAbilityUpdate::new(Arc::downgrade(&object), engine_data);
     let module_name = AsciiString::from("SpecialAbilityUpdate");
     Box::new(SpecialAbilityUpdateModule::new(
@@ -3347,8 +3518,10 @@ fn railroad_behavior_module_factory(
     let data_arc =
         cloned_module_data::<RailroadBehaviorModuleData>("RailroadBehavior", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("RailroadBehavior requires a valid object");
+    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module_auto("RailroadBehavior", &module_data);
+    };
     let module_name_key = NameKeyGenerator::name_to_key("RailroadBehavior");
     Box::new(
         RailroadBehaviorModule::new(module_name_key, data_arc, object)
@@ -4055,9 +4228,10 @@ where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
 {
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id).unwrap_or_else(|| {
-        panic!("{module_name} requires owning object {object_id}");
-    });
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        return missing_owner_module(module_name, Arc::new(data.clone()) as Arc<dyn ModuleData>);
+    };
     let typed_data = Arc::new(data);
     let module_data: Arc<dyn ModuleData> = typed_data.clone();
     let die_module = create_die(Arc::clone(&object), typed_data);
@@ -4220,9 +4394,11 @@ fn slow_death_behavior_module_factory(
         SlowDeathBehaviorModuleData::new,
     );
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id).unwrap_or_else(|| {
-        panic!("SlowDeathBehavior requires owning object {object_id}");
-    });
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        let data_for_missing: Arc<dyn ModuleData> = typed_data;
+        return missing_owner_module("SlowDeathBehavior", data_for_missing);
+    };
     let data: Arc<dyn crate::common::ModuleData> = typed_data;
     Box::new(
         SlowDeathBehavior::new(object, data)
@@ -4253,9 +4429,11 @@ fn helicopter_slow_death_module_factory(
         &module_data,
     );
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id).unwrap_or_else(|| {
-        panic!("HelicopterSlowDeathBehavior requires owning object {object_id}")
-    });
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+        return missing_owner_module("HelicopterSlowDeathBehavior", data_for_missing);
+    };
     let behavior = HelicopterSlowDeathBehavior::new(object, Arc::clone(&data_arc));
     let module_name = AsciiString::from("HelicopterSlowDeathBehavior");
     Box::new(HelicopterSlowDeathBehaviorModule::new(
@@ -4286,8 +4464,11 @@ fn poisoned_behavior_module_factory(
     let data_arc =
         cloned_module_data::<PoisonedBehaviorModuleData>("PoisonedBehavior", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .unwrap_or_else(|| panic!("PoisonedBehavior requires owning object {object_id}"));
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+        return missing_owner_module("PoisonedBehavior", data_for_missing);
+    };
     let behavior = PoisonedBehavior::new(object, Arc::clone(&data_arc));
     let module_name = AsciiString::from("PoisonedBehavior");
     Box::new(PoisonedBehaviorModule::new(
@@ -4318,8 +4499,11 @@ fn jet_slow_death_behavior_module_factory(
     let data_arc =
         cloned_module_data::<JetSlowDeathBehaviorModuleData>("JetSlowDeathBehavior", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .unwrap_or_else(|| panic!("JetSlowDeathBehavior requires owning object {object_id}"));
+    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        // Wave 449: missing owner → no-op module.
+        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
+        return missing_owner_module("JetSlowDeathBehavior", data_for_missing);
+    };
     let behavior = JetSlowDeathBehavior::new(object, Arc::clone(&data_arc));
     let module_name = AsciiString::from("JetSlowDeathBehavior");
     Box::new(JetSlowDeathBehaviorModule::new(

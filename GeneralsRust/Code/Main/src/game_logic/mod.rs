@@ -283,6 +283,7 @@ pub mod host_live_command_unit_more_authority_api_residual_wave231;
 pub mod host_live_command_unit_probe_residual_wave244;
 pub mod host_live_construct_economy_probe_residual_wave243;
 pub mod host_live_construct_spawn_pose_authority_api_residual_wave227;
+pub mod host_live_contain_module_overrides_fail_closed_residual_wave449;
 pub mod host_live_control_group_camera_presentation_only_residual_wave216;
 pub mod host_live_countermeasures_dual_world_empty_gate_residual_wave328;
 pub mod host_live_crate_collide_dual_world_empty_gate_residual_wave303;
@@ -2274,6 +2275,12 @@ pub use host_live_construct_spawn_pose_authority_api_residual_wave227::{
     honesty_live_construct_spawn_pose_authority_api_nav_commands_residual_wave227,
     honesty_live_construct_spawn_pose_authority_api_residual_pack_wave227,
     simulate_live_construct_spawn_pose_authority_api_honesty,
+};
+pub use host_live_contain_module_overrides_fail_closed_residual_wave449::{
+    honesty_live_contain_module_overrides_fail_closed_method_names_residual_wave449,
+    honesty_live_contain_module_overrides_fail_closed_nav_commands_residual_wave449,
+    honesty_live_contain_module_overrides_fail_closed_residual_pack_wave449,
+    simulate_live_contain_module_overrides_fail_closed_honesty,
 };
 pub use host_live_control_group_camera_presentation_only_residual_wave216::{
     honesty_live_control_group_camera_presentation_only_method_names_residual_wave216,
