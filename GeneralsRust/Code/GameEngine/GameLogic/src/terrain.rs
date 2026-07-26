@@ -29,6 +29,12 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 341: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Maximum terrain name length
 pub const MAX_TERRAIN_NAME_LEN: usize = 64;
 const WATER_GRID_NAME_CPP: &str = "Water Grid";
@@ -387,6 +393,11 @@ impl Bridge {
 
     /// Update damage state
     pub fn update_damage_state(&mut self) {
+        // Wave 341: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.bridge_info.damage_state_changed = false;
         if self.bridge_info.bridge_object_id == crate::common::INVALID_ID {
             return;
@@ -1347,8 +1358,8 @@ impl TerrainLogic {
 
     fn is_point_on_wall_fallback(&self, pos: &Coord3D) -> bool {
         let cell_pad = PATHFIND_CELL_SIZE_F * 0.5;
-        // Host path: empty dual-world registry residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 341: empty dual-world → false.
+        if dual_world_registry_unavailable() {
             return false;
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
@@ -1786,6 +1797,11 @@ impl TerrainLogic {
     }
 
     fn apply_water_rise_damage(&self, affected_region: &Region3D, damage_amount: f32) {
+        // Wave 341: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if damage_amount <= 0.0 {
             return;
         }
