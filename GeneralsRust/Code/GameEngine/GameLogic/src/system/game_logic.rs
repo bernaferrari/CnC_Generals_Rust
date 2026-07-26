@@ -120,6 +120,12 @@ use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 use std::time::Instant;
 
+/// Wave 344: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const DEFAULT_WORLD_WIDTH: Real = 64.0;
 const DEFAULT_WORLD_HEIGHT: Real = 64.0;
 
@@ -1244,8 +1250,8 @@ impl PartitionManager {
     }
 
     pub fn update(&mut self) -> Result<(), GameLogicError> {
-        // Host path: dual-world factory empty — nothing to step here.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 344: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
             return Ok(());
         }
         let object_ids = OBJECT_REGISTRY.get_all_object_ids();
@@ -1313,7 +1319,8 @@ impl PartitionManager {
         self.grid.clear();
         self.object_cells.clear();
         self.object_positions.clear();
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 344: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
             return;
         }
 
@@ -1759,6 +1766,11 @@ impl GameLogic {
     /// - `Ok(())` if update succeeded
     /// - `Err(GameLogicError)` if a critical error occurred
     pub fn update(&mut self, frame: u32) -> Result<(), GameLogicError> {
+        // Wave 344: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Prevent re-entrant calls (C++ line 3552: LatchRestore<Bool> inUpdateLatch)
         if self.is_in_update {
             warn!("GameLogic::update called re-entrantly; ignoring nested call");
@@ -2967,7 +2979,8 @@ impl GameLogic {
         physics_world.resolve_all(self)?;
         self.physics_world = physics_world;
 
-        if !OBJECT_REGISTRY.is_empty() {
+        // Wave 344: skip dual-world collision residual when empty.
+        if !dual_world_registry_unavailable() {
             let _ = with_collision_system_mut(|system| {
                 for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
                     let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
@@ -3025,6 +3038,11 @@ impl GameLogic {
     /// - Award experience to killer
     /// - Free memory/resources
     pub fn cleanup_dead_objects(&mut self) -> Result<(), GameLogicError> {
+        // Wave 344: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         trace!(
             "GameLogic::cleanup_dead_objects() - {} objects to clean",
             self.dead_objects.len()
@@ -4718,6 +4736,11 @@ struct GameLogicEnergyLookup;
 
 impl EnergyObjectLookup for GameLogicEnergyLookup {
     fn energy_production(&self, obj: ObjectHandle) -> i32 {
+        // Wave 344: empty dual-world → 0.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         let object_id = obj.value() as ObjectID;
         OBJECT_REGISTRY
             .with_object(object_id, |guard| {
@@ -4727,6 +4750,11 @@ impl EnergyObjectLookup for GameLogicEnergyLookup {
     }
 
     fn energy_bonus(&self, obj: ObjectHandle) -> i32 {
+        // Wave 344: empty dual-world → 0.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         let object_id = obj.value() as ObjectID;
         OBJECT_REGISTRY
             .with_object(object_id, |guard| guard.get_template().get_energy_bonus())
