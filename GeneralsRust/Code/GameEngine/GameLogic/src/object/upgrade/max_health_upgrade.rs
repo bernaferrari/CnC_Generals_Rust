@@ -11,6 +11,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 314: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data describing the max health increase to apply.
 #[derive(Debug, Clone)]
 pub struct MaxHealthUpgradeModuleData {
@@ -241,6 +247,11 @@ impl MaxHealthUpgradeInner {
     /// Apply max health upgrade to object
     /// Matches C++ MaxHealthUpgrade::upgradeImplementation from MaxHealthUpgrade.cpp lines 56-68
     fn apply_max_health(&mut self) -> Result<(), String> {
+        // Wave 314: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let add = self.data.add_max_health();
         let change_type = self.data.change_type();
         let mut original = self.original_max_health;
@@ -278,6 +289,11 @@ impl MaxHealthUpgradeInner {
 
     #[allow(dead_code)]
     fn remove_max_health(&mut self) -> Result<(), String> {
+        // Wave 314: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let add = self.data.add_max_health();
         let change_type = self.data.change_type();
         let mut original = self.original_max_health.take();
