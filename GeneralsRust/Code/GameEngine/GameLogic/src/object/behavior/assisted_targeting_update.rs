@@ -21,6 +21,13 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
+
+/// Wave 336: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const FEEDBACK_LASER_LIFE_FRAMES: UnsignedInt = LOGICFRAMES_PER_SECOND / 2;
 
 #[derive(Clone, Debug)]
@@ -105,6 +112,11 @@ impl AssistedTargetingUpdate {
         from_id: ObjectID,
         to_id: ObjectID,
     ) {
+        // Wave 336: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(from_pos) = OBJECT_REGISTRY.with_object(from_id, |g| *g.get_position()) else {
             return;
         };
@@ -200,6 +212,11 @@ impl BehaviorModuleInterface for AssistedTargetingUpdate {
 
 impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
     fn is_free_to_assist(&self) -> bool {
+        // Wave 336: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -222,6 +239,11 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
     }
 
     fn assist_attack(&mut self, requesting_object_id: ObjectID, victim_object_id: ObjectID) {
+        // Wave 336: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
