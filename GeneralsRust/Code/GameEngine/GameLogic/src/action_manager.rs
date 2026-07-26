@@ -34,6 +34,12 @@ use game_engine::common::rts::ActionManager as RtsActionManager;
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
+/// Wave 347: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 fn is_object_shrouded_for_action(
     source: &Object,
     target: &Object,
@@ -89,6 +95,11 @@ fn is_location_shrouded(player_id: u32, pos: &crate::common::Coord3D) -> bool {
 }
 
 fn count_special_objects_by_producer(producer_id: ObjectID, special_object_update: &str) -> usize {
+    // Wave 347: empty dual-world → 0.
+    if dual_world_registry_unavailable() {
+        return 0;
+    }
+
     OBJECT_REGISTRY
         .get_all_objects()
         .into_iter()
@@ -105,7 +116,8 @@ fn count_special_objects_by_producer(producer_id: ObjectID, special_object_updat
 }
 
 fn has_special_object_on_target(target_id: ObjectID, special_object_update: &str) -> bool {
-    if OBJECT_REGISTRY.is_empty() {
+    // Wave 347: empty dual-world → false.
+    if dual_world_registry_unavailable() {
         return false;
     }
     OBJECT_REGISTRY
@@ -140,6 +152,11 @@ fn get_supply_warehouse_boxes(warehouse: &Object) -> Option<i32> {
 }
 
 fn count_stealthed_contained(contain: &dyn crate::modules::ContainModuleInterface) -> usize {
+    // Wave 347: empty dual-world → 0.
+    if dual_world_registry_unavailable() {
+        return 0;
+    }
+
     contain
         .get_contained_objects()
         .iter()
@@ -911,6 +928,11 @@ impl TheActionManager {
         object_being_constructed: &Object,
         command_source: CommandSourceType,
     ) -> bool {
+        // Wave 347: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if !obj.is_kind_of(KindOf::Dozer) {
             return false;
         }
@@ -956,6 +978,11 @@ impl TheActionManager {
         command_source: CommandSourceType,
         mode: CanEnterType,
     ) -> bool {
+        // Wave 347: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if obj.get_id() == object_to_enter.get_id() {
             return false;
         }
@@ -1106,6 +1133,11 @@ impl TheActionManager {
         object_to_convert: &Object,
         command_source: CommandSourceType,
     ) -> bool {
+        // Wave 347: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if object_to_convert.is_effectively_dead() {
             return false;
         }
@@ -1131,6 +1163,11 @@ impl TheActionManager {
         object_to_hijack: &Object,
         command_source: CommandSourceType,
     ) -> bool {
+        // Wave 347: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if object_to_hijack.is_effectively_dead() {
             return false;
         }
@@ -1172,6 +1209,11 @@ impl TheActionManager {
         object_to_sabotage: &Object,
         command_source: CommandSourceType,
     ) -> bool {
+        // Wave 347: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if object_to_sabotage.is_effectively_dead() {
             return false;
         }
@@ -1726,6 +1768,11 @@ impl TheActionManager {
         prisoner_id: ObjectID,
         command_source: CommandSourceType,
     ) -> bool {
+        // Wave 347: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(obj) = TheGameLogic::find_object_by_id(obj_id) else {
             return false;
         };
