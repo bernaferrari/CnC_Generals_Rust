@@ -13,6 +13,12 @@ use crate::object::Object;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
 
+/// Wave 415: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Base data for all damage modules (matches C++ DamageModuleData).
 #[derive(Debug, Clone)]
 pub struct DamageModuleData {
@@ -88,6 +94,11 @@ impl<T: ModuleData> DamageModule<T> {
     }
 
     pub fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        // Wave 415: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == INVALID_ID {
             return None;
@@ -96,6 +107,11 @@ impl<T: ModuleData> DamageModule<T> {
     }
 
     pub fn with_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        // Wave 415: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == INVALID_ID {
             return None;
@@ -105,6 +121,11 @@ impl<T: ModuleData> DamageModule<T> {
 
     /// Short-lived Arc resolve; prefer `with_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 415: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == INVALID_ID {
             return None;
