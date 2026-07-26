@@ -16,6 +16,12 @@ use crate::object::behavior::behavior_module::{
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Wave 346: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // Forward declarations
 use crate::attack::{
     AbleToAttackType, CanAttackResult, ATTACKRESULT_INVALID_SHOT, ATTACKRESULT_NOT_POSSIBLE,
@@ -539,6 +545,11 @@ impl SpawnBehavior {
     }
 
     fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".into());
+        }
+
         let id = self.get_object_id();
         if id == INVALID_ID {
             return Err("Object not set".into());
@@ -553,6 +564,11 @@ impl SpawnBehavior {
         spawned_id: ObjectID,
         master_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let spawned = crate::helpers::TheGameLogic::find_object_by_id(spawned_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(spawned_id))
             .ok_or("spawned object unavailable")?;
@@ -611,6 +627,11 @@ impl SpawnBehavior {
     }
 
     fn create_spawn(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let data = Arc::clone(&self.module_data);
 
         // Get exit interface
@@ -841,6 +862,11 @@ impl SpawnBehavior {
     fn reclaim_orphan_spawn(
         &self,
     ) -> Result<Option<Arc<RwLock<Object>>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         let data = self.module_data.clone();
 
         let (player, object_pos) = self.with_object(|obj_guard| {
@@ -904,6 +930,11 @@ impl SpawnBehavior {
     }
 
     fn compute_aggregate_states(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if !self.aggregate_health {
             return Ok(()); // Not using aggregate health
         }
@@ -1175,6 +1206,11 @@ impl DieModuleInterface for SpawnBehavior {
         &mut self,
         damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let data = &self.module_data;
         if !self.with_object(|obj| data.die_mux_data.is_die_applicable(obj, damage_info))? {
             return Ok(());
@@ -1248,6 +1284,11 @@ impl DamageModuleInterface for SpawnBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Notify all spawns that their master was damaged
         for &spawn_id in &self.spawn_ids {
             if let Some(current_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
@@ -1329,6 +1370,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         dead_spawn: ObjectID,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Find and remove the dead spawn from our list
         if let Some(pos) = self.spawn_ids.iter().position(|&id| id == dead_spawn) {
             self.spawn_ids.remove(pos);
@@ -1356,6 +1402,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
     }
 
     fn get_closest_slave(&self, pos: &Coord3D) -> Option<Arc<RwLock<Object>>> {
+        // Wave 346: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let mut closest: Option<Arc<RwLock<Object>>> = None;
         let mut closest_distance = Real::INFINITY;
 
@@ -1387,6 +1438,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         max_shots_to_fire: Int,
         cmd_source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let target_id = target.get_id();
         let target_handle = TheGameLogic::find_object_by_id(target_id);
         if let Some(target_handle) = target_handle {
@@ -1413,6 +1469,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         max_shots_to_fire: Int,
         cmd_source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                 if let Ok(spawn_guard) = spawn_obj.read() {
@@ -1431,6 +1492,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         target: &Object,
         cmd_source: CommandSourceType,
     ) -> CanAttackResult {
+        // Wave 346: empty dual-world → not possible.
+        if dual_world_registry_unavailable() {
+            return ATTACKRESULT_NOT_POSSIBLE;
+        }
+
         let mut invalid_shot = false;
 
         for &spawn_id in &self.spawn_ids {
@@ -1462,6 +1528,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         pos: &Coord3D,
         cmd_source: CommandSourceType,
     ) -> CanAttackResult {
+        // Wave 346: empty dual-world → not possible.
+        if dual_world_registry_unavailable() {
+            return ATTACKRESULT_NOT_POSSIBLE;
+        }
+
         let mut invalid_shot = false;
 
         for &spawn_id in &self.spawn_ids {
@@ -1491,6 +1562,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
     }
 
     fn can_any_slaves_attack(&self) -> bool {
+        // Wave 346: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                 let spawn_guard = spawn_obj.read().unwrap();
@@ -1509,6 +1585,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         &mut self,
         cmd_source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                 if let Ok(spawn_guard) = spawn_obj.read() {
@@ -1526,6 +1607,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         disabled_type: DisabledType,
         frame: UnsignedInt,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                 let mut spawn_guard = spawn_obj.write().map_err(|_| "Failed to write spawn")?;
@@ -1540,6 +1626,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         &mut self,
         disabled_type: DisabledType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                 let mut spawn_guard = spawn_obj.write().map_err(|_| "Failed to write spawn")?;
@@ -1554,6 +1645,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         &mut self,
         grant_stealth: Bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                 let mut spawn_guard = spawn_obj.write().map_err(|_| "Failed to write spawn")?;
@@ -1568,6 +1664,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
     }
 
     fn are_all_slaves_stealthed(&self) -> bool {
+        // Wave 346: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                 let spawn_guard = spawn_obj.read().unwrap();
@@ -1590,6 +1691,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
     }
 
     fn reveal_slaves(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 346: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                 let spawn_guard = spawn_obj.read().unwrap();
@@ -1650,6 +1756,11 @@ impl ModuleSpawnBehaviorInterface for SpawnBehavior {
 // Handle cleanup on deletion
 impl Drop for SpawnBehavior {
     fn drop(&mut self) {
+        // Wave 346: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let data = &self.module_data;
 
         // Destroy spawns that require the spawner
