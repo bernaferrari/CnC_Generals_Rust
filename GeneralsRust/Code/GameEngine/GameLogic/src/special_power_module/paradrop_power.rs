@@ -20,6 +20,12 @@ use crate::player::player_list;
 use crate::terrain::get_terrain_logic;
 use std::sync::{Arc, RwLock};
 
+/// Wave 320: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Paradrop configuration constants
 const PARADROP_HEIGHT: Real = 250.0;
 const PARADROP_SPACING: Real = 30.0;
@@ -195,6 +201,11 @@ impl ParadropPower {
 
     /// Execute the paradrop
     fn execute_drop(&mut self, targeting: &TargetingInfo) -> Result<(), String> {
+        // Wave 320: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".to_string());
+        }
+
         log::info!(
             "Paradrop activated at position {:?}, dropping {} units",
             targeting.position,
@@ -403,6 +414,11 @@ impl ParadropPower {
 
     /// Spawn transport aircraft
     fn spawn_transport_aircraft(&mut self, target: &Coord3D) -> Result<(), String> {
+        // Wave 320: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".to_string());
+        }
+
         log::debug!("Spawning transport aircraft for paradrop");
 
         const PARADROP_PLANE_OCL: &str = "OCL_ParadropPlane";
