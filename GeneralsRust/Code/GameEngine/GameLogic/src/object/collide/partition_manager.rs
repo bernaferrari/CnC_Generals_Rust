@@ -16,6 +16,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
 
+/// Wave 324: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // ---------------------------------------------------------------------------
 // Constants matching C++ PartitionManager.cpp
 // ---------------------------------------------------------------------------
@@ -414,6 +420,11 @@ impl PartitionManager {
         radius: f32,
         filters: &[Box<dyn PartitionFilter>],
     ) -> Vec<ObjectId> {
+        // Wave 324: empty dual-world → empty set.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let center_cell = CellCoord::from_world_pos(center);
         let cells_to_check = center_cell.cells_in_radius(radius);
 
@@ -740,6 +751,11 @@ impl PartitionManager {
         angle: f32,
         options: &FindPositionOptions,
     ) -> Option<Coord3D> {
+        // Wave 324: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let cos_a = angle.cos();
         let sin_a = angle.sin();
         let mut pos = Coord3D::new(dist * cos_a + center.x, dist * sin_a + center.y, 0.0);
@@ -897,6 +913,11 @@ impl PartitionManager {
         other_id: Option<ObjectId>,
         other_pos: &Coord3D,
     ) -> bool {
+        // Wave 324: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let pos = if let Some(id) = obj_id {
             if let Some(p) = OBJECT_REGISTRY.with_object(id, |obj| *obj.get_position()) {
                 // Adjust z to top of collision shape (eye level).
@@ -1523,6 +1544,11 @@ impl PartitionManager {
     /// Get ground height plus tallest structure height at a position.
     /// Matches C++ PartitionManager::getGroundOrStructureHeight (PartitionManager.cpp:4674)
     pub fn get_ground_or_structure_height(&self, posx: f32, posy: f32) -> f32 {
+        // Wave 324: empty dual-world → 0.0.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         let terrain_height = if let Ok(terrain) = get_terrain_logic().read() {
             terrain.get_ground_height(posx, posy, None)
         } else {
