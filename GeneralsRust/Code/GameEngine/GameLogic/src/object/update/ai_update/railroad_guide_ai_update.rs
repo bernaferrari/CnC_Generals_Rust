@@ -30,6 +30,12 @@ use game_engine::common::thing::module::{
 };
 use glam::{Mat4, Vec3};
 
+/// Wave 357: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const NORMAL_VEL_Z: Real = 0.25;
 const NORMAL_MASS: Real = 50.0;
 const FRAMES_UNPULLED_LONG_ENOUGH_TO_UNHITCH: Int = 2;
@@ -723,6 +729,11 @@ impl RailroadBehavior {
     }
 
     fn get_object(&self) -> Option<Arc<RwLock<GameObject>>> {
+        // Wave 357: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
@@ -945,6 +956,11 @@ impl RailroadBehavior {
     }
 
     fn make_a_wall_out_of_this_train(&mut self, on: Bool) {
+        // Wave 357: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Ok(ai) = THE_AI.write() {
             let _ = self.with_object(|obj_guard| {
                 if let Some(pathfinder) = ai.pathfinder() {
@@ -975,6 +991,11 @@ impl RailroadBehavior {
     }
 
     fn disembark(&mut self) {
+        // Wave 357: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = self.with_object_mut(|obj_guard| {
             if let Some(contain) = obj_guard.get_contain() {
                 let _ = contain
@@ -998,6 +1019,11 @@ impl RailroadBehavior {
     }
 
     fn create_carriages(&mut self) {
+        // Wave 357: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !self.is_locomotive {
             return;
         }
@@ -1100,6 +1126,11 @@ impl RailroadBehavior {
         list: Vec<AsciiString>,
         track: Option<Arc<Mutex<TrainTrack>>>,
     ) {
+        // Wave 357: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.is_locomotive {
             return;
         }
@@ -1169,6 +1200,11 @@ impl RailroadBehavior {
         loco_id: ObjectID,
         track: Option<Arc<Mutex<TrainTrack>>>,
     ) {
+        // Wave 357: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.is_locomotive {
             return;
         }
@@ -1252,6 +1288,11 @@ impl RailroadBehavior {
     }
 
     fn get_pulled(&mut self, info: &mut PullInfo) {
+        // Wave 357: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.wants_to_be_lead_carriage = 0;
 
         if self.track.is_none() {
@@ -1382,6 +1423,11 @@ impl RailroadBehavior {
 
     #[allow(dead_code)]
     fn destroy_whole_train_now(&mut self) {
+        // Wave 357: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _ = TheGameLogic::destroy_object_by_id(self.object_id);
 
         if self.trailer_id != INVALID_ID {
@@ -1711,6 +1757,11 @@ impl RailroadBehavior {
 
 impl UpdateModuleInterface for RailroadBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 357: empty dual-world → Ok(UPDATE_SLEEP_NONE).
+        if dual_world_registry_unavailable() {
+            return Ok(UPDATE_SLEEP_NONE);
+        }
+
         if !self.track_data_loaded && self.is_locomotive {
             self.load_track_data();
             if self.track.is_some() {
@@ -1907,6 +1958,11 @@ impl BehaviorModuleInterface for RailroadBehavior {
 
 impl CollideModuleInterface for RailroadBehavior {
     fn on_collision(&mut self, _object_id: ObjectID, other_id: ObjectID) {
+        // Wave 357: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(other) = TheGameLogic::find_object_by_id(other_id) else {
             return;
         };
