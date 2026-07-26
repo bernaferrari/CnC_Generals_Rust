@@ -18,6 +18,12 @@ use slotmap::{DefaultKey, SlotMap};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Wave 426: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// How close is close enough when moving
 pub const PATHFIND_CLOSE_ENOUGH: f32 = 1.0;
 pub const PATH_MAX_PRIORITY: i32 = i32::MAX;
@@ -1295,6 +1301,11 @@ impl Pathfinder {
         victim: Option<&Object>,
         victim_pos: &Coord3D,
     ) -> bool {
+        // Wave 426: empty dual-world → false (no obstacles).
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let attack_uses_los = THE_AI
             .read()
             .ok()
