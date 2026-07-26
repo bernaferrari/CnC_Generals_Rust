@@ -8280,6 +8280,27 @@ impl CnCGameEngine {
                     format!("click_live_tn_guard_dual_world_empty_gate_miss_{action}")
                 };
             }
+            "click_live_production_update_dual_world_empty_gate_wave376" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_production_update_dual_world_empty_gate_honesty_wave376()
+                    }
+                    _ => crate::game_logic::honesty_live_production_update_dual_world_empty_gate_residual_pack_wave376(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!(
+                        "click_live_production_update_dual_world_empty_gate_wave376_ok_{action}"
+                    )
+                } else {
+                    format!(
+                        "click_live_production_update_dual_world_empty_gate_wave376_miss_{action}"
+                    )
+                };
+            }
             "save_game" | "quicksave" => {
                 if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
