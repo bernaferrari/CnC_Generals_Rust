@@ -19,6 +19,12 @@ use game_engine::common::thing::module::Module;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
+/// Wave 389: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Configuration data specific to hive structure bodies
 #[derive(Debug, Clone)]
 pub struct HiveStructureBodyModuleData {
@@ -221,6 +227,11 @@ impl HiveStructureBody {
     /// 2. Otherwise, check ContainModuleInterface for riders.
     /// Returns true if a slave/rider was found and damaged, false otherwise.
     fn try_damage_slave(&mut self, damage_info: &mut DamageInfo) -> bool {
+        // Wave 389: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(owner) = self.structure_body.owner_handle() else {
             return false;
         };
@@ -302,6 +313,11 @@ impl HiveStructureBody {
 // The key override is attempt_damage to handle damage propagation
 impl BodyModuleInterface for HiveStructureBody {
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
+        // Wave 389: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Check if this damage type should be propagated to slaves
         if self.should_propagate_to_slaves(damage_info) {
             // Try to find and damage a slave
