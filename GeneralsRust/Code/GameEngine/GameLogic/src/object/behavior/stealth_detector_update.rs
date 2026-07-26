@@ -24,6 +24,12 @@ use game_engine::common::thing::module::{
 use std::any::Any;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 388: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[allow(dead_code)]
 const UPDATE_SLEEP_NONE: UpdateSleepTime = UpdateSleepTime::None;
 #[allow(dead_code)]
@@ -485,6 +491,11 @@ impl StealthDetectorUpdate {
     /// Perform detection scan
     /// Matches C++ StealthDetectorUpdate.cpp lines 164-335
     fn perform_detection_scan(&mut self) -> Bool {
+        // Wave 388: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if !self.enabled {
             return false;
         }
@@ -678,6 +689,11 @@ impl Snapshotable for StealthDetectorUpdate {
 impl UpdateModuleInterface for StealthDetectorUpdate {
     /// Update callback - matches C++ StealthDetectorUpdate::update (lines 123-401)
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 388: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         if !self.enabled {
             self.clear_grid_particles();
             self.clear_ping_beacon_particles();
