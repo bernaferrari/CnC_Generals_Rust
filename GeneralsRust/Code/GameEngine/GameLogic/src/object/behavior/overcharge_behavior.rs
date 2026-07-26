@@ -36,6 +36,12 @@ use crate::object::behavior::behavior_module::{
 use crate::object::Object;
 use crate::player::{player_list, Player};
 
+/// Wave 435: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const UPDATE_SLEEP_NONE: UpdateSleepTime = UpdateSleepTime::None;
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
 const RADAR_EVENT_LIFETIME: Real = 1.0;
@@ -177,6 +183,11 @@ impl OverchargeBehavior {
     }
 
     fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        // Wave 435: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -185,6 +196,11 @@ impl OverchargeBehavior {
     }
 
     fn with_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        // Wave 435: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
