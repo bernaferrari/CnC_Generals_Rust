@@ -20,6 +20,12 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::sync::{Arc, RwLock};
 
+/// Wave 361: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const UNLOAD_ALL: Int = -1;
 const CLOSE_ENOUGH_PULL: Real = 6.0;
 const CLOSE_ENOUGH_PUSH: Real = 3.0;
@@ -151,6 +157,11 @@ impl RailedTransportDockUpdate {
     }
 
     fn do_pull_in_docking(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 361: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.docking_object_id == INVALID_ID {
             return Ok(());
         }
@@ -226,6 +237,11 @@ impl RailedTransportDockUpdate {
     }
 
     fn do_push_out_docking(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 361: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.unloading_object_id == INVALID_ID {
             return Ok(());
         }
@@ -320,6 +336,11 @@ impl RailedTransportDockUpdate {
     }
 
     fn unload_next(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 361: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.unloading_object_id = INVALID_ID;
 
         if self.unload_count == 0 {
@@ -458,6 +479,11 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
         obj_id: ObjectID,
         _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 361: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -516,6 +542,11 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
         &self,
         obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 361: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         if !self.base.is_clear_to_enter(obj_id)? {
             return Ok(false);
         }
