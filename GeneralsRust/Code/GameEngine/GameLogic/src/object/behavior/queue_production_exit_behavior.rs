@@ -32,6 +32,12 @@ use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, Thing 
 use std::any::Any;
 use std::sync::{Arc, RwLock};
 
+/// Wave 381: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Exit door type
 /// Matches C++ ExitDoorType
 pub type ExitDoorType = i32;
@@ -148,6 +154,11 @@ impl QueueProductionExitBehavior {
         building_orientation: f32,
         terrain_height_fn: impl Fn(f32, f32) -> f32,
     ) -> Result<ExitResult, String> {
+        // Wave 381: empty dual-world → Err.
+        if dual_world_registry_unavailable() {
+            return Err("QueueProductionExit dual-world registry empty".to_string());
+        }
+
         // Only support DOOR_1 for queue exit
         if exit_door != DOOR_1 {
             return Err("QueueProductionExit only supports single door".to_string());
@@ -202,6 +213,11 @@ impl QueueProductionExitBehavior {
         owner_position: Option<Coord3D>,
         owner_orientation: Option<f32>,
     ) -> Result<ExitResult, String> {
+        // Wave 381: empty dual-world → Err.
+        if dual_world_registry_unavailable() {
+            return Err("QueueProductionExit dual-world registry empty".to_string());
+        }
+
         let (position, orientation) =
             if let (Some(pos), Some(orient)) = (bud_host_position, bud_host_orientation) {
                 // Use host position
@@ -401,6 +417,11 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
         obj_id: ObjectID,
         door: ModuleExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 381: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
@@ -514,6 +535,11 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
         obj_id: ObjectID,
         host_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 381: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
