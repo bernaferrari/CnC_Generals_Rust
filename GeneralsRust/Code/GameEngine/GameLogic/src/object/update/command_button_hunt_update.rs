@@ -36,6 +36,12 @@ use game_engine::common::thing::module::{
     CommandButtonHuntControlInterface, Module, ModuleData, NameKeyType,
 };
 
+/// Wave 384: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Debug, Clone)]
 pub struct CommandButtonHuntUpdateModuleData {
     module_tag_name_key: NameKeyType,
@@ -149,6 +155,11 @@ impl CommandButtonHuntUpdate {
     }
 
     fn object_arc(&self) -> Option<Arc<std::sync::RwLock<crate::object::Object>>> {
+        // Wave 384: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         TheGameLogic::find_object_by_id(self.object_id)
     }
 
@@ -264,6 +275,11 @@ impl CommandButtonHuntUpdate {
     }
 
     fn hunt_special_power(&self, ai: Arc<Mutex<dyn AIUpdateInterface>>) -> UpdateSleepTime {
+        // Wave 384: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         let Some(object_arc) = self.object_arc() else {
             return UpdateSleepTime::Forever;
         };
@@ -324,6 +340,11 @@ impl CommandButtonHuntUpdate {
     }
 
     fn hunt_enter(&self, ai: Arc<Mutex<dyn AIUpdateInterface>>) -> UpdateSleepTime {
+        // Wave 384: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         let Some(object_arc) = self.object_arc() else {
             return UpdateSleepTime::Forever;
         };
@@ -359,6 +380,11 @@ impl CommandButtonHuntUpdate {
     }
 
     fn scan_closest_target(&self) -> Option<ObjectID> {
+        // Wave 384: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let Some(object_arc) = self.object_arc() else {
             return None;
         };
