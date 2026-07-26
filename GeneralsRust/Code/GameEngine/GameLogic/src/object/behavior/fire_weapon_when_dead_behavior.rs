@@ -10,6 +10,12 @@ use std::sync::{Arc, RwLock};
 use crate::common::{ObjectStatusMaskType, ObjectStatusTypes};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
+/// Wave 427: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// 3D coordinate representation
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Coord3D {
@@ -221,6 +227,11 @@ impl FireWeaponWhenDeadBehavior {
     /// Check if object is under construction
     /// (Matches C++ FireWeaponWhenDeadBehavior.cpp lines 72-75)
     fn is_object_under_construction(&self) -> bool {
+        // Wave 427: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // C++ line 74: obj->getStatusBits().test(OBJECT_STATUS_UNDER_CONSTRUCTION)
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.object_id, |obj_guard| {
@@ -234,6 +245,11 @@ impl FireWeaponWhenDeadBehavior {
     /// Check object upgrade masks for conflicts
     /// (Matches C++ FireWeaponWhenDeadBehavior.cpp lines 78-88)
     fn check_upgrade_conflicts(&self) -> BehaviorResult<bool> {
+        // Wave 427: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let (_, conflicting) = self.get_upgrade_activation_masks();
 
         if conflicting == 0 {
@@ -277,6 +293,11 @@ impl FireWeaponWhenDeadBehavior {
     /// Create and fire temporary weapon
     /// (Matches C++ line 93: TheWeaponStore->createAndFireTempWeapon())
     fn create_and_fire_temp_weapon(&self, weapon_template: &str, position: Coord3D) -> BehaviorResult<()> {
+        // Wave 427: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // C++ line 93: TheWeaponStore->createAndFireTempWeapon(d->m_deathWeapon, obj, obj->getPosition())
         if let Some(weapon_store) = crate::helpers::TheWeaponStore::get() {
             if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id) {
@@ -302,6 +323,11 @@ impl FireWeaponWhenDeadBehavior {
 
     /// Get current object position
     fn get_object_position(&self) -> Coord3D {
+        // Wave 427: empty dual-world → origin.
+        if dual_world_registry_unavailable() {
+            return Coord3D::new(0.0, 0.0, 0.0);
+        }
+
         // C++ uses: obj->getPosition()
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.object_id, |obj_guard| {
