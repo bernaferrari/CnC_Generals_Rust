@@ -14,6 +14,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 308: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data describing the status bits to set/clear when an upgrade is applied.
 #[derive(Debug, Clone)]
 pub struct StatusBitsUpgradeModuleData {
@@ -416,6 +422,11 @@ impl StatusBitsUpgradeInner {
     }
 
     fn apply_status_bits(&self) -> Result<(), String> {
+        // Wave 308: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let data = self.data.clone();
         let object_id = self.object_id;
         match OBJECT_REGISTRY.with_object_mut(self.object_id, |object| {
