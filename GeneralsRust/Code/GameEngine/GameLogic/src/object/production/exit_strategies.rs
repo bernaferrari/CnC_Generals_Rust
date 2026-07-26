@@ -6,6 +6,12 @@ use super::rally_point::RallyPoint;
 use crate::common::*;
 use std::fmt::Debug;
 
+/// Wave 312: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Trait for production exit strategies
 pub trait ProductionExitStrategy: Send + Sync + Debug {
     /// Spawn a unit at the exit point
@@ -70,6 +76,11 @@ impl ProductionExitStrategy for DefaultProductionExit {
         door_index: usize,
         rally_point: RallyPoint,
     ) -> Result<ObjectID, String> {
+        // Wave 312: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".to_string());
+        }
+
         if door_index >= self.exit_points.len() {
             return Err(format!("Invalid door index: {}", door_index));
         }
@@ -221,6 +232,11 @@ impl ProductionExitStrategy for QueueProductionExit {
         door_index: usize,
         _rally_point: RallyPoint,
     ) -> Result<ObjectID, String> {
+        // Wave 312: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".to_string());
+        }
+
         // Spawn at queue position first
         // Matches C++ QueueProductionExitUpdate behavior for staging units
         let queue_pos = self.next_queue_position();
@@ -329,6 +345,11 @@ impl ProductionExitStrategy for SupplyCenterProductionExit {
         door_index: usize,
         rally_point: RallyPoint,
     ) -> Result<ObjectID, String> {
+        // Wave 312: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".to_string());
+        }
+
         let exit_pos = self.base.get_exit_position(door_index)?;
 
         log::info!(
@@ -453,6 +474,11 @@ impl ProductionExitStrategy for SpawnPointProductionExit {
         _door_index: usize,
         rally_point: RallyPoint,
     ) -> Result<ObjectID, String> {
+        // Wave 312: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".to_string());
+        }
+
         let spawn_pos = self.next_spawn_point();
 
         log::info!(
