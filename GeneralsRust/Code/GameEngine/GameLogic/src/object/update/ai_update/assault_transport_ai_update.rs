@@ -16,6 +16,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 369: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const MAX_TRANSPORT_SLOTS: usize = 10;
 
 const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
@@ -336,6 +342,11 @@ impl AssaultTransportAIUpdate {
         &mut self,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 369: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(transport) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return Ok(());
         };
@@ -481,6 +492,11 @@ impl AssaultTransportAIUpdate {
     }
 
     fn prune_missing_members(&mut self) {
+        // Wave 369: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.current_members == 0 {
             return;
         }
@@ -526,6 +542,11 @@ impl AssaultTransportAIUpdate {
     }
 
     fn add_new_members(&mut self) {
+        // Wave 369: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(transport) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
@@ -575,6 +596,11 @@ impl AssaultTransportAIUpdate {
     }
 
     fn is_attack_pointless(&self) -> Bool {
+        // Wave 369: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(transport) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return false;
         };
@@ -615,6 +641,11 @@ impl AssaultTransportAIUpdate {
     }
 
     fn retrieve_members(&self) {
+        // Wave 369: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for i in 0..self.current_members {
             let Some(member) = TheGameLogic::find_object_by_id(self.member_ids[i]) else {
                 continue;
@@ -637,6 +668,11 @@ impl AssaultTransportAIUpdate {
     }
 
     fn give_final_orders(&self) {
+        // Wave 369: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for i in 0..self.current_members {
             let Some(member) = TheGameLogic::find_object_by_id(self.member_ids[i]) else {
                 continue;
