@@ -18,6 +18,12 @@ use crate::locomotor::{PathFollowingState, Locomotor, BodyDamageType as LocoBody
 use crate::modules::AIUpdateInterfaceExt;
 use std::sync::{Arc, Mutex};
 
+/// Wave 422: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// AI MoveTo State with integrated pathfinding
 ///
 /// This state handles movement from current position to a goal position by:
@@ -55,6 +61,11 @@ impl AIMoveToState {
 
     /// Get unit's current locomotor (would be from object in full implementation)
     fn get_locomotor(&self, context: &AIStateMachineContext) -> Option<Arc<Mutex<Locomotor>>> {
+        // Wave 422: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let ai_handle = OBJECT_REGISTRY.with_object(context.owner_id, |owner_guard| {
             owner_guard.get_ai_update_interface()
         })??;
@@ -104,6 +115,11 @@ impl AIState for AIMoveToState {
     /// Update MoveTo state each frame
     /// Matches C++ AIStates.cpp:2052-2114 update
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // Wave 422: empty dual-world → Failed.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failed;
+        }
+
         let Some(ai_handle) = OBJECT_REGISTRY.with_object(context.owner_id, |guard| {
             guard.get_ai_update_interface()
         }).flatten() else {
