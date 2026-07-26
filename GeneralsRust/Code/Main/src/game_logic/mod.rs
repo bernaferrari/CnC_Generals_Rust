@@ -350,6 +350,7 @@ pub mod host_live_sticky_bomb_dual_world_empty_gate_residual_wave305;
 pub mod host_live_structure_topple_dual_world_empty_gate_residual_wave315;
 pub mod host_live_supply_system_dual_world_empty_gate_residual_wave298;
 pub mod host_live_team_dual_world_empty_gate_residual_wave256;
+pub mod host_live_tensile_formation_dual_world_empty_gate_residual_wave322;
 pub mod host_live_transport_contain_dual_world_empty_gate_residual_wave272;
 pub mod host_live_tunnel_contain_dual_world_empty_gate_residual_wave280;
 pub mod host_live_turret_dual_world_empty_gate_residual_wave276;
@@ -2547,6 +2548,12 @@ pub use host_live_team_dual_world_empty_gate_residual_wave256::{
     honesty_live_team_dual_world_empty_gate_nav_commands_residual_wave256,
     honesty_live_team_dual_world_empty_gate_residual_pack_wave256,
     simulate_live_team_dual_world_empty_gate_honesty,
+};
+pub use host_live_tensile_formation_dual_world_empty_gate_residual_wave322::{
+    honesty_live_tensile_formation_dual_world_empty_gate_method_names_residual_wave322,
+    honesty_live_tensile_formation_dual_world_empty_gate_nav_commands_residual_wave322,
+    honesty_live_tensile_formation_dual_world_empty_gate_residual_pack_wave322,
+    simulate_live_tensile_formation_dual_world_empty_gate_honesty,
 };
 pub use host_live_transport_contain_dual_world_empty_gate_residual_wave272::{
     honesty_live_transport_contain_dual_world_empty_gate_method_names_residual_wave272,
