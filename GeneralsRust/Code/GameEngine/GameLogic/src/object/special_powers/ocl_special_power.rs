@@ -28,6 +28,12 @@ use crate::helpers::{TheGameLogic, TheObjectCreationListStore, TheTerrainLogic};
 use crate::modules::BehaviorModuleInterface;
 use crate::object::special_power_module::SpecialPowerModuleData;
 
+/// Wave 406: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Matches C++ CREATE_ABOVE_LOCATION_HEIGHT = 300
 const CREATE_ABOVE_LOCATION_HEIGHT: Real = 300.0;
 
@@ -167,6 +173,11 @@ impl OclSpecialPower {
     /// Find the best OCL to use, checking upgrade science first.
     /// Matches C++ OCLSpecialPower::findOCL().
     fn find_ocl_name(&self) -> Option<AsciiString> {
+        // Wave 406: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
             if let Ok(owner_guard) = owner.read() {
                 if let Some(player) = owner_guard.get_controlling_player() {
@@ -200,6 +211,11 @@ impl OclSpecialPower {
     /// Execute the OCL power at a location.
     /// Matches C++ OCLSpecialPower::doSpecialPowerAtLocation().
     pub fn do_special_power_at_location(&self, loc: &Coord3D, angle: Real) -> Result<(), String> {
+        // Wave 406: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
             return Ok(());
         };
@@ -308,6 +324,11 @@ impl OclSpecialPower {
     /// Execute the OCL power at an object's position.
     /// Matches C++ OCLSpecialPower::doSpecialPowerAtObject().
     pub fn do_special_power_at_object(&self, obj_id: ObjectID) -> Result<(), String> {
+        // Wave 406: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Check disabled
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
             if let Ok(owner_guard) = owner.read() {
@@ -336,6 +357,11 @@ impl OclSpecialPower {
     /// Execute the OCL power with no specific target (use owner position).
     /// Matches C++ OCLSpecialPower::doSpecialPower().
     pub fn do_special_power(&self) -> Result<(), String> {
+        // Wave 406: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
             return Ok(());
         };
