@@ -21,6 +21,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 use thiserror::Error;
 
+/// Wave 419: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Weapon set type conditions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WeaponSetType {
@@ -631,6 +637,11 @@ impl WeaponSet {
         criteria: WeaponChoiceCriteria,
         command_source: CommandSourceType,
     ) -> GameLogicResult<bool> {
+        // Wave 419: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         // C++ line 782-783: If weapon is locked, return true immediately
         if self.is_current_weapon_locked() {
             return Ok(true);
@@ -1187,6 +1198,11 @@ impl WeaponSet {
         _command_source: CommandSourceType,
         specific_slot: Option<WeaponSlotType>,
     ) -> CanAttackResult {
+        // Wave 419: empty dual-world → NotPossible.
+        if dual_world_registry_unavailable() {
+            return CanAttackResult::NotPossible;
+        }
+
         // C++ WeaponSet.cpp line 589-603: Determine anti-mask from target
         let target_anti_mask = if let Some(target_id) = target_obj {
             crate::object::registry::OBJECT_REGISTRY
@@ -1276,6 +1292,11 @@ impl WeaponSet {
         _attack_type: AbleToAttackType,
         _command_source: CommandSourceType,
     ) -> CanAttackResult {
+        // Wave 419: empty dual-world → NotPossible.
+        if dual_world_registry_unavailable() {
+            return CanAttackResult::NotPossible;
+        }
+
         // Check anti-mask
         let weapon_anti = weapon.template.get_anti_mask();
         let target_anti = crate::object::registry::OBJECT_REGISTRY
