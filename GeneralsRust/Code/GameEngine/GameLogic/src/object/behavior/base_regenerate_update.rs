@@ -20,6 +20,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 380: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct BaseRegenerateUpdateModuleData {
     pub base: BehaviorModuleData,
@@ -73,6 +79,11 @@ impl BaseRegenerateUpdate {
 
 impl UpdateModuleInterface for BaseRegenerateUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 380: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         let Some(global_data) = TheGlobalData::get() else {
             return UpdateSleepTime::Forever;
         };
@@ -159,6 +170,11 @@ impl BehaviorModuleInterface for BaseRegenerateUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 380: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -197,6 +213,11 @@ impl DamageModuleInterface for BaseRegenerateUpdate {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 380: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(global_data) = TheGlobalData::get() else {
             return Ok(());
         };
