@@ -9,6 +9,12 @@ use crate::effects::FXList;
 use crate::helpers::TheAudio;
 use std::sync::Arc;
 
+/// Wave 403: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Debug, Clone)]
 pub struct DemoralizeSpecialPowerData {
     pub base: SpecialPowerModuleData,
@@ -138,6 +144,11 @@ impl DemoralizeSpecialPower {
     }
 
     fn compute_effect_parameters(&self) -> (Real, UnsignedInt) {
+        // Wave 403: empty dual-world → base params.
+        if dual_world_registry_unavailable() {
+            return (self.data.base_range, self.data.base_duration_frames);
+        }
+
         let mut range = self.data.base_range;
         let mut duration = self.data.base_duration_frames;
 
@@ -176,6 +187,11 @@ impl DemoralizeSpecialPower {
         _owner_player_id: ObjectID,
         targeting: &TargetingInfo,
     ) -> Result<(), String> {
+        // Wave 403: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.owner_object_id == INVALID_ID {
             return Err("Demoralize power requires an owning object".to_string());
         }
@@ -268,6 +284,13 @@ impl SpecialPowerModuleInterface for DemoralizeSpecialPower {
         targeting: Option<&TargetingInfo>,
         current_frame: UnsignedInt,
     ) -> ActivationResult {
+        // Wave 403: empty dual-world → Failed.
+        if dual_world_registry_unavailable() {
+            return ActivationResult::Failed {
+                reason: "empty dual-world".to_string(),
+            };
+        }
+
         if let Err(reason) = self.validate_targeting(targeting) {
             return ActivationResult::InvalidTarget { reason };
         }
@@ -340,6 +363,11 @@ impl SpecialPowerModuleInterface for DemoralizeSpecialPower {
         player_id: ObjectID,
         targeting: &TargetingInfo,
     ) -> Result<(), String> {
+        // Wave 403: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let mut effective_target = targeting.clone();
         if let Some(target_id) = targeting.target_object {
             let Some(target_obj) = crate::helpers::TheGameLogic::find_object_by_id(target_id)
