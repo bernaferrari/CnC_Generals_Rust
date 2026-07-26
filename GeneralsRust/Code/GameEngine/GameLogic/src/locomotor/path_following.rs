@@ -25,6 +25,12 @@ use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::path::SURFACE_RUBBLE;
 use std::sync::{Arc, RwLock};
 
+/// Wave 424: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Minimum time between path recomputation (frames at 30fps)
 /// Matches C++ AIStates.cpp:1856 MIN_REPATH_TIME
 const MIN_REPATH_TIME: u32 = 10; // Matches C++ MIN_REPATH_TIME
@@ -123,6 +129,11 @@ impl PathFollowingController {
         current_pos: &Coord3D,
         current_frame: u32,
     ) -> Result<bool, String> {
+        // Wave 424: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         // Check if waiting for pathfinding result
         // Matches C++ lines 1763-1790
         if state.waiting_for_path {
@@ -261,6 +272,11 @@ impl PathFollowingController {
         start_pos: &Coord3D,
         current_frame: u32,
     ) -> Result<bool, String> {
+        // Wave 424: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let mut capabilities = locomotor.to_movement_capabilities();
         let mut move_allies = false;
         let mut ignore_obstacle_id = None;
@@ -482,6 +498,11 @@ pub fn update_movement_with_pathfinding(
     delta_time: f32,
     pathfinding: Arc<RwLock<PathfindingSystem>>,
 ) -> Result<Option<(Coord3D, f32, f32)>, String> {
+    // Wave 424: empty dual-world → Ok(None).
+    if dual_world_registry_unavailable() {
+        return Ok(None);
+    }
+
     let controller = PathFollowingController::new(pathfinding);
 
     let _ = controller.check_obstacles(
