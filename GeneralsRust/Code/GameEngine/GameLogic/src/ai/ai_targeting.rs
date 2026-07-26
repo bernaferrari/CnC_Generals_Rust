@@ -14,6 +14,12 @@ use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::ai::*;
 
+/// Wave 421: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Target priority levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TargetPriority {
@@ -587,6 +593,11 @@ impl AITargeting {
 
     /// Gather information about a target
     fn gather_target_info(&self, target_id: ObjectID, context: &TargetingContext) -> Result<TargetInfo, AiError> {
+        // Wave 421: empty dual-world → InvalidObject.
+        if dual_world_registry_unavailable() {
+            return Err(AiError::InvalidObject);
+        }
+
         let Some((
             position,
             target_type,
@@ -702,6 +713,11 @@ impl AITargeting {
     }
 
     fn assess_strategic_value(&self, target_id: ObjectID, target_type: TargetType) -> f32 {
+        // Wave 421: empty dual-world → 0.0.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         OBJECT_REGISTRY
             .with_object(target_id, |guard| {
                 let mut value = match target_type {
@@ -727,6 +743,11 @@ impl AITargeting {
 
     /// Assess threat level of target
     fn assess_threat_level(&mut self, target_id: ObjectID) -> Result<f32, AiError> {
+        // Wave 421: empty dual-world → InvalidObject.
+        if dual_world_registry_unavailable() {
+            return Err(AiError::InvalidObject);
+        }
+
         let current_frame = TheGameLogic::get_frame();
         
         // Check cache first
