@@ -21,6 +21,12 @@ use crate::helpers::TheGameLogic;
 use crate::modules::BehaviorModuleInterface;
 use crate::object::special_power_module::SpecialPowerModuleData;
 
+/// Wave 387: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data for DemoralizeSpecialPower.
 /// Matches C++ DemoralizeSpecialPowerModuleData.
 #[derive(Debug, Clone)]
@@ -117,6 +123,11 @@ impl DemoralizeSpecialPower {
     /// Compute effective range and duration based on captured unit count.
     /// Matches C++ DemoralizeSpecialPower::doSpecialPowerAtLocation() lines 99-118.
     fn compute_effect_parameters(&self) -> (Real, UnsignedInt) {
+        // Wave 387: empty dual-world → base effect params.
+        if dual_world_registry_unavailable() {
+            return (self.data.base_range, self.data.base_duration_in_frames);
+        }
+
         let mut duration = self.data.base_duration_in_frames;
         let mut range = self.data.base_range;
 
@@ -153,6 +164,11 @@ impl DemoralizeSpecialPower {
     /// Execute demoralize at a location.
     /// Matches C++ DemoralizeSpecialPower::doSpecialPowerAtLocation().
     pub fn do_special_power_at_location(&self, loc: &Coord3D) -> Result<(), String> {
+        // Wave 387: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Check disabled
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
             return Ok(());
@@ -251,6 +267,11 @@ impl DemoralizeSpecialPower {
     /// Execute demoralize at an object's position.
     /// Matches C++ DemoralizeSpecialPower::doSpecialPowerAtObject().
     pub fn do_special_power_at_object(&self, obj_id: ObjectID) -> Result<(), String> {
+        // Wave 387: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Check disabled
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
             return Ok(());
