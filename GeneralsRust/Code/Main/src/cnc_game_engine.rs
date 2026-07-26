@@ -13077,11 +13077,8 @@ impl CnCGameEngine {
                     "Failed to reinitialize minimap renderer: {err}. Continuing without minimap."
                 );
             }
-            Self::apply_map_lighting(
-                &mut self.graphics_system,
-                &mut self.render_pipeline,
-                &self.game_logic,
-            );
+            Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+            Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
             let startup_camera_defaults = Self::configured_startup_camera_defaults();
             (self.camera_target, self.camera_position, self.camera_zoom) =
                 Self::bootstrap_camera_for_loaded_map(
@@ -18385,11 +18382,11 @@ impl CnCGameEngine {
                             err
                         );
                     }
-                    Self::apply_map_lighting(
-                        &mut self.graphics_system,
+                    Self::ensure_presentation_env_for_hints(
                         &mut self.render_pipeline,
                         &self.game_logic,
                     );
+                    Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
                 }
 
                 // Seed presentation before first InGame render (units/HUD identity).
@@ -18518,11 +18515,8 @@ impl CnCGameEngine {
         }
 
         // Apply map lighting if provided by map settings.
-        Self::apply_map_lighting(
-            &mut self.graphics_system,
-            &mut self.render_pipeline,
-            &self.game_logic,
-        );
+        Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+        Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
 
         let startup_camera_defaults = Self::configured_startup_camera_defaults();
         (self.camera_target, self.camera_position, self.camera_zoom) =
@@ -18674,51 +18668,65 @@ impl CnCGameEngine {
     fn apply_map_lighting(
         graphics_system: &mut GraphicsSystem,
         render_pipeline: &mut RenderPipeline,
-        game_logic: &GameLogic,
     ) {
+        // Wave 456: presentation-only map lighting (no live GameLogic dual-read).
         const FALLBACK_AMBIENT: [f32; 3] = [0.30, 0.30, 0.30];
         const FALLBACK_SUN_COLOR: [f32; 3] = [1.00, 0.90, 0.80];
         const FALLBACK_SUN_DIRECTION: [f32; 3] = [-0.5, -1.0, -0.5];
 
-        if let Some(meta) = game_logic.last_parsed_map_settings() {
-            let fog_color = meta.sky_color.or(meta.sun_color);
-            info!(
-                "Applying map lighting: ambient={:?} sun_color={:?} sun_dir={:?} sky={:?} fog={:?}",
-                meta.ambient_color,
-                meta.sun_color,
-                meta.sun_direction,
-                meta.sky_color,
-                meta.fog_start.zip(meta.fog_end)
-            );
-            render_pipeline.set_environment_lighting(
-                meta.sun_direction,
-                meta.sun_color,
-                meta.ambient_color,
-                fog_color,
-                meta.fog_start.zip(meta.fog_end),
-            );
-            graphics_system.set_lighting(
-                meta.ambient_color,
-                meta.sun_color,
-                meta.sun_direction,
-                meta.sky_color,
-            );
+        let env = render_pipeline.presentation_frame().map(|p| &p.world_env);
+
+        let (sun_dir, sun_color, ambient, fog_color, fog_range, sky) = if let Some(env) = env {
+            if env.has_map_metadata
+                || env.ambient_color.is_some()
+                || env.sun_color.is_some()
+                || env.sun_direction.is_some()
+            {
+                let fog_color = env.fog_color.or(env.sun_color);
+                let fog_range = match (env.fog_start, env.fog_end) {
+                    (Some(a), Some(b)) => Some((a, b)),
+                    _ => None,
+                };
+                info!(
+                    "Applying map lighting from presentation: ambient={:?} sun_color={:?} sun_dir={:?} fog={:?}",
+                    env.ambient_color,
+                    env.sun_color,
+                    env.sun_direction,
+                    fog_range
+                );
+                (
+                    env.sun_direction,
+                    env.sun_color,
+                    env.ambient_color,
+                    fog_color,
+                    fog_range,
+                    env.fog_color, // sky residual from fog/sky freeze when present
+                )
+            } else {
+                warn!("Presentation env has no lighting metadata; using fallback ambient/sun defaults");
+                (
+                    Some(FALLBACK_SUN_DIRECTION),
+                    Some(FALLBACK_SUN_COLOR),
+                    Some(FALLBACK_AMBIENT),
+                    None,
+                    None,
+                    None,
+                )
+            }
         } else {
-            warn!("Map settings provide no lighting metadata; using fallback ambient/sun defaults");
-            render_pipeline.set_environment_lighting(
+            warn!("No presentation frame for map lighting; using fallback ambient/sun defaults");
+            (
                 Some(FALLBACK_SUN_DIRECTION),
                 Some(FALLBACK_SUN_COLOR),
                 Some(FALLBACK_AMBIENT),
                 None,
                 None,
-            );
-            graphics_system.set_lighting(
-                Some(FALLBACK_AMBIENT),
-                Some(FALLBACK_SUN_COLOR),
-                Some(FALLBACK_SUN_DIRECTION),
                 None,
-            );
-        }
+            )
+        };
+
+        render_pipeline.set_environment_lighting(sun_dir, sun_color, ambient, fog_color, fog_range);
+        graphics_system.set_lighting(ambient, sun_color, sun_dir, sky);
     }
 
     fn ensure_presentation_env_for_hints(

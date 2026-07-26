@@ -350,6 +350,7 @@ pub mod host_live_legacy_object_registry_fastpath_residual_wave248;
 pub mod host_live_lifetime_update_dual_world_empty_gate_residual_wave412;
 pub mod host_live_local_team_presentation_only_residual_wave220;
 pub mod host_live_locomotor_core_dual_world_empty_gate_residual_wave423;
+pub mod host_live_map_lighting_presentation_only_residual_wave456;
 pub mod host_live_map_load_residual_wave170;
 pub mod host_live_max_health_upgrade_dual_world_empty_gate_residual_wave314;
 pub mod host_live_meta_event_dual_world_empty_gate_residual_wave345;
@@ -2683,6 +2684,20 @@ pub use host_live_locomotor_core_dual_world_empty_gate_residual_wave423::{
     honesty_live_locomotor_core_dual_world_empty_gate_nav_commands_residual_wave423,
     honesty_live_locomotor_core_dual_world_empty_gate_residual_pack_wave423,
     simulate_live_locomotor_core_dual_world_empty_gate_honesty,
+};
+pub use host_live_map_lighting_presentation_only_residual_wave456::{
+    honesty_map_lighting_presentation_only_method_names_residual_wave456,
+    honesty_map_lighting_presentation_only_nav_commands_residual_wave456,
+    honesty_map_lighting_presentation_only_residual_pack_wave456,
+    residual_map_lighting_presentation_only_last_action,
+    residual_map_lighting_presentation_only_ok,
+    simulate_live_map_lighting_presentation_only_honesty,
+    simulate_map_lighting_presentation_only_callsites,
+    simulate_map_lighting_presentation_only_source, ResidualMapLightingPresentationOnlyAction,
+    MAP_LIGHTING_PRESENTATION_ONLY_METHOD_NAMES_WAVE456,
+    MAP_LIGHTING_PRESENTATION_ONLY_NAV_STEPS_WAVE456,
+    MAP_LIGHTING_PRESENTATION_ONLY_SOURCE_MARKERS_WAVE456,
+    RUNTIME_HOST_MAP_LIGHTING_PRESENTATION_ONLY_CMD_NAMES_WAVE456,
 };
 pub use host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
