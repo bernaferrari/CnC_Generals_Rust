@@ -28,6 +28,12 @@ use game_engine::common::ini::{FieldParse, INIError, INILoadType, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 351: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const MIN_ACTION_TOLERANCE: Real = 70.0;
 
 const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
@@ -499,6 +505,11 @@ impl DozerAIUpdate {
     }
 
     pub fn get_bored_range(&self) -> Real {
+        // Wave 351: empty dual-world → base bored range.
+        if dual_world_registry_unavailable() {
+            return self.data.bored_range;
+        }
+
         let mut range = self.data.bored_range;
         let player_id = TheGameLogic::find_object_by_id(self.object_id).and_then(|obj| {
             let guard = obj.read().ok()?;
@@ -604,6 +615,11 @@ impl DozerAIUpdate {
     }
 
     pub fn new_task(&mut self, task: DozerTask, target_id: ObjectID) {
+        // Wave 351: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if task == DozerTask::Invalid {
             return;
         }
@@ -695,6 +711,11 @@ impl DozerAIUpdate {
     }
 
     pub fn internal_cancel_task(&mut self, task: DozerTask) {
+        // Wave 351: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.internal_task_complete_or_cancelled(task);
         if task != DozerTask::Invalid {
             self.tasks[task.as_index()] = DozerTaskEntry::default();
@@ -714,6 +735,11 @@ impl DozerAIUpdate {
     }
 
     fn internal_task_complete_or_cancelled(&mut self, task: DozerTask) {
+        // Wave 351: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(mut owner_guard) = owner.write() {
                 if task == DozerTask::Build || task == DozerTask::Repair {
@@ -724,6 +750,11 @@ impl DozerAIUpdate {
     }
 
     pub fn on_delete(&mut self) {
+        // Wave 351: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for task in [DozerTask::Build, DozerTask::Repair, DozerTask::Fortify] {
             if self.is_task_pending(task) {
                 self.cancel_task(task);
@@ -744,6 +775,11 @@ impl DozerAIUpdate {
     }
 
     pub fn can_accept_new_repair(&self, target: &Object) -> bool {
+        // Wave 351: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.current_task != DozerTask::Repair {
             return true;
         }
@@ -771,6 +807,11 @@ impl DozerAIUpdate {
     }
 
     pub fn set_repair_target(&mut self, target_id: ObjectID, cmd_source: CommandSourceType) {
+        // Wave 351: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
@@ -802,6 +843,11 @@ impl DozerAIUpdate {
         target_id: ObjectID,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 351: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
@@ -984,6 +1030,11 @@ impl DozerAIUpdate {
     }
 
     pub fn update(&mut self) -> StateReturnType {
+        // Wave 351: empty dual-world → Continue.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Continue;
+        }
+
         // validate current task if repair
         if self.current_task == DozerTask::Repair {
             let target_id = self.get_task_target(DozerTask::Repair);
@@ -1044,6 +1095,11 @@ impl DozerAIUpdate {
     }
 
     fn update_dozer_task(&mut self) {
+        // Wave 351: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(mut task) = self.dozer_task.take() else {
             return;
         };
@@ -1247,6 +1303,11 @@ impl DozerAIUpdate {
     }
 
     fn remove_bridge_scaffolding(&self, bridge_tower_id: ObjectID) {
+        // Wave 351: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(tower_obj) = TheGameLogic::find_object_by_id(bridge_tower_id) else {
             return;
         };
@@ -1363,6 +1424,11 @@ impl DozerAIUpdate {
         target: &Object,
         position_out: &mut Coord3D,
     ) -> Option<ObjectID> {
+        // Wave 351: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if target.is_kind_of(KindOf::Bridge) {
             let mut best_dist_sq = f32::MAX;
             let mut best_tower: Option<ObjectID> = None;
