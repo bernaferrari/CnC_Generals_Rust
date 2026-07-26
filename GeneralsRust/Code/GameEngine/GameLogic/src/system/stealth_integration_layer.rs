@@ -37,6 +37,12 @@ use log::{debug, info, trace, warn};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+/// Wave 443: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Configuration for stealth system behavior
 #[derive(Debug, Clone)]
 pub struct StealthSystemConfig {
@@ -192,6 +198,11 @@ impl StealthIntegrationLayer {
 
     /// Update per-object stealth strength and status
     fn update_object_stealth_status(&mut self, active_objects: &[ObjectID]) {
+        // Wave 443: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for &object_id in active_objects {
             let state = self
                 .object_stealth_states
@@ -269,6 +280,11 @@ impl StealthIntegrationLayer {
 
     /// Perform inter-unit detection checks
     fn perform_detection_checks(&self, frame_data: &FrameStealthData) -> Vec<DetectionEventData> {
+        // Wave 443: empty dual-world → empty.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let mut detections = Vec::new();
         let terrain = crate::terrain::get_terrain_logic();
 
