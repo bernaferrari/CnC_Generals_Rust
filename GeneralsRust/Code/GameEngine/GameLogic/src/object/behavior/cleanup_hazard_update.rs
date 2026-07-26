@@ -27,6 +27,12 @@ use game_engine::common::thing::module::{
 use log::error;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 317: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct CleanupHazardUpdateModuleData {
     pub base: BehaviorModuleData,
@@ -138,6 +144,11 @@ impl CleanupHazardUpdate {
     }
 
     pub fn scan_closest_target(&mut self) -> Option<ObjectID> {
+        // Wave 317: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let me_arc = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -170,6 +181,11 @@ impl CleanupHazardUpdate {
     }
 
     pub fn fire_when_ready(&mut self) {
+        // Wave 317: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -251,6 +267,11 @@ impl CleanupHazardUpdate {
 
 impl CleanupHazardUpdateInterface for CleanupHazardUpdate {
     fn set_cleanup_area_parameters(&mut self, pos: &Coord3D, range: Real) {
+        // Wave 317: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.move_range = range;
         self.pos = *pos;
 
@@ -274,6 +295,11 @@ impl CleanupHazardUpdateInterface for CleanupHazardUpdate {
 
 impl UpdateModuleInterface for CleanupHazardUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 317: empty dual-world → UPDATE_SLEEP_NONE.
+        if dual_world_registry_unavailable() {
+            return UPDATE_SLEEP_NONE;
+        }
+
         let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -335,6 +361,11 @@ impl BehaviorModuleInterface for CleanupHazardUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 317: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let me_arc = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
