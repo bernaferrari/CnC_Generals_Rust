@@ -15,6 +15,12 @@ use crate::object_creation_list::live_creation_context;
 use crate::player::player_list;
 use std::sync::{Arc, RwLock};
 
+/// Wave 441: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const CREATE_ABOVE_LOCATION_HEIGHT: Real = 300.0;
 const MAX_ADJUST_RADIUS: Real = 500.0;
 const NUKE_DAMAGE_RADIUS: Real = 210.0;
@@ -158,6 +164,11 @@ impl NuclearMissilePower {
     }
 
     fn execute_strike(&mut self, targeting: &TargetingInfo) -> Result<(), String> {
+        // Wave 441: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         log::info!(
             "Nuclear Missile launched at position {:?}",
             targeting.position
@@ -304,6 +315,13 @@ impl SpecialPowerModuleInterface for NuclearMissilePower {
         targeting: Option<&TargetingInfo>,
         current_frame: UnsignedInt,
     ) -> ActivationResult {
+        // Wave 441: empty dual-world → Failed.
+        if dual_world_registry_unavailable() {
+            return ActivationResult::Failed {
+                reason: "Object registry unavailable".to_string(),
+            };
+        }
+
         if let Err(reason) = self.validate_targeting(targeting) {
             return ActivationResult::InvalidTarget { reason };
         }
