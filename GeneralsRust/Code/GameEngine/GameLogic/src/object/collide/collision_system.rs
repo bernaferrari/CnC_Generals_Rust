@@ -53,6 +53,12 @@ use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
 
+/// Wave 313: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Main collision system coordinating all collision subsystems
 pub struct CollisionSystem {
     /// Spatial partition manager
@@ -179,6 +185,11 @@ impl CollisionSystem {
         id_a: ObjectId,
         id_b: ObjectId,
     ) -> Result<bool, CollisionError> {
+        // Wave 313: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         let Some((pos_a, geom_a)) = self.partition_manager.get_object_info(id_a) else {
             return Ok(false);
         };
@@ -277,6 +288,11 @@ impl CollisionSystem {
     }
 
     fn should_ignore_ai_collision_id(id: ObjectId) -> bool {
+        // Wave 313: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         OBJECT_REGISTRY
             .with_object(id, |guard| {
                 let Some(ai) = guard.get_ai_update_interface() else {
@@ -291,6 +307,11 @@ impl CollisionSystem {
     }
 
     fn should_ignore_physics_collision_id(id: ObjectId, other_id: ObjectId) -> bool {
+        // Wave 313: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         OBJECT_REGISTRY
             .with_object(id, |guard| {
                 let Some(physics) = guard.get_physics() else {
@@ -720,6 +741,11 @@ impl CollisionSystem {
     }
 
     fn can_crush_or_squish(a_id: ObjectId, b_id: ObjectId) -> bool {
+        // Wave 313: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         OBJECT_REGISTRY
             .with_object(a_id, |a_guard| {
                 OBJECT_REGISTRY

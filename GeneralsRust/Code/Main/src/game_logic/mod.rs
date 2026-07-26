@@ -235,6 +235,7 @@ pub mod host_live_camera_height_probe_residual_wave241;
 pub mod host_live_cave_contain_dual_world_empty_gate_residual_wave279;
 pub mod host_live_client_dual_world_empty_gate_residual_wave249;
 pub mod host_live_cmd_filter_env_presentation_only_residual_wave217;
+pub mod host_live_collision_system_dual_world_empty_gate_residual_wave313;
 pub mod host_live_command_attack_log_residual_wave197;
 pub mod host_live_command_beacon_note_residual_wave210;
 pub mod host_live_command_cheer_science_log_residual_wave202;
@@ -1852,6 +1853,12 @@ pub use host_live_cmd_filter_env_presentation_only_residual_wave217::{
     honesty_live_cmd_filter_env_presentation_only_nav_commands_residual_wave217,
     honesty_live_cmd_filter_env_presentation_only_residual_pack_wave217,
     simulate_live_cmd_filter_env_presentation_only_honesty,
+};
+pub use host_live_collision_system_dual_world_empty_gate_residual_wave313::{
+    honesty_live_collision_system_dual_world_empty_gate_method_names_residual_wave313,
+    honesty_live_collision_system_dual_world_empty_gate_nav_commands_residual_wave313,
+    honesty_live_collision_system_dual_world_empty_gate_residual_pack_wave313,
+    simulate_live_collision_system_dual_world_empty_gate_honesty,
 };
 pub use host_live_command_attack_log_residual_wave197::{
     honesty_live_command_attack_log_method_names_residual_wave197,
