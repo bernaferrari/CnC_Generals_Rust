@@ -16,6 +16,12 @@ use crate::common::*;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::scripting::engine::get_script_engine;
 
+/// Wave 444: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Player-specific upgrade state
 /// Matches C++ Player's upgrade-related fields
 #[derive(Debug, Clone)]
@@ -231,6 +237,11 @@ impl PlayerUpgradeManager {
     /// Apply upgrade to all existing player objects
     /// Matches C++ Player::applyUpgradeToExistingObjects
     fn apply_upgrade_to_existing_objects(&self, template: &UpgradeTemplate, player: &Player) {
+        // Wave 444: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Get all objects owned by this player
         let objects = player.get_all_objects();
 
@@ -272,6 +283,11 @@ impl PlayerUpgradeManager {
 
     /// Remove upgrade from all existing player objects
     fn remove_upgrade_from_existing_objects(&self, upgrade_mask: UpgradeMask, player: &Player) {
+        // Wave 444: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let objects = player.get_all_objects();
 
         // Remove upgrade from each object via object manager
