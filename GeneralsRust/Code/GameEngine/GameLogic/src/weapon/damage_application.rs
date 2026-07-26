@@ -8,6 +8,12 @@
 use crate::common::{Coord3D, ObjectID, ObjectStatusTypes, PlayerMaskType};
 use crate::damage::{DamageType, DeathType};
 
+/// Wave 450: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Huge damage amount for instant kill effects (matches C++ HUGE_DAMAGE_AMOUNT)
 pub const HUGE_DAMAGE_AMOUNT: f32 = 999999.0; // C++ Damage.h:282
 
@@ -202,6 +208,11 @@ impl DamageApplicator {
         target_id: ObjectID,
         damage_info: &mut DamageInfo,
     ) -> bool {
+        // Wave 450: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         use crate::object::registry::OBJECT_REGISTRY;
 
         // Look up target object

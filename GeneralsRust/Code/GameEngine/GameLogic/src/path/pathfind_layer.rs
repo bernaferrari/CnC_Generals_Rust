@@ -10,6 +10,12 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::path::{PathfindLayerEnum, ZoneStorageType};
 use std::collections::HashMap;
 
+/// Wave 450: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// PathfindLayer structure matching C++ PathfindLayer class
 #[derive(Debug)]
 pub struct PathfindLayer {
@@ -219,6 +225,11 @@ impl PathfindLayer {
 
     /// Check if a position is on any wall piece
     fn is_point_on_wall(&self, wall_pieces: &[ObjectID], pt: &Coord3D) -> bool {
+        // Wave 450: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let cell_pad = PATHFIND_CELL_SIZE_F * 0.5;
         for &wall_id in wall_pieces {
             if OBJECT_REGISTRY
