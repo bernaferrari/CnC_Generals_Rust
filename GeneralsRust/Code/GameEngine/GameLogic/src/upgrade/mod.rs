@@ -33,6 +33,12 @@ pub use production_integration::{
 };
 pub use template::{UpgradeTemplate, UpgradeType};
 
+/// Wave 453: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // Also export legacy upgrade functions for backwards compatibility
 pub use crate::upgrade_legacy::upgrade_mask_for_ascii;
 
@@ -72,6 +78,11 @@ pub type UpgradeResult<T> = Result<T, UpgradeError>;
 /// Complete an upgrade for a player by name.
 /// Matches C++ `Player::completeUpgrade(UpgradeTemplate*)`.
 pub fn complete_upgrade(player_id: u32, upgrade_name: &str) -> UpgradeResult<()> {
+    // Wave 453: empty dual-world → Ok(()).
+    if dual_world_registry_unavailable() {
+        return Ok(());
+    }
+
     let template = center::with_upgrade_center(|center| center.find_upgrade(upgrade_name))
         .ok_or_else(|| UpgradeError::NotFound(upgrade_name.to_string()))?;
 
