@@ -21,6 +21,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
 
+/// Wave 452: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data for CreateObjectDie
 /// (Matches C++ CreateObjectDieModuleData)
 #[derive(Debug, Clone)]
@@ -252,6 +258,11 @@ impl CreateObjectDie {
         old_object_id: crate::common::ObjectID,
         new_object_id: crate::common::ObjectID,
     ) {
+        // Wave 452: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Ok(game_logic) = get_game_logic().lock() else {
             return;
         };

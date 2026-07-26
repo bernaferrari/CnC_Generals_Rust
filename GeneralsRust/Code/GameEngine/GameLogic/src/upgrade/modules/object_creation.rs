@@ -19,6 +19,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use std::sync::Arc;
 
+/// Wave 452: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data for object creation upgrade
 /// Matches C++ ObjectCreationUpgradeModuleData from ObjectCreationUpgrade.h
 #[derive(Debug, Clone)]
@@ -179,6 +185,11 @@ impl RuntimeUpgradeModuleInterface for ObjectCreationUpgrade {
     }
 
     fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
+        // Wave 452: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let key_mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
         if !self.mux.would_upgrade(key_mask) {
             return false;

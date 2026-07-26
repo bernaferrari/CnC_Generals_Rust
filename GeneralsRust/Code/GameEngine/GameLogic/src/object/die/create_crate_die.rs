@@ -26,6 +26,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
 
+/// Wave 452: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data for CreateCrateDie
 /// (Matches C++ CreateCrateDieModuleData)
 #[derive(Debug, Clone)]
@@ -292,6 +298,11 @@ impl CreateCrateDie {
     }
 
     fn set_crate_team(&self, crate_id: ObjectID, owner: &Object) {
+        // Wave 452: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(player_arc) = owner.get_controlling_player() else {
             return;
         };

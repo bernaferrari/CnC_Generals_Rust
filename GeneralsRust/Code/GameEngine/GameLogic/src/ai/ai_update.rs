@@ -15,6 +15,12 @@ use crate::player::GameDifficulty;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 
+/// Wave 452: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// AI update interface
 pub trait AIUpdateInterface: UpdateModuleInterface {
     fn ai_update(&mut self, object_id: ObjectID, delta_time: Real);
@@ -400,6 +406,11 @@ impl AIUpdate {
     /// Dispatches task to appropriate subsystem
     /// Matches C++ AI.cpp task processing with metrics tracking
     fn process_ai_task(&mut self, task: AiUpdateTask) -> Result<(), AiError> {
+        // Wave 452: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Update metrics for monitoring
         *self
             .metrics

@@ -20,6 +20,12 @@ use crate::common::{
 };
 use crate::object::registry::OBJECT_REGISTRY;
 
+/// Wave 452: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// RTS-specific command categories for organization
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RtsCommandCategory {
@@ -619,6 +625,11 @@ impl RtsCommandFactory {
 
     /// Estimate movement time for planning
     fn estimate_move_time(&self, objects: &[ObjectID], destination: Coord3D) -> UnsignedInt {
+        // Wave 452: empty dual-world → 0.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         let mut max_distance = 0.0f32;
         for &object_id in objects {
             let Some(dist) = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
