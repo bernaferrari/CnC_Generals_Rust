@@ -12,6 +12,12 @@ use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use log::{debug, trace};
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 339: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Stealth detector configuration
 #[derive(Debug, Clone)]
 pub struct StealthDetectorUpdateModuleData {
@@ -127,6 +133,11 @@ impl StealthDetectorController {
 
     /// Perform a detection scan for nearby stealthed units
     pub fn scan_for_stealth(&mut self, _current_frame: u32) {
+        // Wave 339: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.scan_cooldown_frames > 0 {
             self.scan_cooldown_frames = self.scan_cooldown_frames.saturating_sub(1);
             return;
@@ -142,10 +153,6 @@ impl StealthDetectorController {
         let mut newly_detected = Vec::new();
 
         // Scan all objects in range
-        // Host path: dual-world factory empty — no stealth residual to detect.
-        if OBJECT_REGISTRY.is_empty() {
-            return;
-        }
         let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
 
         for obj_id in &all_object_ids {
@@ -240,6 +247,11 @@ impl StealthDetectorController {
 
     /// Get detector position
     fn get_detector_position(&self) -> Option<Coord3D> {
+        // Wave 339: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY
             .get_object(self.object_id)
             .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
@@ -247,6 +259,11 @@ impl StealthDetectorController {
 
     /// Check if target is an enemy
     fn is_enemy(&self, target: &Object) -> bool {
+        // Wave 339: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // Get both objects' team info
         let Some(detector_team_id) = OBJECT_REGISTRY
             .with_object(self.object_id, |detector_guard| {
