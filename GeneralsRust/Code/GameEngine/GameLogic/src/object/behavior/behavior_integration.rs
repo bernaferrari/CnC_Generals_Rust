@@ -22,6 +22,12 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 453: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Integrated behavior system that manages both legacy and modern behaviors
 pub struct IntegratedBehaviorSystem {
     /// Behavior managers per object
@@ -236,6 +242,13 @@ impl IntegratedBehaviorSystem {
         module_data: Arc<dyn ModuleData>,
         object: &Object,
     ) -> Result<LegacyBehaviorAdapter, crate::GameLogicError> {
+        // Wave 453: empty dual-world → Configuration error.
+        if dual_world_registry_unavailable() {
+            return Err(crate::GameLogicError::Configuration(
+                "Object registry unavailable for legacy adapter".to_string(),
+            ));
+        }
+
         let thing = crate::object::registry::OBJECT_REGISTRY
             .get_object(object.get_id())
             .ok_or_else(|| {
