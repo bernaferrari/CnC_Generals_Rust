@@ -14,6 +14,12 @@ use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 319: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data describing the armor upgrade to apply.
 #[derive(Debug, Clone)]
 pub struct ArmorUpgradeModuleData {
@@ -223,6 +229,11 @@ impl ArmorUpgradeInner {
     /// Apply armor upgrade to object
     /// Matches C++ ArmorUpgrade::upgradeImplementation from ArmorUpgrade.cpp lines 63-81
     fn apply_armor(&self, upgrade_mask: UpgradeMaskType) -> Result<(), String> {
+        // Wave 319: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let chemical_suits_mask = UpgradeMaskType::from_bits_retain(
             upgrade_mask_for_name("Upgrade_AmericaChemicalSuits").bits(),
         );
