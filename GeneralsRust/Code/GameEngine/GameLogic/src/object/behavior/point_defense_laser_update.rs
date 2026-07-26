@@ -22,6 +22,12 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 411: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct PointDefenseLaserUpdateModuleData {
     pub base: BehaviorModuleData,
@@ -197,6 +203,11 @@ impl PointDefenseLaserUpdate {
     }
 
     fn scan_closest_target(&mut self, owner_guard: &GameObject) -> Option<crate::common::ObjectID> {
+        // Wave 411: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let object_ids = ThePartitionManager::get()
             .map(|mgr| {
                 mgr.get_objects_in_range(owner_guard.get_position(), self.module_data.scan_range)
@@ -312,6 +323,11 @@ impl PointDefenseLaserUpdate {
     }
 
     fn fire_when_ready(&mut self, owner_guard: &GameObject) {
+        // Wave 411: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.next_shot_available_in_frames > 0 {
             self.next_shot_available_in_frames -= 1;
             return;
@@ -394,6 +410,11 @@ impl PointDefenseLaserUpdate {
 
 impl UpdateModuleInterface for PointDefenseLaserUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 411: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         if !self.enabled {
             return UpdateSleepTime::Forever;
         }
