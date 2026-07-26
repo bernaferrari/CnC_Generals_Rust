@@ -7,6 +7,12 @@ use super::rally_point::{RallyPoint, RallyPointType};
 use crate::common::*;
 use crate::helpers::{FindPositionOptions, ThePartitionManager, FPF_CLEAR_CELLS_ONLY};
 
+/// Wave 432: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Exit door configuration
 /// Matches C++ ExitDoorType and door management from ProductionUpdate.h
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -296,6 +302,10 @@ impl UnitExitManager {
     /// Update exit manager by one frame
     /// Handles stuck units and queue processing
     pub fn update_frame(&mut self) -> Vec<(ObjectID, ExitPath)> {
+        // Wave 432: empty dual-world → empty.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
         let mut units_to_spawn = Vec::new();
 
         // Update wait times
@@ -367,6 +377,11 @@ impl UnitExitManager {
         building_position: &Coord3D,
         rally_point: &RallyPoint,
     ) -> Option<ExitPath> {
+        // Wave 432: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         // Get door position
         let door_pos = self.get_door_position(door_index, building_position)?;
 
