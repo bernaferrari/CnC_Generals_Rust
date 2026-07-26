@@ -7,6 +7,12 @@
 use crate::common::{ModuleData, ObjectID, Real, UnsignedInt, XferVersion};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 395: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // Forward declarations
 use crate::common::TheGameLogic;
 use crate::damage::{BodyDamageType, DamageInfo, BODY_REALLYDAMAGED};
@@ -162,6 +168,11 @@ impl SupplyWarehouseCripplingBehavior {
         &self,
         f: impl FnOnce(&Object) -> R,
     ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 395: empty dual-world → Err("Object not found".into()).
+        if dual_world_registry_unavailable() {
+            return Err("Object not found".into());
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return Err("Object not set".into());
@@ -175,6 +186,11 @@ impl SupplyWarehouseCripplingBehavior {
         &self,
         f: impl FnOnce(&mut Object) -> R,
     ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 395: empty dual-world → Err("Object not found".into()).
+        if dual_world_registry_unavailable() {
+            return Err("Object not found".into());
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return Err("Object not set".into());
@@ -185,6 +201,11 @@ impl SupplyWarehouseCripplingBehavior {
     }
 
     fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 395: empty dual-world → Err("Object not found".into()).
+        if dual_world_registry_unavailable() {
+            return Err("Object not found".into());
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return Err("Object not set".into());
@@ -209,6 +230,11 @@ impl SupplyWarehouseCripplingBehavior {
 
     /// Disable our object (when crippled)
     fn start_crippled_effects(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 395: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.with_object(|obj_guard| {
             obj_guard.with_dock_update_interface(|dock| {
                 let _ = dock.set_dock_crippled(true);
@@ -219,6 +245,11 @@ impl SupplyWarehouseCripplingBehavior {
 
     /// Enable our object (when healed from crippled state)
     fn stop_crippled_effects(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 395: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.with_object(|obj_guard| {
             obj_guard.with_dock_update_interface(|dock| {
                 let _ = dock.set_dock_crippled(false);
@@ -230,6 +261,11 @@ impl SupplyWarehouseCripplingBehavior {
 
 impl UpdateModuleInterface for SupplyWarehouseCripplingBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 395: empty dual-world → Ok(UpdateSleepTime::Forever).
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         // Suppression is handled by sleeping the module, so if we're here, it's time to heal
         let data = &self.module_data;
         let now = TheGameLogic::get_frame();
@@ -273,6 +309,11 @@ impl DamageModuleInterface for SupplyWarehouseCripplingBehavior {
         &mut self,
         _damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 395: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let now = TheGameLogic::get_frame();
 
         self.reset_self_heal_suppression()?;
