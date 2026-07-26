@@ -30,6 +30,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 309: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 const LOCOMOTOR_SET_NAMES: &[&str] = &[
     "SET_NORMAL",
     "SET_NORMAL_UPGRADED",
@@ -1238,6 +1244,11 @@ impl JetAIUpdate {
     }
 
     fn get_object(&self) -> Option<Arc<std::sync::RwLock<crate::object::Object>>> {
+        // Wave 309: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.get_object(self.object_id)
     }
 
@@ -1453,6 +1464,11 @@ impl JetAIUpdate {
         params: &AiCommandParams,
         ai: &mut dyn AIUpdateInterface,
     ) -> bool {
+        // Wave 309: empty dual-world → fail-closed.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         self.get_producer_location(Some(ai));
 
         self.store_most_recent_command(params);
@@ -1629,6 +1645,11 @@ impl JetAIUpdate {
         cmd_source: crate::ai::CommandSourceType,
         ai: &mut dyn AIUpdateInterface,
     ) {
+        // Wave 309: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some((is_helipad, pos, radius)) = self.with_object(|guard| {
             (
                 guard.is_kind_of(KindOf::ProducedAtHelipad),
@@ -1933,6 +1954,11 @@ impl JetAIUpdate {
     }
 
     pub fn prune_dead_targeters(&mut self) {
+        // Wave 309: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.targeted_by.is_empty() {
             return;
         }
@@ -2088,6 +2114,11 @@ impl JetAIUpdate {
     }
 
     pub fn update(&mut self) {
+        // Wave 309: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.afterburner_sound.event_name.is_empty() {
             self.init_afterburner_sound();
         }
