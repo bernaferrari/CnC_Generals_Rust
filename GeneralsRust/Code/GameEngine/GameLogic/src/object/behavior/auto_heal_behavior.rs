@@ -34,6 +34,12 @@ use std::any::Any;
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Wave 306: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // Constants
 const UINT_MAX: UnsignedInt = u32::MAX;
 const NEVER: UnsignedInt = u32::MAX;
@@ -55,6 +61,11 @@ impl ModuleObjectTrait for AutoHealObjectHandle {
         &self,
         upgrade_template: Option<&game_engine::common::ini::ini_upgrade::UpgradeTemplate>,
     ) {
+        // Wave 306: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(template) = upgrade_template else {
             return;
         };
@@ -511,6 +522,11 @@ impl AutoHealPlayerScanHelper {
         &mut self,
         test_obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 306: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if test_obj_id == OBJECT_INVALID_ID {
             return Ok(());
         }
@@ -711,6 +727,11 @@ impl AutoHealBehavior {
         &mut self,
         obj: Arc<RwLock<GameObject>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 306: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.stopped {
             return Ok(());
         }
@@ -775,6 +796,11 @@ impl AutoHealBehavior {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 306: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if obj_id == OBJECT_INVALID_ID {
             return Ok(());
         }
@@ -807,6 +833,11 @@ impl AutoHealBehavior {
 
     /// Short-lived Arc resolve; prefer `with_object` / `owner_object_id`.
     fn get_object(&self) -> Option<Arc<RwLock<GameObject>>> {
+        // Wave 306: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.owner_object_id();
         if id == OBJECT_INVALID_ID {
             return None;
