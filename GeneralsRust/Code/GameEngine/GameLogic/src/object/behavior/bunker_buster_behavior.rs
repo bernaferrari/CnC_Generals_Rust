@@ -31,6 +31,12 @@ use game_engine::common::thing::module::{
     Thing as ModuleThing,
 };
 
+/// Wave 334: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data for bunker buster behavior
 #[derive(Clone, Debug)]
 pub struct BunkerBusterBehaviorModuleData {
@@ -245,6 +251,11 @@ impl BunkerBusterBehavior {
         thing: Arc<dyn ModuleThing>,
         module_data: Arc<BunkerBusterBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 334: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".into());
+        }
+
         let module_object = thing
             .as_object()
             .ok_or_else(|| "BunkerBusterBehavior requires an owning object".to_string())?;
@@ -284,6 +295,11 @@ impl BunkerBusterBehavior {
     /// Bust the bunker - kill all garrisoned units
     /// Matches C++ BunkerBusterBehavior::bustTheBunker (line 160)
     fn bust_the_bunker(&mut self) {
+        // Wave 334: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let data = self.get_module_data();
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
@@ -394,6 +410,11 @@ impl BunkerBusterBehavior {
 
     /// Check if object has an AI update interface
     fn has_ai(&self) -> Bool {
+        // Wave 334: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -410,6 +431,11 @@ impl BunkerBusterBehavior {
 
     /// Check if object has missile killing self status
     fn test_status_missile_killing_self(&self) -> Bool {
+        // Wave 334: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -426,6 +452,11 @@ impl BunkerBusterBehavior {
 
     /// Get current victim from AI
     fn get_current_victim(&self) -> Option<ObjectID> {
+        // Wave 334: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let object = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -465,6 +496,11 @@ impl UpdateModuleInterface for BunkerBusterBehavior {
     /// Update callback
     /// Matches C++ BunkerBusterBehavior::update (line 111)
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 334: empty dual-world → UPDATE_SLEEP_NONE.
+        if dual_world_registry_unavailable() {
+            return UPDATE_SLEEP_NONE;
+        }
+
         let crash_frequency = self.module_data.crash_through_bunker_fx_frequency;
         let crash_fx = self.module_data.crash_through_bunker_fx.clone();
 
