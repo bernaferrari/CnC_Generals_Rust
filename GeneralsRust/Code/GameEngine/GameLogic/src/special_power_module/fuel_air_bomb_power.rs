@@ -22,6 +22,12 @@ use crate::special_power_module::area_damage::{
 };
 use std::sync::{Arc, RwLock};
 
+/// Wave 321: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Fuel Air Bomb configuration constants
 const FAB_DAMAGE_RADIUS: Real = 170.0;
 const FAB_DAMAGE_AMOUNT: Real = 2000.0;
@@ -136,6 +142,11 @@ impl FuelAirBombPower {
     }
 
     fn resolve_target_position(&self, targeting: &TargetingInfo) -> Coord3D {
+        // Wave 321: empty dual-world → raw targeting position.
+        if dual_world_registry_unavailable() {
+            return targeting.position;
+        }
+
         let mut target_coord = targeting.position;
 
         if let Some(target_id) = targeting.target_object {
@@ -197,6 +208,11 @@ impl FuelAirBombPower {
         targeting: &TargetingInfo,
         current_frame: UnsignedInt,
     ) -> Result<(), String> {
+        // Wave 321: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".to_string());
+        }
+
         let owner_id = self
             .resolve_owner_object_id()
             .ok_or_else(|| "Fuel Air Bomb requires an owning object".to_string())?;
@@ -450,6 +466,13 @@ impl SpecialPowerModuleInterface for FuelAirBombPower {
         targeting: Option<&TargetingInfo>,
         current_frame: UnsignedInt,
     ) -> ActivationResult {
+        // Wave 321: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return ActivationResult::Failed {
+                reason: "dual-world object registry unavailable".to_string(),
+            };
+        }
+
         // Validate targeting is provided
         let targeting = match targeting {
             Some(t) => t,
