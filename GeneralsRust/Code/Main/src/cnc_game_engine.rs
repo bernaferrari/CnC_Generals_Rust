@@ -5445,6 +5445,26 @@ impl CnCGameEngine {
                     format!("click_live_construction_placement_dual_world_empty_gate_miss_{action}")
                 };
             }
+            "click_live_presentation_env_only" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_presentation_env_only_honesty()
+                    }
+                    _ => {
+                        crate::game_logic::honesty_live_presentation_env_only_residual_pack_wave455(
+                        )
+                    }
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_presentation_env_only_ok_{action}")
+                } else {
+                    format!("click_live_presentation_env_only_miss_{action}")
+                };
+            }
             "click_live_os_input_command_path" => {
                 let action = args
                     .get("action")
@@ -13037,16 +13057,11 @@ impl CnCGameEngine {
                 info!("Loaded startup initial-file map: {}", active_map_name);
             }
 
-            // Wave 217: env hints presentation-only when freeze installed (boot residual may pass live).
-            let env_logic = if self.render_pipeline.presentation_frame().is_some()
-                || self.last_presentation_frame.is_some()
-            {
-                None
-            } else {
-                Some(&self.game_logic)
-            };
-            Self::apply_heightmap_hint(&mut self.render_pipeline, env_logic);
-            Self::apply_skybox_hint(&mut self.render_pipeline, env_logic);
+            // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
+            // Wave 455: seed presentation env then apply presentation-only hints.
+            Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+            Self::apply_heightmap_hint(&mut self.render_pipeline);
+            Self::apply_skybox_hint(&mut self.render_pipeline);
             Self::sync_render_terrain_visual(
                 &mut self.render_pipeline,
                 &self.graphics_system,
@@ -18346,16 +18361,14 @@ impl CnCGameEngine {
                 self.selected_objects.clear();
 
                 if !headless_host {
-                    // Wave 217: env hints presentation-only when freeze installed (boot residual may pass live).
-                    let env_logic = if self.render_pipeline.presentation_frame().is_some()
-                        || self.last_presentation_frame.is_some()
-                    {
-                        None
-                    } else {
-                        Some(&self.game_logic)
-                    };
-                    Self::apply_heightmap_hint(&mut self.render_pipeline, env_logic);
-                    Self::apply_skybox_hint(&mut self.render_pipeline, env_logic);
+                    // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
+                    // Wave 455: seed presentation env then apply presentation-only hints.
+                    Self::ensure_presentation_env_for_hints(
+                        &mut self.render_pipeline,
+                        &self.game_logic,
+                    );
+                    Self::apply_heightmap_hint(&mut self.render_pipeline);
+                    Self::apply_skybox_hint(&mut self.render_pipeline);
                     Self::sync_render_terrain_visual(
                         &mut self.render_pipeline,
                         &self.graphics_system,
@@ -18485,16 +18498,11 @@ impl CnCGameEngine {
         self.selected_objects.clear();
 
         // Update minimap/world bounds and camera to the new map.
-        // Wave 217: env hints presentation-only when freeze installed (boot residual may pass live).
-        let env_logic = if self.render_pipeline.presentation_frame().is_some()
-            || self.last_presentation_frame.is_some()
-        {
-            None
-        } else {
-            Some(&self.game_logic)
-        };
-        Self::apply_heightmap_hint(&mut self.render_pipeline, env_logic);
-        Self::apply_skybox_hint(&mut self.render_pipeline, env_logic);
+        // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
+        // Wave 455: seed presentation env then apply presentation-only hints.
+        Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic);
+        Self::apply_heightmap_hint(&mut self.render_pipeline);
+        Self::apply_skybox_hint(&mut self.render_pipeline);
         Self::sync_render_terrain_visual(
             &mut self.render_pipeline,
             &self.graphics_system,
@@ -18713,18 +18721,28 @@ impl CnCGameEngine {
         }
     }
 
-    fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline, game_logic: Option<&GameLogic>) {
-        // Presentation-first boundary: when a frame is installed, never dual-read live
-        // GameLogic for the heightmap path (matches apply_skybox_hint).
-        let path = if let Some(pres) = render_pipeline.presentation_frame() {
-            pres.world_env.heightmap_hint.clone()
-        } else {
-            game_logic.and_then(|logic| {
-                logic
-                    .heightmap_hint()
-                    .and_then(|p| p.to_str().map(|s| s.to_string()))
-            })
+    fn ensure_presentation_env_for_hints(
+        render_pipeline: &mut RenderPipeline,
+        game_logic: &GameLogic,
+    ) {
+        // Wave 455: freeze host map env into PresentationFrame once, then env apply
+        // is presentation-only (no live GameLogic dual-read in apply_*_hint).
+        if render_pipeline.presentation_frame().is_none() {
+            let env_frame = crate::presentation_frame::PresentationFrame::build_for_engine(
+                game_logic,
+                game_logic.get_frame() as u32,
+                None,
+            );
+            render_pipeline.set_presentation_frame(Some(env_frame));
+        }
+    }
+
+    fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline) {
+        // Wave 455: presentation-only env boundary — no live GameLogic dual-read.
+        let Some(pres) = render_pipeline.presentation_frame() else {
+            return;
         };
+        let path = pres.world_env.heightmap_hint.clone();
         if let Some(path) = path {
             // Keep renderer parity-safe: map-adjacent TGA companions are frequently preview art.
             // Feeding those into terrain elevation creates severe startup terrain corruption.
@@ -18813,26 +18831,16 @@ impl CnCGameEngine {
         }
     }
 
-    fn apply_skybox_hint(render_pipeline: &mut RenderPipeline, game_logic: Option<&GameLogic>) {
-        // Prefer presentation env when already installed (map-load seeds a frame first).
-        if let Some(pres) = render_pipeline.presentation_frame() {
-            let enabled = pres.world_env.skybox_enabled;
-            let textures = pres.world_env.skybox_textures.clone();
-            render_pipeline.set_skybox_enabled(enabled);
-            if let Some(textures) = textures {
-                render_pipeline.set_skybox_hint(textures);
-            }
-            return;
-        }
-        // Boot residual without presentation snapshot.
-        let Some(logic) = game_logic else {
+    fn apply_skybox_hint(render_pipeline: &mut RenderPipeline) {
+        // Wave 455: presentation-only env boundary — no live GameLogic dual-read.
+        let Some(pres) = render_pipeline.presentation_frame() else {
             return;
         };
-        render_pipeline.set_skybox_enabled(logic.is_skybox_enabled());
-        if let Some(meta) = logic.last_parsed_map_settings() {
-            if let Some(textures) = meta.skybox_textures {
-                render_pipeline.set_skybox_hint(textures);
-            }
+        let enabled = pres.world_env.skybox_enabled;
+        let textures = pres.world_env.skybox_textures.clone();
+        render_pipeline.set_skybox_enabled(enabled);
+        if let Some(textures) = textures {
+            render_pipeline.set_skybox_hint(textures);
         }
     }
 
