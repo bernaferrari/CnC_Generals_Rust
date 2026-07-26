@@ -30,6 +30,12 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 371: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const ANGULAR_LIMIT: Real = std::f32::consts::PI / 2.0 - std::f32::consts::PI / 64.0;
 const VELOCITY_BOUNCE_LIMIT: Real = 0.01;
 const VELOCITY_BOUNCE_SOUND_LIMIT: Real = 0.03;
@@ -384,6 +390,11 @@ impl ToppleUpdate {
         topple_speed: Real,
         options: u32,
     ) {
+        // Wave 371: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -517,6 +528,11 @@ impl ToppleUpdate {
 
 impl UpdateModuleInterface for ToppleUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 371: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         if matches!(self.topple_state, ToppleState::Upright | ToppleState::Down) {
             return UpdateSleepTime::Forever;
         }
@@ -611,6 +627,11 @@ impl CollideModuleInterface for ToppleUpdate {
         _object_id: crate::common::ObjectID,
         other_id: crate::common::ObjectID,
     ) {
+        // Wave 371: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if other_id == crate::common::INVALID_ID {
             return;
         }
