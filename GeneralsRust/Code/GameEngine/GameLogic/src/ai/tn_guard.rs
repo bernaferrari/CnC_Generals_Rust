@@ -16,6 +16,12 @@ use game_engine::common::system::Snapshotable;
 
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Wave 375: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Close enough distance constant
 const CLOSE_ENOUGH: f32 = 25.0;
 
@@ -1551,6 +1557,11 @@ impl StateImplementation for AITNGuardAttackAggressorState {
 }
 
 fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
+    // Wave 375: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     let owner = TheGameLogic::find_object_by_id(owner_id)
         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))?;
     let owner_guard = owner.read().ok()?;
@@ -1655,6 +1666,11 @@ fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
 }
 
 fn tunnel_network_scan(owner_id: ObjectID) -> Option<ObjectID> {
+    // Wave 375: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     let partition = ThePartitionManager::get()?;
     let owner = TheGameLogic::find_object_by_id(owner_id)
         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))?;
@@ -1691,6 +1707,11 @@ fn tunnel_network_scan(owner_id: ObjectID) -> Option<ObjectID> {
 
 /// Helper function to find best tunnel for a position
 pub fn find_best_tunnel(owner_player: &Player, pos: &Coord3D) -> Option<ObjectID> {
+    // Wave 375: empty dual-world → None.
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+
     let tunnels = owner_player.get_tunnel_system()?;
     let list = tunnels.get_container_list().ok()?;
 
@@ -1720,6 +1741,11 @@ pub fn find_best_tunnel(owner_player: &Player, pos: &Coord3D) -> Option<ObjectID
 /// Helper function to check if an object has attacked and can be retaliated against
 /// through the tunnel network
 pub fn has_attacked_me_and_i_can_return_fire_tn(machine: &StateMachine) -> bool {
+    // Wave 375: empty dual-world → false.
+    if dual_world_registry_unavailable() {
+        return false;
+    }
+
     if let Some(owner) = machine.get_owner() {
         if let Ok(owner_ref) = owner.try_read() {
             if let Some(body_module) = owner_ref.get_body_module() {
