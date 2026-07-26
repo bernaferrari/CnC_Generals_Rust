@@ -21,6 +21,12 @@ use crate::game_logic::state_machine::{
 use crate::modules::ExitInterface;
 use crate::object::ObjectLockExt;
 
+/// Wave 397: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Debug)]
 pub struct DockSharedState {
     approach_position: Mutex<i32>,
@@ -95,6 +101,11 @@ impl From<AIDockState> for u32 {
 }
 
 fn resolve_dock_object(id: ObjectID, label: &str) -> Result<Arc<RwLock<Object>>, String> {
+    // Wave 397: empty dual-world → Err(format!("{label} object {id} not found")).
+    if dual_world_registry_unavailable() {
+        return Err(format!("{label} object {id} not found"));
+    }
+
     crate::helpers::TheGameLogic::find_object_by_id(id)
         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
         .ok_or_else(|| format!("{label} object {id} not found"))
@@ -256,6 +267,11 @@ impl AIDockMachine {
 
     /// Stops the state machine & disables it in preparation for deleting it.
     pub fn halt(&mut self) -> Result<(), String> {
+        // Wave 397: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let goal_object_id = self
             .state_machine
             .lock()
@@ -1121,6 +1137,11 @@ impl AIDockProcessDockState {
     }
 
     fn find_my_drone_id(&mut self) -> Result<Option<ObjectID>, String> {
+        // Wave 397: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         if let Some(drone_id) = self.drone_id {
             if crate::object::registry::OBJECT_REGISTRY
                 .get_object(drone_id)
@@ -1153,6 +1174,11 @@ impl AIDockProcessDockState {
     }
 
     fn find_my_drone(&mut self) -> Result<Option<Arc<RwLock<Object>>>, String> {
+        // Wave 397: empty dual-world → Ok(None).
+        if dual_world_registry_unavailable() {
+            return Ok(None);
+        }
+
         Ok(self
             .find_my_drone_id()?
             .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id)))
@@ -1444,6 +1470,11 @@ impl DroneInfo {
     }
 
     pub fn drone(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 397: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         self.drone_id
             .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
