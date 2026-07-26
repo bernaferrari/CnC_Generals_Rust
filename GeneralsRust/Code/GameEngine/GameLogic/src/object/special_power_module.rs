@@ -25,6 +25,12 @@ use game_engine::common::rts::academy_stats::AcademyClassificationType;
 use std::fmt;
 use std::sync::Arc;
 
+/// Wave 353: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Frame counter type
 pub type FrameCount = u32;
 
@@ -190,6 +196,11 @@ impl SpecialPowerModule {
         is_under_construction: bool,
         is_structure: bool,
     ) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // If pre-built, start counting down
         if !is_under_construction {
             if let Some(template) = &self.module_data.special_power_template {
@@ -232,6 +243,11 @@ impl SpecialPowerModule {
 
     /// Initialize using the owner object's current state (C++ constructor flow).
     pub fn initialize_from_owner(&mut self) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let current_frame = TheGameLogic::get_frame();
         let mut is_under_construction = false;
         let mut is_structure = false;
@@ -388,6 +404,11 @@ impl SpecialPowerModule {
         waypoint: Option<&Waypoint>,
         command_options: SpecialPowerCommandOptions,
     ) -> bool {
+        // Wave 353: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(template) = &self.module_data.special_power_template else {
             return false;
         };
@@ -455,6 +476,11 @@ impl SpecialPowerModule {
 
     /// Create view object at location
     fn create_view_object(&self, location: Option<&Coord3D>) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(template) = &self.module_data.special_power_template {
             let vision_range = template.get_view_object_range();
             let vision_duration = template.get_view_object_duration();
@@ -529,6 +555,11 @@ impl SpecialPowerModule {
 
     /// About to do special power (notifications and sounds)
     fn about_to_do_special_power(&self, location: Option<&Coord3D>) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Notify script engine (matches C++ SpecialPowerModule.cpp lines 315-318)
         if let Some(template) = &self.module_data.special_power_template {
             if let Some(owner) =
@@ -687,6 +718,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn get_percent_ready(&self) -> f32 {
+        // Wave 353: empty dual-world → 0.0.
+        if dual_world_registry_unavailable() {
+            return 0.0;
+        }
+
         // If paused and was ready, return almost ready (not 1.0 to indicate paused state)
         // Matches C++ SpecialPowerModule::getPercentReady() lines 145-148
         if self.paused_count > 0 && self.paused_percent == 1.0 {
@@ -763,6 +799,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn on_special_power_creation(&mut self) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Matches C++ SpecialPowerModule::onSpecialPowerCreation() lines 189-214
         let current_frame = crate::helpers::TheGameLogic::get_frame();
 
@@ -852,6 +893,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn do_special_power(&mut self, command_options: SpecialPowerCommandOptions) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Execute a self-targeted special power (no location/object target needed)
         // Matches C++ SpecialPowerModule::doSpecialPower() lines 246-261
 
@@ -883,6 +929,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         object_id: ObjectId,
         command_options: SpecialPowerCommandOptions,
     ) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Execute special power targeted at a specific object
         // Matches C++ SpecialPowerModule::doSpecialPowerAtObject() lines 264-279
 
@@ -913,6 +964,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         _angle: f32,
         command_options: SpecialPowerCommandOptions,
     ) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Execute special power targeted at a map location
         // Matches C++ SpecialPowerModule::doSpecialPowerAtLocation() lines 282-297
 
@@ -940,6 +996,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         waypoint: &Waypoint,
         command_options: SpecialPowerCommandOptions,
     ) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Execute special power using a waypoint path (e.g., for aircraft routes)
         // Matches C++ SpecialPowerModule::doSpecialPowerUsingWaypoints() lines 300-315
 
@@ -970,6 +1031,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn start_power_recharge_at(&mut self, current_frame: FrameCount) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Start the cooldown timer after power use
         // Matches C++ SpecialPowerModule::startPowerRecharge() lines 368-396
 
@@ -1024,6 +1090,11 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn can_activate(&self) -> bool {
+        // Wave 353: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.paused_count > 0 {
             return false;
         }
@@ -1052,6 +1123,11 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn get_ready_frame(&self) -> u32 {
+        // Wave 353: empty dual-world → 0.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         if let Some(template) = &self.module_data.special_power_template {
             if template.is_shared_n_sync() {
                 if let Some(owner) =
@@ -1085,6 +1161,11 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn is_ready(&self) -> bool {
+        // Wave 353: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         // Cheat for debug builds - if global data disables delays, all powers are ready
         // Matches C++ SpecialPowerModule::isReady() lines 269-273
         if let Some(global_data) = TheGlobalData::get() {
@@ -1305,6 +1386,11 @@ impl BehaviorModule for SpecialPowerModule {
     }
 
     fn on_destroy(&mut self) {
+        // Wave 353: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(template) = &self.module_data.special_power_template {
             if template.has_public_timer() {
                 if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
@@ -1361,6 +1447,11 @@ impl game_engine::common::system::snapshot::Snapshotable for SpecialPowerModule 
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        // Wave 353: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.resolve_special_power();
 
         if let Some(template) = &self.module_data.special_power_template {
