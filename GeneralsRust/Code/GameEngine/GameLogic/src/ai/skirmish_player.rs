@@ -23,6 +23,12 @@ use game_engine::common::system::build_assistant::LocalLegalToBuildOptions;
 
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 329: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const HUGE_DIST: f32 = 100000.0;
 const SKIRMISH_CENTER: &str = "SkirmCenter";
 const SKIRMISH_FLANK: &str = "SkirmFlank";
@@ -205,6 +211,11 @@ impl AISkirmishPlayer {
 
     /// Build specific AI building
     pub fn build_specific_ai_building(&mut self, thing_name: &str) {
+        // Wave 329: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(player_arc) = self.base.get_player() else {
             return;
         };
@@ -647,6 +658,11 @@ impl AISkirmishPlayer {
     /// Process base building with skirmish-specific logic
     /// Matches C++ AISkirmishPlayer.cpp:75 processBaseBuilding
     fn process_base_building(&mut self) {
+        // Wave 329: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !self.base.can_build_structure_now() {
             return;
         }
@@ -1321,6 +1337,11 @@ impl AISkirmishPlayer {
     /// Adjust build list based on skirmish conditions
     /// Matches C++ AISkirmishPlayer::adjustBuildList
     fn adjust_build_list(&mut self, list: &mut BuildListInfo) {
+        // Wave 329: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(player_arc) = self.base.get_player() else {
             return;
         };
