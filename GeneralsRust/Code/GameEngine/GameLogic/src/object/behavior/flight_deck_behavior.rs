@@ -43,6 +43,12 @@ use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, Thing 
 use glam::EulerRot;
 use std::any::Any;
 
+/// Wave 311: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Maximum number of runways supported
 pub const MAX_RUNWAYS: usize = 2;
 
@@ -2080,6 +2086,11 @@ impl ModuleExitInterface for FlightDeckBehavior {
         obj_id: ObjectID,
         door: ModuleExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 311: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
