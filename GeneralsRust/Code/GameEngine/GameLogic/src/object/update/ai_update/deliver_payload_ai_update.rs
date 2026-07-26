@@ -31,6 +31,12 @@ use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
 use super::deliver_payload_data::{DeliverPayloadData, RADIUS_DECAL_TEMPLATE_FIELDS};
 
+/// Wave 352: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DeliverPayloadState {
     Approach,
@@ -463,6 +469,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn ai_move_to_position(&self, pos: &Coord3D) {
+        // Wave 352: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
@@ -476,6 +487,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn ai_set_allow_invalid_position(&self, allow: Bool) {
+        // Wave 352: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
@@ -496,6 +512,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn ai_set_ultra_accurate(&self, ultra: Bool) {
+        // Wave 352: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
@@ -516,6 +537,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn ai_get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
+        // Wave 352: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
         let owner_guard = owner.read().ok()?;
         let ai = owner_guard.get_ai_update_interface()?;
@@ -523,6 +549,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn ai_is_moving(&self) -> bool {
+        // Wave 352: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return false;
         };
@@ -539,6 +570,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn ai_is_idle(&self) -> bool {
+        // Wave 352: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return false;
         };
@@ -552,6 +588,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn calc_min_turn_radius(&self, time_to_travel: Option<&mut Real>) -> Real {
+        // Wave 352: empty dual-world → 999999.0.
+        if dual_world_registry_unavailable() {
+            return 999999.0;
+        }
+
         let owner = TheGameLogic::find_object_by_id(self.owner_id);
         let owner_guard = owner.as_ref().and_then(|obj| obj.read().ok());
         let Some(owner_guard) = owner_guard else {
@@ -585,6 +626,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn is_close_enough_to_target(&mut self) -> Bool {
+        // Wave 352: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let allowed_distance_sqr = self.data.dist_to_target * self.data.dist_to_target;
         let current_distance_sqr = if let Some(obj) = TheGameLogic::find_object_by_id(self.owner_id)
         {
@@ -614,6 +660,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn is_off_map(&self) -> Bool {
+        // Wave 352: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(terrain) = TheTerrainLogic::get() else {
             return false;
         };
@@ -738,6 +789,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn enter_delivering(&mut self) {
+        // Wave 352: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let owner = TheGameLogic::find_object_by_id(self.owner_id);
         let owner_guard = owner.as_ref().and_then(|obj| obj.read().ok());
         let Some(owner_guard) = owner_guard else {
@@ -758,6 +814,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn update_delivering(&mut self) -> StateReturnType {
+        // Wave 352: empty dual-world → Continue.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Continue;
+        }
+
         if self.drop_delay_left > 0 {
             self.drop_delay_left = self.drop_delay_left.saturating_sub(1);
             return StateReturnType::Continue;
@@ -1071,6 +1132,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn exit_delivering(&mut self) {
+        // Wave 352: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.free_to_exit = false;
         if !self.did_open {
             log::warn!("DeliverPayloadAIUpdate: doors closed before opening.");
@@ -1087,6 +1153,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn enter_consider_new_approach(&mut self) -> StateReturnType {
+        // Wave 352: empty dual-world → Continue.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Continue;
+        }
+
         self.consider_entries += 1;
         if self.consider_entries > self.data.max_attempts {
             return StateReturnType::Failure;
@@ -1122,6 +1193,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn enter_recover_from_off_map(&mut self) -> StateReturnType {
+        // Wave 352: empty dual-world → Continue.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Continue;
+        }
+
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
             if let Ok(owner_guard) = owner.read() {
                 self.ai_move_to_position(owner_guard.get_position());
@@ -1155,6 +1231,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn update_recover_from_off_map(&mut self) -> StateReturnType {
+        // Wave 352: empty dual-world → Continue.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Continue;
+        }
+
         if TheGameLogic::get_frame() < self.re_entry_frame {
             return StateReturnType::Continue;
         }
@@ -1197,6 +1278,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn enter_head_off_map(&mut self) -> StateReturnType {
+        // Wave 352: empty dual-world → Continue.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Continue;
+        }
+
         self.kill_delivery_decal();
 
         if self.data.self_destruct_object {
@@ -1238,6 +1324,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn update_head_off_map(&mut self) -> StateReturnType {
+        // Wave 352: empty dual-world → Continue.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Continue;
+        }
+
         if self.is_off_map() {
             return StateReturnType::Success;
         }
@@ -1267,6 +1358,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn enter_cleanup(&mut self) -> StateReturnType {
+        // Wave 352: empty dual-world → Continue.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Continue;
+        }
+
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
             if let Ok(owner_guard) = owner.read() {
                 if let Some(contain) = owner_guard.get_contain() {
@@ -1282,6 +1378,11 @@ impl DeliverPayloadAIUpdate {
     }
 
     fn update_dive_logic(&mut self, ai: &mut dyn AIUpdateInterface) {
+        // Wave 352: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.dive_state == DiveState::PostDive {
             return;
         }
@@ -1408,6 +1509,11 @@ impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
         target_pos: &Coord3D,
         data: &DeliverPayloadData,
     ) {
+        // Wave 352: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.move_to_pos = *move_to_pos;
         self.target_pos = *target_pos;
         self.data = data.clone();
