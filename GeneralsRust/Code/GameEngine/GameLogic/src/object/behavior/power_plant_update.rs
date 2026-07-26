@@ -21,6 +21,12 @@ use game_engine::common::thing::module::{
 use std::any::Any;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 392: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[allow(dead_code)]
 const UPDATE_SLEEP_NONE: UpdateSleepTime = UpdateSleepTime::None;
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
@@ -116,6 +122,11 @@ impl PowerPlantUpdate {
 
     /// Extend or retract the power plant rods
     pub fn extend_rods(&mut self, extend: Bool) {
+        // Wave 392: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Matches C++ PowerPlantUpdate::extendRods (sets upgrading flag and wake frame)
         if extend {
             if !self.extended {
@@ -166,6 +177,11 @@ impl PowerPlantUpdate {
 
 impl UpdateModuleInterface for PowerPlantUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 392: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UPDATE_SLEEP_FOREVER;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
