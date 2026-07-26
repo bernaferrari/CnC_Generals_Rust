@@ -28,6 +28,12 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 
+/// Wave 363: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Configuration data for propaganda tower behavior module
 #[derive(Debug, Clone)]
 pub struct PropagandaTowerBehaviorModuleData {
@@ -233,6 +239,11 @@ impl PropagandaTowerBehavior {
     fn resolve_object(
         &self,
     ) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 363: empty dual-world → Err.
+        if dual_world_registry_unavailable() {
+            return Err("PropagandaTowerBehavior dual-world registry empty".into());
+        }
+
         if self.object_id == crate::common::INVALID_ID {
             return Err("PropagandaTowerBehavior object not set".into());
         }
@@ -256,6 +267,11 @@ impl PropagandaTowerBehavior {
     }
 
     fn remove_all_influence(&mut self, tower: &Object) {
+        // Wave 363: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for id in self.inside_list.iter().copied() {
             if let Some(obj) = TheGameLogic::find_object_by_id(id) {
                 if let Ok(mut guard) = obj.write() {
@@ -290,6 +306,11 @@ impl PropagandaTowerBehavior {
     }
 
     fn should_play_fx(&self, tower: &Object) -> Bool {
+        // Wave 363: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let local_player = player_list()
             .read()
             .ok()
@@ -383,6 +404,11 @@ impl PropagandaTowerBehavior {
     }
 
     fn do_scan(&mut self, tower: &Object) {
+        // Wave 363: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let upgrade_present = self.is_upgrade_present(tower);
 
         if self.should_play_fx(tower) {
@@ -439,6 +465,11 @@ impl PropagandaTowerBehavior {
     }
 
     fn refresh_influence(&mut self, tower: &Object) {
+        // Wave 363: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let mut new_list = Vec::new();
         for id in self.inside_list.iter().copied() {
             let Some(obj) = TheGameLogic::find_object_by_id(id) else {
@@ -460,6 +491,11 @@ impl PropagandaTowerBehavior {
 
 impl UpdateModuleInterface for PropagandaTowerBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 363: empty dual-world → Ok(Forever).
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         let tower_arc = self.resolve_object()?;
         let tower_guard = tower_arc.read().map_err(|_| "tower lock poisoned")?;
 
