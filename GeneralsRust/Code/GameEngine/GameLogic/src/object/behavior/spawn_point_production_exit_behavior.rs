@@ -20,6 +20,12 @@ use glam::EulerRot;
 use std::any::Any;
 use std::sync::{Arc, RwLock};
 
+/// Wave 417: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const MAX_SPAWN_POINTS: usize = 10;
 
 /// Module data for SpawnPointProductionExitUpdate.
@@ -91,6 +97,11 @@ impl SpawnPointProductionExitBehavior {
     }
 
     fn initialize_bone_positions(&mut self) {
+        // Wave 417: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner_arc) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
@@ -123,6 +134,11 @@ impl SpawnPointProductionExitBehavior {
     }
 
     fn revalidate_occupiers(&mut self) {
+        // Wave 417: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for index in 0..self.spawn_point_count {
             let id = self.spawn_point_occupier[index];
             if id == INVALID_ID {
@@ -139,6 +155,11 @@ impl SpawnPointProductionExitBehavior {
         new_obj: &Arc<RwLock<Object>>,
         door: ModuleExitDoorType,
     ) -> Result<(), String> {
+        // Wave 417: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if matches!(
             door,
             ModuleExitDoorType::None | ModuleExitDoorType::NoneAvailable
@@ -266,6 +287,11 @@ impl ModuleExitInterface for SpawnPointProductionExitBehavior {
         obj_id: ObjectID,
         door: ModuleExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 417: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
