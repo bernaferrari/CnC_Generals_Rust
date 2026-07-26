@@ -27,6 +27,12 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 322: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const LINK_COUNT: usize = 4;
 
 #[derive(Clone, Debug)]
@@ -171,6 +177,11 @@ impl TensileFormationUpdate {
     }
 
     fn set_pathfinding_wall(&self, enable: Bool) {
+        // Wave 322: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -221,6 +232,11 @@ impl TensileFormationUpdate {
     }
 
     fn init_links(&mut self) {
+        // Wave 322: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.links_inited = true;
 
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
@@ -270,6 +286,11 @@ impl TensileFormationUpdate {
     }
 
     fn propagate_dislodgement(&self) {
+        // Wave 322: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -324,6 +345,11 @@ impl TensileFormationUpdate {
 
 impl UpdateModuleInterface for TensileFormationUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 322: empty dual-world → Forever sleep.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         if !self.links_inited {
             self.init_links();
         }
