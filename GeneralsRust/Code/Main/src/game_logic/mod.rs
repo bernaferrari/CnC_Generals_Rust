@@ -359,6 +359,7 @@ pub mod host_live_object_registry_empty_fastpath_residual_wave247;
 pub mod host_live_ocl_special_power_dual_world_empty_gate_residual_wave406;
 pub mod host_live_open_contain_dual_world_empty_gate_residual_wave261;
 pub mod host_live_os_input_command_path_residual_wave209;
+pub mod host_live_overcharge_behavior_dual_world_empty_gate_residual_wave435;
 pub mod host_live_overlord_contain_dual_world_empty_gate_residual_wave300;
 pub mod host_live_owner_resolve_dual_world_empty_gate_residual_wave433;
 pub mod host_live_paradrop_power_dual_world_empty_gate_residual_wave320;
@@ -2715,6 +2716,12 @@ pub use host_live_os_input_command_path_residual_wave209::{
     honesty_live_os_input_command_path_nav_commands_residual_wave209,
     honesty_live_os_input_command_path_residual_pack_wave209,
     simulate_live_os_input_command_path_honesty,
+};
+pub use host_live_overcharge_behavior_dual_world_empty_gate_residual_wave435::{
+    honesty_live_overcharge_behavior_dual_world_empty_gate_method_names_residual_wave435,
+    honesty_live_overcharge_behavior_dual_world_empty_gate_nav_commands_residual_wave435,
+    honesty_live_overcharge_behavior_dual_world_empty_gate_residual_pack_wave435,
+    simulate_live_overcharge_behavior_dual_world_empty_gate_honesty,
 };
 pub use host_live_overlord_contain_dual_world_empty_gate_residual_wave300::{
     honesty_live_overlord_contain_dual_world_empty_gate_method_names_residual_wave300,
