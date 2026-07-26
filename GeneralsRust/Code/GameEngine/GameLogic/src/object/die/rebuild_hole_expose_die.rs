@@ -23,6 +23,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
 
+/// Wave 450: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data for RebuildHoleExposeDie
 /// (Matches C++ RebuildHoleExposeDieModuleData)
 #[derive(Debug, Clone)]
@@ -294,6 +300,11 @@ impl RebuildHoleExposeDie {
         old_object_id: crate::common::ObjectID,
         new_object_id: crate::common::ObjectID,
     ) {
+        // Wave 450: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !self.base.module_data.transfer_attackers {
             return;
         }

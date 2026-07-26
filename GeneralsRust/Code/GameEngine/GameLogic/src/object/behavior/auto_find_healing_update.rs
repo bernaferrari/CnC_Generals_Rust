@@ -18,6 +18,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 450: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct AutoFindHealingUpdateModuleData {
     pub base: BehaviorModuleData,
@@ -153,6 +159,11 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
 
 impl AutoFindHealingUpdate {
     fn scan_closest_target(&self, me: &GameObject) -> Option<ObjectID> {
+        // Wave 450: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let Some(partition) = ThePartitionManager::get() else {
             return None;
         };

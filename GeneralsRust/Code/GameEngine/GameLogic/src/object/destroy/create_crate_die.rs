@@ -12,6 +12,12 @@ use serde::{Deserialize, Serialize};
 use crate::common::ObjectID;
 use crate::object::Object;
 
+/// Wave 450: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 fn resolve_die_object(id: ObjectID) -> Option<std::sync::Arc<std::sync::RwLock<Object>>> {
     if id == crate::common::INVALID_ID {
         return None;
@@ -397,6 +403,11 @@ impl CreateCrateDie {
         crate_id: ObjectId,
         owner_object_id: ObjectID,
     ) -> Result<(), String> {
+        // Wave 450: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let owner_object = resolve_die_object(owner_object_id).ok_or("owner unavailable")?;
         let obj_lock = owner_object.read().map_err(|_| "Failed to lock object")?;
         let Some(player_arc) = obj_lock.get_controlling_player() else {

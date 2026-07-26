@@ -29,6 +29,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
+/// Wave 450: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Stealth system difficulty levels for AI perception
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StealthDifficulty {
@@ -298,6 +304,11 @@ impl StealthRenderingHooks {
     pub fn get_objects_for_player(
         player_id: usize,
     ) -> StealthResult<Vec<(ObjectID, StealthStatus)>> {
+        // Wave 450: empty dual-world → empty.
+        if dual_world_registry_unavailable() {
+            return Ok(Vec::new());
+        }
+
         if player_id >= MAX_PLAYER_COUNT {
             return Err(StealthError::operation_failed(format!(
                 "invalid player id {}",

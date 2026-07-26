@@ -15,6 +15,12 @@ use crate::object::Object as GameObject;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 450: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // Matches C++ AutoFindHealingUpdate.cpp lines 31-37
 #[derive(Clone, Debug)]
 pub struct AutoFindHealingUpdateModuleData {
@@ -74,6 +80,11 @@ impl AutoFindHealingUpdate {
 
     /// Scan for closest heal pad target. Matches C++ lines 127-161
     fn scan_closest_target(&self, me: &GameObject) -> Option<crate::common::ObjectID> {
+        // Wave 450: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let data = &self.module_data;
         let mut best_target: Option<crate::common::ObjectID> = None;
         let mut closest_dist_sqr = 0.0;
