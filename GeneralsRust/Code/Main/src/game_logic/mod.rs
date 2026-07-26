@@ -329,6 +329,7 @@ pub mod host_live_ingame_ui_dual_world_empty_gate_residual_wave273;
 pub mod host_live_jet_ai_dual_world_empty_gate_residual_wave309;
 pub mod host_live_leaflet_drop_behavior_dual_world_empty_gate_residual_wave393;
 pub mod host_live_legacy_object_registry_fastpath_residual_wave248;
+pub mod host_live_lifetime_update_dual_world_empty_gate_residual_wave412;
 pub mod host_live_local_team_presentation_only_residual_wave220;
 pub mod host_live_map_load_residual_wave170;
 pub mod host_live_max_health_upgrade_dual_world_empty_gate_residual_wave314;
@@ -2513,6 +2514,12 @@ pub use host_live_legacy_object_registry_fastpath_residual_wave248::{
     honesty_live_legacy_object_registry_fastpath_nav_commands_residual_wave248,
     honesty_live_legacy_object_registry_fastpath_residual_pack_wave248,
     simulate_live_legacy_object_registry_fastpath_honesty,
+};
+pub use host_live_lifetime_update_dual_world_empty_gate_residual_wave412::{
+    honesty_live_lifetime_update_dual_world_empty_gate_method_names_residual_wave412,
+    honesty_live_lifetime_update_dual_world_empty_gate_nav_commands_residual_wave412,
+    honesty_live_lifetime_update_dual_world_empty_gate_residual_pack_wave412,
+    simulate_live_lifetime_update_dual_world_empty_gate_honesty,
 };
 pub use host_live_local_team_presentation_only_residual_wave220::{
     honesty_live_local_team_presentation_only_method_names_residual_wave220,

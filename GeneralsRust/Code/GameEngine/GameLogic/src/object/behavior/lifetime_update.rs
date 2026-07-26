@@ -21,6 +21,12 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 412: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
 
 #[derive(Clone, Debug)]
@@ -362,6 +368,11 @@ impl LifetimeUpdate {
 
 impl UpdateModuleInterface for LifetimeUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 412: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         // C++ kills whenever the scheduled update is invoked; timing is owned by the scheduler.
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
