@@ -16,6 +16,12 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
 
+/// Wave 442: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Debug, Clone)]
 pub struct W3DOverlordTankDrawModuleData {
     pub base: W3DTankDrawModuleData,
@@ -144,6 +150,11 @@ impl DrawModule for W3DOverlordTankDraw {
         // Draw base tank
         self.base.do_draw_module(transform_mtx);
 
+        // Wave 442: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner_id) = self.owner_id else {
             return;
         };
@@ -199,6 +210,11 @@ impl DrawModule for W3DOverlordTankDraw {
 
     fn set_hidden(&mut self, hidden: bool) {
         self.base.set_hidden(hidden);
+
+        // Wave 442: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
 
         let Some(owner_id) = self.owner_id else {
             return;
