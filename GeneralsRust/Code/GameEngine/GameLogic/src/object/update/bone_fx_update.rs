@@ -19,6 +19,12 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{BoneFxControlInterface, Module, ModuleData, NameKeyType};
 
+/// Wave 404: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Maximum number of bones that can have FX attached (matches C++ BONE_FX_MAX_BONES = 8).
 pub const BONE_FX_MAX_BONES: usize = 8;
 
@@ -1116,6 +1122,11 @@ impl BoneFXUpdate {
     }
 
     fn resolve_bone_locations(&mut self) {
+        // Wave 404: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let state_idx = self.cur_body_state as usize;
         let Some(drawable) = OBJECT_REGISTRY
             .with_object(self.object_id, |object_guard| object_guard.get_drawable())
@@ -1186,6 +1197,11 @@ impl BoneFXUpdate {
     /// Execute FX list at a bone position.
     /// Matches C++ BoneFXUpdate.cpp:360-383
     fn do_fx_list_at_bone(&mut self, fx_list: FXListId, bone_position: &Coord3D) {
+        // Wave 404: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let state_idx = self.cur_body_state as usize;
         if !self.bones_resolved[state_idx] {
             self.resolve_bone_locations();
@@ -1227,6 +1243,11 @@ impl BoneFXUpdate {
     /// Execute OCL at a bone position.
     /// Matches C++ BoneFXUpdate.cpp:387-408
     fn do_ocl_at_bone(&mut self, ocl: ObjectCreationListId, bone_position: &Coord3D) {
+        // Wave 404: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let state_idx = self.cur_body_state as usize;
         if !self.bones_resolved[state_idx] {
             self.resolve_bone_locations();
@@ -1280,6 +1301,11 @@ impl BoneFXUpdate {
         particle_system_template: ParticleSystemTemplateId,
         bone_position: &Coord3D,
     ) {
+        // Wave 404: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let state_idx = self.cur_body_state as usize;
         if !self.bones_resolved[state_idx] {
             self.resolve_bone_locations();
