@@ -32,6 +32,12 @@ use game_engine::common::ini::{FieldParse, INIError, INILoadType, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 349: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
     "YES",
     "STEALTHED",
@@ -645,6 +651,11 @@ impl ChinookAIUpdate {
     }
 
     fn get_potential_rappeller(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 349: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let owner = TheGameLogic::find_object_by_id(self.object_id)?;
         let owner_guard = owner.read().ok()?;
         let contain = owner_guard.get_contain()?;
@@ -690,6 +701,11 @@ impl ChinookAIUpdate {
     }
 
     fn start_combat_drop(&mut self) -> bool {
+        // Wave 349: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return false;
         };
@@ -794,6 +810,11 @@ impl ChinookAIUpdate {
     }
 
     fn update_combat_drop(&mut self) -> bool {
+        // Wave 349: empty dual-world → true (drop residual cleared).
+        if dual_world_registry_unavailable() {
+            return true;
+        }
+
         let Some(mut state) = self.combat_drop_state.take() else {
             return true;
         };
@@ -913,6 +934,11 @@ impl ChinookAIUpdate {
     }
 
     fn finish_combat_drop(&mut self, owner_dead: bool) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             self.combat_drop_state = None;
             self.combat_drop_started = false;
@@ -979,6 +1005,11 @@ impl ChinookAIUpdate {
     }
 
     pub fn set_airfield_for_healing(&mut self, id: ObjectID) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.airfield_for_healing != INVALID_ID && self.airfield_for_healing != id {
             if let Some(airfield) = TheGameLogic::find_object_by_id(self.airfield_for_healing) {
                 if let Ok(guard) = airfield.read() {
@@ -1020,6 +1051,11 @@ impl ChinookAIUpdate {
     }
 
     pub fn is_idle(&self) -> bool {
+        // Wave 349: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.pending_command.is_some() {
             return false;
         }
@@ -1043,6 +1079,11 @@ impl ChinookAIUpdate {
     }
 
     pub fn is_available_for_supplying(&self) -> bool {
+        // Wave 349: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if !self.base.is_available_for_supplying() {
             return false;
         }
@@ -1086,6 +1127,11 @@ impl ChinookAIUpdate {
     }
 
     pub fn get_upgraded_supply_boost(&self) -> u32 {
+        // Wave 349: empty dual-world → 0.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return 0;
         };
@@ -1121,6 +1167,11 @@ impl ChinookAIUpdate {
         params: &AiCommandParams,
         ai: &mut dyn AIUpdateInterface,
     ) -> bool {
+        // Wave 349: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         self.set_airfield_for_healing(INVALID_ID);
 
         if matches!(
@@ -1172,6 +1223,11 @@ impl ChinookAIUpdate {
     }
 
     pub fn private_idle(&mut self, cmd_source: CommandSourceType) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
                 if let Some(contain) = guard.get_contain() {
@@ -1202,6 +1258,11 @@ impl ChinookAIUpdate {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
                 if !guard.test_status(crate::common::ObjectStatusTypes::CanAttack) {
@@ -1262,6 +1323,11 @@ impl ChinookAIUpdate {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let victim = TheGameLogic::find_object_by_id(victim_id);
         if victim.is_none() {
             return;
@@ -1360,6 +1426,11 @@ impl ChinookAIUpdate {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
                 if !guard.test_status(crate::common::ObjectStatusTypes::CanAttack) {
@@ -1438,6 +1509,11 @@ impl ChinookAIUpdate {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
                 if let Some(contain) = guard.get_contain() {
@@ -1479,6 +1555,11 @@ impl ChinookAIUpdate {
         cmd_source: CommandSourceType,
         ai: &mut dyn AIUpdateInterface,
     ) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if matches!(
             self.flight_status,
             ChinookFlightStatus::Landing | ChinookFlightStatus::Landed
@@ -1522,6 +1603,11 @@ impl ChinookAIUpdate {
         cmd_source: CommandSourceType,
         ai: &mut dyn AIUpdateInterface,
     ) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let target = target_id.and_then(TheGameLogic::find_object_by_id);
         if let Some(target_obj) = target.as_ref() {
             if cmd_source == CommandSourceType::FromPlayer {
@@ -1575,6 +1661,11 @@ impl ChinookAIUpdate {
     }
 
     fn update_rotor_wash(&self) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
@@ -1626,6 +1717,11 @@ impl ChinookAIUpdate {
         &mut self,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 349: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         self.update_flight_status(ai);
 
         if self.airfield_for_healing != INVALID_ID {
@@ -1737,6 +1833,11 @@ impl ChinookAIUpdate {
     }
 
     fn update_flight_status(&mut self, ai: &mut dyn AIUpdateInterface) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
