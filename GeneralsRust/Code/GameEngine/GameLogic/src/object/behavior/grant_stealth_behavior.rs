@@ -21,6 +21,12 @@ use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData}
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 307: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    OBJECT_REGISTRY.is_empty()
+}
+
 const INVALID_PARTICLE_SYSTEM_ID: ParticleSystemID = 0;
 const KIND_OF_MASK_ALL: KindOfMaskType = !0;
 const UPDATE_SLEEP_NONE: UpdateSleepTime = UpdateSleepTime::None;
@@ -263,6 +269,11 @@ impl GrantStealthBehavior {
     /// Grant stealth to an object
     /// Matches C++ GrantStealthBehavior::grantStealthToObject lines 159-182
     fn grant_stealth_to_object(&mut self, target_id: ObjectID) {
+        // Wave 307: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Get self object for filtering (C++ line 162-163)
         let Some(self_obj) = (if self.object_id == crate::common::INVALID_ID {
             None
@@ -337,6 +348,11 @@ impl GrantStealthBehavior {
     /// Scan for objects to grant stealth to
     /// Matches C++ GrantStealthBehavior::update lines 124-145
     fn scan_for_objects(&mut self) {
+        // Wave 307: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Get self object
         let Some(self_obj) = (if self.object_id == crate::common::INVALID_ID {
             None
@@ -364,14 +380,14 @@ impl GrantStealthBehavior {
         //     self->getPosition(), m_currentScanRadius, FROM_CENTER_2D, filters )
 
         // NOTE: Since we don't have PartitionManager fully integrated yet,
-        // Host path: empty dual-world registry residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 307: empty dual-world residual.
+        if dual_world_registry_unavailable() {
             return;
         }
         // we'll use OBJECT_REGISTRY.get_all_object_ids() and filter manually
         // This is less efficient but functionally equivalent for now
-        // Host path: empty dual-world registry residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 307: empty dual-world residual.
+        if dual_world_registry_unavailable() {
             return;
         }
         let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
@@ -441,6 +457,11 @@ impl GrantStealthBehavior {
 
 impl UpdateModuleInterface for GrantStealthBehavior {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 307: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UPDATE_SLEEP_FOREVER;
+        }
+
         let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
