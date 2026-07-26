@@ -6735,9 +6735,9 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_pathfind_dual_world_empty_gate_honesty()
+                        crate::game_logic::simulate_live_pathfind_dual_world_empty_gate_honesty_wave426()
                     }
-                    _ => crate::game_logic::honesty_live_pathfind_dual_world_empty_gate_residual_pack_wave262(),
+                    _ => crate::game_logic::honesty_live_pathfind_dual_world_empty_gate_residual_pack_wave426(),
                 };
                 self.runtime_host_last_gameplay_cmd = if ok {
                     format!("click_live_pathfind_dual_world_empty_gate_ok_{action}")

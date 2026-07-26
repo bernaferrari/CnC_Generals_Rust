@@ -365,6 +365,7 @@ pub mod host_live_partition_manager_dual_world_empty_gate_residual_wave324;
 pub mod host_live_path_following_dual_world_empty_gate_residual_wave424;
 pub mod host_live_path_guard_authority_api_residual_wave225;
 pub mod host_live_pathfind_dual_world_empty_gate_residual_wave262;
+pub mod host_live_pathfind_dual_world_empty_gate_residual_wave426;
 pub mod host_live_physics_update_dual_world_empty_gate_residual_wave316;
 pub mod host_live_pick_object_presentation_only_residual_wave222;
 pub mod host_live_player_dual_world_empty_gate_residual_wave268;
@@ -2742,6 +2743,12 @@ pub use host_live_pathfind_dual_world_empty_gate_residual_wave262::{
     honesty_live_pathfind_dual_world_empty_gate_nav_commands_residual_wave262,
     honesty_live_pathfind_dual_world_empty_gate_residual_pack_wave262,
     simulate_live_pathfind_dual_world_empty_gate_honesty,
+};
+pub use host_live_pathfind_dual_world_empty_gate_residual_wave426::{
+    honesty_live_pathfind_dual_world_empty_gate_method_names_residual_wave426,
+    honesty_live_pathfind_dual_world_empty_gate_nav_commands_residual_wave426,
+    honesty_live_pathfind_dual_world_empty_gate_residual_pack_wave426,
+    simulate_live_pathfind_dual_world_empty_gate_honesty_wave426,
 };
 pub use host_live_physics_update_dual_world_empty_gate_residual_wave316::{
     honesty_live_physics_update_dual_world_empty_gate_method_names_residual_wave316,
