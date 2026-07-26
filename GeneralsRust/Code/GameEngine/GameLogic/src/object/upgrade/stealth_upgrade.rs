@@ -16,6 +16,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use log::debug;
 
+/// Wave 448: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Stealth upgrade module data
 /// Matches C++ StealthUpgrade (no custom data fields, uses base UpgradeModule)
 #[derive(Debug, Clone)]
@@ -101,6 +107,11 @@ impl StealthUpgrade {
     /// Apply the upgrade
     /// Matches C++ upgradeImplementation lines 27-42
     pub fn upgrade_implementation(&mut self) -> Result<(), String> {
+        // Wave 448: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
             // The logic that does the stealthupdate will notice this and start stealthing
             // C++ line 30: me->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_CAN_STEALTH ) );
