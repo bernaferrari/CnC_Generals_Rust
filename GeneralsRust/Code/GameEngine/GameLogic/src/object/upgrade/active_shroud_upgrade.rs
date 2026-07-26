@@ -10,6 +10,12 @@ use game_engine::common::thing::module::{
     ActiveShroudUpgradeConfig, Module, ModuleData, NameKeyType,
 };
 
+/// Wave 448: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data describing the active shroud upgrade.
 #[derive(Debug, Clone)]
 pub struct ActiveShroudUpgradeModuleData {
@@ -146,6 +152,11 @@ impl ActiveShroudUpgrade {
     }
 
     fn apply_shroud_upgrade(&mut self) -> Result<(), String> {
+        // Wave 448: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let range = self.data.new_shroud_range();
         let object_id = self.object_id;
         match OBJECT_REGISTRY.with_object_mut(self.object_id, |object| {

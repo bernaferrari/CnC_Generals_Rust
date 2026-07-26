@@ -9,6 +9,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, ModuleInterfaceType, NameKeyType};
 
+/// Wave 448: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data describing the unpause special power upgrade.
 #[derive(Debug, Clone)]
 pub struct UnpauseSpecialPowerUpgradeModuleData {
@@ -132,6 +138,11 @@ impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
+        // Wave 448: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.applied {
             return false;
         }

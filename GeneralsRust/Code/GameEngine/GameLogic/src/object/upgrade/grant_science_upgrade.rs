@@ -8,6 +8,12 @@ use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 448: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data describing the science to grant when the upgrade activates.
 #[derive(Debug, Clone)]
 pub struct GrantScienceUpgradeModuleData {
@@ -148,6 +154,11 @@ impl UpgradeModuleInterface for GrantScienceUpgrade {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
+        // Wave 448: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.applied {
             return false;
         }
