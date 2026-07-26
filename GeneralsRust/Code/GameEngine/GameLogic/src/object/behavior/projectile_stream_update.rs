@@ -20,6 +20,12 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 372: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Debug)]
 pub struct ProjectileStreamUpdateModuleData {
     pub base: BehaviorModuleData,
@@ -127,6 +133,11 @@ impl ProjectileStreamUpdate {
     }
 
     pub fn get_all_points(&self) -> Vec<crate::common::Coord3D> {
+        // Wave 372: empty dual-world → empty.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let mut points = Vec::with_capacity(MAX_PROJECTILE_STREAM);
         let mut point_index = self.first_valid_index;
 
@@ -172,6 +183,11 @@ impl ProjectileStreamUpdate {
     }
 
     pub fn set_position(&mut self, new_position: &crate::common::Coord3D) {
+        // Wave 372: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -187,6 +203,11 @@ impl ProjectileStreamUpdate {
     }
 
     fn cull_front_of_list(&mut self) {
+        // Wave 372: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         while self.first_valid_index != self.next_free_index {
             let id = self.projectile_ids[self.first_valid_index as usize];
             if TheGameLogic::find_object_by_id(id).is_some() {
@@ -197,6 +218,11 @@ impl ProjectileStreamUpdate {
     }
 
     fn consider_dying(&self) -> bool {
+        // Wave 372: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.first_valid_index == self.next_free_index && self.owning_object != OBJECT_INVALID_ID
         {
             return TheGameLogic::find_object_by_id(self.owning_object).is_none();
@@ -207,6 +233,11 @@ impl ProjectileStreamUpdate {
 
 impl UpdateModuleInterface for ProjectileStreamUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 372: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         self.cull_front_of_list();
 
         if self.consider_dying() {
