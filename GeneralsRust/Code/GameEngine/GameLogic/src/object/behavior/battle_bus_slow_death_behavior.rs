@@ -45,6 +45,12 @@ use game_engine::common::thing::module::{
 
 use crate::effects::{FXList, ObjectCreationList};
 
+/// Wave 414: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 // -------------------------------------------------------------------------------------------------
 // INI helpers
 // -------------------------------------------------------------------------------------------------
@@ -577,6 +583,11 @@ impl BattleBusSlowDeathBehavior {
     fn get_object(
         &self,
     ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 414: empty dual-world → Err.
+        if dual_world_registry_unavailable() {
+            return Err("BattleBusSlowDeathBehavior missing owning object id".into());
+        }
+
         if self.object_id == OBJECT_INVALID_ID {
             return Err("BattleBusSlowDeathBehavior missing owning object id".into());
         }
@@ -589,6 +600,11 @@ impl BattleBusSlowDeathBehavior {
         })
     }
     fn with_object<R>(&self, f: impl FnOnce(&GameObject) -> R) -> Option<R> {
+        // Wave 414: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.object_id == OBJECT_INVALID_ID {
             return None;
         }
@@ -596,6 +612,11 @@ impl BattleBusSlowDeathBehavior {
     }
 
     fn with_object_mut<R>(&self, f: impl FnOnce(&mut GameObject) -> R) -> Option<R> {
+        // Wave 414: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.object_id == OBJECT_INVALID_ID {
             return None;
         }
@@ -660,6 +681,11 @@ impl BattleBusSlowDeathBehavior {
         &self,
         damage_percent: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 414: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(passengers_opt) = self.with_object(|obj_guard| {
             obj_guard.get_contain().and_then(|contain| {
                 contain
