@@ -17,6 +17,12 @@ use crate::object_creation_list::live_creation_context;
 use crate::player::player_list;
 use std::sync::{Arc, RwLock};
 
+/// Wave 330: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// A-10 Strike configuration constants
 const A10_STRIKE_HEIGHT: Real = 300.0;
 const A10_STRIKE_SPEED: Real = 80.0;
@@ -133,6 +139,11 @@ impl A10StrikePower {
 
     /// Execute the A-10 strike
     fn execute_strike(&mut self, targeting: &TargetingInfo) -> Result<(), String> {
+        // Wave 330: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".to_string());
+        }
+
         log::info!(
             "A-10 Strike activated at position {:?}, spawning {} aircraft",
             targeting.position,
@@ -375,6 +386,11 @@ impl A10StrikePower {
     /// Update strike state (call every frame)
     /// Matches C++ A10StrikePower update logic
     pub fn update_strike(&mut self) {
+        // Wave 330: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if !self.strike_active {
             return;
         }
