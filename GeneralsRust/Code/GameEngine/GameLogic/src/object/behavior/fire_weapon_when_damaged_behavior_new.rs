@@ -27,6 +27,12 @@ use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData,
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Wave 367: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const UPDATE_SLEEP_NONE: UpdateSleepTime = UpdateSleepTime::None;
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
 
@@ -544,6 +550,11 @@ impl FireWeaponWhenDamagedBehavior {
     }
 
     fn set_wake_frame(&self, sleep_time: UpdateSleepTime) {
+        // Wave 367: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -599,6 +610,11 @@ impl DamageModuleInterface for FireWeaponWhenDamagedBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 367: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if !self.upgrade_mux.is_already_upgraded() {
             return Ok(()); // Matches C++ lines 149-150
         }
@@ -674,6 +690,11 @@ impl DamageModuleInterface for FireWeaponWhenDamagedBehavior {
 impl UpdateModuleInterface for FireWeaponWhenDamagedBehavior {
     /// Update for continuous weapons. Matches C++ lines 200-242
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 367: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UPDATE_SLEEP_FOREVER;
+        }
+
         if !self.upgrade_mux.is_already_upgraded() {
             return UPDATE_SLEEP_FOREVER; // Matches C++ lines 202-206
         }
@@ -717,6 +738,11 @@ impl UpgradeModuleInterface for FireWeaponWhenDamagedBehavior {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: crate::common::UpgradeMaskType) -> bool {
+        // Wave 367: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
