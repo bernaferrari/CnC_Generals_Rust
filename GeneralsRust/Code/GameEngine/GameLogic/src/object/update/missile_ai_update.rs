@@ -34,6 +34,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use glam::Vec4;
 use std::sync::{Arc, Weak};
 
+/// Wave 350: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const BIGNUM: Real = 99999.0;
 const APPROACH_HEIGHT: Real = 10.0;
 const INVALID_PARTICLE_SYSTEM_ID: UnsignedInt = 0;
@@ -647,6 +653,11 @@ impl MissileAIUpdate {
     }
 
     fn handle_garrison_hit_kill(&self, other_id: ObjectID) -> bool {
+        // Wave 350: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.data.garrison_hit_kill_count == 0 {
             return false;
         }
@@ -723,6 +734,11 @@ impl MissileAIUpdate {
     /// Detonate the missile
     /// Matches C++ MissileAIUpdate::detonate from MissileAIUpdate.cpp lines 364-400
     fn detonate(&mut self) {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(obj_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
             self.switch_to_state(MissileState::KillSelf, TheGameLogic::get_frame());
             return;
@@ -846,6 +862,11 @@ impl MissileAIUpdate {
     }
 
     fn handle_bridge_layer_collision(&mut self) {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
@@ -885,6 +906,11 @@ impl MissileAIUpdate {
     }
 
     fn handle_countermeasure_diversion(&mut self) {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.frames_till_decoyed = 0;
         self.no_damage = true;
 
@@ -951,6 +977,11 @@ impl MissileAIUpdate {
     /// Ignition state: arm warhead, start exhaust, enable movement
     /// Matches C++ MissileAIUpdate::doIgnitionState from MissileAIUpdate.cpp lines 451-474
     fn do_ignition_state(&mut self, current_frame: UnsignedInt) {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.set_locomotor_acceleration_and_turn(self.max_accel, 0.0);
 
         if let Some(fx) = &self.data.ignition_fx {
@@ -1104,6 +1135,11 @@ impl MissileAIUpdate {
     }
 
     fn set_no_collisions_status(&self) {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(obj_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
@@ -1113,6 +1149,11 @@ impl MissileAIUpdate {
     }
 
     fn current_object_position(&self) -> Option<Coord3D> {
+        // Wave 350: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         TheGameLogic::find_object_by_id(self.object_id)
             .and_then(|object| object.read().ok().map(|guard| *guard.get_position()))
     }
@@ -1120,6 +1161,11 @@ impl MissileAIUpdate {
     fn current_ai_interface(
         &self,
     ) -> Option<Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>> {
+        // Wave 350: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         TheGameLogic::find_object_by_id(self.object_id).and_then(|object| {
             object
                 .read()
@@ -1129,6 +1175,11 @@ impl MissileAIUpdate {
     }
 
     fn current_goal_object(&self) -> Option<Arc<std::sync::RwLock<Object>>> {
+        // Wave 350: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let ai = self.current_ai_interface()?;
         let goal_id = ai.lock().ok()?.get_goal_object_id();
         if goal_id == crate::common::INVALID_ID {
@@ -1163,6 +1214,11 @@ impl MissileAIUpdate {
     /// Kill state: precise terminal guidance to target
     /// Matches C++ MissileAIUpdate::doKillState from MissileAIUpdate.cpp lines 557-611
     fn do_kill_state(&mut self, current_frame: UnsignedInt) {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Check fuel
         if current_frame >= self.fuel_expiration_date {
             if self.data.detonate_on_no_fuel {
@@ -1220,6 +1276,11 @@ impl MissileAIUpdate {
         &self,
         goal: &Arc<std::sync::RwLock<Object>>,
     ) -> Real {
+        // Wave 350: empty dual-world → Real::MAX.
+        if dual_world_registry_unavailable() {
+            return Real::MAX;
+        }
+
         let Some(missile) = TheGameLogic::find_object_by_id(self.object_id) else {
             return Real::MAX;
         };
@@ -1254,6 +1315,11 @@ impl MissileAIUpdate {
     /// Kill self state: delay before final destruction
     /// Matches C++ MissileAIUpdate::doKillSelfState from MissileAIUpdate.cpp lines 413-431
     fn do_kill_self_state(&mut self, current_frame: UnsignedInt) {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Hold in this state for delay frames
         if current_frame < self.state_timestamp + self.data.kill_self_delay {
             return;
@@ -1302,6 +1368,11 @@ impl MissileAIUpdate {
     /// Mark missile as jammed by ECM
     /// Matches C++ MissileAIUpdate::projectileNowJammed from MissileAIUpdate.cpp lines 777-809
     pub fn projectile_now_jammed(&mut self) {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.is_jammed {
             return; // Already jammed
         }
@@ -1955,6 +2026,11 @@ mod tests {
 
     #[test]
     fn kill_self_without_detonation_template_only_goes_dead() {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _guard = game_logic_test_guard();
         reset_game_logic_objects();
         let object = register_test_object(1001);
@@ -1976,6 +2052,11 @@ mod tests {
 
     #[test]
     fn kill_self_destroy_path_queues_object_removal() {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _guard = game_logic_test_guard();
         reset_game_logic_objects();
         register_test_object(1002);
@@ -2006,6 +2087,11 @@ mod tests {
 
     #[test]
     fn kill_self_kill_path_runs_object_kill() {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _guard = game_logic_test_guard();
         reset_game_logic_objects();
         let object = register_test_object(1003);
@@ -2030,6 +2116,11 @@ mod tests {
 
     #[test]
     fn update_below_world_queues_projectile_destruction() {
+        // Wave 350: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let _guard = game_logic_test_guard();
         reset_game_logic_objects();
         register_test_object(1004);

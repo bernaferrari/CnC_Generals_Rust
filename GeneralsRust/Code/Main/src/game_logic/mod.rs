@@ -308,6 +308,7 @@ pub mod host_live_local_team_presentation_only_residual_wave220;
 pub mod host_live_map_load_residual_wave170;
 pub mod host_live_max_health_upgrade_dual_world_empty_gate_residual_wave314;
 pub mod host_live_meta_event_dual_world_empty_gate_residual_wave345;
+pub mod host_live_missile_ai_dual_world_empty_gate_residual_wave350;
 pub mod host_live_modules_dual_world_empty_gate_residual_wave340;
 pub mod host_live_mouse_input_presentation_only_residual_wave236;
 pub mod host_live_neutron_blast_dual_world_empty_gate_residual_wave327;
@@ -2324,6 +2325,12 @@ pub use host_live_meta_event_dual_world_empty_gate_residual_wave345::{
     honesty_live_meta_event_dual_world_empty_gate_nav_commands_residual_wave345,
     honesty_live_meta_event_dual_world_empty_gate_residual_pack_wave345,
     simulate_live_meta_event_dual_world_empty_gate_honesty,
+};
+pub use host_live_missile_ai_dual_world_empty_gate_residual_wave350::{
+    honesty_live_missile_ai_dual_world_empty_gate_method_names_residual_wave350,
+    honesty_live_missile_ai_dual_world_empty_gate_nav_commands_residual_wave350,
+    honesty_live_missile_ai_dual_world_empty_gate_residual_pack_wave350,
+    simulate_live_missile_ai_dual_world_empty_gate_honesty,
 };
 pub use host_live_modules_dual_world_empty_gate_residual_wave340::{
     honesty_live_modules_dual_world_empty_gate_method_names_residual_wave340,
