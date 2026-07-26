@@ -11,6 +11,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
+/// Wave 431: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data for SubObjectsUpgrade.
 #[derive(Debug, Clone)]
 pub struct SubObjectsUpgradeModuleData {
@@ -111,6 +117,11 @@ impl SubObjectsUpgradeHandle {
     }
 
     pub fn apply(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        // Wave 431: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let mut guard = self.inner.lock().expect("SubObjectsUpgrade inner poisoned");
 
         let key_mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
@@ -328,6 +339,11 @@ impl UpgradeModuleInterface for SubObjectsUpgrade {
     }
 
     fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
+        // Wave 431: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if self.applied {
             return false;
         }
@@ -396,6 +412,11 @@ fn apply_subobject_visibility_for_object(
     object_id: ObjectID,
     data: &SubObjectsUpgradeModuleData,
 ) -> bool {
+    // Wave 431: empty dual-world → false.
+    if dual_world_registry_unavailable() {
+        return false;
+    }
+
     OBJECT_REGISTRY
         .with_object_mut(object_id, |object_guard| {
             apply_subobject_visibility(object_guard, data);
