@@ -271,6 +271,7 @@ pub mod host_live_evacuate_contain_log_residual_wave201;
 pub mod host_live_exit_strategies_dual_world_empty_gate_residual_wave312;
 pub mod host_live_flight_deck_dual_world_empty_gate_residual_wave311;
 pub mod host_live_force_complete_authority_api_residual_wave224;
+pub mod host_live_fuel_air_bomb_dual_world_empty_gate_residual_wave321;
 pub mod host_live_game_client_dual_world_empty_gate_residual_wave269;
 pub mod host_live_gameworld_construction_writeback_residual_wave181;
 pub mod host_live_gameworld_damage_channel_residual_wave182;
@@ -2074,6 +2075,12 @@ pub use host_live_force_complete_authority_api_residual_wave224::{
     honesty_live_force_complete_authority_api_nav_commands_residual_wave224,
     honesty_live_force_complete_authority_api_residual_pack_wave224,
     simulate_live_force_complete_authority_api_honesty,
+};
+pub use host_live_fuel_air_bomb_dual_world_empty_gate_residual_wave321::{
+    honesty_live_fuel_air_bomb_dual_world_empty_gate_method_names_residual_wave321,
+    honesty_live_fuel_air_bomb_dual_world_empty_gate_nav_commands_residual_wave321,
+    honesty_live_fuel_air_bomb_dual_world_empty_gate_residual_pack_wave321,
+    simulate_live_fuel_air_bomb_dual_world_empty_gate_honesty,
 };
 pub use host_live_game_client_dual_world_empty_gate_residual_wave269::{
     honesty_live_game_client_dual_world_empty_gate_method_names_residual_wave269,
