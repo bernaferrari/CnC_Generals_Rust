@@ -25,6 +25,12 @@ use game_engine::common::thing::module::{
 };
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 360: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 fn decal_is_empty(decal: &RadiusDecal) -> bool {
     decal.radius <= 0.0
 }
@@ -101,6 +107,11 @@ impl RadiusDecalUpdate {
         radius: Real,
         pos: &Coord3D,
     ) {
+        // Wave 360: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.delivery_decal.clear();
 
         let owner_index = (if self.object_id == crate::common::INVALID_ID {
@@ -158,6 +169,11 @@ impl RadiusDecalUpdate {
 
     /// Kill the radius decal immediately
     pub fn kill_radius_decal(&mut self) {
+        // Wave 360: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.delivery_decal.clear();
         self.sleeping = true;
         if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
@@ -175,6 +191,11 @@ impl RadiusDecalUpdate {
 
 impl UpdateModuleInterface for RadiusDecalUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 360: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UPDATE_SLEEP_FOREVER;
+        }
+
         // If sleeping and nothing to update, stay asleep
         if self.sleeping && decal_is_empty(&self.delivery_decal) {
             return UPDATE_SLEEP_FOREVER;
