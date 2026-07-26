@@ -21,6 +21,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 378: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HordeActionType {
     Horde = 0,
@@ -364,6 +370,11 @@ impl HordeUpdate {
 
     #[allow(dead_code)]
     fn show_hide_flag(&mut self, show: Bool) {
+        // Wave 378: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.has_flag = show;
         if self.module_data.flag_sub_obj_names.is_empty() {
             return;
@@ -390,6 +401,11 @@ impl HordeUpdate {
     }
 
     fn check_horde_status(&mut self) {
+        // Wave 378: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -491,6 +507,11 @@ impl HordeUpdate {
 
 impl UpdateModuleInterface for HordeUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 378: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
