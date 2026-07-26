@@ -13,6 +13,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 379: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Flammability status types - matches C++ FlammabilityStatusType
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,6 +203,11 @@ impl FlammableUpdate {
 
     /// Try to ignite the object - matches C++ tryToIgnite()
     pub fn try_to_ignite(&mut self) {
+        // Wave 379: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.status != FlammabilityStatus::Normal {
             return;
         }
@@ -283,6 +294,11 @@ impl FlammableUpdate {
 
     /// Apply aflame damage to the object - C++ doAflameDamage()
     fn do_aflame_damage(&self) {
+        // Wave 379: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -331,6 +347,11 @@ impl FlammableUpdate {
 
 impl UpdateModuleInterface for FlammableUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 379: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         if self.status != FlammabilityStatus::Aflame {
             return UpdateSleepTime::Forever;
         }
