@@ -25,6 +25,12 @@ use crate::damage::DamageInfo;
 use crate::effects::FXList;
 use crate::player::{player_list, Player};
 
+/// Wave 436: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data for TechBuildingBehavior
 #[derive(Debug, Clone)]
 pub struct TechBuildingBehaviorModuleData {
@@ -141,6 +147,11 @@ impl TechBuildingBehavior {
         &self,
         f: impl FnOnce(&Object) -> R,
     ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 436: empty dual-world → Err.
+        if dual_world_registry_unavailable() {
+            return Err("Object not found".into());
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return Err("Object not set".into());
@@ -154,6 +165,11 @@ impl TechBuildingBehavior {
         &self,
         f: impl FnOnce(&mut Object) -> R,
     ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 436: empty dual-world → Err.
+        if dual_world_registry_unavailable() {
+            return Err("Object not found".into());
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return Err("Object not set".into());
