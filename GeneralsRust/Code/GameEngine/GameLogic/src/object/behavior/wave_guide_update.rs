@@ -25,6 +25,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use glam::Vec4;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 332: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const MAX_WAVEGUIDE_SHAPE_POINTS: usize = 64;
 const MAX_SHAPE_EFFECTS: usize = 3;
 const INVALID_PARTICLE_SYSTEM_ID: u32 = 0;
@@ -372,6 +378,11 @@ impl WaveGuideUpdate {
     }
 
     fn start_moving(&mut self) -> bool {
+        // Wave 332: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -446,6 +457,11 @@ impl WaveGuideUpdate {
     }
 
     fn init_waveguide(&mut self) -> bool {
+        // Wave 332: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         if !self.start_moving() {
             return false;
         }
@@ -512,6 +528,11 @@ impl WaveGuideUpdate {
     }
 
     fn transform_wave_shape(&mut self) {
+        // Wave 332: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -572,6 +593,11 @@ impl WaveGuideUpdate {
     }
 
     fn do_shore_effects(&self) {
+        // Wave 332: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if TheGameLogic::get_frame() & 0x1 != 0 {
             return;
         }
@@ -629,6 +655,11 @@ impl WaveGuideUpdate {
     }
 
     fn do_damage(&self) {
+        // Wave 332: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -798,6 +829,11 @@ impl WaveGuideUpdate {
 
 impl UpdateModuleInterface for WaveGuideUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 332: empty dual-world → None sleep.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::None;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
