@@ -42,6 +42,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 325: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const ORBIT_INSERTION_SLOPE_MAX: Real = 0.8;
 const ORBIT_INSERTION_SLOPE_MIN: Real = 0.5;
 const LOTS_OF_SHOTS: i32 = 9999;
@@ -578,6 +584,11 @@ impl SpectreGunshipUpdate {
     }
 
     fn is_fair_distance_from_ship(&self, target_pos: Coord3D) -> bool {
+        // Wave 325: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -834,6 +845,11 @@ impl SpectreGunshipUpdate {
 
 impl UpdateModuleInterface for SpectreGunshipUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 325: empty dual-world → Forever sleep.
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::Forever);
+        }
+
         let current_frame = TheGameLogic::get_frame();
         let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
@@ -1117,6 +1133,11 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
 
 impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
     fn does_special_power_update_pass_science_test(&self) -> bool {
+        // Wave 325: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1146,6 +1167,11 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
         _waypoint: Option<&Waypoint>,
         command_options: SpecialPowerCommandOptions,
     ) -> bool {
+        // Wave 325: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let matches_module = self
             .with_special_power_module(|module| module.is_module_for_power(special_power_template))
             .unwrap_or(false);
@@ -1276,6 +1302,11 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
     }
 
     fn set_special_power_overridable_destination(&mut self, location: &Coord3D) {
+        // Wave 325: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1340,6 +1371,11 @@ impl BehaviorModuleInterface for SpectreGunshipUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 325: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
