@@ -20,6 +20,12 @@ use crate::weapon::{WeaponLockType, WeaponSlotType};
 use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
 
+/// Wave 445: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 fn set_special_power_creator(object: &Arc<RwLock<Object>>, creator_id: ObjectID) {
     let object_id = object
         .read()
@@ -30,6 +36,11 @@ fn set_special_power_creator(object: &Arc<RwLock<Object>>, creator_id: ObjectID)
 }
 
 fn set_special_power_creator_id(object_id: ObjectID, creator_id: ObjectID) {
+    // Wave 445: empty dual-world → no-op.
+    if dual_world_registry_unavailable() {
+        return;
+    }
+
     if object_id == INVALID_ID {
         return;
     }
@@ -178,6 +189,11 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
         create_owner: Bool,
         _lifetime_frames: UnsignedInt,
     ) -> CreationResult {
+        // Wave 445: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let Some(primary_object) = primary_obj else {
             return None;
         };
@@ -577,6 +593,11 @@ impl ObjectCreationNugget for AttackNugget {
         _angle: Real,
         _lifetime_frames: UnsignedInt,
     ) -> CreationResult {
+        // Wave 445: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let Some(primary_object) = primary_obj else {
             return None;
         };
