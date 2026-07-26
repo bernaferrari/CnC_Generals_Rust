@@ -28,6 +28,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 333: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const WEAPON_AFFECTS_MASK_NAMES: &[&str] = &[
     "SELF",
     "ALLIES",
@@ -324,6 +330,11 @@ impl EMPUpdate {
     }
 
     fn do_disable_attack(&self, source: &Arc<RwLock<GameObject>>) {
+        // Wave 333: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let data = &self.module_data;
         let source_guard = match source.read() {
             Ok(guard) => guard,
@@ -496,6 +507,11 @@ impl EMPUpdate {
 
 impl UpdateModuleInterface for EMPUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 333: empty dual-world → None sleep.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::None;
+        }
+
         let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {

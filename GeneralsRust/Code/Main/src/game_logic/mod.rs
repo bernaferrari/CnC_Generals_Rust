@@ -267,6 +267,7 @@ pub mod host_live_crate_collide_dual_world_empty_gate_residual_wave303;
 pub mod host_live_die_mod_dual_world_empty_gate_residual_wave323;
 pub mod host_live_drawable_dual_world_empty_gate_residual_wave270;
 pub mod host_live_dumb_projectile_dual_world_empty_gate_residual_wave286;
+pub mod host_live_emp_update_dual_world_empty_gate_residual_wave333;
 pub mod host_live_engine_player_ui_boot_peel_residual_wave237;
 pub mod host_live_engine_presentation_player_ui_residual_wave234;
 pub mod host_live_enhanced_player_dual_world_empty_gate_residual_wave287;
@@ -2062,6 +2063,12 @@ pub use host_live_dumb_projectile_dual_world_empty_gate_residual_wave286::{
     honesty_live_dumb_projectile_dual_world_empty_gate_nav_commands_residual_wave286,
     honesty_live_dumb_projectile_dual_world_empty_gate_residual_pack_wave286,
     simulate_live_dumb_projectile_dual_world_empty_gate_honesty,
+};
+pub use host_live_emp_update_dual_world_empty_gate_residual_wave333::{
+    honesty_live_emp_update_dual_world_empty_gate_method_names_residual_wave333,
+    honesty_live_emp_update_dual_world_empty_gate_nav_commands_residual_wave333,
+    honesty_live_emp_update_dual_world_empty_gate_residual_pack_wave333,
+    simulate_live_emp_update_dual_world_empty_gate_honesty,
 };
 pub use host_live_engine_player_ui_boot_peel_residual_wave237::{
     honesty_live_engine_player_ui_boot_peel_method_names_residual_wave237,
