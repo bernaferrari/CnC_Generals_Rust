@@ -6166,7 +6166,7 @@ impl CnCGameEngine {
                     .unwrap_or_else(|| "prepare".to_string());
                 let ok = match action.as_str() {
                     "live" | "prepare" => {
-                        crate::game_logic::simulate_live_ai_group_dual_world_empty_gate_honesty()
+                        crate::game_logic::simulate_live_ai_group_core_dual_world_empty_gate_honesty_wave401()
                     }
                     _ => crate::game_logic::honesty_live_ai_group_dual_world_empty_gate_residual_pack_wave253(),
                 };

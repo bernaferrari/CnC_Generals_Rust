@@ -13,6 +13,12 @@ use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::ai::{AiError, GuardMode, AI, AttitudeType, AiCommandInterface, AiData, AiCommandParams, AiCommandType, THE_AI};
 
+/// Wave 401: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Formation types for group movement
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FormationType {
@@ -486,6 +492,11 @@ impl AiGroup {
 
     /// Determine role for new member based on unit type
     fn determine_member_role(&self, object_id: ObjectID) -> Result<GroupMemberRole, AiError> {
+        // Wave 401: empty dual-world → InvalidObject.
+        if dual_world_registry_unavailable() {
+            return Err(AiError::InvalidObject);
+        }
+
         if self.members.is_empty() {
             // Still require object to exist.
             if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
@@ -838,6 +849,11 @@ impl AiGroup {
 
     /// Get speed of individual member
     fn get_member_speed(&self, object_id: ObjectID) -> Result<Real, AiError> {
+        // Wave 401: empty dual-world → InvalidObject.
+        if dual_world_registry_unavailable() {
+            return Err(AiError::InvalidObject);
+        }
+
         OBJECT_REGISTRY
             .with_object(object_id, |guard| {
                 if let Some(physics) = guard.get_physics() {
@@ -855,6 +871,11 @@ impl AiGroup {
 
     /// Update member status and positions
     fn update_member_status(&mut self) -> Result<(), AiError> {
+        // Wave 401: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for (_, member) in &mut self.members {
             if member.status == GroupMemberStatus::Dead {
                 continue; // Skip dead members
@@ -1207,6 +1228,11 @@ impl AiGroup {
 
 impl AiCommandInterface for AiGroup {
     fn ai_do_command(&mut self, params: &AiCommandParams) -> Result<(), AiError> {
+        // Wave 401: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         match params.cmd {
             AiCommandType::MoveToPosition => {
                 self.move_to_position(params.pos, false)
