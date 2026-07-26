@@ -7,6 +7,12 @@ use crate::common::types::{ObjectID, VeterancyLevel};
 use crate::common::{Xfer, XferMode, XferVersion};
 use crate::helpers::TheGameLogic;
 
+/// Wave 420: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Core experience tracker (matches C++ ExperienceTracker class)
 ///
 /// Each object has one of these to track its experience and veterancy level.
@@ -102,6 +108,11 @@ impl ExperienceTracker {
     }
 
     fn get_owner_template_experience_required(&self, level_index: usize) -> Option<i32> {
+        // Wave 420: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
         let owner_guard = owner.read().ok()?;
         Some(
@@ -112,12 +123,22 @@ impl ExperienceTracker {
     }
 
     fn get_owner_template_experience_value(&self, level_index: usize) -> Option<i32> {
+        // Wave 420: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
         let owner_guard = owner.read().ok()?;
         Some(owner_guard.get_template().get_experience_value(level_index))
     }
 
     fn owner_is_trainable(&self) -> Option<bool> {
+        // Wave 420: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
         let owner_guard = owner.read().ok()?;
         Some(owner_guard.get_template().is_trainable())
