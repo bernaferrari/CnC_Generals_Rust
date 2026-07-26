@@ -262,6 +262,7 @@ pub mod host_live_construct_economy_probe_residual_wave243;
 pub mod host_live_construct_spawn_pose_authority_api_residual_wave227;
 pub mod host_live_control_group_camera_presentation_only_residual_wave216;
 pub mod host_live_crate_collide_dual_world_empty_gate_residual_wave303;
+pub mod host_live_die_mod_dual_world_empty_gate_residual_wave323;
 pub mod host_live_drawable_dual_world_empty_gate_residual_wave270;
 pub mod host_live_dumb_projectile_dual_world_empty_gate_residual_wave286;
 pub mod host_live_engine_player_ui_boot_peel_residual_wave237;
@@ -2022,6 +2023,12 @@ pub use host_live_crate_collide_dual_world_empty_gate_residual_wave303::{
     honesty_live_crate_collide_dual_world_empty_gate_nav_commands_residual_wave303,
     honesty_live_crate_collide_dual_world_empty_gate_residual_pack_wave303,
     simulate_live_crate_collide_dual_world_empty_gate_honesty,
+};
+pub use host_live_die_mod_dual_world_empty_gate_residual_wave323::{
+    honesty_live_die_mod_dual_world_empty_gate_method_names_residual_wave323,
+    honesty_live_die_mod_dual_world_empty_gate_nav_commands_residual_wave323,
+    honesty_live_die_mod_dual_world_empty_gate_residual_pack_wave323,
+    simulate_live_die_mod_dual_world_empty_gate_honesty,
 };
 pub use host_live_drawable_dual_world_empty_gate_residual_wave270::{
     honesty_live_drawable_dual_world_empty_gate_method_names_residual_wave270,
