@@ -14,6 +14,12 @@ use crate::state_machine::*;
 
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Wave 429: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Close enough distance constant
 const CLOSE_ENOUGH: f32 = 25.0;
 /// Crate pickup range squared (matches AIPickUpCrateState)
@@ -175,6 +181,11 @@ impl GuardRetaliateExitConditions {
     }
 
     pub fn should_exit(&self, machine: &StateMachine) -> bool {
+        // Wave 429: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let goal_object_id = machine.get_goal_object_id();
 
         if goal_object_id == crate::common::INVALID_ID {
@@ -1048,6 +1059,11 @@ impl StateImplementation for AIGuardRetaliateOuterState {
     }
 
     fn update(&mut self) -> StateReturnType {
+        // Wave 429: empty dual-world → Continue.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Continue;
+        }
+
         let Some(attack_machine) = self.attack_machine.as_mut() else {
             return StateReturnType::Success;
         };
@@ -1220,6 +1236,11 @@ impl StateImplementation for AIGuardRetaliatePickUpCrateState {
     }
 
     fn update(&mut self) -> StateReturnType {
+        // Wave 429: empty dual-world → Continue.
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Continue;
+        }
+
         let Some(owner) = self.base.state().get_machine_owner() else {
             return StateReturnType::Failure;
         };
