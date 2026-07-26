@@ -25,6 +25,12 @@ use game_engine::common::thing::module::{
 };
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 383: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const GRID_FX_DECAL_COUNT: usize = 30;
 
 /// State machine states for shroud clearing
@@ -548,6 +554,11 @@ impl DynamicShroudClearingRangeUpdate {
 
     /// Create grid decals for visual effect
     fn create_grid_decals(&mut self, template: &RadiusDecalTemplate, radius: Real, pos: &Coord3D) {
+        // Wave 383: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let owner_index = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -594,6 +605,11 @@ impl DynamicShroudClearingRangeUpdate {
 
     /// Animate grid decals based on current state
     fn animate_grid_decals(&mut self) {
+        // Wave 383: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let center = if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -634,6 +650,11 @@ impl DynamicShroudClearingRangeUpdate {
 
 impl UpdateModuleInterface for DynamicShroudClearingRangeUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 383: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         if self.state == DSCRUState::Sleeping {
             return UPDATE_SLEEP_NONE;
         }
