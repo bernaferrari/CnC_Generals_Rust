@@ -17,6 +17,12 @@ use crate::object_creation_list::live_creation_context;
 use crate::player::player_list;
 use std::sync::{Arc, RwLock};
 
+/// Wave 399: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const ARTILLERY_SHELL_COUNT: Int = 20;
 const ARTILLERY_RADIUS: Real = 125.0;
 const ARTILLERY_DURATION: Real = 10.0;
@@ -187,6 +193,11 @@ impl ArtilleryBarragePower {
         targeting: &TargetingInfo,
         _current_frame: UnsignedInt,
     ) -> Result<(), String> {
+        // Wave 399: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         log::info!(
             "Artillery Barrage activated at position {:?}, firing {} shells",
             targeting.position,
@@ -302,6 +313,11 @@ impl ArtilleryBarragePower {
     }
 
     fn fire_due_shells(&mut self, current_frame: UnsignedInt) -> Result<(), String> {
+        // Wave 399: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if self.pending_shells <= 0 {
             return Ok(());
         }
@@ -423,6 +439,13 @@ impl SpecialPowerModuleInterface for ArtilleryBarragePower {
         targeting: Option<&TargetingInfo>,
         current_frame: UnsignedInt,
     ) -> ActivationResult {
+        // Wave 399: empty dual-world → Failed.
+        if dual_world_registry_unavailable() {
+            return ActivationResult::Failed {
+                reason: "empty dual-world".to_string(),
+            };
+        }
+
         if let Err(reason) = self.validate_targeting(targeting) {
             return ActivationResult::InvalidTarget { reason };
         }
