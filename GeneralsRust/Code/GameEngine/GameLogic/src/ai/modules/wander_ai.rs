@@ -12,6 +12,12 @@ use crate::helpers::get_game_logic_random_value_real;
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::registry::OBJECT_REGISTRY;
 
+/// Wave 430: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 #[derive(Debug)]
 pub struct WanderAIUpdate {
     state: AIModuleState,
@@ -25,10 +31,20 @@ impl WanderAIUpdate {
     }
 
     fn get_object_position(&self, object_id: ObjectID) -> Option<Coord3D> {
+        // Wave 430: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         OBJECT_REGISTRY.with_object(object_id, |guard| *guard.get_position())
     }
 
     fn issue_wander_move(&self, object_id: ObjectID) {
+        // Wave 430: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some((ai, pos)) = OBJECT_REGISTRY
             .with_object(object_id, |guard| {
                 guard
@@ -70,6 +86,10 @@ impl AIUpdateModuleTrait for WanderAIUpdate {
     }
 
     fn update(&mut self, context: &mut AIUpdateContext) -> AIUpdateResult<()> {
+        // Wave 430: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
         let Some(pos) = self.get_object_position(context.object_id) else {
             return Ok(());
         };
