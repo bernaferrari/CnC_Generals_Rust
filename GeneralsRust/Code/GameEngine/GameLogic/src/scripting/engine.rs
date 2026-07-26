@@ -26,6 +26,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+/// Wave 348: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 pub const MAX_COUNTERS: usize = 256;
 pub const MAX_FLAGS: usize = 256;
 pub const MAX_ATTACK_PRIORITIES: usize = 256;
@@ -2048,8 +2054,8 @@ impl ScriptEngine {
     ///
     /// C++ Reference: `ScriptEngine::createNamedCache()`.
     fn create_named_cache(&self) {
-        // Host path: dual-world factory empty — named cache stays empty residual.
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 348: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
             return;
         }
         let tracker = get_named_object_tracker();
@@ -2515,6 +2521,11 @@ impl ScriptEngine {
 
     /// Evaluate and progress sequential scripts
     fn evaluate_and_progress_all_sequential_scripts(&mut self) -> GameLogicResult<()> {
+        // Wave 348: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let saved_current_player = self.current_player.clone();
         let saved_condition_team = self.condition_team.clone();
         let saved_condition_object = self.condition_object;
@@ -2760,6 +2771,11 @@ impl ScriptEngine {
     }
 
     fn team_ai_status(team_arc: &Arc<RwLock<crate::team::Team>>) -> (bool, bool) {
+        // Wave 348: empty dual-world → (false, true).
+        if dual_world_registry_unavailable() {
+            return (false, true);
+        }
+
         let Ok(team) = team_arc.read() else {
             return (false, true);
         };
@@ -3183,7 +3199,8 @@ impl ScriptEngine {
 
     pub fn set_objects_should_receive_difficulty_bonus(&mut self, enable: bool) {
         self.objects_should_receive_difficulty_bonus = enable;
-        if OBJECT_REGISTRY.is_empty() {
+        // Wave 348: empty dual-world → flag only.
+        if dual_world_registry_unavailable() {
             return;
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
@@ -4105,6 +4122,11 @@ impl ScriptEngine {
 
     // PARITY_NOTE: C++ ScriptEngine::addObjectToCache
     pub fn add_object_to_cache(&mut self, object_id: ObjectID) {
+        // Wave 348: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(name) = OBJECT_REGISTRY
             .with_object(object_id, |obj| {
                 let name = obj.get_name();
@@ -4865,6 +4887,11 @@ pub fn transfer_object_name(
     from_name: &AsciiString,
     to_object_id: ObjectID,
 ) -> GameLogicResult<()> {
+    // Wave 348: empty dual-world → Ok(()).
+    if dual_world_registry_unavailable() {
+        return Ok(());
+    }
+
     let tracker = get_named_object_tracker();
     if let Ok(Some(old_id)) = tracker.get_object_id(from_name.as_str()) {
         let _ = tracker.unregister_object(old_id);
