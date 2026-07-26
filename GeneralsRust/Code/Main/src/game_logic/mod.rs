@@ -456,6 +456,7 @@ pub mod host_live_wave_guide_dual_world_empty_gate_residual_wave332;
 pub mod host_live_weapon_bonus_update_dual_world_empty_gate_residual_wave409;
 pub mod host_live_weapon_dual_world_empty_gate_residual_wave265;
 pub mod host_live_weapon_dual_world_empty_gate_residual_wave289;
+pub mod host_live_weapon_set_dual_world_empty_gate_residual_wave419;
 pub mod host_live_weapon_template_dual_world_empty_gate_residual_wave356;
 pub mod host_live_world_pick_probe_residual_wave246;
 pub mod host_loading_screen_residual_wave135;
@@ -3280,6 +3281,12 @@ pub use host_live_weapon_dual_world_empty_gate_residual_wave289::{
     honesty_live_weapon_impl_dual_world_empty_gate_nav_commands_residual_wave289,
     honesty_live_weapon_impl_dual_world_empty_gate_residual_pack_wave289,
     simulate_live_weapon_impl_dual_world_empty_gate_honesty,
+};
+pub use host_live_weapon_set_dual_world_empty_gate_residual_wave419::{
+    honesty_live_weapon_set_dual_world_empty_gate_method_names_residual_wave419,
+    honesty_live_weapon_set_dual_world_empty_gate_nav_commands_residual_wave419,
+    honesty_live_weapon_set_dual_world_empty_gate_residual_pack_wave419,
+    simulate_live_weapon_set_dual_world_empty_gate_honesty,
 };
 pub use host_live_weapon_template_dual_world_empty_gate_residual_wave356::{
     honesty_live_weapon_template_dual_world_empty_gate_method_names_residual_wave356,
