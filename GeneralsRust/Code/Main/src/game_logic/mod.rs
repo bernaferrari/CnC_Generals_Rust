@@ -319,6 +319,7 @@ pub mod host_live_hotkey_move_attack_selection_presentation_only_residual_wave22
 pub mod host_live_hotkey_selection_camera_presentation_only_residual_wave226;
 pub mod host_live_ingame_ui_dual_world_empty_gate_residual_wave273;
 pub mod host_live_jet_ai_dual_world_empty_gate_residual_wave309;
+pub mod host_live_leaflet_drop_behavior_dual_world_empty_gate_residual_wave393;
 pub mod host_live_legacy_object_registry_fastpath_residual_wave248;
 pub mod host_live_local_team_presentation_only_residual_wave220;
 pub mod host_live_map_load_residual_wave170;
@@ -2434,6 +2435,12 @@ pub use host_live_jet_ai_dual_world_empty_gate_residual_wave309::{
     honesty_live_jet_ai_dual_world_empty_gate_nav_commands_residual_wave309,
     honesty_live_jet_ai_dual_world_empty_gate_residual_pack_wave309,
     simulate_live_jet_ai_dual_world_empty_gate_honesty,
+};
+pub use host_live_leaflet_drop_behavior_dual_world_empty_gate_residual_wave393::{
+    honesty_live_leaflet_drop_behavior_dual_world_empty_gate_method_names_residual_wave393,
+    honesty_live_leaflet_drop_behavior_dual_world_empty_gate_nav_commands_residual_wave393,
+    honesty_live_leaflet_drop_behavior_dual_world_empty_gate_residual_pack_wave393,
+    simulate_live_leaflet_drop_behavior_dual_world_empty_gate_honesty,
 };
 pub use host_live_legacy_object_registry_fastpath_residual_wave248::{
     honesty_live_legacy_object_registry_fastpath_method_names_residual_wave248,
