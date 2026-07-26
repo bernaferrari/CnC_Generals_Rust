@@ -271,6 +271,7 @@ pub mod host_live_countermeasures_dual_world_empty_gate_residual_wave328;
 pub mod host_live_crate_collide_dual_world_empty_gate_residual_wave303;
 pub mod host_live_deliver_payload_ai_dual_world_empty_gate_residual_wave352;
 pub mod host_live_die_mod_dual_world_empty_gate_residual_wave323;
+pub mod host_live_dock_update_dual_world_empty_gate_residual_wave355;
 pub mod host_live_dozer_ai_dual_world_empty_gate_residual_wave351;
 pub mod host_live_drawable_dual_world_empty_gate_residual_wave270;
 pub mod host_live_dumb_projectile_dual_world_empty_gate_residual_wave286;
@@ -2108,6 +2109,12 @@ pub use host_live_die_mod_dual_world_empty_gate_residual_wave323::{
     honesty_live_die_mod_dual_world_empty_gate_nav_commands_residual_wave323,
     honesty_live_die_mod_dual_world_empty_gate_residual_pack_wave323,
     simulate_live_die_mod_dual_world_empty_gate_honesty,
+};
+pub use host_live_dock_update_dual_world_empty_gate_residual_wave355::{
+    honesty_live_dock_update_dual_world_empty_gate_method_names_residual_wave355,
+    honesty_live_dock_update_dual_world_empty_gate_nav_commands_residual_wave355,
+    honesty_live_dock_update_dual_world_empty_gate_residual_pack_wave355,
+    simulate_live_dock_update_dual_world_empty_gate_honesty,
 };
 pub use host_live_dozer_ai_dual_world_empty_gate_residual_wave351::{
     honesty_live_dozer_ai_dual_world_empty_gate_method_names_residual_wave351,
