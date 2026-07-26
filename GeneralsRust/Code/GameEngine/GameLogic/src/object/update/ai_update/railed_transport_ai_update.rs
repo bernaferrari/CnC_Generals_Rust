@@ -16,6 +16,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use log::warn;
 
+/// Wave 407: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const INVALID_PATH: Int = -1;
 const MAX_WAYPOINT_PATHS: usize = 32;
 
@@ -328,6 +334,11 @@ impl RailedTransportAIUpdate {
         &mut self,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 407: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if !self.waypoint_data_loaded {
             self.load_waypoint_data();
         }
@@ -398,6 +409,11 @@ impl RailedTransportAIUpdate {
     }
 
     fn set_in_transit(&mut self, in_transit: Bool) {
+        // Wave 407: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
             if let Ok(owner_guard) = owner.read() {
                 let _ = owner_guard.with_dock_update_interface(|dock| {
@@ -445,6 +461,11 @@ impl RailedTransportAIUpdate {
         &mut self,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 407: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(us) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return Ok(());
         };
@@ -504,6 +525,11 @@ impl RailedTransportAIUpdate {
         _cmd_source: CommandSourceType,
         ai: &mut dyn AIUpdateInterface,
     ) {
+        // Wave 407: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
@@ -554,6 +580,11 @@ impl RailedTransportAIUpdate {
         _cmd_source: CommandSourceType,
         _ai: &mut dyn AIUpdateInterface,
     ) {
+        // Wave 407: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
