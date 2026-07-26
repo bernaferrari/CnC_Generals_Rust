@@ -9,6 +9,12 @@ use crate::object::Object;
 use crate::weapon::{Weapon, WeaponSlotType};
 use std::f32::consts::PI;
 
+/// Wave 338: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const DEFAULT_TURN_RATE: Real = 0.01;
 const DEFAULT_PITCH_RATE: Real = 0.01;
 const WEAPON_SLOT_COUNT: usize = 8;
@@ -432,6 +438,11 @@ impl TurretAI {
 
     /// Check if aimed at target
     pub fn is_aimed_at_target(&self) -> Bool {
+        // Wave 338: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(owner_pos) =
             OBJECT_REGISTRY.with_object(self.owner, |owner_guard| *owner_guard.get_position())
         else {
@@ -610,6 +621,11 @@ impl TurretAI {
 
     /// Check if owner's current weapon is on this turret
     pub fn is_owners_cur_weapon_on_turret(&self) -> Bool {
+        // Wave 338: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(slot) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner, |owner_guard| {
             owner_guard.get_current_weapon().map(|(_, slot)| slot)
         }).flatten() else {
@@ -785,6 +801,11 @@ impl NotifyWeaponFiredInterface for TurretAI {
 /// game loop, delegating to the member function after performing per-frame setup
 /// like target acquisition scanning when no target is set.
 pub fn turret_ai_update(turret: &mut TurretAI, obj: &Object, frame: u32) -> UpdateSleepTime {
+    // Wave 338: empty dual-world → Sleep30.
+    if dual_world_registry_unavailable() {
+        return UpdateSleepTime::Sleep30;
+    }
+
     if !turret.is_turret_enabled() {
         return UpdateSleepTime::Sleep30;
     }
