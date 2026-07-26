@@ -34,6 +34,12 @@ use crate::player::Player;
 use crate::upgrade::center::THE_UPGRADE_CENTER;
 use std::collections::VecDeque;
 
+/// Wave 326: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Maximum number of doors supported
 /// Matches C++ DOOR_COUNT_MAX
 const DOOR_COUNT_MAX: usize = 4;
@@ -287,6 +293,11 @@ impl ProductionUpdateBehavior {
     /// Check if can queue a unit
     /// Matches C++ canQueueCreateUnit (lines 214-234)
     pub fn can_queue_create_unit(&self, unit_type: &str) -> CanMakeType {
+        // Wave 326: empty dual-world → Other.
+        if dual_world_registry_unavailable() {
+            return CanMakeType::Other;
+        }
+
         // Check queue size
         if self.production_count >= self.data.max_queue_entries {
             return CanMakeType::QueueFull;
@@ -518,6 +529,11 @@ impl ProductionUpdateBehavior {
     /// Set hold door open
     /// Matches C++ setHoldDoorOpen (lines 1145-1158)
     pub fn set_hold_door_open(&mut self, exit_door: usize, hold_it: bool) {
+        // Wave 326: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if exit_door < DOOR_COUNT_MAX {
             let door = &mut self.doors[exit_door];
             door.hold_open = hold_it;
@@ -542,6 +558,11 @@ impl ProductionUpdateBehavior {
     /// Update the module
     /// Matches C++ update (lines 587-963)
     pub fn update(&mut self, current_frame: u32) -> UpdateResult {
+        // Wave 326: empty dual-world → Sleep.
+        if dual_world_registry_unavailable() {
+            return UpdateResult::Sleep;
+        }
+
         // Update doors
         // Matches C++ lines 595-597
         if self.data.num_door_animations > 0 {
@@ -639,6 +660,11 @@ impl ProductionUpdateBehavior {
     /// Update door animations
     /// Matches C++ updateDoors (lines 513-583)
     fn update_doors(&mut self, current_frame: u32) {
+        // Wave 326: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for i in 0..DOOR_COUNT_MAX.min(self.data.num_door_animations as usize) {
             let door = &mut self.doors[i];
 
@@ -691,6 +717,11 @@ impl ProductionUpdateBehavior {
     /// Add production entry to the queue
     /// Matches C++ addToProductionQueue (lines 968-1006)
     fn add_to_production_queue(&mut self, production: ProductionEntry) {
+        // Wave 326: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.production_queue.push_back(production);
         self.production_count += 1;
 
@@ -703,6 +734,11 @@ impl ProductionUpdateBehavior {
 
     /// Internal helper for queue removal bookkeeping
     fn remove_from_production_queue_internal(&mut self) {
+        // Wave 326: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         self.production_count = self.production_count.saturating_sub(1);
 
         if self.production_count == 0 {
