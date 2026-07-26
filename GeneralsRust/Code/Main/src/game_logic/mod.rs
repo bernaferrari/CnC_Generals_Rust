@@ -253,6 +253,7 @@ pub mod host_live_bridge_tower_dual_world_empty_gate_residual_wave318;
 pub mod host_live_build_placement_dual_world_empty_gate_residual_wave418;
 pub mod host_live_bunker_buster_dual_world_empty_gate_residual_wave334;
 pub mod host_live_camera_height_probe_residual_wave241;
+pub mod host_live_carpet_bomb_power_dual_world_empty_gate_residual_wave440;
 pub mod host_live_cave_contain_dual_world_empty_gate_residual_wave279;
 pub mod host_live_chinook_ai_dual_world_empty_gate_residual_wave349;
 pub mod host_live_cleanup_hazard_dual_world_empty_gate_residual_wave317;
@@ -2087,6 +2088,12 @@ pub use host_live_camera_height_probe_residual_wave241::{
     honesty_live_camera_height_probe_nav_commands_residual_wave241,
     honesty_live_camera_height_probe_residual_pack_wave241,
     simulate_live_camera_height_probe_honesty,
+};
+pub use host_live_carpet_bomb_power_dual_world_empty_gate_residual_wave440::{
+    honesty_live_carpet_bomb_power_dual_world_empty_gate_method_names_residual_wave440,
+    honesty_live_carpet_bomb_power_dual_world_empty_gate_nav_commands_residual_wave440,
+    honesty_live_carpet_bomb_power_dual_world_empty_gate_residual_pack_wave440,
+    simulate_live_carpet_bomb_power_dual_world_empty_gate_honesty,
 };
 pub use host_live_cave_contain_dual_world_empty_gate_residual_wave279::{
     honesty_live_cave_contain_dual_world_empty_gate_method_names_residual_wave279,

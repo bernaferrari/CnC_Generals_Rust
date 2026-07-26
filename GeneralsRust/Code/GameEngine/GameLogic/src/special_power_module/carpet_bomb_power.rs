@@ -14,6 +14,12 @@ use crate::object_creation_list::live_creation_context;
 use crate::player::player_list;
 use std::sync::{Arc, RwLock};
 
+/// Wave 440: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const CARPET_BOMB_COUNT: Int = 15;
 const CARPET_BOMB_SPACING: Real = 25.0;
 const CREATE_ABOVE_LOCATION_HEIGHT: Real = 300.0;
@@ -183,6 +189,11 @@ impl CarpetBombPower {
         player_id: ObjectID,
         targeting: &TargetingInfo,
     ) -> Result<(), String> {
+        // Wave 440: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         log::info!(
             "Carpet Bomb activated at position {:?}, dropping {} bombs",
             targeting.position,
@@ -364,6 +375,13 @@ impl SpecialPowerModuleInterface for CarpetBombPower {
         targeting: Option<&TargetingInfo>,
         current_frame: UnsignedInt,
     ) -> ActivationResult {
+        // Wave 440: empty dual-world → Failed.
+        if dual_world_registry_unavailable() {
+            return ActivationResult::Failed {
+                reason: "Object registry unavailable".to_string(),
+            };
+        }
+
         if let Err(reason) = self.validate_targeting(targeting) {
             return ActivationResult::InvalidTarget { reason };
         }
