@@ -20,6 +20,13 @@ use crate::object::behavior::projectile_stream_update::ProjectileStreamUpdateInt
 use crate::object::behavior::radius_decal_update::RadiusDecalUpdateInterface;
 use crate::object::registry::OBJECT_REGISTRY;
 pub use crate::object::update::special_power_update::SpecialPowerCommandOption;
+
+/// Wave 340: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 pub type SpecialPowerCommandOptions = SpecialPowerCommandOption;
 use crate::command_button::CommandButton;
 use crate::common::science::{ScienceType, SCIENCE_INVALID};
@@ -630,6 +637,11 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         command_source: CommandSourceType,
         instantly: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 340: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let cmd = if instantly {
             AiCommandType::ExitInstantly
         } else {
@@ -659,6 +671,11 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         &mut self,
         command_source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 340: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for object_id in self.get_contained_objects() {
             if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
                 if let Ok(obj_guard) = obj.read() {
@@ -680,6 +697,11 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         &mut self,
         command_source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 340: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         for object_id in self.get_contained_objects() {
             if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
                 if let Ok(obj_guard) = obj.read() {
@@ -775,6 +797,11 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
 
     /// Number of passengers currently hidden by stealth containment.
     fn get_stealth_units_contained(&self) -> UnsignedInt {
+        // Wave 340: empty dual-world → 0.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         self.get_contained_objects()
             .iter()
             .filter_map(|id| TheGameLogic::find_object_by_id(*id))
@@ -919,6 +946,11 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     }
 
     fn on_removing(&self, _obj: &Object) {
+        // Wave 340: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Some(obj_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(_obj.get_id()) {
             if let Ok(mut guard) = self.try_lock() {
                 let _ = guard.on_removing(obj_arc.read().map(|g| g.get_id()).unwrap_or(0));
@@ -1448,6 +1480,11 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
     /// Resolve goal object for the duration of a call.
     fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 340: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_goal_object_id();
         if id == crate::common::INVALID_ID {
             None
@@ -1569,6 +1606,11 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         crate::common::INVALID_ID
     }
     fn check_for_crate_to_pickup(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 340: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.check_for_crate_to_pickup_id();
         if id == crate::common::INVALID_ID {
             None
@@ -1590,6 +1632,11 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         use_existing_target: bool,
         ignore_attacked: bool,
     ) -> Option<Arc<RwLock<Object>>> {
+        // Wave 340: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_next_mood_target_id(use_existing_target, ignore_attacked);
         if id == crate::common::INVALID_ID {
             None
@@ -2357,6 +2404,11 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
+        // Wave 340: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // C++ Reference: AIUpdateInterface::aiAttackObject() with object ID
         if victim_id == INVALID_ID || OBJECT_REGISTRY.with_object(victim_id, |_| ()).is_none() {
             return;
@@ -2582,6 +2634,11 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn ai_move_away_from_unit(&self, obj_id: ObjectID, cmd_source: CommandSourceType) {
+        // Wave 340: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if let Ok(mut guard) = self.try_lock() {
             if !guard.is_allowed_to_move_away_from_unit() {
                 return;
