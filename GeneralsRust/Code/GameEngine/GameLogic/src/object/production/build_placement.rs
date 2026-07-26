@@ -20,6 +20,12 @@ use crate::object::production::prerequisite_checker::PrerequisiteChecker;
 use crate::player::player_list;
 use std::sync::{Arc, RwLock};
 
+/// Wave 418: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Placement mode state.
 /// Matches C++ BuildPlacingState from InGameUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,6 +313,11 @@ impl BuildPlacementMode {
     /// Find an available dozer for the player.
     /// Matches C++ logic for finding idle dozers.
     fn find_available_dozer(&self) -> ObjectID {
+        // Wave 418: empty dual-world → invalid id.
+        if dual_world_registry_unavailable() {
+            return INVALID_OBJECT_ID;
+        }
+
         let Some(partition) = ThePartitionManager::get() else {
             return INVALID_OBJECT_ID;
         };
@@ -484,6 +495,11 @@ impl BuildPlacementMode {
 
     /// Start construction via the construction manager and assign the dozer.
     fn start_construction(&self, building_id: ObjectID, dozer_id: ObjectID) {
+        // Wave 418: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         // Get max health from the building template
         let max_health = TheThingFactory::find_template(&self.template_name)
             .and_then(|template| {
