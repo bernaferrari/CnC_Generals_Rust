@@ -56,6 +56,12 @@ use std::sync::{Arc, RwLock};
 
 use crate::object::behavior::behavior_module::xfer_behavior_module_base_versions;
 
+/// Wave 323: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Veterancy level flags for die module filtering
 pub type VeterancyLevelFlags = u32;
 
@@ -508,6 +514,11 @@ impl<T: EngineModuleData> DieModule<T> {
     }
 
     pub fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        // Wave 323: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -516,6 +527,11 @@ impl<T: EngineModuleData> DieModule<T> {
     }
 
     pub fn with_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        // Wave 323: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -525,6 +541,11 @@ impl<T: EngineModuleData> DieModule<T> {
 
     /// Short-lived Arc resolve; prefer `with_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 323: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -572,6 +593,11 @@ impl DieModuleWrapper {
     }
 
     fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        // Wave 323: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -580,6 +606,11 @@ impl DieModuleWrapper {
     }
 
     fn with_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        // Wave 323: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -588,6 +619,11 @@ impl DieModuleWrapper {
     }
 
     fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        // Wave 323: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -630,6 +666,11 @@ impl crate::modules::DieModuleInterface for DieModuleWrapper {
         &mut self,
         damage: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 323: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let object_id = self.object_id;
         if object_id == crate::common::INVALID_ID {
             return Err("die module wrapper object unavailable".into());
