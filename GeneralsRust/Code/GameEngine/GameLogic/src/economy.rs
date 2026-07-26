@@ -14,6 +14,12 @@ use crate::supply_system::{
 };
 use crate::{GameLogicError, GameLogicResult};
 
+/// Wave 337: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 type ObjectId = ObjectID;
 
 use std::collections::{HashMap, VecDeque};
@@ -800,6 +806,11 @@ impl EconomyManager {
         player_id: u32,
         building: EconomicBuilding,
     ) -> GameLogicResult<()> {
+        // Wave 337: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let mut cost = HashMap::new();
         let mut building_type = "Economic Building".to_string();
         if let Some((name, build_cost)) =
@@ -983,6 +994,11 @@ impl EconomyManager {
     }
 
     fn check_supply_line_security(&self, _supply_line: &SupplyLine) -> GameLogicResult<bool> {
+        // Wave 337: empty dual-world → Ok(true).
+        if dual_world_registry_unavailable() {
+            return Ok(true);
+        }
+
         let Some(source_pos) = OBJECT_REGISTRY
             .with_object(_supply_line.source_id, |source_guard| {
                 *source_guard.get_position()
