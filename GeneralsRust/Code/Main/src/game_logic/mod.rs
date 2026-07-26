@@ -264,6 +264,7 @@ pub mod host_live_engine_player_ui_boot_peel_residual_wave237;
 pub mod host_live_engine_presentation_player_ui_residual_wave234;
 pub mod host_live_enhanced_player_dual_world_empty_gate_residual_wave287;
 pub mod host_live_evacuate_contain_log_residual_wave201;
+pub mod host_live_exit_strategies_dual_world_empty_gate_residual_wave312;
 pub mod host_live_flight_deck_dual_world_empty_gate_residual_wave311;
 pub mod host_live_force_complete_authority_api_residual_wave224;
 pub mod host_live_game_client_dual_world_empty_gate_residual_wave269;
@@ -2023,6 +2024,12 @@ pub use host_live_evacuate_contain_log_residual_wave201::{
     honesty_live_evacuate_contain_log_nav_commands_residual_wave201,
     honesty_live_evacuate_contain_log_residual_pack_wave201,
     simulate_live_evacuate_contain_log_honesty,
+};
+pub use host_live_exit_strategies_dual_world_empty_gate_residual_wave312::{
+    honesty_live_exit_strategies_dual_world_empty_gate_method_names_residual_wave312,
+    honesty_live_exit_strategies_dual_world_empty_gate_nav_commands_residual_wave312,
+    honesty_live_exit_strategies_dual_world_empty_gate_residual_pack_wave312,
+    simulate_live_exit_strategies_dual_world_empty_gate_honesty,
 };
 pub use host_live_flight_deck_dual_world_empty_gate_residual_wave311::{
     honesty_live_flight_deck_dual_world_empty_gate_method_names_residual_wave311,
