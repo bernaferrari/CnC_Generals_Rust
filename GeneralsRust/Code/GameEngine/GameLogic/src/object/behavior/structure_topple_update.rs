@@ -32,6 +32,12 @@ use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData,
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 315: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const ST_PHASE_COUNT: usize = 3;
 const MAX_IDX: usize = 32;
 const TOPPLE_ACCELERATION_FACTOR: Real = 0.02;
@@ -548,6 +554,11 @@ impl StructureToppleUpdate {
     }
 
     fn do_phase_stuff(&self, phase: StructureTopplePhaseType, target: &Coord3D) {
+        // Wave 315: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let phase_idx = phase.idx();
         let list_size = self.module_data.ocls[phase_idx].len();
         if list_size == 0 {
@@ -596,6 +607,11 @@ impl StructureToppleUpdate {
     }
 
     fn begin_structure_topple(&mut self, damage_info: &DamageInfo) {
+        // Wave 315: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let now = TheGameLogic::get_frame();
         let delay = GameLogicRandomValue(
             self.module_data.min_topple_delay as i32,
@@ -691,6 +707,11 @@ impl StructureToppleUpdate {
     }
 
     fn do_topple_delay_burst_fx(&mut self) {
+        // Wave 315: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -762,6 +783,11 @@ impl StructureToppleUpdate {
     }
 
     fn do_topple_done_stuff(&self) {
+        // Wave 315: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -805,6 +831,11 @@ impl StructureToppleUpdate {
     }
 
     fn do_angle_fx(&self, cur_angle: Real, new_angle: Real) {
+        // Wave 315: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -834,6 +865,11 @@ impl StructureToppleUpdate {
     }
 
     fn apply_crushing_damage(&mut self, theta: Real) {
+        // Wave 315: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if theta > THETA_CEILING {
             return;
         }
@@ -961,6 +997,11 @@ impl StructureToppleUpdate {
 
 impl UpdateModuleInterface for StructureToppleUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 315: empty dual-world → Forever sleep.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1093,6 +1134,11 @@ impl DieModuleInterface for StructureToppleUpdate {
         &mut self,
         damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 315: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
