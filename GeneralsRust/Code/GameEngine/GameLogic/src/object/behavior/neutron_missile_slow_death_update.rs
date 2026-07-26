@@ -26,6 +26,12 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Wave 396: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const MAX_NEUTRON_BLASTS: usize = 9;
 const SCORCH_1: i32 = 1;
 const SLOW_DEATH_ACTIVATED: UnsignedInt = 1 << 0;
@@ -399,6 +405,11 @@ impl NeutronMissileSlowDeathUpdate {
     }
 
     fn do_blast(&mut self, blast_info: &BlastInfo, obj: &GameObject) {
+        // Wave 396: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if blast_info.outer_radius <= 0.0 {
             return;
         }
@@ -474,6 +485,11 @@ impl NeutronMissileSlowDeathUpdate {
     }
 
     fn do_scorch_blast(&mut self, blast_info: &BlastInfo, obj: &GameObject) {
+        // Wave 396: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if blast_info.outer_radius <= 0.0 {
             return;
         }
@@ -502,6 +518,11 @@ impl NeutronMissileSlowDeathUpdate {
 
 impl UpdateModuleInterface for NeutronMissileSlowDeathUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // Wave 396: empty dual-world → Forever.
+        if dual_world_registry_unavailable() {
+            return UpdateSleepTime::Forever;
+        }
+
         if !self.is_slow_death_activated() {
             return UpdateSleepTime::None;
         }
