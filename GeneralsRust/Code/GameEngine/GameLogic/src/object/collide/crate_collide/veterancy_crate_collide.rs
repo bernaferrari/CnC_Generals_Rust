@@ -18,6 +18,12 @@ use crate::scripting::engine::transfer_object_name;
 use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
 use std::sync::{Arc, Mutex};
 
+/// Wave 368: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Module data specific to veterancy crate collision
 #[derive(Debug, Clone)]
 pub struct VeterancyCrateCollideModuleData {
@@ -305,6 +311,11 @@ impl VeterancyCrateCollide {
 
     /// Get the number of levels this crate will grant
     pub fn get_levels_to_gain(&self) -> i32 {
+        // Wave 368: empty dual-world → 0.
+        if dual_world_registry_unavailable() {
+            return 0;
+        }
+
         if !self.module_data.adds_owner_veterancy {
             return 1;
         }
@@ -350,6 +361,11 @@ impl CollideModule for VeterancyCrateCollide {
 
 impl VeterancyCrateCollide {
     fn owner_goal_matches(&self, target_id: ObjectId) -> bool {
+        // Wave 368: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let Some(owner_obj) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
             return false;
         };
@@ -369,6 +385,11 @@ impl VeterancyCrateCollide {
     }
 
     fn owner_player_id(&self) -> Option<PlayerId> {
+        // Wave 368: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         let owner_obj = TheGameLogic::find_object_by_id(self.owner_object_id)?;
         let owner_guard = owner_obj.read().ok()?;
         owner_guard.get_player_id()
@@ -434,6 +455,11 @@ impl VeterancyCrateCollide {
     /// This method grants veterancy experience to the target object or all objects
     /// within the specified range, depending on the module configuration.
     fn collect_area_effect_object_ids(&self, other: &dyn GameObject, range: f32) -> Vec<ObjectId> {
+        // Wave 368: empty dual-world → empty.
+        if dual_world_registry_unavailable() {
+            return Vec::new();
+        }
+
         let center = other.get_position();
         let range_sqr = range * range;
         let same_player_filter = PartitionFilterSamePlayer::new(other.get_controlling_player());
@@ -467,6 +493,11 @@ impl VeterancyCrateCollide {
         &self,
         other: &dyn GameObject,
     ) -> Result<bool, CollisionError> {
+        // Wave 368: empty dual-world → Ok(false).
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+
         // C++ parity: crate owner AI goal must intentionally target `other`.
         if !self.owner_goal_matches(other.get_id()) {
             return Ok(false);
