@@ -327,6 +327,7 @@ pub mod host_live_gameworld_shadow_overlay_residual_wave172;
 pub mod host_live_garrison_dual_world_empty_gate_residual_wave260;
 pub mod host_live_generate_minefield_behavior_dual_world_empty_gate_residual_wave386;
 pub mod host_live_golden_mopup_honesty_residual_wave208;
+pub mod host_live_golden_mopup_honesty_residual_wave451;
 pub mod host_live_grant_stealth_dual_world_empty_gate_residual_wave307;
 pub mod host_live_guard_dual_world_empty_gate_residual_wave428;
 pub mod host_live_guard_retaliate_dual_world_empty_gate_residual_wave429;
@@ -2540,6 +2541,12 @@ pub use host_live_golden_mopup_honesty_residual_wave208::{
     honesty_live_golden_mopup_honesty_method_names_residual_wave208,
     honesty_live_golden_mopup_honesty_nav_commands_residual_wave208,
     honesty_live_golden_mopup_honesty_residual_pack_wave208, simulate_live_golden_mopup_honesty,
+};
+pub use host_live_golden_mopup_honesty_residual_wave451::{
+    honesty_live_golden_mopup_default_off_method_names_residual_wave451,
+    honesty_live_golden_mopup_default_off_nav_commands_residual_wave451,
+    honesty_live_golden_mopup_default_off_residual_pack_wave451,
+    simulate_live_golden_mopup_default_off_honesty,
 };
 pub use host_live_grant_stealth_dual_world_empty_gate_residual_wave307::{
     honesty_live_grant_stealth_dual_world_empty_gate_method_names_residual_wave307,

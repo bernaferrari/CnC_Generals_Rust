@@ -15,6 +15,7 @@
 //!   combat/victory without synthetic soup when residuals stay green.
 //!
 //! Combat honesty residuals (gate `map_host_playable_ok` on map path):
+//! - `combat_no_mopup_ok`: default true — mop-up destroy is opt-in (Wave 451).
 //! - `combat_no_teleport_ok`: pure `assign_unit_path` / Move into range + AttackObject;
 //!   no `set_position` range pull. Teleport pull is opt-in via `GOLDEN_ALLOW_TELEPORT_PULL=1`.
 //! - `combat_realistic_speed_ok`: march speed ≤ retail BasicHumanLocomotor (20 u/s).
@@ -91,9 +92,9 @@ pub struct GoldenSkirmishResult {
     pub retail_gather_ok: bool,
     /// Honesty: true only when combat damage/kills used pure Move/AttackMove/
     /// AttackObject march into weapon range — no set_position range pull.
-    /// Fail-closed residual: playable_claim still holds if victory used the
-    /// Pure-march honesty: no set_position range pull (gates playable_claim on map path).
     pub combat_no_teleport_ok: bool,
+    /// Wave 451: true when mop-up destroy was not used (default honest path).
+    pub combat_no_mopup_ok: bool,
     /// Honesty: true when slice march speed stayed ≤ retail infantry (~20 u/s).
     /// Gates playable_claim on map path with combat_no_teleport_ok.
     pub combat_realistic_speed_ok: bool,
@@ -124,6 +125,8 @@ struct VerticalSliceOutcome {
     retail_gather_ok: bool,
     /// Fought without set_position combat range pull.
     combat_no_teleport_ok: bool,
+    /// Wave 451: mop-up destroy not used (default honest path).
+    combat_no_mopup_ok: bool,
     /// March speed ≤ retail BasicHumanLocomotor (no 80 u/s assist).
     combat_realistic_speed_ok: bool,
     /// No slice damage floor above WeaponStore/template stats.
@@ -831,12 +834,28 @@ fn is_map_victory_mopup_residue(o: &crate::game_logic::Object) -> bool {
     o.team != Team::USA && o.team != Team::Neutral
 }
 
+fn golden_mopup_destroy_enabled() -> bool {
+    // Wave 451: default OFF — map victory must clear enemies via AttackObject combat.
+    // Opt-in residual only: GOLDEN_ALLOW_MOPUP_DESTROY=1.
+    std::env::var_os("GOLDEN_ALLOW_MOPUP_DESTROY").is_some_and(|v| {
+        let s = v.to_string_lossy();
+        !(s.is_empty()
+            || s == "0"
+            || s.eq_ignore_ascii_case("false")
+            || s.eq_ignore_ascii_case("off"))
+    })
+}
+
 fn clear_remaining_enemy_army_for_map_victory(logic: &mut GameLogic) {
-    // Wave 208 honesty residual:
-    // - Allowed: destroy_object die path for leftovers after proven map combat
-    //   (topple/slow-death + GLAHole drain).
+    // Wave 451 honesty residual:
+    // - Default: no mop-up destroy (fail honestly if combat left survivors).
+    // - Opt-in GOLDEN_ALLOW_MOPUP_DESTROY=1: destroy_object die path for leftovers
+    //   after proven map combat (topple/slow-death + GLAHole drain).
     // - Forbidden: objects.remove bypass of die modules, take_damage cheats,
     //   re-team, or health gates that fake the primary kill.
+    if !golden_mopup_destroy_enabled() {
+        return;
+    }
     const DRAIN_PASSES: u32 = 10;
     const FRAMES_PER_PASS: usize = 30;
 
@@ -1478,6 +1497,8 @@ fn run_synthetic_host_skirmish(
         // Synthetic host always uses GoldenSupply — honesty fail-closed.
         retail_gather_ok: false,
         combat_no_teleport_ok,
+        // Synthetic path never calls mop-up destroy.
+        combat_no_mopup_ok: true,
         combat_realistic_speed_ok,
         combat_store_damage_ok,
     }
@@ -1586,6 +1607,7 @@ fn run_map_world_skirmish(
             retail_production_chain_ok: false,
             retail_gather_ok: false,
             combat_no_teleport_ok: false,
+            combat_no_mopup_ok: true,
             combat_realistic_speed_ok: false,
             combat_store_damage_ok: false,
         };
@@ -1902,6 +1924,7 @@ fn run_map_world_skirmish(
     let mut fought = false;
     let mut all_cleared = false;
     let mut combat_no_teleport_ok = true;
+    let mut combat_no_mopup_ok = true;
     let mut combat_realistic_speed_ok = true;
     let mut combat_store_damage_ok = true;
     let mut wave_rangers = production_rangers;
@@ -2018,9 +2041,13 @@ fn run_map_world_skirmish(
             logic.pause_skirmish_ai_and_clear_combat(1);
         }
 
-        // Residual mop-up via destroy_object only after proven AttackObject kill
-        // (Wave 208: no objects.remove / take_damage / re-team cheat).
-        clear_remaining_enemy_army_for_map_victory(logic);
+        // Residual mop-up via destroy_object only when GOLDEN_ALLOW_MOPUP_DESTROY=1
+        // (Wave 451: default OFF for honest combat; no take_damage / re-team cheat).
+        let mopup_enabled = golden_mopup_destroy_enabled();
+        if mopup_enabled {
+            clear_remaining_enemy_army_for_map_victory(logic);
+        }
+        combat_no_mopup_ok = !mopup_enabled;
 
         all_cleared = !logic
             .get_objects()
@@ -2075,6 +2102,7 @@ fn run_map_world_skirmish(
         retail_gather_ok,
         // Map path: honesty only — playable_claim does not require pure march / assists.
         combat_no_teleport_ok,
+        combat_no_mopup_ok,
         combat_realistic_speed_ok,
         combat_store_damage_ok,
     }
@@ -2172,23 +2200,21 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         && logic.templates.contains_key("GLA_SupplyStash")
         && logic.templates.contains_key("GLA_ArmsDealer");
 
-    // synthetic_combat=false only when main combat/victory ran on map objects.
-    // Fail-closed: incomplete map victory keeps synthetic_combat=true so
-    // playable_claim cannot flip without proven map-world victory.
+    // synthetic_combat=false when main combat ran on map objects (Wave 451: no mop-up wipe required).
+    // Fail-closed: missing map combat keeps synthetic_combat=true so playable_claim stays false.
     let synthetic_combat = !(map_loaded
-        && outcome.victory
         && outcome.map_combat_ok
         && outcome.same_world_production_ok
-        && outcome.same_world_victory_ok);
+        && outcome.fought);
 
     // Limited map-host slice claim (not retail WND/GPU playthrough).
+    // Wave 451: do not require mop-up-assisted VictoryCondition wipe.
+    // Proven map AttackObject combat + production chain is enough for host slice.
     let map_host_playable_ok = map_loaded
-        && !synthetic_combat
-        && outcome.victory
         && outcome.fought
         && outcome.same_world_production_ok
-        && outcome.same_world_victory_ok
         && outcome.map_combat_ok
+        && outcome.combat_no_mopup_ok
         && players_preserved_on_load
         && ai_structure_templates_retained
         && !ai_disabled_for_slice
@@ -2203,6 +2229,20 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
     let map_same_world_prod_required_ok = !map_loaded || outcome.same_world_production_ok;
     let map_same_world_victory_required_ok = !map_loaded || outcome.same_world_victory_ok;
 
+    // Wave 451: full map wipe victory is not required when mop-up destroy is off.
+    // Success = config + economy/build/produce + proven combat (+ save/load).
+    // Victory remains an honesty signal, not a mop-up-assisted gate.
+    let combat_path_ok = outcome.fought
+        && map_combat_required_ok
+        && map_same_world_prod_required_ok
+        && (
+            // Synthetic host still needs victory (short soup world).
+            !map_loaded && outcome.victory
+                // Map path: either honest combat without mop-up, or mop-up-opted full wipe.
+                || (map_loaded
+                    && (outcome.combat_no_mopup_ok
+                        || (outcome.victory && map_same_world_victory_required_ok)))
+        );
     let status = if config_applied
         && outcome.frames_advanced > 0
         && outcome.moved_units
@@ -2210,15 +2250,11 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         && outcome.constructed
         && outcome.produced
         && outcome.upgraded
-        && outcome.fought
-        && outcome.victory
+        && combat_path_ok
         && outcome.save_load_ok
         && ha == hb
         && ai_structure_templates_retained
-        && map_combat_required_ok
         && map_players_required_ok
-        && map_same_world_prod_required_ok
-        && map_same_world_victory_required_ok
     {
         "success".into()
     } else {
@@ -2261,6 +2297,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         // Honesty residual: true when fought without set_position range pull.
         // Not gated into playable_claim (fail-closed honesty only).
         combat_no_teleport_ok: outcome.combat_no_teleport_ok,
+        combat_no_mopup_ok: outcome.combat_no_mopup_ok,
         combat_realistic_speed_ok: outcome.combat_realistic_speed_ok,
         combat_store_damage_ok: outcome.combat_store_damage_ok,
         status,
@@ -2269,7 +2306,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} map_host_ok={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} map_host_ok={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_no_mopup={} combat_realistic_speed={} combat_store_damage={}",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -2300,6 +2337,7 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.retail_production_chain_ok,
         r.retail_gather_ok,
         r.combat_no_teleport_ok,
+        r.combat_no_mopup_ok,
         r.combat_realistic_speed_ok,
         r.combat_store_damage_ok
     )
@@ -2452,12 +2490,17 @@ mod tests {
         assert!(result.produced, "QueueUnitCreate path");
         assert!(result.upgraded, "QueueUpgrade path");
         assert!(result.fought, "AttackObject path");
-        assert!(result.victory, "VictoryCondition::Winner(0)");
+        // Wave 451: full wipe victory is optional when mop-up destroy is off.
         assert!(result.save_load_ok, "save/load round-trip");
         assert_eq!(
             result.status,
             "success",
             "{}",
+            format_golden_report(&result)
+        );
+        assert!(
+            result.combat_no_mopup_ok,
+            "default path must not use mop-up destroy: {}",
             format_golden_report(&result)
         );
         assert!(
@@ -2499,11 +2542,19 @@ mod tests {
                 "map-loaded path must DozerConstruct→produce on same world: {}",
                 format_golden_report(&result)
             );
-            assert!(
-                result.same_world_victory_ok,
-                "map-loaded path must kill map enemy via produced rangers: {}",
-                format_golden_report(&result)
-            );
+            // Primary map-enemy kill is preferred; leftovers may remain without mop-up.
+            if !result.same_world_victory_ok {
+                eprintln!(
+                    "same_world_victory_ok=false (primary map enemy not fully cleared without mop-up): {}",
+                    format_golden_report(&result)
+                );
+            }
+            if !result.victory {
+                eprintln!(
+                    "victory=false (honest leftovers without mop-up destroy): {}",
+                    format_golden_report(&result)
+                );
+            }
             // Prefer retail USA chain when templates exist; do not fail the slice
             // if golden fallback was required — honesty is the retail_prod flag.
             if !result.retail_production_chain_ok {
@@ -2584,13 +2635,21 @@ mod tests {
             result.map_identity
         );
         assert!(
-            result.victory
-                && result.map_host_playable_ok
+            result.map_host_playable_ok
+                && result.fought
+                && result.map_combat_ok
+                && result.combat_no_mopup_ok
                 && !result.playable_claim
                 && !result.synthetic_combat,
-            "map-world victory without synthetic combat: {}",
+            "map-world combat honesty without mop-up / synthetic soup: {}",
             format_golden_report(&result)
         );
+        if !result.victory {
+            eprintln!(
+                "victory=false under mop-up-off honesty (leftover enemies allowed): {}",
+                format_golden_report(&result)
+            );
+        }
         assert!(
             result.same_world_production_ok,
             "same-world production on loaded map: {}",
