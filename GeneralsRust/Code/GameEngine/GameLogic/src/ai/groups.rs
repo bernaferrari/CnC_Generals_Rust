@@ -19,6 +19,12 @@ use crate::common::ObjectID;
 use crate::helpers::{get_game_logic_random_value_real, TheGameLogic};
 use crate::object::registry::OBJECT_REGISTRY;
 
+/// Wave 398: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Formation types for unit groups
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FormationType {
@@ -362,6 +368,11 @@ impl AiUnitGroup {
 
     /// Toggle overcharge for all units in the group (matches C++ AIGroup::groupToggleOvercharge).
     pub fn toggle_overcharge(&mut self, _cmd_source: CommandSourceType) {
+        // Wave 398: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         for unit_id in self.units.keys().copied() {
             let Some(obj_arc) = TheGameLogic::find_object_by_id(unit_id) else {
                 continue;
@@ -431,6 +442,11 @@ impl AiUnitGroup {
 
     /// Recalculate group properties like center position, speed, etc.
     fn recalculate_group_properties(&mut self) {
+        // Wave 398: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.units.is_empty() {
             return;
         }
@@ -850,6 +866,11 @@ impl AiUnitGroup {
     // Combat coordination methods
 
     fn coordinate_focus_fire(&mut self) -> Result<(), AiError> {
+        // Wave 398: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Find highest priority target and have all damage dealers attack it
         // Priority order:
         // 1. Low-health high-value targets (nearly dead important units)
@@ -919,6 +940,11 @@ impl AiUnitGroup {
     }
 
     fn coordinate_defensive_tactics(&mut self) -> Result<(), AiError> {
+        // Wave 398: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Position tanks in front, keep support units in back
         // Defensive formation strategy:
         // 1. Tank units at front line (closest to enemies)
@@ -992,6 +1018,11 @@ impl AiUnitGroup {
     }
 
     fn coordinate_support_actions(&mut self) -> Result<(), AiError> {
+        // Wave 398: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Have support units heal/repair damaged allies
         // Support priority:
         // 1. Critically damaged units (health < 30%)

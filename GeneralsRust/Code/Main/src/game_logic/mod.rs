@@ -223,6 +223,7 @@ pub mod host_live_active_body_dual_world_empty_gate_residual_wave291;
 pub mod host_live_ai_build_list_dual_world_empty_gate_residual_wave293;
 pub mod host_live_ai_dock_dual_world_empty_gate_residual_wave397;
 pub mod host_live_ai_group_dual_world_empty_gate_residual_wave253;
+pub mod host_live_ai_groups_dual_world_empty_gate_residual_wave398;
 pub mod host_live_ai_integration_dual_world_empty_gate_residual_wave285;
 pub mod host_live_ai_legacy_states_dual_world_empty_gate_residual_wave257;
 pub mod host_live_ai_mod_dual_world_empty_gate_residual_wave263;
@@ -1865,6 +1866,12 @@ pub use host_live_ai_group_dual_world_empty_gate_residual_wave253::{
     honesty_live_ai_group_dual_world_empty_gate_nav_commands_residual_wave253,
     honesty_live_ai_group_dual_world_empty_gate_residual_pack_wave253,
     simulate_live_ai_group_dual_world_empty_gate_honesty,
+};
+pub use host_live_ai_groups_dual_world_empty_gate_residual_wave398::{
+    honesty_live_ai_groups_dual_world_empty_gate_method_names_residual_wave398,
+    honesty_live_ai_groups_dual_world_empty_gate_nav_commands_residual_wave398,
+    honesty_live_ai_groups_dual_world_empty_gate_residual_pack_wave398,
+    simulate_live_ai_groups_dual_world_empty_gate_honesty,
 };
 pub use host_live_ai_integration_dual_world_empty_gate_residual_wave285::{
     honesty_live_ai_integration_dual_world_empty_gate_method_names_residual_wave285,
