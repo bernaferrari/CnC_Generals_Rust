@@ -249,6 +249,7 @@ pub mod host_live_cmd_filter_env_presentation_only_residual_wave217;
 pub mod host_live_collision_system_dual_world_empty_gate_residual_wave313;
 pub mod host_live_command_attack_log_residual_wave197;
 pub mod host_live_command_beacon_note_residual_wave210;
+pub mod host_live_command_button_hunt_update_dual_world_empty_gate_residual_wave384;
 pub mod host_live_command_cheer_science_log_residual_wave202;
 pub mod host_live_command_deploy_status_log_residual_wave203;
 pub mod host_live_command_executor_authority_api_residual_wave232;
@@ -2007,6 +2008,12 @@ pub use host_live_command_beacon_note_residual_wave210::{
     honesty_live_command_beacon_note_nav_commands_residual_wave210,
     honesty_live_command_beacon_note_residual_pack_wave210,
     simulate_live_command_beacon_note_honesty,
+};
+pub use host_live_command_button_hunt_update_dual_world_empty_gate_residual_wave384::{
+    honesty_live_command_button_hunt_update_dual_world_empty_gate_method_names_residual_wave384,
+    honesty_live_command_button_hunt_update_dual_world_empty_gate_nav_commands_residual_wave384,
+    honesty_live_command_button_hunt_update_dual_world_empty_gate_residual_pack_wave384,
+    simulate_live_command_button_hunt_update_dual_world_empty_gate_honesty,
 };
 pub use host_live_command_cheer_science_log_residual_wave202::{
     honesty_live_command_cheer_science_log_method_names_residual_wave202,
