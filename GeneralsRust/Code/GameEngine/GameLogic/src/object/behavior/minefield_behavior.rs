@@ -30,6 +30,12 @@ use game_engine::common::thing::module::{
 };
 use std::sync::{Arc, RwLock, Weak};
 
+/// Wave 410: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const MIN_HEALTH: Real = 0.1;
 const LOGICFRAMES_PER_SECOND: UnsignedInt = 30;
 const MAX_IMMUNITY: usize = 3;
@@ -332,6 +338,11 @@ impl MinefieldBehavior {
     }
 
     fn owner(&self) -> Option<Arc<RwLock<GameObject>>> {
+        // Wave 410: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
@@ -523,6 +534,11 @@ impl MinefieldBehavior {
     fn update_internal(
         &mut self,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 410: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return Ok(UpdateSleepTime::None);
+        }
+
         let now = Self::current_frame();
 
         if self.scoot_frames_left > 0 {
@@ -615,6 +631,11 @@ impl MinefieldBehavior {
     }
 
     fn on_collide_internal(&mut self, other_id: ObjectID) {
+        // Wave 410: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
         if self.virtual_mines_remaining == 0 || self.scoot_frames_left > 0 {
             return;
         }
