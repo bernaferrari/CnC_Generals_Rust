@@ -29,6 +29,12 @@ use super::behavior_module::{
     xfer_behavior_module_base_versions, BridgeTowerBehaviorInterface, BridgeTowerType,
 };
 
+/// Wave 318: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const BRIDGE_MAX_TOWERS: usize = 4;
 
 /// BridgeTowerBehaviorModuleData - configuration container for bridge towers.
@@ -96,6 +102,11 @@ impl BridgeTowerBehavior {
         thing: Arc<dyn ModuleThing>,
         module_data: Arc<BridgeTowerBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 318: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".into());
+        }
+
         let module_object = thing
             .as_object()
             .ok_or_else(|| "BridgeTowerBehavior requires an owning object".to_string())?;
@@ -141,6 +152,11 @@ impl BridgeTowerBehavior {
     fn get_object(
         &self,
     ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 318: empty dual-world → fail closed.
+        if dual_world_registry_unavailable() {
+            return Err("dual-world object registry unavailable".into());
+        }
+
         let id = self.owner_object_id();
         if id == OBJECT_INVALID_ID {
             return Err("BridgeTowerBehavior missing owning object id".into());
@@ -151,6 +167,11 @@ impl BridgeTowerBehavior {
     }
 
     fn get_bridge_object(&self) -> Option<Arc<RwLock<GameObject>>> {
+        // Wave 318: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if self.bridge_id == OBJECT_INVALID_ID {
             None
         } else {
@@ -203,6 +224,11 @@ impl BridgeTowerBehavior {
         damage_info: &DamageInfo,
         damage_percentage: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 318: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if damage_percentage <= 0.0 {
             return Ok(());
         }
@@ -280,6 +306,11 @@ impl BridgeTowerBehavior {
         damage_info: &DamageInfo,
         healing_percentage: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 318: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         if healing_percentage <= 0.0 {
             return Ok(());
         }
