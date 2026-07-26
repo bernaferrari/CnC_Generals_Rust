@@ -121,13 +121,19 @@ pub fn honesty_cmd_filters_presentation_only_source() -> bool {
     !sell_win.contains("get_object(*id)")
 }
 
-/// Source residual: env hints gated on presentation freeze.
+/// Source residual: env hints presentation-only (Wave 455: no live GameLogic dual-read).
 pub fn honesty_env_hints_presentation_only_source() -> bool {
     let eng = include_str!("../cnc_game_engine.rs");
-    eng.matches("Wave 217: env hints presentation-only").count() >= 3
-        && eng.contains("let env_logic = if self.render_pipeline.presentation_frame().is_some()")
-        && eng.contains("Self::apply_heightmap_hint(&mut self.render_pipeline, env_logic)")
-        && eng.contains("Self::apply_skybox_hint(&mut self.render_pipeline, env_logic)")
+    // Wave 455 supersedes Wave 217 env_logic dual-read path.
+    eng.contains("fn ensure_presentation_env_for_hints")
+        && eng.contains("Wave 455: presentation-only env boundary")
+        && eng.contains(
+            "Self::ensure_presentation_env_for_hints(&mut self.render_pipeline, &self.game_logic)",
+        )
+        && eng.contains("Self::apply_heightmap_hint(&mut self.render_pipeline)")
+        && eng.contains("Self::apply_skybox_hint(&mut self.render_pipeline)")
+        && !eng.contains("Self::apply_heightmap_hint(&mut self.render_pipeline, env_logic)")
+        && !eng.contains("fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline, game_logic")
 }
 
 /// Live residual: source honesty pack latches.

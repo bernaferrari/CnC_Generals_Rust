@@ -6,8 +6,8 @@
 //! Architecture residual — heightmap/skybox/sync prefer presentation.
 //!
 //! Sources (repo architecture + cnc_game_engine.rs):
-//! - apply_heightmap_hint presentation-first
-//! - apply_skybox_hint early return on presentation
+//! - apply_heightmap_hint / apply_skybox_hint presentation-only (Wave 455)
+//! - ensure_presentation_env_for_hints seeds freeze when missing
 //! - sync_render_terrain_visual seeds PresentationFrame when missing
 //!
 //! Fail-closed:
@@ -42,8 +42,8 @@ pub const TERRAIN_ENV_BOUNDARY_METHOD_NAMES_WAVE159: &[&str] = &[
 
 /// Source residual markers that must remain presentation-first.
 pub const TERRAIN_ENV_BOUNDARY_SOURCE_MARKERS_WAVE159: &[&str] = &[
-    "Presentation-first boundary",
-    "Prefer presentation env when already installed",
+    "Wave 455: presentation-only env boundary",
+    "ensure_presentation_env_for_hints",
     "Only seed when no presentation is set yet",
     "world_env.heightmap_hint",
 ];
@@ -117,10 +117,10 @@ pub fn simulate_terrain_env_boundary_heightmap_source() -> bool {
         None => return false,
     };
     let body = &src[at..src.len().min(at + 1200)];
-    let ok = body.contains("Presentation-first boundary")
+    let ok = body.contains("Wave 455: presentation-only env boundary")
         && body.contains("presentation_frame()")
         && body.contains("world_env.heightmap_hint")
-        && !body.contains(".or_else(||")
+        && !body.contains("game_logic: Option<&GameLogic>")
         && !body.contains("heightmap_hint().and_then");
     residual_teb_action_store(ResidualTerrainEnvBoundaryAction::HeightmapSource);
     ok
@@ -134,10 +134,11 @@ pub fn simulate_terrain_env_boundary_skybox_source() -> bool {
         None => return false,
     };
     let body = &src[at..src.len().min(at + 1200)];
-    let ok = body.contains("Prefer presentation env when already installed")
+    let ok = body.contains("Wave 455: presentation-only env boundary")
         && body.contains("presentation_frame()")
         && body.contains("skybox_enabled")
-        && body.contains("return;");
+        && body.contains("world_env.skybox")
+        && !body.contains("game_logic: Option<&GameLogic>");
     residual_teb_action_store(ResidualTerrainEnvBoundaryAction::SkyboxSource);
     ok
 }
@@ -195,7 +196,7 @@ pub fn honesty_terrain_env_boundary_source_markers_residual_wave159() -> bool {
     TERRAIN_ENV_BOUNDARY_SOURCE_MARKERS_WAVE159.len() == 4
         && residual_name_index(
             TERRAIN_ENV_BOUNDARY_SOURCE_MARKERS_WAVE159,
-            "Presentation-first boundary",
+            "Wave 455: presentation-only env boundary",
         ) == Some(0)
         && residual_name_index(
             TERRAIN_ENV_BOUNDARY_SOURCE_MARKERS_WAVE159,
