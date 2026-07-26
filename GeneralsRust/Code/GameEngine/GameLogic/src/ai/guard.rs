@@ -17,6 +17,12 @@ use crate::terrain::get_terrain_logic;
 
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Wave 428: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 /// Close enough distance constant
 const CLOSE_ENOUGH: f32 = 25.0;
 /// Crate pickup range squared (matches AIPickUpCrateState)
@@ -352,6 +358,11 @@ impl ExitConditions {
     }
 
     pub fn should_exit(&self, machine: &StateMachine) -> bool {
+        // Wave 428: empty dual-world → false.
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
         let goal_object_id = machine.get_goal_object_id();
 
         if goal_object_id == crate::common::INVALID_ID {
@@ -1373,6 +1384,11 @@ impl ClassicState for AIGuardOuterState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 428: empty dual-world → Ok(Continue).
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Continue);
+        }
+
         let Some(attack_machine) = self.attack_machine.as_mut() else {
             return Ok(StateReturnType::Success);
         };
@@ -1656,6 +1672,11 @@ impl ClassicState for AIGuardPickUpCrateState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // Wave 428: empty dual-world → Ok(Continue).
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Continue);
+        }
+
         let owner = self
             .base
             .state()
