@@ -6456,6 +6456,23 @@ impl CnCGameEngine {
                     format!("click_live_spawn_point_production_exit_behavior_dual_world_empty_gate_miss_{action}")
                 };
             }
+            "click_live_build_placement_dual_world_empty_gate" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_build_placement_dual_world_empty_gate_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_build_placement_dual_world_empty_gate_residual_pack_wave418(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_build_placement_dual_world_empty_gate_ok_{action}")
+                } else {
+                    format!("click_live_build_placement_dual_world_empty_gate_miss_{action}")
+                };
+            }
             "click_live_ai_states_dual_world_empty_gate" => {
                 let action = args
                     .get("action")
