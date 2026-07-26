@@ -25,6 +25,12 @@ use game_engine::common::thing::module::{
     Module, ModuleData as EngineModuleData, NameKeyType as EngineNameKeyType, Thing as ModuleThing,
 };
 
+/// Wave 416: host-only path has no dual-world factory objects.
+#[inline]
+fn dual_world_registry_unavailable() -> bool {
+    crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
 const DAMAGE_MODULE_MAX_FX: usize = 12;
 const BODY_DAMAGE_TYPE_COUNT: usize = 4;
 const INVALID_PARTICLE_SYSTEM_ID: crate::common::ParticleSystemID = 0;
@@ -1069,6 +1075,11 @@ impl TransitionDamageFX {
     }
 
     fn resolve_damage_source_pos(damage_info: &DamageInfo) -> Option<Coord3D> {
+        // Wave 416: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+
         if damage_info.input.source_id == crate::common::INVALID_ID {
             return None;
         }
@@ -1250,6 +1261,11 @@ impl DamageModuleInterface for TransitionDamageFX {
         old_state: BodyDamageType,
         new_state: BodyDamageType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 416: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {

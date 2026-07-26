@@ -6422,6 +6422,23 @@ impl CnCGameEngine {
                     format!("click_live_damage_module_dual_world_empty_gate_miss_{action}")
                 };
             }
+            "click_live_transition_damage_fx_dual_world_empty_gate" => {
+                let action = args
+                    .get("action")
+                    .map(|v| v.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "prepare".to_string());
+                let ok = match action.as_str() {
+                    "live" | "prepare" => {
+                        crate::game_logic::simulate_live_transition_damage_fx_dual_world_empty_gate_honesty()
+                    }
+                    _ => crate::game_logic::honesty_live_transition_damage_fx_dual_world_empty_gate_residual_pack_wave416(),
+                };
+                self.runtime_host_last_gameplay_cmd = if ok {
+                    format!("click_live_transition_damage_fx_dual_world_empty_gate_ok_{action}")
+                } else {
+                    format!("click_live_transition_damage_fx_dual_world_empty_gate_miss_{action}")
+                };
+            }
             "click_live_ai_states_dual_world_empty_gate" => {
                 let action = args
                     .get("action")
