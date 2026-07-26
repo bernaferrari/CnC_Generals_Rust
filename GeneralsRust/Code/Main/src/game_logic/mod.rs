@@ -322,6 +322,7 @@ pub mod host_live_garrison_dual_world_empty_gate_residual_wave260;
 pub mod host_live_generate_minefield_behavior_dual_world_empty_gate_residual_wave386;
 pub mod host_live_golden_mopup_honesty_residual_wave208;
 pub mod host_live_grant_stealth_dual_world_empty_gate_residual_wave307;
+pub mod host_live_guard_dual_world_empty_gate_residual_wave428;
 pub mod host_live_hack_internet_ai_dual_world_empty_gate_residual_wave358;
 pub mod host_live_heal_contain_dual_world_empty_gate_residual_wave370;
 pub mod host_live_helix_contain_dual_world_empty_gate_residual_wave274;
@@ -2487,6 +2488,12 @@ pub use host_live_grant_stealth_dual_world_empty_gate_residual_wave307::{
     honesty_live_grant_stealth_dual_world_empty_gate_nav_commands_residual_wave307,
     honesty_live_grant_stealth_dual_world_empty_gate_residual_pack_wave307,
     simulate_live_grant_stealth_dual_world_empty_gate_honesty,
+};
+pub use host_live_guard_dual_world_empty_gate_residual_wave428::{
+    honesty_live_guard_dual_world_empty_gate_method_names_residual_wave428,
+    honesty_live_guard_dual_world_empty_gate_nav_commands_residual_wave428,
+    honesty_live_guard_dual_world_empty_gate_residual_pack_wave428,
+    simulate_live_guard_dual_world_empty_gate_honesty,
 };
 pub use host_live_hack_internet_ai_dual_world_empty_gate_residual_wave358::{
     honesty_live_hack_internet_ai_dual_world_empty_gate_method_names_residual_wave358,
