@@ -2216,6 +2216,11 @@ use crate::game_logic::host_live_fixed_step_diag_presentation_helper_residual_wa
     honesty_fixed_step_diag_presentation_helper_nav_commands_residual_wave564,
     simulate_live_fixed_step_diag_presentation_helper_honesty,
 };
+use crate::game_logic::host_live_construct_template_presentation_helper_residual_wave565::{
+    honesty_construct_template_presentation_helper_method_names_residual_wave565,
+    honesty_construct_template_presentation_helper_nav_commands_residual_wave565,
+    simulate_live_construct_template_presentation_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5626,6 +5631,9 @@ pub struct ShellSmokeResult {
     pub fixed_step_diag_presentation_helper_method_names_wave564_ok: bool,
     pub fixed_step_diag_presentation_helper_nav_commands_wave564_ok: bool,
     pub fixed_step_diag_presentation_helper_live_wave564_ok: bool,
+    pub construct_template_presentation_helper_method_names_wave565_ok: bool,
+    pub construct_template_presentation_helper_nav_commands_wave565_ok: bool,
+    pub construct_template_presentation_helper_live_wave565_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8767,6 +8775,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_fixed_step_diag_presentation_helper_nav_commands_residual_wave564();
     let fixed_step_diag_presentation_helper_live_wave564_ok =
         simulate_live_fixed_step_diag_presentation_helper_honesty();
+    let construct_template_presentation_helper_method_names_wave565_ok =
+        honesty_construct_template_presentation_helper_method_names_residual_wave565();
+    let construct_template_presentation_helper_nav_commands_wave565_ok =
+        honesty_construct_template_presentation_helper_nav_commands_residual_wave565();
+    let construct_template_presentation_helper_live_wave565_ok =
+        simulate_live_construct_template_presentation_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10448,6 +10462,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         fixed_step_diag_presentation_helper_method_names_wave564_ok,
         fixed_step_diag_presentation_helper_nav_commands_wave564_ok,
         fixed_step_diag_presentation_helper_live_wave564_ok,
+        construct_template_presentation_helper_method_names_wave565_ok,
+        construct_template_presentation_helper_nav_commands_wave565_ok,
+        construct_template_presentation_helper_live_wave565_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -19178,6 +19195,21 @@ mod tests {
         assert!(
             r.fixed_step_diag_presentation_helper_live_wave564_ok,
             "fixed-step diag presentation helper live residual wave564: {}",
+            r.detail
+        );
+        assert!(
+            r.construct_template_presentation_helper_method_names_wave565_ok,
+            "construct template presentation helper method names residual pack wave565: {}",
+            r.detail
+        );
+        assert!(
+            r.construct_template_presentation_helper_nav_commands_wave565_ok,
+            "construct template presentation helper nav commands residual pack wave565: {}",
+            r.detail
+        );
+        assert!(
+            r.construct_template_presentation_helper_live_wave565_ok,
+            "construct template presentation helper live residual wave565: {}",
             r.detail
         );
         assert!(

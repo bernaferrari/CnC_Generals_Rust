@@ -11332,9 +11332,10 @@ impl CnCGameEngine {
                         "AmericaBarracks",
                         "Barracks",
                     ];
+                    // Wave 565: template residual prefers presentation freeze names.
                     let template = candidates
                         .iter()
-                        .find(|n| self.game_logic.templates.contains_key(**n))
+                        .find(|n| self.presentation_or_boot_has_template(**n))
                         .map(|s| (*s).to_string())
                         .unwrap_or(requested);
                     // Wave 220: team via presentation-first local_team_for_ui.
@@ -11383,7 +11384,10 @@ impl CnCGameEngine {
                                 + glam::Vec3::new(25.0, 0.0, 0.0)
                         };
                         for name in ["USA_Dozer", "AmericaVehicleDozer", "GoldenDozer"] {
-                            if !self.game_logic.templates.contains_key(name) {
+                            // Wave 565: freeze owns known names; host still sees live inserts.
+                            if !self.presentation_or_boot_has_template(name)
+                                && !self.game_logic.templates.contains_key(name)
+                            {
                                 continue;
                             }
                             if let Some(id) = self.game_logic.create_object(name, team, spawn_at) {
@@ -11394,6 +11398,7 @@ impl CnCGameEngine {
                         }
                     }
                     let Some(builder) = builders.first().copied() else {
+                        // Wave 217: presentation required for construct builder identity.
                         self.runtime_host_last_gameplay_cmd = "construct_fail_no_dozer".into();
                         return;
                     };
@@ -18394,11 +18399,12 @@ impl CnCGameEngine {
         (d.steps_run as u32, d.budget_hit, d.accumulated_time_seconds)
     }
 
-    /// Wave 563: presentation freeze owns template-name residual when installed.
-    /// Boot residual without freeze uses host `templates.contains_key`.
+    /// Wave 563/565: presentation freeze owns template-name residual when installed
+    /// (train + construct). Boot residual without freeze uses host `templates.contains_key`.
     #[inline]
     fn presentation_or_boot_has_template(&self, name: &str) -> bool {
         // Wave 563: presentation freeze owns template-name residual when installed.
+        // Wave 565: construct residual shares this helper with train.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return pres.has_template_name(name);
         }
