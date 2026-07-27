@@ -553,6 +553,8 @@ pub struct Entity {
     pub armed_riders_upgrade_weapon_set: bool,
     /// Host Object::weapon_set_player_upgrade residual.
     pub weapon_set_player_upgrade: bool,
+    /// C++ ARMORSET_SECOND_LIFE residual.
+    pub second_life: bool,
     /// Host Object::is_battle_bus_transport residual.
     pub is_battle_bus_transport: bool,
     /// Host Object::is_technical_transport residual.
@@ -1060,6 +1062,7 @@ impl EntityStore {
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
+            second_life: false,
             is_battle_bus_transport: false,
             is_technical_transport: false,
             is_combat_cycle_transport: false,

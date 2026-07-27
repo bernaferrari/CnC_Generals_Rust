@@ -262,6 +262,7 @@ pub struct RenderableObject {
     pub formation_offset: glam::Vec2,
     /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
     pub over_water: bool,
+    /// Wave 523: stamp STUNNED_FLAILING / SECOND_LIFE / POST_COLLAPSE / SPECIAL_DAMAGED.
     /// Wave 522: C++ terrain cell cliff residual.
     pub cell_is_cliff: bool,
     /// Wave 522: C++ terrain cell underwater residual.
@@ -410,6 +411,8 @@ pub struct RenderableObject {
     pub armed_riders_upgrade_weapon_set: bool,
     /// Host weapon_set_player_upgrade residual.
     pub weapon_set_player_upgrade: bool,
+    /// Wave 523: C++ ARMORSET_SECOND_LIFE / battle bus second life residual.
+    pub second_life: bool,
     /// Wave 518: C++ weapon_crate_upgrade residual (0/1/2).
     pub weapon_crate_upgrade: u8,
     /// Wave 518: C++ armor_crate_upgrade residual (0/1/2).
@@ -718,6 +721,8 @@ pub struct UnitRenderInput {
     pub cell_is_underwater: bool,
     /// Wave 508: any host disable residual that blocks acting (stun pose).
     pub disabled: bool,
+    /// Wave 523: second-life residual.
+    pub second_life: bool,
     /// Wave 509: parachute open residual (with parachuting => freefall when false).
     pub parachute_open: bool,
     /// Wave 509: world snow residual stamped into mesh model-condition.
@@ -824,6 +829,7 @@ impl UnitRenderInput {
             cell_is_cliff: ro.cell_is_cliff,
             cell_is_underwater: ro.cell_is_underwater,
             disabled: ro.disabled,
+            second_life: ro.second_life,
             parachute_open: ro.parachute_open,
             world_is_snow: false,
             world_is_night: false,
@@ -1342,10 +1348,34 @@ impl UnitRenderInput {
                 bits &= !(1u128 << dis_b);
             }
             let stun_b = stunned_model_bit();
-            if self.disabled {
+            use crate::game_logic::host_enum_table_residual::{
+                post_collapse_model_bit, second_life_model_bit, special_damaged_model_bit,
+                stunned_flailing_model_bit,
+            };
+            let flail_b = stunned_flailing_model_bit();
+            let life_b = second_life_model_bit();
+            let post_b = post_collapse_model_bit();
+            let spec_b = special_damaged_model_bit();
+            for b in [stun_b, flail_b, life_b, post_b, spec_b] {
+                bits &= !(1u128 << b);
+            }
+            // Wave 523: shock stun frames => STUNNED_FLAILING; disabled => STUNNED.
+            if self.shock_stun_frames > 0 {
+                bits |= 1u128 << flail_b;
                 bits |= 1u128 << stun_b;
-            } else {
-                bits &= !(1u128 << stun_b);
+            } else if self.disabled {
+                bits |= 1u128 << stun_b;
+            }
+            if self.second_life {
+                bits |= 1u128 << life_b;
+            }
+            // Structure rubble after destroy residual.
+            if self.is_structure && self.destroyed && self.body_damage_state >= 3 {
+                bits |= 1u128 << post_b;
+            }
+            // Special damaged: really-damaged structures still standing.
+            if self.is_structure && self.body_damage_state == 2 && !self.destroyed {
+                bits |= 1u128 << spec_b;
             }
         }
         // Wave 509: toppled / freefall / night / snow model-condition residual.
@@ -3644,6 +3674,8 @@ impl PresentationFrame {
                     .unwrap_or(0.0),
                 armed_riders_upgrade_weapon_set: obj.armed_riders_upgrade_weapon_set,
                 weapon_set_player_upgrade: obj.weapon_set_player_upgrade,
+                // Wave 523: battle-bus / armor second-life residual.
+                second_life: obj.armor_set_second_life,
                 // Wave 518: crate upgrades + enemy-near + armed residual.
                 weapon_crate_upgrade: obj.weapon_crate_upgrade,
                 armor_crate_upgrade: obj.armor_crate_upgrade,
@@ -6353,6 +6385,10 @@ impl PresentationFrame {
                 obj.weapon_set_player_upgrade = ent.weapon_set_player_upgrade;
                 dirty = true;
             }
+            if obj.second_life != ent.second_life {
+                obj.second_life = ent.second_life;
+                dirty = true;
+            }
             if obj.weapon_crate_upgrade != ent.weapon_crate_upgrade {
                 obj.weapon_crate_upgrade = ent.weapon_crate_upgrade;
                 dirty = true;
@@ -7209,6 +7245,7 @@ impl PresentationFrame {
             weapon_projectile_speed: ent.weapon_projectile_speed,
             armed_riders_upgrade_weapon_set: ent.armed_riders_upgrade_weapon_set,
             weapon_set_player_upgrade: ent.weapon_set_player_upgrade,
+            second_life: ent.second_life,
             weapon_crate_upgrade: ent.weapon_crate_upgrade,
             armor_crate_upgrade: ent.armor_crate_upgrade,
             enemy_near: ent.enemy_near,
@@ -9284,6 +9321,7 @@ mod tests {
             is_panicking: false,
             moving_backwards: false,
             weapon_set_player_upgrade: false,
+            second_life: false,
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
             enemy_near: false,
