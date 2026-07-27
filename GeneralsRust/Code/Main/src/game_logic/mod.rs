@@ -257,6 +257,7 @@ pub mod host_live_build_placement_dual_world_empty_gate_residual_wave418;
 pub mod host_live_bunker_buster_dual_world_empty_gate_residual_wave334;
 pub mod host_live_camera_bootstrap_presentation_only_residual_wave473;
 pub mod host_live_camera_center_presentation_height_residual_wave460;
+pub mod host_live_camera_follow_presentation_fail_closed_residual_wave548;
 pub mod host_live_camera_height_probe_residual_wave241;
 pub mod host_live_cancel_all_production_queue_refresh_residual_wave484;
 pub mod host_live_cancel_clears_exit_delay_residual_wave485;
@@ -2226,6 +2227,15 @@ pub use host_live_camera_bootstrap_presentation_only_residual_wave473::{
     CAMERA_BOOTSTRAP_PRESENTATION_ONLY_NAV_STEPS_WAVE473,
     CAMERA_BOOTSTRAP_PRESENTATION_ONLY_SOURCE_MARKERS_WAVE473,
     RUNTIME_HOST_CAMERA_BOOTSTRAP_PRESENTATION_ONLY_CMD_NAMES_WAVE473,
+};
+pub use host_live_camera_follow_presentation_fail_closed_residual_wave548::{
+    honesty_camera_follow_presentation_fail_closed_method_names_residual_wave548,
+    honesty_camera_follow_presentation_fail_closed_nav_commands_residual_wave548,
+    honesty_camera_follow_presentation_fail_closed_residual_pack_wave548,
+    honesty_camera_follow_presentation_fail_closed_source_markers_residual_wave548,
+    residual_camera_follow_presentation_fail_closed_last_action,
+    residual_camera_follow_presentation_fail_closed_ok,
+    simulate_live_camera_follow_presentation_fail_closed_honesty,
 };
 pub use host_live_cancel_all_production_queue_refresh_residual_wave484::{
     honesty_cancel_all_production_queue_refresh_method_names_residual_wave484,
