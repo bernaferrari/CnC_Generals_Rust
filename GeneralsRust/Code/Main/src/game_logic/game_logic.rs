@@ -26127,6 +26127,23 @@ impl GameLogic {
     /// applies presentation bookkeeping residual via record_host_weapon_set.
     /// Wave 643: GameWorld combat-attack writeback records dirty objects; host
     /// applies presentation bookkeeping residual via record_host_combat_attack.
+    /// Wave 644: GameWorld command-set writeback records dirty objects; host
+    /// applies presentation bookkeeping residual via record_host_command_set.
+    pub fn host_apply_command_set_ready_completions(&mut self) -> usize {
+        // Wave 644: GameWorld command-set writeback records dirty objects; host
+        // applies presentation bookkeeping residual via record_host_command_set.
+        let events = crate::game_logic::host_command_set_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            obj.record_host_command_set();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_combat_attack_ready_completions(&mut self) -> usize {
         // Wave 643: GameWorld combat-attack writeback records dirty objects; host
         // applies presentation bookkeeping residual via record_host_combat_attack.
