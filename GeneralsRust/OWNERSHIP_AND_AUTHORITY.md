@@ -123,7 +123,7 @@ The gamelogic crate still stores factory objects behind `Arc<RwLock<_>>` for leg
 Host `GameLogic::update_simulation` now owns path follow, projectile drain/step, combat fire, and AI (`update_ai` + `THE_AI` / skirmish AI manager). Engine no longer mid-frame double-steps path or a dual `CombatSystem`.
 
 Remaining engine residual after host update:
-- GameWorld shadow session (last-writer HP/cash/pose/targets/move; production progress sole-tick under PRODUCTION_AUTHORITY (host completes/spawns via `apply_*_production_completions`; Wave 595))
+- GameWorld shadow session (last-writer HP/cash/pose/targets/move; production progress sole-tick under PRODUCTION_AUTHORITY (host completes/spawns via `host_apply_*_production_completions`; Waves 595/608))
 - Presentation build + client/render orchestration:
   - Post-logic finalize: `host_finalize_presentation_after_logic` (build + audio dispatch + particle mirror + FPS; Wave 589)
   - Seeds: match-start / boot-render / pipeline-env via host presentation seed helpers (Wave 590)
@@ -148,6 +148,7 @@ Remaining engine residual after host update:
   - Presentation UI notify: `host_notify_presentation_ui_message` (Wave 606)
   - Presentation/boot drains: `host_take_presentation_or_boot_*` (Wave 607)
   - UI player/camera probes: `host_local_*` / `host_ui_*` (Wave 607)
+  - Production complete apply: `host_apply_*_production_completions` (Wave 608; host still spawns)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep

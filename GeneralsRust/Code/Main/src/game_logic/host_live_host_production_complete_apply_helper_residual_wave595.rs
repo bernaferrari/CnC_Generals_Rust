@@ -139,11 +139,15 @@ pub fn honesty_host_production_complete_apply_helper_source_markers_residual_wav
         residual_action_store(ResidualHostProductionCompleteApplyHelperAction::SourceMarkers);
         return false;
     };
-    let Some(upgrade) = fn_body(gl, "fn apply_upgrade_production_completions(") else {
+    let Some(upgrade) = fn_body(gl, "fn host_apply_upgrade_production_completions(")
+        .or_else(|| fn_body(gl, "fn apply_upgrade_production_completions("))
+    else {
         residual_action_store(ResidualHostProductionCompleteApplyHelperAction::SourceMarkers);
         return false;
     };
-    let Some(unit) = fn_body(gl, "fn apply_unit_production_completions(") else {
+    let Some(unit) = fn_body(gl, "fn host_apply_unit_production_completions(")
+        .or_else(|| fn_body(gl, "fn apply_unit_production_completions("))
+    else {
         residual_action_store(ResidualHostProductionCompleteApplyHelperAction::SourceMarkers);
         return false;
     };
@@ -200,7 +204,8 @@ pub fn simulate_host_production_complete_apply_helper_dispatch_source() -> bool 
     let gl = gl_source();
     let ok = gl.contains("self.apply_upgrade_production_completions(upgrade_completions)")
         && gl.contains("self.apply_unit_production_completions(unit_completions)")
-        && gl.contains("Wave 595: host production complete/spawn apply residual");
+        && (gl.contains("Wave 595: host production complete/spawn apply residual")
+            || gl.contains("Wave 595/608: host production complete/spawn apply residual"));
     residual_action_store(ResidualHostProductionCompleteApplyHelperAction::DispatchSource);
     ok
 }
