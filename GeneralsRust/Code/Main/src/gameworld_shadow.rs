@@ -1022,6 +1022,7 @@ impl GameWorldShadow {
                     e.passengers_allowed_to_fire = obj.passengers_allowed_to_fire;
                     e.armed_riders_upgrade_weapon_set = obj.armed_riders_upgrade_weapon_set;
                     e.weapon_set_player_upgrade = obj.weapon_set_player_upgrade;
+                    e.second_life = obj.armor_set_second_life;
                     e.is_battle_bus_transport = obj.is_battle_bus_transport;
                     e.is_technical_transport = obj.is_technical_transport;
                     e.is_combat_cycle_transport = obj.is_combat_cycle_transport;
@@ -1391,6 +1392,7 @@ impl GameWorldShadow {
                 e.passengers_allowed_to_fire = obj.passengers_allowed_to_fire;
                 e.armed_riders_upgrade_weapon_set = obj.armed_riders_upgrade_weapon_set;
                 e.weapon_set_player_upgrade = obj.weapon_set_player_upgrade;
+                e.second_life = obj.armor_set_second_life;
                 e.is_battle_bus_transport = obj.is_battle_bus_transport;
                 e.is_technical_transport = obj.is_technical_transport;
                 e.is_combat_cycle_transport = obj.is_combat_cycle_transport;

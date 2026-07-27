@@ -453,6 +453,7 @@ pub mod host_live_presentation_overlay_stamp_residual_wave190;
 pub mod host_live_presentation_poison_defector_tint_residual_wave499;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
 pub mod host_live_presentation_script_camera_probe_residual_wave252;
+pub mod host_live_presentation_second_life_stun_residual_wave523;
 pub mod host_live_presentation_seed_residual_wave171;
 pub mod host_live_presentation_shock_power_jet_residual_wave519;
 pub mod host_live_presentation_stealth_mesh_residual_wave502;
@@ -2365,6 +2366,15 @@ pub use host_live_presentation_cliff_flood_residual_wave522::{
     residual_presentation_cliff_flood_last_action, residual_presentation_cliff_flood_ok,
     simulate_live_presentation_cliff_flood_honesty,
 };
+pub use host_live_presentation_second_life_stun_residual_wave523::{
+    honesty_presentation_second_life_stun_method_names_residual_wave523,
+    honesty_presentation_second_life_stun_nav_commands_residual_wave523,
+    honesty_presentation_second_life_stun_residual_pack_wave523,
+    honesty_presentation_second_life_stun_source_markers_residual_wave523,
+    residual_presentation_second_life_stun_last_action, residual_presentation_second_life_stun_ok,
+    simulate_live_presentation_second_life_stun_honesty,
+};
+
 pub use host_live_presentation_dock_rider_residual_wave521::{
     honesty_presentation_dock_rider_method_names_residual_wave521,
     honesty_presentation_dock_rider_nav_commands_residual_wave521,

@@ -730,6 +730,23 @@ pub fn disguised_model_bit() -> u32 {
 pub fn stunned_model_bit() -> u32 {
     model_condition_bit_name_index("STUNNED").unwrap_or(0) as u32
 }
+
+/// C++ MODELCONDITION_STUNNED_FLAILING residual bit index.
+pub fn stunned_flailing_model_bit() -> u32 {
+    model_condition_bit_name_index("STUNNED_FLAILING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_SECOND_LIFE residual bit index.
+pub fn second_life_model_bit() -> u32 {
+    model_condition_bit_name_index("SECOND_LIFE").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_POST_COLLAPSE residual bit index.
+pub fn post_collapse_model_bit() -> u32 {
+    model_condition_bit_name_index("POST_COLLAPSE").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_SPECIAL_DAMAGED residual bit index.
+pub fn special_damaged_model_bit() -> u32 {
+    model_condition_bit_name_index("SPECIAL_DAMAGED").unwrap_or(0) as u32
+}
 /// C++ MODELCONDITION_TOPPLED residual bit index.
 pub fn toppled_model_bit() -> u32 {
     model_condition_bit_name_index("TOPPLED").unwrap_or(0) as u32
