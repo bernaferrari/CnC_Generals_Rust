@@ -2251,6 +2251,11 @@ use crate::game_logic::host_live_popup_music_helper_residual_wave571::{
     honesty_popup_music_helper_nav_commands_residual_wave571,
     simulate_live_popup_music_helper_honesty,
 };
+use crate::game_logic::host_live_boot_camera_helper_residual_wave572::{
+    honesty_boot_camera_helper_method_names_residual_wave572,
+    honesty_boot_camera_helper_nav_commands_residual_wave572,
+    simulate_live_boot_camera_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5682,6 +5687,9 @@ pub struct ShellSmokeResult {
     pub popup_music_helper_method_names_wave571_ok: bool,
     pub popup_music_helper_nav_commands_wave571_ok: bool,
     pub popup_music_helper_live_wave571_ok: bool,
+    pub boot_camera_helper_method_names_wave572_ok: bool,
+    pub boot_camera_helper_nav_commands_wave572_ok: bool,
+    pub boot_camera_helper_live_wave572_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8859,6 +8867,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let popup_music_helper_nav_commands_wave571_ok =
         honesty_popup_music_helper_nav_commands_residual_wave571();
     let popup_music_helper_live_wave571_ok = simulate_live_popup_music_helper_honesty();
+    let boot_camera_helper_method_names_wave572_ok =
+        honesty_boot_camera_helper_method_names_residual_wave572();
+    let boot_camera_helper_nav_commands_wave572_ok =
+        honesty_boot_camera_helper_nav_commands_residual_wave572();
+    let boot_camera_helper_live_wave572_ok = simulate_live_boot_camera_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10561,6 +10574,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         popup_music_helper_method_names_wave571_ok,
         popup_music_helper_nav_commands_wave571_ok,
         popup_music_helper_live_wave571_ok,
+        boot_camera_helper_method_names_wave572_ok,
+        boot_camera_helper_nav_commands_wave572_ok,
+        boot_camera_helper_live_wave572_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -19396,6 +19412,21 @@ mod tests {
         assert!(
             r.popup_music_helper_live_wave571_ok,
             "popup/music helper live residual wave571: {}",
+            r.detail
+        );
+        assert!(
+            r.boot_camera_helper_method_names_wave572_ok,
+            "boot camera helper method names residual pack wave572: {}",
+            r.detail
+        );
+        assert!(
+            r.boot_camera_helper_nav_commands_wave572_ok,
+            "boot camera helper nav commands residual pack wave572: {}",
+            r.detail
+        );
+        assert!(
+            r.boot_camera_helper_live_wave572_ok,
+            "boot camera helper live residual wave572: {}",
             r.detail
         );
         assert!(

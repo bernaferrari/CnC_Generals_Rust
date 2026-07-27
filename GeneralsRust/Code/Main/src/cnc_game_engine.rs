@@ -17874,13 +17874,21 @@ impl CnCGameEngine {
         // Prefer presentation-frozen camera residual when a frame is installed (InGame).
         // Live take_* path is boot/menu residual only. Fail-closed: ease curves not frozen
         // on PresentationFrame (duration-only zoom/pitch/rotate).
+        // Wave 572: freeze vs boot split via helpers.
         if let Some(pres) = self.last_presentation_frame.clone() {
             self.apply_presentation_camera_residual(&pres);
             // Drain live queues so peeked presentation fields are not re-applied next frame.
             self.drain_live_camera_request_queues();
             return;
         }
+        // Wave 572: boot residual camera via helper (no presentation freeze).
+        self.apply_boot_camera_residual();
+    }
 
+    /// Wave 572: boot residual camera — live take_* dual-reads when no presentation freeze.
+    /// Presentation path uses `apply_presentation_camera_residual` + drain.
+    fn apply_boot_camera_residual(&mut self) {
+        // Wave 572: boot residual only.
         if let Some(focus) = self.game_logic.take_camera_focus_request() {
             self.center_camera_on(focus);
         }
@@ -18069,6 +18077,7 @@ impl CnCGameEngine {
     }
 
     /// Apply camera residual frozen on `PresentationFrame` (no live take dual-read).
+    /// Wave 572: pairs with `apply_boot_camera_residual` for freeze/boot split.
     fn apply_presentation_camera_residual(
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
