@@ -262,6 +262,7 @@ pub struct RenderableObject {
     pub formation_offset: glam::Vec2,
     /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
     pub over_water: bool,
+    /// Wave 525: FRONTCRUSHED/BACKCRUSHED/PREORDER/USER_1/USER_2 residual.
     /// Wave 524: multi-door DOOR_2..4 banks + SMOLDERING residual.
     /// Wave 523: stamp STUNNED_FLAILING / SECOND_LIFE / POST_COLLAPSE / SPECIAL_DAMAGED.
     /// Wave 522: C++ terrain cell cliff residual.
@@ -414,6 +415,14 @@ pub struct RenderableObject {
     pub weapon_set_player_upgrade: bool,
     /// Wave 523: C++ ARMORSET_SECOND_LIFE / battle bus second life residual.
     pub second_life: bool,
+    /// Wave 525: C++ front crushed residual.
+    pub front_crushed: bool,
+    /// Wave 525: C++ back crushed residual.
+    pub back_crushed: bool,
+    /// Wave 525: host model-condition USER_1 residual.
+    pub user_1: bool,
+    /// Wave 525: host model-condition USER_2 residual.
+    pub user_2: bool,
     /// Wave 518: C++ weapon_crate_upgrade residual (0/1/2).
     pub weapon_crate_upgrade: u8,
     /// Wave 518: C++ armor_crate_upgrade residual (0/1/2).
@@ -724,6 +733,14 @@ pub struct UnitRenderInput {
     pub disabled: bool,
     /// Wave 523: second-life residual.
     pub second_life: bool,
+    /// Wave 525: front crushed residual.
+    pub front_crushed: bool,
+    /// Wave 525: back crushed residual.
+    pub back_crushed: bool,
+    /// Wave 525: USER_1 model residual.
+    pub user_1: bool,
+    /// Wave 525: USER_2 model residual.
+    pub user_2: bool,
     /// Wave 509: parachute open residual (with parachuting => freefall when false).
     pub parachute_open: bool,
     /// Wave 509: world snow residual stamped into mesh model-condition.
@@ -831,6 +848,10 @@ impl UnitRenderInput {
             cell_is_underwater: ro.cell_is_underwater,
             disabled: ro.disabled,
             second_life: ro.second_life,
+            front_crushed: ro.front_crushed,
+            back_crushed: ro.back_crushed,
+            user_1: ro.user_1,
+            user_2: ro.user_2,
             parachute_open: ro.parachute_open,
             world_is_snow: false,
             world_is_night: false,
@@ -1499,6 +1520,38 @@ impl UnitRenderInput {
             {
                 bits |= 1u128 << smolder_b;
             }
+            // Wave 525: FRONTCRUSHED / BACKCRUSHED / PREORDER / USER_1 / USER_2 residual bits.
+            {
+                use crate::game_logic::host_enum_table_residual::{
+                    backcrushed_model_bit, frontcrushed_model_bit, preorder_model_bit,
+                    user_1_model_bit, user_2_model_bit,
+                };
+                let fc = frontcrushed_model_bit();
+                let bc = backcrushed_model_bit();
+                let pre = preorder_model_bit();
+                let u1 = user_1_model_bit();
+                let u2 = user_2_model_bit();
+                for b in [fc, bc, pre, u1, u2] {
+                    bits &= !(1u128 << b);
+                }
+                if self.front_crushed {
+                    bits |= 1u128 << fc;
+                }
+                if self.back_crushed {
+                    bits |= 1u128 << bc;
+                }
+                if self.user_1 {
+                    bits |= 1u128 << u1;
+                }
+                if self.user_2 {
+                    bits |= 1u128 << u2;
+                }
+                // PREORDER residual: structures under construction still building.
+                if self.is_structure && self.under_construction && self.construction_percent < 1.0 {
+                    bits |= 1u128 << pre;
+                }
+            }
+
             let cheer_b = special_cheering_model_bit();
             let infantry = matches!(self.object_type, PresentationObjectType::Infantry);
             if self.using_ability && infantry {
@@ -3724,6 +3777,15 @@ impl PresentationFrame {
                 weapon_set_player_upgrade: obj.weapon_set_player_upgrade,
                 // Wave 523: battle-bus / armor second-life residual.
                 second_life: obj.armor_set_second_life,
+                // Wave 525: crush + USER model-condition residuals.
+                front_crushed: obj.front_crushed,
+                back_crushed: obj.back_crushed,
+                user_1: (obj.model_condition_bits
+                    & (1u128 << crate::game_logic::host_enum_table_residual::user_1_model_bit()))
+                    != 0,
+                user_2: (obj.model_condition_bits
+                    & (1u128 << crate::game_logic::host_enum_table_residual::user_2_model_bit()))
+                    != 0,
                 // Wave 518: crate upgrades + enemy-near + armed residual.
                 weapon_crate_upgrade: obj.weapon_crate_upgrade,
                 armor_crate_upgrade: obj.armor_crate_upgrade,
@@ -6437,6 +6499,22 @@ impl PresentationFrame {
                 obj.second_life = ent.second_life;
                 dirty = true;
             }
+            if obj.front_crushed != ent.front_crushed {
+                obj.front_crushed = ent.front_crushed;
+                dirty = true;
+            }
+            if obj.back_crushed != ent.back_crushed {
+                obj.back_crushed = ent.back_crushed;
+                dirty = true;
+            }
+            if obj.user_1 != ent.user_1 {
+                obj.user_1 = ent.user_1;
+                dirty = true;
+            }
+            if obj.user_2 != ent.user_2 {
+                obj.user_2 = ent.user_2;
+                dirty = true;
+            }
             if obj.weapon_crate_upgrade != ent.weapon_crate_upgrade {
                 obj.weapon_crate_upgrade = ent.weapon_crate_upgrade;
                 dirty = true;
@@ -7294,6 +7372,10 @@ impl PresentationFrame {
             armed_riders_upgrade_weapon_set: ent.armed_riders_upgrade_weapon_set,
             weapon_set_player_upgrade: ent.weapon_set_player_upgrade,
             second_life: ent.second_life,
+            front_crushed: ent.front_crushed,
+            back_crushed: ent.back_crushed,
+            user_1: ent.user_1,
+            user_2: ent.user_2,
             weapon_crate_upgrade: ent.weapon_crate_upgrade,
             armor_crate_upgrade: ent.armor_crate_upgrade,
             enemy_near: ent.enemy_near,
@@ -9370,6 +9452,10 @@ mod tests {
             moving_backwards: false,
             weapon_set_player_upgrade: false,
             second_life: false,
+            front_crushed: false,
+            back_crushed: false,
+            user_1: false,
+            user_2: false,
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
             enemy_near: false,
