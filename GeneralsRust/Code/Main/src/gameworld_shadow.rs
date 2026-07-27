@@ -6221,6 +6221,7 @@ impl GameWorldShadow {
     pub fn writeback_movement_to_host(&self, logic: &mut GameLogic) -> usize {
         use glam::Vec3;
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6301,7 +6302,13 @@ impl GameWorldShadow {
             obj.is_blocked = ent.is_blocked;
             obj.move_away_from = ent.move_away_from_id.map(ObjectId);
             obj.requested_victim_id = ent.requested_victim_id.map(ObjectId);
+            // Wave 637: GameWorld movement last-write residual —
+            // host applies path/presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_movement_ready_log::record(oid);
         }
         updated
     }
@@ -7791,6 +7798,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 630: drain AI-state ready log after GW writeback.
         let _ai_st_ready = logic.host_apply_ai_state_ready_completions();
         let _ = shadow.writeback_movement_to_host(logic);
+        // Wave 637: drain movement ready log after GW writeback.
+        let _mv_ready = logic.host_apply_movement_ready_completions();
     } else {
         let _ =
             shadow.apply_host_ai_decision_events(&crate::game_logic::host_ai_decision_log::drain());
@@ -7894,6 +7903,8 @@ pub fn shadow_session_after_host_tick(
     // (do not gate on damage-channel auth — path frames often have empty damage logs).
     if gameworld_movement_authority_enabled() {
         let _mv_wb = shadow.writeback_movement_to_host(logic);
+        // Wave 637: drain movement ready log after GW writeback.
+        let _mv_ready = logic.host_apply_movement_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
@@ -8032,6 +8043,8 @@ pub fn shadow_session_after_host_tick(
         let _ws_ready = logic.host_apply_weapon_stats_ready_completions();
         let _ = shadow.writeback_fire_intent_to_host(logic);
         let _mv_wb = shadow.writeback_movement_to_host(logic);
+        // Wave 637: drain movement ready log after GW writeback.
+        let _mv_ready = logic.host_apply_movement_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
@@ -12056,6 +12069,7 @@ mod tests {
             e.path_waypoints = vec![[1.0, 0.0, 1.0], [2.0, 0.0, 2.0]];
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_movement_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -15543,6 +15557,7 @@ mod tests {
             o.waiting_for_path = false;
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_movement_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -15626,6 +15641,7 @@ mod tests {
             o.waiting_for_path = false;
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_movement_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -15769,6 +15785,7 @@ mod tests {
             o.requested_victim_id = None;
         }
         assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_movement_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);

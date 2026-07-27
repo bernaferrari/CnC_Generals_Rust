@@ -26113,6 +26113,25 @@ impl GameLogic {
     /// applies presentation bookkeeping residual via record_host_weapon_stats.
     /// Wave 636: GameWorld transform writeback records dirty objects; host
     /// applies movement/presentation bookkeeping residual.
+    /// Wave 637: GameWorld movement writeback records dirty objects; host
+    /// applies path/presentation bookkeeping residual via record_host_movement.
+    pub fn host_apply_movement_ready_completions(&mut self) -> usize {
+        // Wave 637: GameWorld movement writeback records dirty objects; host
+        // applies path/presentation bookkeeping residual via record_host_movement.
+        let events = crate::game_logic::host_movement_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            // Movement already writeback-synced; re-record host movement log
+            // for presentation / path consumers.
+            obj.record_host_movement();
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_transform_ready_completions(&mut self) -> usize {
         // Wave 636: GameWorld transform writeback records dirty objects; host
         // applies movement/presentation bookkeeping residual.
