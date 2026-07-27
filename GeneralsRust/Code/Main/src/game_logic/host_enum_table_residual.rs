@@ -610,6 +610,23 @@ pub fn jetafterburner_model_bit() -> u32 {
 pub fn exploded_flailing_model_bit() -> u32 {
     model_condition_bit_name_index("EXPLODED_FLAILING").unwrap_or(0) as u32
 }
+
+/// C++ MODELCONDITION_CENTER_TO_LEFT residual bit index.
+pub fn center_to_left_model_bit() -> u32 {
+    model_condition_bit_name_index("CENTER_TO_LEFT").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_CENTER_TO_RIGHT residual bit index.
+pub fn center_to_right_model_bit() -> u32 {
+    model_condition_bit_name_index("CENTER_TO_RIGHT").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_LEFT_TO_CENTER residual bit index.
+pub fn left_to_center_model_bit() -> u32 {
+    model_condition_bit_name_index("LEFT_TO_CENTER").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_RIGHT_TO_CENTER residual bit index.
+pub fn right_to_center_model_bit() -> u32 {
+    model_condition_bit_name_index("RIGHT_TO_CENTER").unwrap_or(0) as u32
+}
 /// C++ MODELCONDITION_EXPLODED_BOUNCING residual bit index.
 pub fn exploded_bouncing_model_bit() -> u32 {
     model_condition_bit_name_index("EXPLODED_BOUNCING").unwrap_or(0) as u32

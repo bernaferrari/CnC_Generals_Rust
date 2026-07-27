@@ -490,6 +490,8 @@ pub struct Entity {
     pub power_plant_rods_done_frame: u32,
     /// Jet slow-death residual active.
     pub jet_slow_death_active: bool,
+    /// C++ AnimationSteeringUpdate turn anim ordinal residual.
+    pub anim_steer_turn: u8,
     /// Host Object::shock_yaw_rate residual.
     pub shock_yaw_rate: f32,
     /// Host Object::shock_pitch_rate residual.
@@ -1026,6 +1028,7 @@ impl EntityStore {
             power_plant_rods_extended: false,
             power_plant_rods_done_frame: 0,
             jet_slow_death_active: false,
+            anim_steer_turn: 0,
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,

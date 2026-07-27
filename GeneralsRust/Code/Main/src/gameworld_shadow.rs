@@ -890,6 +890,11 @@ impl GameWorldShadow {
                     e.power_plant_rods_extended = obj.power_plant_rods_extended;
                     e.power_plant_rods_done_frame = obj.power_plant_rods_done_frame;
                     e.jet_slow_death_active = obj.jet_slow_death.is_some();
+                    e.anim_steer_turn = obj
+                        .animation_steering
+                        .as_ref()
+                        .map(|s| s.current_turn_anim as u8)
+                        .unwrap_or(0);
                     e.cell_is_cliff = obj.cell_is_cliff;
                     e.cell_is_underwater = obj.cell_is_underwater;
                     e.locomotor_surfaces = obj.locomotor_surfaces;
