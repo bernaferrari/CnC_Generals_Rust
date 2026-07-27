@@ -17010,7 +17010,18 @@ impl CnCGameEngine {
             .find(|o| o.id == id)
     }
 
+    /// Wave 574: boot residual local player id for UI (no presentation freeze).
+    /// Prefer current_player_id when it exists; else min_player_id fallback.
+    fn boot_local_player_id_from_host(&self) -> u32 {
+        // Wave 574: boot residual via player_exists / min_player_id probes.
+        if self.game_logic.player_exists(self.current_player_id) {
+            return self.current_player_id;
+        }
+        self.game_logic.min_player_id().unwrap_or(0)
+    }
+
     /// Local/human player id for UI command issue. Prefers presentation freeze.
+    /// Wave 574: boot path via `boot_local_player_id_from_host`.
     fn local_player_id_for_ui(&self) -> u32 {
         // Wave 240/555: presentation freeze owns local player residual when installed.
         if self.last_presentation_frame.is_some() {
@@ -17018,11 +17029,8 @@ impl CnCGameEngine {
                 .presentation_or_boot_local_player_id()
                 .unwrap_or(self.current_player_id);
         }
-        // Wave 240: boot residual via player_exists / min_player_id probes.
-        if self.game_logic.player_exists(self.current_player_id) {
-            return self.current_player_id;
-        }
-        self.game_logic.min_player_id().unwrap_or(0)
+        // Wave 574: boot residual via shared host probe helper.
+        self.boot_local_player_id_from_host()
     }
 
     /// Local team for UI. Prefers presentation freeze.

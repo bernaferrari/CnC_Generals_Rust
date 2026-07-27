@@ -140,8 +140,11 @@ pub fn honesty_science_team_presentation_helper_source_markers_residual_wave555(
         && eng.contains("presentation_or_boot_local_team()");
     let lp = fn_body(eng, "fn local_player_id_for_ui(").unwrap_or("");
     let lt = fn_body(eng, "fn local_team_for_ui(").unwrap_or("");
-    let ui_ok = lp.contains("Wave 240")
-        && lp.contains("player_exists")
+    // Wave 574: boot path may be boot_local_player_id_from_host.
+    let ui_ok = (lp.contains("Wave 240") || lp.contains("Wave 574") || lp.contains("Wave 555"))
+        && (lp.contains("player_exists")
+            || lp.contains("boot_local_player_id_from_host")
+            || eng.contains("fn boot_local_player_id_from_host"))
         && lt.contains("presentation_or_boot_local_team()");
     let ok = sci_ok && team_ok && routes && ui_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualScienceTeamPresentationHelperAction::SourceMarkers);
