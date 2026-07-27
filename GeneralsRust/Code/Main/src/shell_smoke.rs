@@ -2381,6 +2381,16 @@ use crate::game_logic::host_live_host_gameworld_shadow_session_helper_residual_w
     honesty_host_gameworld_shadow_session_helper_nav_commands_residual_wave597,
     simulate_live_host_gameworld_shadow_session_helper_honesty,
 };
+use crate::game_logic::host_live_host_ingame_hud_helper_residual_wave598::{
+    honesty_host_ingame_hud_helper_method_names_residual_wave598,
+    honesty_host_ingame_hud_helper_nav_commands_residual_wave598,
+    simulate_live_host_ingame_hud_helper_honesty,
+};
+use crate::game_logic::host_live_host_match_outcome_helper_residual_wave599::{
+    honesty_host_match_outcome_helper_method_names_residual_wave599,
+    honesty_host_match_outcome_helper_nav_commands_residual_wave599,
+    simulate_live_host_match_outcome_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5890,6 +5900,12 @@ pub struct ShellSmokeResult {
     pub host_gameworld_shadow_session_helper_method_names_wave597_ok: bool,
     pub host_gameworld_shadow_session_helper_nav_commands_wave597_ok: bool,
     pub host_gameworld_shadow_session_helper_live_wave597_ok: bool,
+    pub host_ingame_hud_helper_method_names_wave598_ok: bool,
+    pub host_ingame_hud_helper_nav_commands_wave598_ok: bool,
+    pub host_ingame_hud_helper_live_wave598_ok: bool,
+    pub host_match_outcome_helper_method_names_wave599_ok: bool,
+    pub host_match_outcome_helper_nav_commands_wave599_ok: bool,
+    pub host_match_outcome_helper_live_wave599_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9216,6 +9232,17 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_gameworld_shadow_session_helper_nav_commands_residual_wave597();
     let host_gameworld_shadow_session_helper_live_wave597_ok =
         simulate_live_host_gameworld_shadow_session_helper_honesty();
+    let host_ingame_hud_helper_method_names_wave598_ok =
+        honesty_host_ingame_hud_helper_method_names_residual_wave598();
+    let host_ingame_hud_helper_nav_commands_wave598_ok =
+        honesty_host_ingame_hud_helper_nav_commands_residual_wave598();
+    let host_ingame_hud_helper_live_wave598_ok = simulate_live_host_ingame_hud_helper_honesty();
+    let host_match_outcome_helper_method_names_wave599_ok =
+        honesty_host_match_outcome_helper_method_names_residual_wave599();
+    let host_match_outcome_helper_nav_commands_wave599_ok =
+        honesty_host_match_outcome_helper_nav_commands_residual_wave599();
+    let host_match_outcome_helper_live_wave599_ok =
+        simulate_live_host_match_outcome_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10996,6 +11023,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_gameworld_shadow_session_helper_method_names_wave597_ok,
         host_gameworld_shadow_session_helper_nav_commands_wave597_ok,
         host_gameworld_shadow_session_helper_live_wave597_ok,
+        host_ingame_hud_helper_method_names_wave598_ok,
+        host_ingame_hud_helper_nav_commands_wave598_ok,
+        host_ingame_hud_helper_live_wave598_ok,
+        host_match_outcome_helper_method_names_wave599_ok,
+        host_match_outcome_helper_nav_commands_wave599_ok,
+        host_match_outcome_helper_live_wave599_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -20221,6 +20254,36 @@ mod tests {
         assert!(
             r.host_gameworld_shadow_session_helper_live_wave597_ok,
             "host gameworld shadow session helper live residual wave597: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ingame_hud_helper_method_names_wave598_ok,
+            "host ingame hud helper method names residual pack wave598: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ingame_hud_helper_nav_commands_wave598_ok,
+            "host ingame hud helper nav commands residual pack wave598: {}",
+            r.detail
+        );
+        assert!(
+            r.host_ingame_hud_helper_live_wave598_ok,
+            "host ingame hud helper live residual wave598: {}",
+            r.detail
+        );
+        assert!(
+            r.host_match_outcome_helper_method_names_wave599_ok,
+            "host match outcome helper method names residual pack wave599: {}",
+            r.detail
+        );
+        assert!(
+            r.host_match_outcome_helper_nav_commands_wave599_ok,
+            "host match outcome helper nav commands residual pack wave599: {}",
+            r.detail
+        );
+        assert!(
+            r.host_match_outcome_helper_live_wave599_ok,
+            "host match outcome helper live residual wave599: {}",
             r.detail
         );
         assert!(

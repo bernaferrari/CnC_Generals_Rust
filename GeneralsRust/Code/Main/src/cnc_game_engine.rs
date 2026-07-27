@@ -15571,39 +15571,8 @@ impl CnCGameEngine {
             }
         }
 
-        // Update HUD + ControlBar selection panel from presentation when available
-        // (resources + minimap + selection health). ControlBar health is snapshot-owned.
-        if self.current_state == GameState::InGame {
-            if let Some(pres) = self.last_presentation_frame.clone() {
-                self.apply_presentation_to_huds(&pres);
-                // Presentation audio already dispatched via dispatch_audio_events_direct
-                // (BuildingComplete/UnitReady/UpgradeComplete). Do not dual-play engine SFX.
-                self.sync_eva_messages_from_presentation(&pres);
-                #[cfg(feature = "game_client")]
-                {
-                    pres.apply_to_control_bar(&mut self.control_bar);
-                }
-            } else {
-                // Wave 238: boot residual via ui_local_economy (no &Player dual-read).
-                let (money, power, max_power) = self.ui_local_economy();
-                self.game_hud.update_resources(money, power, max_power);
-            }
-
-            if dt.is_finite() {
-                if let Err(err) = self.game_hud.update(dt) {
-                    warn!("Game HUD update failed: {}", err);
-                }
-                self.diplomacy_panel.update(dt);
-                self.chat_panel.update(dt);
-                self.sync_pending_structure_placement_cursor();
-                self.sync_pending_map_command_radius_cursor();
-            } else {
-                warn!(
-                    "Skipping Game HUD update due to non-finite delta time: {}",
-                    dt
-                );
-            }
-        }
+        // Wave 598: InGame HUD presentation residual via host helper.
+        self.host_apply_ingame_hud_from_presentation(dt);
 
         // Update camera
         if self.current_state != GameState::Menu {
@@ -15638,123 +15607,8 @@ impl CnCGameEngine {
             self.apply_boot_movie_residual();
         }
 
-        // Broadcast defeat notifications so UI/systems mirror C++ VictoryConditions flow.
-        // Wave 569: presentation-or-boot defeat residual via helper.
-        let defeated_players: Vec<u32> = self.take_presentation_or_boot_defeat_events();
-        for player_id in defeated_players {
-            // Prefer presentation roster when installed (no live get_player dual-read).
-            let roster = self
-                .last_presentation_frame
-                .as_ref()
-                .and_then(|f| f.player_info(player_id).cloned());
-            if let Some(player) = roster {
-                let message = localization::localize_with_args(
-                    "hud.message.player_defeated",
-                    "{player} has been defeated!",
-                    &[("player", player.name.as_str())],
-                );
-                info!("Player {} ({}) has been defeated", player.name, player_id);
-                self.game_hud.push_info_message(&message);
-                self.ui_manager.game_hud_mut().push_info_message(&message);
-                // Wave 539: presentation freeze → HUD radar + audio (no GameLogic dual-write).
-                self.notify_presentation_ui_message(&message);
-            } else if self.last_presentation_frame.is_some() {
-                // Wave 542: freeze installed but roster miss — fail-closed id-only
-                // (no GameLogic dual-write mid-frame).
-                info!("Player {} has been defeated", player_id);
-            } else if let Some(player) = self.ui_player_info(player_id) {
-                // Wave 237: defeat UI prefers presentation roster helper (boot residual only; no presentation freeze).
-                let message = localization::localize_with_args(
-                    "hud.message.player_defeated",
-                    "{player} has been defeated!",
-                    &[("player", player.name.as_str())],
-                );
-                info!("Player {} ({}) has been defeated", player.name, player_id);
-                self.game_hud.push_info_message(&message);
-                // Wave 566: boot residual via notify_boot_ui_message helper.
-                self.notify_boot_ui_message(&message, Some(player.team));
-            } else {
-                // Fail-closed id-only residual.
-                info!("Player {} has been defeated", player_id);
-            }
-            fow_rendering::reveal_entire_map_for_player(player_id);
-            script_events::push_event(ScriptEvent::PlayerDefeated { player_id });
-            script_events::push_event(ScriptEvent::RevealMapForPlayer { player_id });
-        }
-
-        // Wave 569: presentation-or-boot alliance residual via helper.
-        let alliance_events: Vec<crate::game_logic::AllianceNotification> =
-            self.take_presentation_or_boot_alliance_events();
-        // Wave 553: prefer presentation local_player residual when installed.
-        let local_player_id = self.presentation_or_boot_local_player_id();
-        let mut observer_notified = false;
-        for event in alliance_events {
-            let is_local = local_player_id == Some(event.player_id);
-            if !is_local && local_player_id.is_some() {
-                continue;
-            }
-            if !is_local && observer_notified {
-                continue;
-            }
-
-            let (key, fallback) = match event.state {
-                AllianceState::AlliedVictory if is_local => {
-                    ("hud.message.allied_victory", "Your alliance has triumphed!")
-                }
-                AllianceState::AlliedDefeat if is_local => (
-                    "hud.message.allied_defeat",
-                    "Your alliance has been defeated!",
-                ),
-                AllianceState::AlliedVictory => (
-                    "hud.message.observer_allied_victory",
-                    "An alliance has won the battle.",
-                ),
-                AllianceState::AlliedDefeat => (
-                    "hud.message.observer_allied_defeat",
-                    "An alliance has been defeated.",
-                ),
-                AllianceState::Active => continue,
-            };
-
-            let message = localization::localize(key, fallback);
-            self.game_hud.push_info_message(&message);
-            self.ui_manager.game_hud_mut().push_info_message(&message);
-            // Wave 538: when presentation freeze is installed, route radar/UI SFX
-            // through HUD + audio subsystem (no GameLogic dual-write mid-frame).
-            // Boot/menu residual still uses host queue/play_ui_sound.
-            if self.last_presentation_frame.is_some() {
-                // Wave 538/539: shared presentation UI notify residual.
-                self.notify_presentation_ui_message(&message);
-            } else {
-                // Wave 566: boot residual via notify_boot_ui_message helper.
-                let team = self.ui_player_team(event.player_id);
-                self.notify_boot_ui_message(&message, team);
-            }
-            if !is_local {
-                observer_notified = true;
-            }
-
-            if matches!(event.state, AllianceState::AlliedDefeat) {
-                fow_rendering::reveal_entire_map_for_player(event.player_id);
-                script_events::push_event(ScriptEvent::RevealMapForPlayer {
-                    player_id: event.player_id,
-                });
-            }
-            script_events::push_event(ScriptEvent::AllianceStateChanged {
-                player_id: event.player_id,
-                state: event.state,
-            });
-        }
-
-        // Prefer presentation shell bypass when a frame is installed (no live dual-read).
-        let in_shell = self.presentation_or_boot_shell_bypass();
-        if !self.match_over && self.current_state == GameState::InGame && !in_shell {
-            // Wave 556: prefer presentation victory residual when frame installed
-            // (no live re-evaluate). Boot residual only without freeze.
-            if let Some(winner) = self.presentation_or_boot_victory_winner() {
-                self.show_victory_screen(winner);
-            }
-        }
+        // Wave 599: defeat/alliance/victory broadcast residual via host helper.
+        self.host_broadcast_match_outcome_residuals();
     }
 
     /// Wave 542: mouse command classification is presentation-only when freeze installed.
@@ -18530,6 +18384,174 @@ impl CnCGameEngine {
             self.gameworld_shadow.as_ref(),
         );
         self.render_pipeline.set_presentation_frame(Some(env_frame));
+    }
+
+    /// Wave 599: match outcome broadcast residual (defeat/alliance/victory).
+    ///
+    /// Presentation-or-boot defeat and alliance event drains, FOW/script side
+    /// effects, and victory screen when freeze/boot says the match ended.
+    fn host_broadcast_match_outcome_residuals(&mut self) {
+        // Wave 599: match outcome broadcast residual.
+        // Broadcast defeat notifications so UI/systems mirror C++ VictoryConditions flow.
+        // Wave 569: presentation-or-boot defeat residual via helper.
+        let defeated_players: Vec<u32> = self.take_presentation_or_boot_defeat_events();
+        for player_id in defeated_players {
+            // Prefer presentation roster when installed (no live get_player dual-read).
+            let roster = self
+                .last_presentation_frame
+                .as_ref()
+                .and_then(|f| f.player_info(player_id).cloned());
+            if let Some(player) = roster {
+                let message = localization::localize_with_args(
+                    "hud.message.player_defeated",
+                    "{player} has been defeated!",
+                    &[("player", player.name.as_str())],
+                );
+                info!("Player {} ({}) has been defeated", player.name, player_id);
+                self.game_hud.push_info_message(&message);
+                self.ui_manager.game_hud_mut().push_info_message(&message);
+                // Wave 539: presentation freeze → HUD radar + audio (no GameLogic dual-write).
+                self.notify_presentation_ui_message(&message);
+            } else if self.last_presentation_frame.is_some() {
+                // Wave 542: freeze installed but roster miss — fail-closed id-only
+                // (no GameLogic dual-write mid-frame).
+                info!("Player {} has been defeated", player_id);
+            } else if let Some(player) = self.ui_player_info(player_id) {
+                // Wave 237: defeat UI prefers presentation roster helper (boot residual only; no presentation freeze).
+                let message = localization::localize_with_args(
+                    "hud.message.player_defeated",
+                    "{player} has been defeated!",
+                    &[("player", player.name.as_str())],
+                );
+                info!("Player {} ({}) has been defeated", player.name, player_id);
+                self.game_hud.push_info_message(&message);
+                // Wave 566: boot residual via notify_boot_ui_message helper.
+                self.notify_boot_ui_message(&message, Some(player.team));
+            } else {
+                // Fail-closed id-only residual.
+                info!("Player {} has been defeated", player_id);
+            }
+            fow_rendering::reveal_entire_map_for_player(player_id);
+            script_events::push_event(ScriptEvent::PlayerDefeated { player_id });
+            script_events::push_event(ScriptEvent::RevealMapForPlayer { player_id });
+        }
+
+        // Wave 569: presentation-or-boot alliance residual via helper.
+        let alliance_events: Vec<crate::game_logic::AllianceNotification> =
+            self.take_presentation_or_boot_alliance_events();
+        // Wave 553: prefer presentation local_player residual when installed.
+        let local_player_id = self.presentation_or_boot_local_player_id();
+        let mut observer_notified = false;
+        for event in alliance_events {
+            let is_local = local_player_id == Some(event.player_id);
+            if !is_local && local_player_id.is_some() {
+                continue;
+            }
+            if !is_local && observer_notified {
+                continue;
+            }
+
+            let (key, fallback) = match event.state {
+                AllianceState::AlliedVictory if is_local => {
+                    ("hud.message.allied_victory", "Your alliance has triumphed!")
+                }
+                AllianceState::AlliedDefeat if is_local => (
+                    "hud.message.allied_defeat",
+                    "Your alliance has been defeated!",
+                ),
+                AllianceState::AlliedVictory => (
+                    "hud.message.observer_allied_victory",
+                    "An alliance has won the battle.",
+                ),
+                AllianceState::AlliedDefeat => (
+                    "hud.message.observer_allied_defeat",
+                    "An alliance has been defeated.",
+                ),
+                AllianceState::Active => continue,
+            };
+
+            let message = localization::localize(key, fallback);
+            self.game_hud.push_info_message(&message);
+            self.ui_manager.game_hud_mut().push_info_message(&message);
+            // Wave 538: when presentation freeze is installed, route radar/UI SFX
+            // through HUD + audio subsystem (no GameLogic dual-write mid-frame).
+            // Boot/menu residual still uses host queue/play_ui_sound.
+            if self.last_presentation_frame.is_some() {
+                // Wave 538/539: shared presentation UI notify residual.
+                self.notify_presentation_ui_message(&message);
+            } else {
+                // Wave 566: boot residual via notify_boot_ui_message helper.
+                let team = self.ui_player_team(event.player_id);
+                self.notify_boot_ui_message(&message, team);
+            }
+            if !is_local {
+                observer_notified = true;
+            }
+
+            if matches!(event.state, AllianceState::AlliedDefeat) {
+                fow_rendering::reveal_entire_map_for_player(event.player_id);
+                script_events::push_event(ScriptEvent::RevealMapForPlayer {
+                    player_id: event.player_id,
+                });
+            }
+            script_events::push_event(ScriptEvent::AllianceStateChanged {
+                player_id: event.player_id,
+                state: event.state,
+            });
+        }
+
+        // Prefer presentation shell bypass when a frame is installed (no live dual-read).
+        let in_shell = self.presentation_or_boot_shell_bypass();
+        if !self.match_over && self.current_state == GameState::InGame && !in_shell {
+            // Wave 556: prefer presentation victory residual when frame installed
+            // (no live re-evaluate). Boot residual only without freeze.
+            if let Some(winner) = self.presentation_or_boot_victory_winner() {
+                self.show_victory_screen(winner);
+            }
+        }
+    }
+
+    /// Wave 598: InGame HUD presentation residual.
+    ///
+    /// Prefers last presentation freeze for HUD/EVA/ControlBar; boot residual
+    /// without freeze uses `ui_local_economy`. Also advances HUD/diplomacy/chat
+    /// panels and placement cursors for the InGame state only.
+    fn host_apply_ingame_hud_from_presentation(&mut self, dt: f32) {
+        // Wave 598: InGame HUD presentation residual.
+        if self.current_state != GameState::InGame {
+            return;
+        }
+        // Update HUD + ControlBar selection panel from presentation when available
+        // (resources + minimap + selection health). ControlBar health is snapshot-owned.
+        if let Some(pres) = self.last_presentation_frame.clone() {
+            self.apply_presentation_to_huds(&pres);
+            // Presentation audio already dispatched via dispatch_audio_events_direct
+            // (BuildingComplete/UnitReady/UpgradeComplete). Do not dual-play engine SFX.
+            self.sync_eva_messages_from_presentation(&pres);
+            #[cfg(feature = "game_client")]
+            {
+                pres.apply_to_control_bar(&mut self.control_bar);
+            }
+        } else {
+            // Wave 238: boot residual via ui_local_economy (no &Player dual-read).
+            let (money, power, max_power) = self.ui_local_economy();
+            self.game_hud.update_resources(money, power, max_power);
+        }
+
+        if dt.is_finite() {
+            if let Err(err) = self.game_hud.update(dt) {
+                warn!("Game HUD update failed: {}", err);
+            }
+            self.diplomacy_panel.update(dt);
+            self.chat_panel.update(dt);
+            self.sync_pending_structure_placement_cursor();
+            self.sync_pending_map_command_radius_cursor();
+        } else {
+            warn!(
+                "Skipping Game HUD update due to non-finite delta time: {}",
+                dt
+            );
+        }
     }
 
     /// Wave 597: GameWorld shadow session after host logic residual.
