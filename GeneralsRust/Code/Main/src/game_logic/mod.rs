@@ -447,6 +447,7 @@ pub mod host_live_presentation_script_camera_probe_residual_wave252;
 pub mod host_live_presentation_seed_residual_wave171;
 pub mod host_live_presentation_stealth_mesh_residual_wave502;
 pub mod host_live_presentation_time_frozen_probe_residual_wave250;
+pub mod host_live_presentation_topple_freefall_weather_residual_wave509;
 pub mod host_live_presentation_visual_speed_probe_residual_wave251;
 pub mod host_live_presentation_water_rider_residual_wave507;
 pub mod host_live_presentation_weaponset_veterancy_residual_wave506;
@@ -2527,6 +2528,22 @@ pub use host_live_presentation_stealth_mesh_residual_wave502::{
     PRESENTATION_STEALTH_MESH_METHOD_NAMES_WAVE502, PRESENTATION_STEALTH_MESH_NAV_STEPS_WAVE502,
     PRESENTATION_STEALTH_MESH_SOURCE_MARKERS_WAVE502,
     RUNTIME_HOST_PRESENTATION_STEALTH_MESH_CMD_NAMES_WAVE502,
+};
+pub use host_live_presentation_topple_freefall_weather_residual_wave509::{
+    honesty_presentation_topple_freefall_weather_method_names_residual_wave509,
+    honesty_presentation_topple_freefall_weather_nav_commands_residual_wave509,
+    honesty_presentation_topple_freefall_weather_residual_pack_wave509,
+    honesty_presentation_topple_freefall_weather_source_markers_residual_wave509,
+    residual_presentation_topple_freefall_weather_last_action,
+    residual_presentation_topple_freefall_weather_ok,
+    simulate_live_presentation_topple_freefall_weather_honesty,
+    simulate_presentation_topple_freefall_weather_freeze_source,
+    simulate_presentation_topple_freefall_weather_stamp_source,
+    ResidualPresentationToppleFreefallWeatherAction,
+    PRESENTATION_TOPPLE_FREEFALL_WEATHER_METHOD_NAMES_WAVE509,
+    PRESENTATION_TOPPLE_FREEFALL_WEATHER_NAV_STEPS_WAVE509,
+    PRESENTATION_TOPPLE_FREEFALL_WEATHER_SOURCE_MARKERS_WAVE509,
+    RUNTIME_HOST_PRESENTATION_TOPPLE_FREEFALL_WEATHER_CMD_NAMES_WAVE509,
 };
 pub use host_live_presentation_water_rider_residual_wave507::{
     honesty_presentation_water_rider_method_names_residual_wave507,

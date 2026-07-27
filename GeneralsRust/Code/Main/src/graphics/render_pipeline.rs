@@ -695,6 +695,7 @@ impl RenderPipeline {
         // Wave 506: weaponset veterancy stamp via unit_render_inputs.
         // Wave 507: over-water + transport RIDER stamp via unit_render_inputs.
         // Wave 508: body-damage / disguise / stun stamp via unit_render_inputs.
+        // Wave 509: topple/freefall/night/snow stamp via unit_render_inputs.
         frame.unit_render_inputs()
     }
 
@@ -1390,6 +1391,7 @@ impl RenderPipeline {
             // Wave 506: weaponset veterancy bits included in stamp helper.
             // Wave 507: OVER_WATER + transport RIDER bits included in stamp helper.
             // Wave 508: body-damage / DISGUISED / STUNNED bits included in stamp helper.
+            // Wave 509: TOPPLED / FREEFALL / NIGHT / SNOW bits included in stamp helper.
             let model_bits = u.model_condition_bits_with_combat_flags();
             let _ = u.model_condition_bits; // residual source marker (bits via stamp helper)
             let sold_for_mesh =
