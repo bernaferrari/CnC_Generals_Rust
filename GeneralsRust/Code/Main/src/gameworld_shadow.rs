@@ -5237,6 +5237,7 @@ impl GameWorldShadow {
 
     pub fn writeback_command_set_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -5253,7 +5254,13 @@ impl GameWorldShadow {
             } else {
                 Some(ent.command_set_override.clone())
             };
+            // Wave 644: GameWorld command-set last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_command_set_ready_log::record(oid);
         }
         updated
     }
@@ -8099,6 +8106,8 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_hijacker_to_host(logic);
         let _ol_wb = shadow.writeback_overlord_to_host(logic);
         let _cs_wb = shadow.writeback_command_set_to_host(logic);
+        // Wave 644: drain command-set ready log after GW writeback.
+        let _cs_ready = logic.host_apply_command_set_ready_completions();
         let _dg_wb = shadow.writeback_disguise_to_host(logic);
         let _vc_wb = shadow.writeback_vision_camo_to_host(logic);
         let _ = shadow.writeback_stealth_delay_to_host(logic);
@@ -11462,6 +11471,7 @@ mod tests {
             e.command_set_override = "Command_DemoSuicide".into();
         }
         assert!(shadow.writeback_command_set_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_command_set_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(
             o.command_set_override.as_deref(),

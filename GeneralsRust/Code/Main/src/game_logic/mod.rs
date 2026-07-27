@@ -65,6 +65,7 @@ pub mod host_building_type_log;
 pub mod host_combat_attack_ready_log;
 pub mod host_combat_status_ready_log;
 pub mod host_command_set_log;
+pub mod host_command_set_ready_log;
 pub mod host_construction_complete_clear_ready_log;
 pub mod host_construction_log;
 pub mod host_construction_progress_log;
@@ -408,6 +409,7 @@ pub mod host_live_host_combat_attack_ready_log_helper_residual_wave643;
 pub mod host_live_host_combat_cursor_transition_helper_residual_wave612;
 pub mod host_live_host_combat_status_ready_log_helper_residual_wave634;
 pub mod host_live_host_command_flush_helper_residual_wave576;
+pub mod host_live_host_command_set_ready_log_helper_residual_wave644;
 pub mod host_live_host_construction_complete_clear_ready_log_helper_residual_wave626;
 pub mod host_live_host_construction_ready_log_helper_residual_wave617;
 pub mod host_live_host_contain_ready_log_helper_residual_wave628;
@@ -2681,6 +2683,15 @@ pub use host_live_host_command_flush_helper_residual_wave576::{
     honesty_host_command_flush_helper_source_markers_residual_wave576,
     residual_host_command_flush_helper_last_action, residual_host_command_flush_helper_ok,
     simulate_live_host_command_flush_helper_honesty,
+};
+pub use host_live_host_command_set_ready_log_helper_residual_wave644::{
+    honesty_host_command_set_ready_log_helper_method_names_residual_wave644,
+    honesty_host_command_set_ready_log_helper_nav_commands_residual_wave644,
+    honesty_host_command_set_ready_log_helper_residual_pack_wave644,
+    honesty_host_command_set_ready_log_helper_source_markers_residual_wave644,
+    residual_host_command_set_ready_log_helper_last_action,
+    residual_host_command_set_ready_log_helper_ok,
+    simulate_live_host_command_set_ready_log_helper_honesty,
 };
 pub use host_live_host_construction_complete_clear_ready_log_helper_residual_wave626::{
     honesty_host_construction_complete_clear_ready_log_helper_method_names_residual_wave626,
