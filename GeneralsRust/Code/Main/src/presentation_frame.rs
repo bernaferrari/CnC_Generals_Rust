@@ -6202,14 +6202,28 @@ impl PresentationFrame {
                     ),
                 )
             },
-            mesh_scale: 1.0,
+            // Wave 492: mesh scale + FOW from GW entity residual (not hard defaults).
+            mesh_scale: crate::assets::mesh_asset_resolve::mesh_scale_for_unit(&ent.template.name),
             selection_radius: if ent.selection_radius > 0.0 {
                 ent.selection_radius
             } else {
                 10.0
             },
             engine_bridged: false,
-            fow_visibility: crate::fow_rendering::ObjectVisibility::VISIBLE,
+            fow_visibility: {
+                // Entity FOW floats: alpha≈1 visible; explored-but-low alpha → fogged; else hidden.
+                if ent.fow_visibility_alpha >= 0.95 {
+                    crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
+                } else if ent.fow_is_explored >= 0.5 || ent.fow_visibility_alpha > 0.05 {
+                    crate::fow_rendering::ObjectVisibility {
+                        visibility_alpha: ent.fow_visibility_alpha.clamp(0.0, 1.0),
+                        is_explored: ent.fow_is_explored.clamp(0.0, 1.0),
+                        visibility_falloff: ent.fow_visibility_falloff.clamp(0.0, 1.0).max(0.01),
+                    }
+                } else {
+                    crate::fow_rendering::ObjectVisibility::HIDDEN
+                }
+            },
             ground_height: PRESENTATION_DEFAULT_GROUND_HEIGHT,
             ground_height_from_terrain: false,
         }
