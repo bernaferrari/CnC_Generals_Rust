@@ -2169,7 +2169,7 @@ impl CnCGameEngine {
             map: map_name,
             frame: self.frame_counter,
             logic_frame: self.presentation_or_boot_logic_frame(),
-            logic_steps: self.game_logic.fixed_step_diagnostics().steps_run as u32,
+            logic_steps: self.presentation_or_boot_logic_steps(),
             under_construction,
             match_damage_applied: self.match_damage_applied,
             match_kills: self.match_kills,
@@ -18361,6 +18361,18 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.get_frame()
+    }
+
+    /// Wave 561: presentation freeze owns fixed-step catch-up residual when installed.
+    /// Boot residual without freeze uses host `fixed_step_diagnostics().steps_run`.
+    #[inline]
+    fn presentation_or_boot_logic_steps(&self) -> u32 {
+        // Wave 561: presentation freeze owns fixed-step catch-up residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.logic_steps_run;
+        }
+        // Boot residual only.
+        self.game_logic.fixed_step_diagnostics().steps_run as u32
     }
 
     /// Wave 555: presentation freeze owns unlocked-sciences residual when installed.

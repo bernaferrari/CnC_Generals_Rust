@@ -3432,6 +3432,9 @@ pub struct PresentationFrame {
     /// Wave 557: host replay-mode residual (`GameLogic::isInReplayGame`) frozen at
     /// snapshot time for FPS-limit / TiVO residual without live dual-read.
     pub in_replay_game: bool,
+    /// Wave 561: host fixed-step catch-up residual (`steps_run`) frozen at snapshot
+    /// for runtime status without live dual-read mid-frame.
+    pub logic_steps_run: u32,
     /// Compact local-player cell-grid FOW for terrain overlay / minimap texture.
     /// Frozen at build so GPU upload does not re-query shroud mid-render.
     /// Fail-closed: not full SAGE dirty-rect / multi-layer shroud streaming.
@@ -4688,6 +4691,8 @@ impl PresentationFrame {
             fow_shell_bypass,
             // Wave 557: freeze replay mode into presentation snapshot.
             in_replay_game: logic.isInReplayGame(),
+            // Wave 561: freeze fixed-step catch-up residual.
+            logic_steps_run: logic.fixed_step_diagnostics().steps_run as u32,
             fow_grid,
             particle_systems,
             laser_beams,
@@ -4750,6 +4755,7 @@ impl PresentationFrame {
         self.match_over.hash(&mut h);
         self.fow_shell_bypass.hash(&mut h);
         self.in_replay_game.hash(&mut h);
+        self.logic_steps_run.hash(&mut h);
         self.fow_grid.content_fingerprint().hash(&mut h);
         self.local_player_id.hash(&mut h);
         match self.local_team {
@@ -12621,6 +12627,10 @@ mod tests {
         assert_eq!(snap.fow_for_object(id), Some(bridge_at_build));
         assert_eq!(snap.fow_shell_bypass, logic.isInShellGame());
         assert_eq!(snap.in_replay_game, logic.isInReplayGame());
+        assert_eq!(
+            snap.logic_steps_run,
+            logic.fixed_step_diagnostics().steps_run as u32
+        );
 
         let inputs = snap.unit_render_inputs();
         assert_eq!(inputs.len(), 1);
