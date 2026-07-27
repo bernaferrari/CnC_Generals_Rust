@@ -8710,6 +8710,7 @@ impl PresentationFrame {
     /// Wave 527/528: FireSound loop residual uses host sound name + looping flag + snapshot pose.
     /// Wave 528: WeaponFireLoopStop is stop-only (no FireSound replay).
     /// Wave 529: RadarMessage → EVA/radar audio event names + snapshot position.
+    /// Wave 530: OwnerChanged → BuildingCaptured/UnitHijacked audio residual.
     /// Fail-closed: not Miles/device spatial parity — names resolve via SoundEffectsTable.
     pub fn collect_audio_events(&self) -> Vec<crate::game_logic::AudioEventRequest> {
         use crate::game_logic::AudioEventRequest;
@@ -8778,8 +8779,8 @@ impl PresentationFrame {
                 PresentationEvent::MoveOrdered { unit, .. } => Some(("UnitMove", Some(*unit))),
                 PresentationEvent::WeaponFireLoopStarted { .. }
                 | PresentationEvent::WeaponFireLoopStopped { .. } => None,
-                PresentationEvent::OwnerChanged { .. }
-                | PresentationEvent::ParticleSystemSpawned { .. } => None,
+                PresentationEvent::ParticleSystemSpawned { .. } => None,
+                PresentationEvent::OwnerChanged { .. } => None, // handled below (Wave 530)
                 PresentationEvent::RadarMessage { .. } => None, // handled below (Wave 529)
             };
             let Some((kind, obj)) = mapped else {
@@ -8795,6 +8796,30 @@ impl PresentationFrame {
             out.push(req);
         }
 
+        // Wave 530: capture/hijack ownership transfer audio residual.
+        for ev in &self.events {
+            let PresentationEvent::OwnerChanged { id, .. } = ev else {
+                continue;
+            };
+            let is_structure = self
+                .objects
+                .iter()
+                .find(|o| o.id == *id)
+                .map(|o| o.is_structure)
+                .unwrap_or(false);
+            let name = if is_structure {
+                "BuildingCaptured"
+            } else {
+                "UnitHijacked"
+            };
+            let mut req = AudioEventRequest::new(name)
+                .with_object(*id)
+                .with_priority(170);
+            if let Some(pos) = pose_by_id.get(id) {
+                req = req.with_position(*pos);
+            }
+            out.push(req);
+        }
         // Wave 529: radar/EVA presentation audio residual (no GameLogic dual-write).
         // kind: 0=Generic 1=Attack 2=Ally; text also maps classic EVA phrases.
         for ev in &self.events {
