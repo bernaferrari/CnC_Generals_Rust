@@ -316,6 +316,7 @@ pub mod host_live_engine_player_ui_boot_peel_residual_wave237;
 pub mod host_live_engine_presentation_player_ui_residual_wave234;
 pub mod host_live_enhanced_player_dual_world_empty_gate_residual_wave287;
 pub mod host_live_ensure_presentation_env_instance_residual_wave474;
+pub mod host_live_entity_presentation_model_condition_residual_wave488;
 pub mod host_live_evacuate_contain_log_residual_wave201;
 pub mod host_live_exit_strategies_dual_world_empty_gate_residual_wave312;
 pub mod host_live_experience_tracker_dual_world_empty_gate_residual_wave420;
@@ -2224,6 +2225,22 @@ pub use host_live_construction_sole_tick_no_progress_stomp_residual_wave478::{
     CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_NAV_STEPS_WAVE478,
     CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE478,
     RUNTIME_HOST_CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_CMD_NAMES_WAVE478,
+};
+pub use host_live_entity_presentation_model_condition_residual_wave488::{
+    honesty_entity_presentation_model_condition_method_names_residual_wave488,
+    honesty_entity_presentation_model_condition_nav_commands_residual_wave488,
+    honesty_entity_presentation_model_condition_residual_pack_wave488,
+    honesty_entity_presentation_model_condition_source_markers_residual_wave488,
+    residual_entity_presentation_model_condition_last_action,
+    residual_entity_presentation_model_condition_ok,
+    simulate_entity_presentation_model_condition_entity_fields,
+    simulate_entity_presentation_model_condition_entity_source,
+    simulate_live_entity_presentation_model_condition_honesty,
+    ResidualEntityPresentationModelConditionAction,
+    ENTITY_PRESENTATION_MODEL_CONDITION_METHOD_NAMES_WAVE488,
+    ENTITY_PRESENTATION_MODEL_CONDITION_NAV_STEPS_WAVE488,
+    ENTITY_PRESENTATION_MODEL_CONDITION_SOURCE_MARKERS_WAVE488,
+    RUNTIME_HOST_ENTITY_PRESENTATION_MODEL_CONDITION_CMD_NAMES_WAVE488,
 };
 pub use host_live_production_door_model_condition_log_residual_wave486::{
     honesty_production_door_model_condition_log_method_names_residual_wave486,
