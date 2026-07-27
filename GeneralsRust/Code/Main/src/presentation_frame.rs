@@ -13190,9 +13190,11 @@ mod tests {
                 || me.contains("Main presentation shell owns drawable TOD"),
             "time-of-day refresh must not require OBJECT_REGISTRY for host path"
         );
+        // Wave 559: model-condition refresh documents presentation ownership under empty registry.
         assert!(
-            me.contains("Host presentation path refreshes model conditions")
-                || me.contains("no OBJECT_REGISTRY required"),
+            me.contains("PresentationFrame / drawable shell tick owns model conditions when empty")
+                || me.contains("host presentation residual only")
+                || me.contains("dual_world_registry_unavailable()"),
             "model condition refresh must document host residual without registry"
         );
     }
@@ -13200,14 +13202,16 @@ mod tests {
     #[test]
     fn snap_camera_start_hint_prefers_presentation() {
         let src = include_str!("cnc_game_engine.rs");
-        let marker = "Prefer presentation-frozen team base, else structure centroid, else camera";
+        // Wave 559: snap_camera is presentation-only via frozen local_team_base_position.
         let i = src
-            .find(marker)
-            .expect("snap_camera presentation start_hint marker");
-        let window = &src[i..src.len().min(i + 1600)];
+            .find("fn snap_camera_to_local_units_if_needed")
+            .expect("snap_camera fn");
+        let window = &src[i..src.len().min(i + 2200)];
         assert!(
-            window.contains("o.is_structure")
-                && window.contains("last_presentation_frame.as_ref()"),
+            window.contains("Presentation-only")
+                && window.contains("last_presentation_frame.as_ref()")
+                && window.contains("local_team_base_position")
+                && window.contains("o.is_structure"),
             "snap_camera start_hint must seed from presentation structures"
         );
         assert!(
@@ -13215,22 +13219,8 @@ mod tests {
             "start_hint falls back to camera_target when no structures"
         );
         assert!(
-            window.contains("team_base_position(team)"),
-            "boot residual may still call live team base position without presentation"
-        );
-        let live_call = window
-            .find("team_base_position(team)")
-            .expect("live team base position call");
-        let pres_if = window
-            .find("if let Some(frame) = self.last_presentation_frame.as_ref()")
-            .expect("presentation if");
-        assert!(
-            live_call > pres_if,
-            "live team base position must come after presentation if-let, not before"
-        );
-        assert!(
-            window.contains("no presentation frame"),
-            "must document live team base position as boot residual"
+            !window.contains("team_base_position(team)"),
+            "snap_camera must not dual-read live team_base_position under presentation path"
         );
     }
 
@@ -13303,14 +13293,18 @@ mod tests {
             .find("\"move\" | \"move_selected\"")
             .expect("move command");
         let window = &eng[i..eng.len().min(i + 2400)];
+        // Wave 559: move uses presentation-first ui_selected_ids residual.
         assert!(
-            window.contains("Prefer presentation/engine selection residual")
+            window.contains("ui_selected_ids")
+                || window.contains("Prefer presentation/engine selection residual")
                 || window.contains("count_selected_friendlies"),
             "move must prefer presentation/engine selection over live player roster only"
         );
         assert!(
-            window.contains("select_objects") && window.contains("selected_objects.is_empty()"),
-            "move must re-sync host player selection from engine residual when empty"
+            window.contains("select_objects")
+                && (window.contains("selected_objects = ids")
+                    || window.contains("selected_objects.is_empty()")),
+            "move must re-sync host player selection from presentation/engine residual"
         );
     }
 
@@ -13411,9 +13405,11 @@ mod tests {
         let eng = include_str!("cnc_game_engine.rs");
         let i = eng.find("train_unit\" =>").expect("train_unit");
         let window = &eng[i..eng.len().min(i + 900)];
+        // Wave 559: train_unit uses presentation-first local_team_for_ui helper.
         assert!(
             window.contains("Prefer presentation local team residual")
-                && window.contains("frame.local_team()"),
+                && (window.contains("local_team_for_ui()")
+                    || window.contains("presentation_or_boot_local_team()")),
             "train_unit must prefer presentation local_team over live player roster"
         );
     }
@@ -13421,9 +13417,13 @@ mod tests {
     #[test]
     fn status_sample_prefers_presentation() {
         let eng = include_str!("cnc_game_engine.rs");
+        // Wave 559: runtime_host_status_snapshot owns roster via presentation freeze.
         assert!(
-            eng.contains("Prefer presentation residual for status sample")
-                && eng.contains("frame.objects.iter().find"),
+            eng.contains("Object-roster stats are presentation-owned when freeze installed")
+                && eng.contains("fn runtime_host_status_snapshot")
+                && eng.contains("count_mobile_friendlies")
+                && eng.contains("first_friendly_sample_label")
+                && eng.contains("count_selected_friendlies"),
             "runtime status sample must prefer presentation objects"
         );
     }
@@ -13436,9 +13436,11 @@ mod tests {
             "OBJECT_REGISTRY must expose is_empty for host dual-world peels"
         );
         let meta = include_str!("../../GameEngine/GameClient/src/message_stream/meta_event.rs");
+        // Wave 559: meta_event centralizes empty-registry via dual_world_registry_unavailable.
         assert!(
-            meta.contains("OBJECT_REGISTRY.is_empty()")
-                && meta.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
+            meta.contains("fn dual_world_registry_unavailable")
+                && meta.contains("OBJECT_REGISTRY.is_empty()")
+                && meta.matches("dual_world_registry_unavailable()").count() >= 3,
             "meta_event dual-world residuals must early-out when registry empty"
         );
     }
@@ -13535,17 +13537,22 @@ mod tests {
     #[test]
     fn victory_script_registry_empty_safe() {
         let v = include_str!("../../GameEngine/GameLogic/src/scripting/victory.rs");
+        // Wave 559/294: empty dual-world returns Ok(0.0) (fail-closed, not "all dead").
         assert!(
-            v.contains("do not treat as \"all enemies dead\""),
+            v.contains("empty dual-world → Ok(0.0)")
+                || v.contains("do not treat as \"all enemies dead\""),
             "destruction progress must not complete when dual-world registry empty"
         );
         assert!(
-            v.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
+            v.matches("dual_world_registry_unavailable()").count() >= 3
+                || v.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
             "victory dual-world progress calcs must gate on empty registry"
         );
         let eng = include_str!("../../GameEngine/GameLogic/src/scripting/engine.rs");
         assert!(
-            eng.contains("fn create_named_cache") && eng.contains("OBJECT_REGISTRY.is_empty()"),
+            eng.contains("fn create_named_cache")
+                && (eng.contains("OBJECT_REGISTRY.is_empty()")
+                    || eng.contains("dual_world_registry_unavailable()")),
             "script engine named cache must skip empty dual-world registry"
         );
     }
@@ -13553,18 +13560,23 @@ mod tests {
     #[test]
     fn enhanced_ai_system_registry_empty() {
         let ep = include_str!("../../GameEngine/GameLogic/src/ai/enhanced_player.rs");
+        // Wave 559: enhanced AI peels centralize empty-registry via dual_world_registry_unavailable.
         assert!(
-            ep.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
+            ep.matches("dual_world_registry_unavailable()").count() >= 3
+                || ep.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
             "enhanced AI dual-world scans must early-out when registry empty"
         );
         let sys = include_str!("../../GameEngine/GameLogic/src/system/game_logic.rs");
         assert!(
-            sys.contains("dual-world factory empty") || sys.contains("OBJECT_REGISTRY.is_empty()"),
+            sys.contains("dual-world factory empty")
+                || sys.contains("OBJECT_REGISTRY.is_empty()")
+                || sys.contains("dual_world_registry_unavailable()"),
             "crate GameLogic update/rebuild must skip empty dual-world registry"
         );
         assert!(
             sys.contains("if !OBJECT_REGISTRY.is_empty()")
-                || sys.contains("if OBJECT_REGISTRY.is_empty()"),
+                || sys.contains("if OBJECT_REGISTRY.is_empty()")
+                || sys.contains("dual_world_registry_unavailable()"),
             "system game_logic must gate dual-world bulk paths"
         );
     }
@@ -13572,25 +13584,30 @@ mod tests {
     #[test]
     fn ai_stealth_helpers_registry_empty() {
         let ai = include_str!("../../GameEngine/GameLogic/src/ai/ai_player.rs");
+        // Wave 559: AI/stealth peels may use dual_world_registry_unavailable centralization.
         assert!(
             ai.contains("find_supply_center")
-                && ai.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
+                && (ai.matches("OBJECT_REGISTRY.is_empty()").count() >= 3
+                    || ai.matches("dual_world_registry_unavailable()").count() >= 3),
             "AI player dual-world supply/hole scans must gate on empty registry"
         );
         let ap = include_str!("../../GameEngine/GameLogic/src/ai/async_player.rs");
         assert!(
-            ap.matches("OBJECT_REGISTRY.is_empty()").count() >= 2,
+            ap.matches("OBJECT_REGISTRY.is_empty()").count() >= 2
+                || ap.matches("dual_world_registry_unavailable()").count() >= 2,
             "async AI snapshot scans must gate on empty registry"
         );
         let det = include_str!("../../GameEngine/GameLogic/src/stealth/detector.rs");
         assert!(
-            det.contains("OBJECT_REGISTRY.is_empty()"),
+            det.contains("OBJECT_REGISTRY.is_empty()")
+                || det.contains("dual_world_registry_unavailable()"),
             "stealth detector must skip empty dual-world registry"
         );
         let h = include_str!("../../GameEngine/GameLogic/src/helpers.rs");
         assert!(
             h.contains("Main presentation owns drawable TOD")
-                || h.contains("OBJECT_REGISTRY.is_empty()"),
+                || h.contains("OBJECT_REGISTRY.is_empty()")
+                || h.contains("dual_world_registry_unavailable()"),
             "helpers TOD/path residual must gate on empty registry"
         );
     }
