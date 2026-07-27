@@ -16297,11 +16297,7 @@ impl CnCGameEngine {
             ui_state.minimap_coordinates = self.render_pipeline.get_minimap_coordinates().cloned();
             self.update_minimap_viewport(&mut ui_state);
             // Prefer presentation world_env for radar/minimap when a frame is installed.
-            let world_bounds = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.world_env.world_bounds_vec3()
-            } else {
-                self.game_logic.world_bounds()
-            };
+            let world_bounds = self.presentation_world_bounds();
             self.game_hud
                 .update_radar_pings(&ui_state.radar_pings, world_bounds.0, world_bounds.1);
             for msg in &ui_state.radar_messages {
@@ -16495,11 +16491,7 @@ impl CnCGameEngine {
     fn update_minimap_viewport(&self, ui_state: &mut GameUIState) {
         // Prefer presentation world_env when installed (camera-relative minimap viewport).
         // Boot residual without a frame still uses host GameLogic bounds.
-        let (world_min, world_max) = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.world_env.world_bounds_vec3()
-        } else {
-            self.game_logic.world_bounds()
-        };
+        let (world_min, world_max) = self.presentation_world_bounds();
         let world_extent_x = (world_max.x - world_min.x).max(1.0);
         let world_extent_z = (world_max.z - world_min.z).max(1.0);
 
@@ -19497,10 +19489,10 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Command);
     }
 
-    fn clamp_to_world_bounds(&self, mut position: Vec3) -> Vec3 {
-        // Wave 460: prefer pipeline or last presentation world_env when installed
-        // (camera follow / scroll clamp). Boot residual without a frame still uses host.
-        let (world_min, world_max) = if let Some(frame) = self
+    /// Wave 461: single presentation-first world bounds probe for camera/HUD/minimap.
+    /// Prefers pipeline freeze, then last_presentation_frame, then host GameLogic.
+    fn presentation_world_bounds(&self) -> (Vec3, Vec3) {
+        if let Some(frame) = self
             .render_pipeline
             .presentation_frame()
             .or(self.last_presentation_frame.as_ref())
@@ -19508,7 +19500,12 @@ impl CnCGameEngine {
             frame.world_env.world_bounds_vec3()
         } else {
             self.game_logic.world_bounds()
-        };
+        }
+    }
+
+    fn clamp_to_world_bounds(&self, mut position: Vec3) -> Vec3 {
+        // Wave 461: presentation-first bounds via shared probe.
+        let (world_min, world_max) = self.presentation_world_bounds();
         position.x = position.x.clamp(world_min.x, world_max.x);
         position.z = position.z.clamp(world_min.z, world_max.z);
         position
@@ -23300,11 +23297,7 @@ impl CnCGameEngine {
         let normalized_x = (self.mouse_position.0 / size.width.max(1) as f32).clamp(0.0, 1.0);
         let normalized_y = (self.mouse_position.1 / size.height.max(1) as f32).clamp(0.0, 1.0);
 
-        let (world_min, world_max) = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame.world_env.world_bounds_vec3()
-        } else {
-            self.game_logic.world_bounds()
-        };
+        let (world_min, world_max) = self.presentation_world_bounds();
         let world_width = (world_max.x - world_min.x).max(1.0);
         let world_height = (world_max.z - world_min.z).max(1.0);
         let world_x = world_min.x + normalized_x * world_width;
