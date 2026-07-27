@@ -7210,6 +7210,7 @@ impl GameWorldShadow {
 
     pub fn writeback_combat_status_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -7275,8 +7276,14 @@ impl GameWorldShadow {
             );
             set_flag!(obj.force_attack, ent.force_attack);
             if dirty {
+                // Wave 634: GameWorld combat-status last-write residual —
+                // host applies status presentation bookkeeping from ready log.
+                ready.push(ObjectId(hid));
                 updated += 1;
             }
+        }
+        for oid in ready {
+            crate::game_logic::host_combat_status_ready_log::record(oid);
         }
         updated
     }
@@ -7881,6 +7888,8 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_bounce_land_to_host(logic);
         let _move_tgt_wb = shadow.writeback_move_targets_to_host(logic);
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
+        // Wave 634: drain combat-status ready log after GW writeback.
+        let _cst_ready = logic.host_apply_combat_status_ready_completions();
     }
     let _prod_wb = shadow.writeback_production_to_host(logic);
     let _ = shadow.writeback_production_door_to_host(logic);
@@ -8024,6 +8033,8 @@ pub fn shadow_session_after_host_tick(
         let _gh_wb = shadow.writeback_ground_height_to_host(logic);
 
         let _cst_wb = shadow.writeback_combat_status_to_host(logic);
+        // Wave 634: drain combat-status ready log after GW writeback.
+        let _cst_ready = logic.host_apply_combat_status_ready_completions();
         log::trace!(
             "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
             events.len(),
@@ -9389,6 +9400,7 @@ mod tests {
             e.selected = true;
         }
         assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_combat_status_ready_log::drain();
         let obj = logic.get_objects().get(&id).expect("o");
         assert!(obj.status.stealthed);
         assert!(obj.status.selected);
@@ -9491,6 +9503,7 @@ mod tests {
             o.status.disguised = false;
         }
         let wb = shadow.writeback_combat_status_to_host(&mut logic);
+        let _ = crate::game_logic::host_combat_status_ready_log::drain();
         assert!(wb >= 1);
         let o = logic.get_objects().get(&id).expect("o");
         assert!(o.status.stealthed);
@@ -9556,6 +9569,7 @@ mod tests {
             e.selected = true;
         }
         assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_combat_status_ready_log::drain();
         assert!(logic.get_objects().get(&id).expect("o").status.selected);
     }
 
@@ -9617,6 +9631,7 @@ mod tests {
             e.is_firing_weapon = true;
         }
         assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_combat_status_ready_log::drain();
         let o = logic.get_objects().get(&id).expect("o");
         assert!(o.status.attacking && o.status.is_firing_weapon);
     }
@@ -9678,6 +9693,7 @@ mod tests {
             e.detected = false;
         }
         assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_combat_status_ready_log::drain();
         let o = logic.get_objects().get(&id).expect("o");
         assert!(o.status.stealthed && !o.status.detected);
     }
@@ -9740,6 +9756,7 @@ mod tests {
             e.disabled_emp = true;
         }
         assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_combat_status_ready_log::drain();
         assert!(logic.get_objects().get(&id).expect("o").status.disabled_emp);
     }
 
@@ -10752,6 +10769,7 @@ mod tests {
             o.status.deployed = false;
         }
         let wb = shadow.writeback_combat_status_to_host(&mut logic);
+        let _ = crate::game_logic::host_combat_status_ready_log::drain();
         assert!(wb >= 1);
         let o = logic.get_objects().get(&id).expect("o");
         assert!(o.force_attack);
@@ -10824,6 +10842,7 @@ mod tests {
             o.status.parachuting = false;
         }
         let wb = shadow.writeback_combat_status_to_host(&mut logic);
+        let _ = crate::game_logic::host_combat_status_ready_log::drain();
         assert!(wb >= 1);
         let o = logic.get_objects().get(&id).expect("o");
         assert!(o.status.no_collisions);

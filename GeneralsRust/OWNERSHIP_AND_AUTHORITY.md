@@ -174,6 +174,7 @@ Remaining engine residual after host update:
   - Economy ready log: GW writeback → `host_economy_ready_log` → host presentation bookkeeping (Wave 631)
   - Death-type ready log: GW writeback → `host_death_type_ready_log` → host destroy/pilot bookkeeping (Wave 632)
   - Model-condition ready log: GW writeback → `host_model_condition_ready_log` → host presentation bookkeeping (Wave 633)
+  - Combat-status ready log: GW writeback → `host_combat_status_ready_log` → host status presentation bookkeeping (Wave 634)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep

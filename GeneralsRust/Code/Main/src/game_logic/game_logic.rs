@@ -26107,6 +26107,48 @@ impl GameLogic {
     /// applies destroy/pilot presentation bookkeeping residual.
     /// Wave 633: GameWorld model-condition writeback records bit changes; host
     /// applies presentation bookkeeping residual (drawable model condition log).
+    /// Wave 634: GameWorld combat-status writeback records dirty objects; host
+    /// applies status presentation residual via host_status_log.
+    pub fn host_apply_combat_status_ready_completions(&mut self) -> usize {
+        // Wave 634: GameWorld combat-status writeback records dirty objects; host
+        // applies status presentation residual via host_status_log.
+        use crate::game_logic::host_status_log as hsl;
+        let events = crate::game_logic::host_combat_status_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get(&ev.object) else {
+                continue;
+            };
+            let s = &obj.status;
+            let oid = ev.object;
+            // Re-record key combat-status flags for presentation consumers.
+            // Values already writeback-synced; this is bookkeeping only.
+            hsl::record_selected(oid, s.selected);
+            hsl::record_attacking(oid, s.attacking);
+            hsl::record_moving(oid, s.moving);
+            hsl::record_firing(oid, s.is_firing_weapon);
+            hsl::record_aiming(oid, s.is_aiming_weapon);
+            hsl::record_stealthed(oid, s.stealthed);
+            hsl::record_detected(oid, s.detected);
+            hsl::record_disabled_emp(oid, s.disabled_emp);
+            hsl::record_weapons_jammed(oid, s.weapons_jammed);
+            hsl::record_disabled_hacked(oid, s.disabled_hacked);
+            hsl::record_disabled_unmanned(oid, s.disabled_unmanned);
+            hsl::record_disabled_paralyzed(oid, s.disabled_paralyzed);
+            hsl::record_disabled_subdued(oid, s.disabled_subdued);
+            hsl::record_masked(oid, s.masked);
+            hsl::record_disguised(oid, s.disguised);
+            hsl::record_faerie_fire(oid, s.faerie_fire);
+            hsl::record_deployed(oid, s.deployed);
+            hsl::record_disabled_underpowered(oid, s.disabled_underpowered);
+            hsl::record_is_carbomb(oid, s.is_carbomb);
+            hsl::record_hijacked(oid, s.hijacked);
+            hsl::record_force_attack(oid, obj.force_attack);
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_model_condition_ready_completions(&mut self) -> usize {
         // Wave 633: GameWorld model-condition writeback records bit changes; host
         // applies presentation bookkeeping residual (drawable model condition log).
