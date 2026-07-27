@@ -2221,6 +2221,11 @@ use crate::game_logic::host_live_construct_template_presentation_helper_residual
     honesty_construct_template_presentation_helper_nav_commands_residual_wave565,
     simulate_live_construct_template_presentation_helper_honesty,
 };
+use crate::game_logic::host_live_boot_ui_message_helper_residual_wave566::{
+    honesty_boot_ui_message_helper_method_names_residual_wave566,
+    honesty_boot_ui_message_helper_nav_commands_residual_wave566,
+    simulate_live_boot_ui_message_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5634,6 +5639,9 @@ pub struct ShellSmokeResult {
     pub construct_template_presentation_helper_method_names_wave565_ok: bool,
     pub construct_template_presentation_helper_nav_commands_wave565_ok: bool,
     pub construct_template_presentation_helper_live_wave565_ok: bool,
+    pub boot_ui_message_helper_method_names_wave566_ok: bool,
+    pub boot_ui_message_helper_nav_commands_wave566_ok: bool,
+    pub boot_ui_message_helper_live_wave566_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8781,6 +8789,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_construct_template_presentation_helper_nav_commands_residual_wave565();
     let construct_template_presentation_helper_live_wave565_ok =
         simulate_live_construct_template_presentation_helper_honesty();
+    let boot_ui_message_helper_method_names_wave566_ok =
+        honesty_boot_ui_message_helper_method_names_residual_wave566();
+    let boot_ui_message_helper_nav_commands_wave566_ok =
+        honesty_boot_ui_message_helper_nav_commands_residual_wave566();
+    let boot_ui_message_helper_live_wave566_ok = simulate_live_boot_ui_message_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10465,6 +10478,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         construct_template_presentation_helper_method_names_wave565_ok,
         construct_template_presentation_helper_nav_commands_wave565_ok,
         construct_template_presentation_helper_live_wave565_ok,
+        boot_ui_message_helper_method_names_wave566_ok,
+        boot_ui_message_helper_nav_commands_wave566_ok,
+        boot_ui_message_helper_live_wave566_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -19210,6 +19226,21 @@ mod tests {
         assert!(
             r.construct_template_presentation_helper_live_wave565_ok,
             "construct template presentation helper live residual wave565: {}",
+            r.detail
+        );
+        assert!(
+            r.boot_ui_message_helper_method_names_wave566_ok,
+            "boot UI message helper method names residual pack wave566: {}",
+            r.detail
+        );
+        assert!(
+            r.boot_ui_message_helper_nav_commands_wave566_ok,
+            "boot UI message helper nav commands residual pack wave566: {}",
+            r.detail
+        );
+        assert!(
+            r.boot_ui_message_helper_live_wave566_ok,
+            "boot UI message helper live residual wave566: {}",
             r.detail
         );
         assert!(
