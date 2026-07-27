@@ -67906,15 +67906,31 @@ impl GameLogic {
             let elapsed = frame.saturating_sub(entry.sell_frame);
             if elapsed >= FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL {
                 let previous = obj.construction_percent;
+                let sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
                 // Allow percent to fall through SELL_FINISH (-0.5); do not floor at -0.01
                 // (that made finish unreachable and stalled multi-frame sell forever).
-                let projected = previous - SELL_CONSTRUCTION_DECREMENT_RESIDUAL;
-                obj.construction_percent = projected;
-                crate::game_logic::host_construction_progress_log::record(
-                    entry.id, projected, false, 0.0,
-                );
-                // Cross from positive to <= 0 → MODELCONDITION_SOLD
-                if previous > 0.0 && projected <= 0.0 {
+                let projected = if sole {
+                    // Wave 481: GW sole-ticks sell percent via negative rate; host uses writeback.
+                    previous
+                } else {
+                    previous - SELL_CONSTRUCTION_DECREMENT_RESIDUAL
+                };
+                if !sole {
+                    obj.construction_percent = projected;
+                    crate::game_logic::host_construction_progress_log::record(
+                        entry.id, projected, false, 0.0,
+                    );
+                } else {
+                    // Negative fraction/sec so tick_construction_progress advances sell.
+                    let rate =
+                        -SELL_CONSTRUCTION_DECREMENT_RESIDUAL / LOGIC_FRAME_TIMESTEP.max(1e-6);
+                    crate::game_logic::host_construction_progress_log::record_rate_only(
+                        entry.id, false, rate,
+                    );
+                }
+                // Cross from positive to <= 0 → MODELCONDITION_SOLD.
+                // Under sole-tick, projected == writeback previous; fire when writeback already ≤ 0.
+                if (previous > 0.0 && projected <= 0.0) || (sole && previous <= 0.0) {
                     obj.apply_sold_model_condition();
                 }
                 if projected <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
