@@ -425,6 +425,7 @@ pub mod host_live_presentation_env_seed_mirror_last_residual_wave467;
 pub mod host_live_presentation_fow_only_residual_wave213;
 pub mod host_live_presentation_from_gameworld_default_residual_wave194;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
+pub mod host_live_presentation_mesh_sold_condition_residual_wave491;
 pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_overlay_stamp_residual_wave190;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
@@ -2273,6 +2274,22 @@ pub use host_live_entity_presentation_structure_ui_residual_wave490::{
     ENTITY_PRESENTATION_STRUCTURE_UI_NAV_STEPS_WAVE490,
     ENTITY_PRESENTATION_STRUCTURE_UI_SOURCE_MARKERS_WAVE490,
     RUNTIME_HOST_ENTITY_PRESENTATION_STRUCTURE_UI_CMD_NAMES_WAVE490,
+};
+pub use host_live_presentation_mesh_sold_condition_residual_wave491::{
+    honesty_presentation_mesh_sold_condition_method_names_residual_wave491,
+    honesty_presentation_mesh_sold_condition_nav_commands_residual_wave491,
+    honesty_presentation_mesh_sold_condition_residual_pack_wave491,
+    honesty_presentation_mesh_sold_condition_source_markers_residual_wave491,
+    residual_presentation_mesh_sold_condition_last_action,
+    residual_presentation_mesh_sold_condition_ok,
+    simulate_live_presentation_mesh_sold_condition_honesty,
+    simulate_presentation_mesh_sold_condition_render_source,
+    simulate_presentation_mesh_sold_condition_resolve_source,
+    ResidualPresentationMeshSoldConditionAction,
+    PRESENTATION_MESH_SOLD_CONDITION_METHOD_NAMES_WAVE491,
+    PRESENTATION_MESH_SOLD_CONDITION_NAV_STEPS_WAVE491,
+    PRESENTATION_MESH_SOLD_CONDITION_SOURCE_MARKERS_WAVE491,
+    RUNTIME_HOST_PRESENTATION_MESH_SOLD_CONDITION_CMD_NAMES_WAVE491,
 };
 pub use host_live_production_door_model_condition_log_residual_wave486::{
     honesty_production_door_model_condition_log_method_names_residual_wave486,

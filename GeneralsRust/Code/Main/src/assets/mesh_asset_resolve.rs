@@ -446,6 +446,18 @@ pub fn model_key_with_body_damage(base_key: &str, body_damage_state: u8, dying: 
     pick_body_damage_model_key(&base, want)
 }
 
+/// Wave 491: presentation mesh key from body damage + sold/death model-condition residual.
+///
+/// Sold structures use the rubble/dying mesh branch (C++ sold draw residual).
+pub fn model_key_with_presentation_state(
+    base_key: &str,
+    body_damage_state: u8,
+    dying: bool,
+    sold: bool,
+) -> String {
+    model_key_with_body_damage(base_key, body_damage_state, dying || sold)
+}
+
 #[derive(Clone, Copy)]
 enum BodyMeshWant {
     Damaged,
