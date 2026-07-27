@@ -18252,22 +18252,21 @@ impl CnCGameEngine {
 
     fn restart_mission_from_ui(&mut self) {
         // Prefer presentation residual for map/mode/faction when installed.
-        let map = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|p| p.world_env.map_name.clone())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| self.game_logic.get_current_map_name().to_string());
-        let mode = self.presentation_or_live_game_mode();
-        let faction = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|p| p.local_team.get_name().to_string())
-            .or_else(|| {
-                // Boot residual only.
+        // Wave 545: presentation freeze owns restart map/faction residual when installed.
+        let (map, mode, faction) = if let Some(pres) = self.last_presentation_frame.as_ref() {
+            (
+                pres.world_env.map_name.clone(),
+                pres.game_mode,
+                pres.local_team.get_name().to_string(),
+            )
+        } else {
+            (
+                self.game_logic.get_current_map_name().to_string(),
+                self.game_logic.game_mode(),
                 self.ui_local_player_team_name()
-            })
-            .unwrap_or_else(|| "USA".to_string());
+                    .unwrap_or_else(|| "USA".to_string()),
+            )
+        };
 
         info!(
             "UI requested restart: mode={:?}, faction={}, map={}",
@@ -18299,34 +18298,26 @@ impl CnCGameEngine {
         description: &str,
         save_type: SaveFileType,
     ) -> SaveGameInfo {
-        // Prefer presentation residual for map/play_time/local team when installed.
-        let map_name = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|p| p.world_env.map_name.clone())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| self.game_logic.get_current_map_name().to_string());
-        let difficulty = Self::map_ai_difficulty_to_save(
-            self.last_presentation_frame
-                .as_ref()
-                .map(|p| p.ai_difficulty)
-                .unwrap_or_else(|| self.game_logic.get_difficulty()),
-        );
-        let play_time = std::time::Duration::from_secs_f32(
-            self.last_presentation_frame
-                .as_ref()
-                .map(|p| p.total_play_time_seconds)
-                .unwrap_or_else(|| self.game_logic.get_total_play_time()),
-        );
-        let team_name = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|p| p.local_team.get_name().to_string())
-            .or_else(|| {
-                // Boot residual only — presentation local_team owns InGame save metadata.
-                self.ui_local_player_team_name()
-            })
-            .unwrap_or_else(|| "Neutral".to_string());
+        // Wave 545: presentation freeze owns save metadata residual when installed
+        // (even if map_name empty — no host dual-read mid-frame). Boot residual only
+        // without a freeze.
+        let (map_name, difficulty, play_time, team_name) =
+            if let Some(pres) = self.last_presentation_frame.as_ref() {
+                (
+                    pres.world_env.map_name.clone(),
+                    Self::map_ai_difficulty_to_save(pres.ai_difficulty),
+                    std::time::Duration::from_secs_f32(pres.total_play_time_seconds),
+                    pres.local_team.get_name().to_string(),
+                )
+            } else {
+                (
+                    self.game_logic.get_current_map_name().to_string(),
+                    Self::map_ai_difficulty_to_save(self.game_logic.get_difficulty()),
+                    std::time::Duration::from_secs_f32(self.game_logic.get_total_play_time()),
+                    self.ui_local_player_team_name()
+                        .unwrap_or_else(|| "Neutral".to_string()),
+                )
+            };
 
         SaveGameInfo {
             filename: slot.to_string(),
