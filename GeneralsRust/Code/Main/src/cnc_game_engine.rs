@@ -17366,9 +17366,9 @@ impl CnCGameEngine {
     }
 
     fn ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
-        // Wave 215: prefer engine selection residual, then presentation freeze,
-        // then host player selection (command authority) — no requirement for live
-        // dual-read when a presentation frame is installed.
+        // Wave 215/543: prefer engine selection residual, then presentation freeze.
+        // When a presentation freeze is installed, empty selection fails closed
+        // (no host player_selected_objects dual-read mid-frame).
         if !self.selected_objects.is_empty() {
             return self.selected_objects.clone();
         }
@@ -17382,11 +17382,10 @@ impl CnCGameEngine {
                 .filter(|o| o.selected && !o.destroyed && o.health_current > 0.0)
                 .map(|o| o.id)
                 .collect();
-            if !from_objs.is_empty() {
-                return from_objs;
-            }
+            // Wave 543: presentation freeze owns selection residual — even if empty.
+            return from_objs;
         }
-        // Wave 240: boot residual via player_selected_objects probe.
+        // Wave 240: boot residual via player_selected_objects probe (no freeze yet).
         self.game_logic.player_selected_objects(player_id)
     }
 

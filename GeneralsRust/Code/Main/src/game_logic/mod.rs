@@ -570,6 +570,7 @@ pub mod host_live_turret_dual_world_empty_gate_residual_wave276;
 pub mod host_live_ui_command_selection_presentation_only_residual_wave219;
 pub mod host_live_ui_helpers_presentation_only_residual_wave215;
 pub mod host_live_ui_producer_presentation_only_residual_wave214;
+pub mod host_live_ui_selected_presentation_fail_closed_residual_wave543;
 pub mod host_live_unit_dual_world_empty_gate_residual_wave258;
 pub mod host_live_unit_exit_dual_world_empty_gate_residual_wave432;
 pub mod host_live_upgrade_behavior_dual_world_empty_gate_residual_wave453;
@@ -2528,6 +2529,15 @@ pub use host_live_rmb_presentation_no_dual_read_residual_wave541::{
     honesty_rmb_presentation_no_dual_read_source_markers_residual_wave541,
     residual_rmb_presentation_no_dual_read_last_action, residual_rmb_presentation_no_dual_read_ok,
     simulate_live_rmb_presentation_no_dual_read_honesty,
+};
+pub use host_live_ui_selected_presentation_fail_closed_residual_wave543::{
+    honesty_ui_selected_presentation_fail_closed_method_names_residual_wave543,
+    honesty_ui_selected_presentation_fail_closed_nav_commands_residual_wave543,
+    honesty_ui_selected_presentation_fail_closed_residual_pack_wave543,
+    honesty_ui_selected_presentation_fail_closed_source_markers_residual_wave543,
+    residual_ui_selected_presentation_fail_closed_last_action,
+    residual_ui_selected_presentation_fail_closed_ok,
+    simulate_live_ui_selected_presentation_fail_closed_honesty,
 };
 
 pub use host_live_presentation_move_attack_helper_residual_wave526::{
