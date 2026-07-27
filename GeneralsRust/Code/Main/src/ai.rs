@@ -962,6 +962,7 @@ impl AIPlayer {
 
     /// Minimum seconds between host AI **attack re-evaluations**.
     ///
+    /// Wave 616: residual-locked at 60s (not gate-driven early-attack).
     /// Shares the **numeric** 60s value from C++ `AIPlayer::checkReadyTeams`
     /// (`GeneralsMD/.../AI/AIPlayer.cpp`: force-start ready team after
     /// `60 * LOGICFRAMES_PER_SECOND`), but this is **not** a port of that function.
