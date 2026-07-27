@@ -68114,6 +68114,17 @@ impl GameLogic {
         let frame = self.frame;
         let mut finished: Vec<ObjectId> = Vec::new();
         let mut still: Vec<ObjectSellInfo> = Vec::with_capacity(self.sell_list.len());
+        // Wave 619: under construction sole-tick, GameWorld writeback records sell-ready
+        // structures (pct <= -0.5); host only finishes those IDs (GW decides readiness).
+        let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
+        let ready_sells: std::collections::HashSet<ObjectId> = if construction_sole {
+            crate::game_logic::host_sell_ready_log::drain()
+                .into_iter()
+                .map(|ev| ev.structure)
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
         for entry in std::mem::take(&mut self.sell_list) {
             let Some(obj) = self.objects.get_mut(&entry.id) else {
                 // Object gone by other means.
@@ -68153,12 +68164,21 @@ impl GameLogic {
                     obj.apply_sold_model_condition();
                 }
                 if projected <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
-                    finished.push(entry.id);
+                    // Wave 619: under sole-tick, only finish IDs GW recorded ready.
+                    if !construction_sole || ready_sells.contains(&entry.id) {
+                        finished.push(entry.id);
+                    } else {
+                        still.push(entry);
+                    }
                 } else {
                     still.push(entry);
                 }
             } else if obj.construction_percent <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
-                finished.push(entry.id);
+                if !construction_sole || ready_sells.contains(&entry.id) {
+                    finished.push(entry.id);
+                } else {
+                    still.push(entry);
+                }
             } else {
                 still.push(entry);
             }

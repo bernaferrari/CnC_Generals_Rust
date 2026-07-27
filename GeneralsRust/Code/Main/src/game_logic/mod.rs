@@ -100,6 +100,7 @@ pub mod host_radar_log;
 pub mod host_rally_log;
 pub mod host_repulsor_log;
 pub mod host_selection_radius_log;
+pub mod host_sell_ready_log;
 pub mod host_spawn_log;
 pub mod host_special_power_log;
 pub mod host_special_power_ready_log;
@@ -407,6 +408,7 @@ pub mod host_live_host_render_ui_presentation_helper_residual_wave591;
 pub mod host_live_host_restart_pause_helper_residual_wave601;
 pub mod host_live_host_runtime_cmd_helper_residual_wave583;
 pub mod host_live_host_selection_map_helper_residual_wave579;
+pub mod host_live_host_sell_ready_log_helper_residual_wave619;
 pub mod host_live_host_silent_command_peel_residual_wave578;
 pub mod host_live_host_special_power_ready_log_helper_residual_wave618;
 pub mod host_live_host_start_save_load_helper_residual_wave611;
@@ -2836,6 +2838,14 @@ pub use host_live_host_selection_map_helper_residual_wave579::{
     honesty_host_selection_map_helper_source_markers_residual_wave579,
     residual_host_selection_map_helper_last_action, residual_host_selection_map_helper_ok,
     simulate_live_host_selection_map_helper_honesty,
+};
+pub use host_live_host_sell_ready_log_helper_residual_wave619::{
+    honesty_host_sell_ready_log_helper_method_names_residual_wave619,
+    honesty_host_sell_ready_log_helper_nav_commands_residual_wave619,
+    honesty_host_sell_ready_log_helper_residual_pack_wave619,
+    honesty_host_sell_ready_log_helper_source_markers_residual_wave619,
+    residual_host_sell_ready_log_helper_last_action, residual_host_sell_ready_log_helper_ok,
+    simulate_live_host_sell_ready_log_helper_honesty,
 };
 pub use host_live_host_silent_command_peel_residual_wave578::{
     honesty_host_silent_command_peel_method_names_residual_wave578,
