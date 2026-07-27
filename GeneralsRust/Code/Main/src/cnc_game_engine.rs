@@ -15897,15 +15897,8 @@ impl CnCGameEngine {
         }
 
         // Broadcast defeat notifications so UI/systems mirror C++ VictoryConditions flow.
-        // Prefer presentation freeze when installed; drain live take after.
-        let defeated_players: Vec<u32> = if let Some(pres) = self.last_presentation_frame.as_ref() {
-            let ids = pres.defeated_player_ids.clone();
-            let _ = self.game_logic.take_defeat_events();
-            ids
-        } else {
-            // Boot residual only.
-            self.game_logic.take_defeat_events()
-        };
+        // Wave 569: presentation-or-boot defeat residual via helper.
+        let defeated_players: Vec<u32> = self.take_presentation_or_boot_defeat_events();
         for player_id in defeated_players {
             // Prefer presentation roster when installed (no live get_player dual-read).
             let roster = self
@@ -15947,16 +15940,9 @@ impl CnCGameEngine {
             script_events::push_event(ScriptEvent::RevealMapForPlayer { player_id });
         }
 
-        // Prefer presentation alliance residual when installed; drain live take after.
+        // Wave 569: presentation-or-boot alliance residual via helper.
         let alliance_events: Vec<crate::game_logic::AllianceNotification> =
-            if let Some(pres) = self.last_presentation_frame.as_ref() {
-                let ev = pres.alliance_events.clone();
-                let _ = self.game_logic.take_alliance_events();
-                ev
-            } else {
-                // Boot residual only.
-                self.game_logic.take_alliance_events()
-            };
+            self.take_presentation_or_boot_alliance_events();
         // Wave 553: prefer presentation local_player residual when installed.
         let local_player_id = self.presentation_or_boot_local_player_id();
         let mut observer_notified = false;
@@ -18281,6 +18267,35 @@ impl CnCGameEngine {
     /// Wave 553: presentation freeze owns local player id residual when installed.
     /// Boot residual without freeze uses host `local_player_id` probe.
     #[inline]
+
+    /// Wave 569: defeat residual — prefer presentation freeze `defeated_player_ids`,
+    /// drain live queue when freeze installed; boot residual takes live.
+    fn take_presentation_or_boot_defeat_events(&mut self) -> Vec<u32> {
+        // Wave 569: presentation freeze owns defeat residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            let ids = pres.defeated_player_ids.clone();
+            let _ = self.game_logic.take_defeat_events();
+            return ids;
+        }
+        // Boot residual only.
+        self.game_logic.take_defeat_events()
+    }
+
+    /// Wave 569: alliance residual — prefer presentation freeze `alliance_events`,
+    /// drain live queue when freeze installed; boot residual takes live.
+    fn take_presentation_or_boot_alliance_events(
+        &mut self,
+    ) -> Vec<crate::game_logic::AllianceNotification> {
+        // Wave 569: presentation freeze owns alliance residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            let ev = pres.alliance_events.clone();
+            let _ = self.game_logic.take_alliance_events();
+            return ev;
+        }
+        // Boot residual only.
+        self.game_logic.take_alliance_events()
+    }
+
     fn presentation_or_boot_local_player_id(&self) -> Option<u32> {
         // Wave 553: presentation freeze owns local player id residual when installed.
         if let Some(pres) = self.last_presentation_frame.as_ref() {

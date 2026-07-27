@@ -2236,6 +2236,11 @@ use crate::game_logic::host_live_script_fps_helper_residual_wave568::{
     honesty_script_fps_helper_nav_commands_residual_wave568,
     simulate_live_script_fps_helper_honesty,
 };
+use crate::game_logic::host_live_defeat_alliance_helper_residual_wave569::{
+    honesty_defeat_alliance_helper_method_names_residual_wave569,
+    honesty_defeat_alliance_helper_nav_commands_residual_wave569,
+    simulate_live_defeat_alliance_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5658,6 +5663,9 @@ pub struct ShellSmokeResult {
     pub script_fps_helper_method_names_wave568_ok: bool,
     pub script_fps_helper_nav_commands_wave568_ok: bool,
     pub script_fps_helper_live_wave568_ok: bool,
+    pub defeat_alliance_helper_method_names_wave569_ok: bool,
+    pub defeat_alliance_helper_nav_commands_wave569_ok: bool,
+    pub defeat_alliance_helper_live_wave569_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8820,6 +8828,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let script_fps_helper_nav_commands_wave568_ok =
         honesty_script_fps_helper_nav_commands_residual_wave568();
     let script_fps_helper_live_wave568_ok = simulate_live_script_fps_helper_honesty();
+    let defeat_alliance_helper_method_names_wave569_ok =
+        honesty_defeat_alliance_helper_method_names_residual_wave569();
+    let defeat_alliance_helper_nav_commands_wave569_ok =
+        honesty_defeat_alliance_helper_nav_commands_residual_wave569();
+    let defeat_alliance_helper_live_wave569_ok = simulate_live_defeat_alliance_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10513,6 +10526,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         script_fps_helper_method_names_wave568_ok,
         script_fps_helper_nav_commands_wave568_ok,
         script_fps_helper_live_wave568_ok,
+        defeat_alliance_helper_method_names_wave569_ok,
+        defeat_alliance_helper_nav_commands_wave569_ok,
+        defeat_alliance_helper_live_wave569_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -19303,6 +19319,21 @@ mod tests {
         assert!(
             r.script_fps_helper_live_wave568_ok,
             "script FPS helper live residual wave568: {}",
+            r.detail
+        );
+        assert!(
+            r.defeat_alliance_helper_method_names_wave569_ok,
+            "defeat/alliance helper method names residual pack wave569: {}",
+            r.detail
+        );
+        assert!(
+            r.defeat_alliance_helper_nav_commands_wave569_ok,
+            "defeat/alliance helper nav commands residual pack wave569: {}",
+            r.detail
+        );
+        assert!(
+            r.defeat_alliance_helper_live_wave569_ok,
+            "defeat/alliance helper live residual wave569: {}",
             r.detail
         );
         assert!(
