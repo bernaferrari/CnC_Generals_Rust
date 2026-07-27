@@ -7023,6 +7023,7 @@ impl GameWorldShadow {
     pub fn writeback_experience_to_host(&self, logic: &mut GameLogic) -> usize {
         use crate::game_logic::VeterancyLevel as V;
         let mut updated = 0usize;
+        let mut level_ups: Vec<(ObjectId, u8, u8, f32)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -7046,9 +7047,20 @@ impl GameWorldShadow {
                 obj.experience.current = pts;
             }
             if level_changed {
+                let prev_ord = Self::host_veterancy_ordinal(obj.experience.level);
+                let new_ord = ent.veterancy_ordinal.min(3);
                 obj.experience.level = want_level;
+                // Wave 622: GameWorld sole XP/level last-write residual —
+                // host applies combat bonuses from ready log.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() && new_ord > prev_ord
+                {
+                    level_ups.push((ObjectId(hid), prev_ord, new_ord, pts));
+                }
             }
             updated += 1;
+        }
+        for (oid, prev, next, pts) in level_ups {
+            crate::game_logic::host_veterancy_ready_log::record(oid, prev, next, pts);
         }
         updated
     }
@@ -7778,6 +7790,8 @@ pub fn shadow_session_after_host_tick(
             writebacks = shadow.writeback_health_to_host(logic);
         }
         let _xp_wb = shadow.writeback_experience_to_host(logic);
+        // Wave 622: drain veterancy ready log after GW XP/level writeback.
+        let _vet_ready = logic.host_apply_veterancy_ready_completions();
         let _wbonus_wb = shadow.writeback_weapon_bonus_to_host(logic);
         let _ff_wb = shadow.writeback_faerie_fire_to_host(logic);
         let _rp_wb = shadow.writeback_repulsor_to_host(logic);
