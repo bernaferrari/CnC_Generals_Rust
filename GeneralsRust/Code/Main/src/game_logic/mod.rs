@@ -429,6 +429,7 @@ pub mod host_live_presentation_world_bounds_probe_residual_wave461;
 pub mod host_live_prison_behavior_dual_world_empty_gate_residual_wave385;
 pub mod host_live_production_exit_delay_sole_tick_residual_wave464;
 pub mod host_live_production_quantity_writeback_residual_wave463;
+pub mod host_live_production_sole_tick_no_progress_stomp_residual_wave477;
 pub mod host_live_production_update_complete_dual_world_empty_gate_residual_wave365;
 pub mod host_live_production_update_dual_world_empty_gate_residual_wave326;
 pub mod host_live_production_update_dual_world_empty_gate_residual_wave376;
@@ -2195,6 +2196,21 @@ pub use host_live_named_shell_host_only_tracker_residual_wave476::{
     NAMED_SHELL_HOST_ONLY_TRACKER_NAV_STEPS_WAVE476,
     NAMED_SHELL_HOST_ONLY_TRACKER_SOURCE_MARKERS_WAVE476,
     RUNTIME_HOST_NAMED_SHELL_HOST_ONLY_TRACKER_CMD_NAMES_WAVE476,
+};
+pub use host_live_production_sole_tick_no_progress_stomp_residual_wave477::{
+    honesty_production_sole_tick_no_progress_stomp_method_names_residual_wave477,
+    honesty_production_sole_tick_no_progress_stomp_nav_commands_residual_wave477,
+    honesty_production_sole_tick_no_progress_stomp_residual_pack_wave477,
+    residual_production_sole_tick_no_progress_stomp_last_action,
+    residual_production_sole_tick_no_progress_stomp_ok,
+    simulate_live_production_sole_tick_no_progress_stomp_honesty,
+    simulate_production_sole_tick_no_progress_stomp_host_source,
+    simulate_production_sole_tick_no_progress_stomp_shadow_source,
+    ResidualProductionSoleTickNoProgressStompAction,
+    PRODUCTION_SOLE_TICK_NO_PROGRESS_STOMP_METHOD_NAMES_WAVE477,
+    PRODUCTION_SOLE_TICK_NO_PROGRESS_STOMP_NAV_STEPS_WAVE477,
+    PRODUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE477,
+    RUNTIME_HOST_PRODUCTION_SOLE_TICK_NO_PROGRESS_STOMP_CMD_NAMES_WAVE477,
 };
 
 pub use host_live_camera_center_presentation_height_residual_wave460::{

@@ -6948,8 +6948,12 @@ impl GameLogic {
                     } else {
                         building.update_production(dt, pf)
                     };
-                // GameWorld production residual: snapshot queue progress each tick.
-                if !building.production_queue.is_empty() {
+                // GameWorld production residual: snapshot queue progress each tick
+                // unless sole-tick owns progress (Wave 477) — then enqueue/complete logs
+                // + writeback carry structure; GW advances progress/exit delay.
+                if !building.production_queue.is_empty()
+                    && !crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
+                {
                     let items: Vec<crate::game_logic::host_production_progress_log::HostProductionQueueItem> =
                         building
                             .production_queue
@@ -6972,6 +6976,12 @@ impl GameLogic {
                         items,
                         building.exit_delay_remaining,
                         pf,
+                    );
+                } else if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
+                    // Wave 477: still publish power factor for GW sole-tick rate without
+                    // stomping queue progress via full progress-log apply.
+                    crate::game_logic::host_production_progress_log::record_power_factor_only(
+                        id, pf,
                     );
                 }
                 if let Some((completed, kind)) = completed_prod {

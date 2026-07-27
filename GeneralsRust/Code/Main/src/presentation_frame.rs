@@ -11403,19 +11403,22 @@ mod tests {
         assert!(
             gl.contains("gameworld_production_sole_tick_enabled()")
                 && gl.contains("try_complete_production()")
-                && gl.contains("tick_exit_delay(dt)"),
-            "host update_production under authority must exit-delay+complete only"
+                && gl.contains("record_power_factor_only"),
+            "host under sole-tick must try_complete + power factor only (no progress stomp)"
         );
         let b = include_str!("game_logic/buildings.rs");
         assert!(
             b.contains("fn advance_production_progress")
-                && b.contains("fn try_complete_production"),
-            "building production must split advance vs complete"
+                && b.contains("fn try_complete_production")
+                && b.contains("fn tick_exit_delay"),
+            "building production must split advance/exit vs complete"
         );
         let sw = include_str!("gameworld_shadow.rs");
         assert!(
-            sw.contains("fn tick_production_queues") && sw.contains("tick_production_queues("),
-            "shadow session must sole-tick production queues under authority"
+            sw.contains("fn tick_production_queues")
+                && sw.contains("tick_production_queues(")
+                && sw.contains("if ev.power_factor_only"),
+            "shadow session must sole-tick queues and skip power-factor-only stomps"
         );
     }
 

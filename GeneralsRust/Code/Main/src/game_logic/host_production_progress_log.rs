@@ -25,6 +25,8 @@ pub struct HostProductionProgressEvent {
     pub exit_delay_remaining: f32,
     /// Host energy shortfall clamp residual (1.0 = full power).
     pub power_factor: f32,
+    /// Wave 477: when true, apply power_factor only (GW sole-ticks queue/exit).
+    pub power_factor_only: bool,
 }
 
 thread_local! {
@@ -43,6 +45,20 @@ pub fn record(
             items,
             exit_delay_remaining: exit_delay_remaining.max(0.0),
             power_factor: power_factor.max(0.01),
+            power_factor_only: false,
+        });
+    });
+}
+
+/// Wave 477: sole-tick residual — publish host power factor without queue stomp.
+pub fn record_power_factor_only(producer: ObjectId, power_factor: f32) {
+    LOG.with(|log| {
+        log.borrow_mut().push(HostProductionProgressEvent {
+            producer,
+            items: Vec::new(),
+            exit_delay_remaining: 0.0,
+            power_factor: power_factor.max(0.01),
+            power_factor_only: true,
         });
     });
 }
