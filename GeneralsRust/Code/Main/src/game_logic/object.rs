@@ -6094,6 +6094,8 @@ impl Object {
                 self.record_host_production_door();
                 self.production_door_phase_end_frame = now.saturating_add(30);
                 self.refresh_model_condition_bits();
+                // Wave 486: door model bits must reach GW before model-condition writeback.
+                self.record_host_model_condition();
                 false
             }
             2 => {
@@ -6111,6 +6113,8 @@ impl Object {
                 // Minimal hold before CLOSING residual (INI DoorCloseTime path).
                 self.production_door_phase_end_frame = now.saturating_add(1);
                 self.refresh_model_condition_bits();
+                // Wave 486: door model bits must reach GW before model-condition writeback.
+                self.record_host_model_condition();
                 false
             }
             3 => {
@@ -6126,6 +6130,8 @@ impl Object {
                 self.record_host_production_door();
                 self.production_door_phase_end_frame = now.saturating_add(15);
                 self.refresh_model_condition_bits();
+                // Wave 486: door model bits must reach GW before model-condition writeback.
+                self.record_host_model_condition();
                 false
             }
             4 => {
@@ -6138,6 +6144,8 @@ impl Object {
                     self.record_host_production_door();
                     self.production_door_phase_end_frame = now.saturating_add(30);
                     self.refresh_model_condition_bits();
+                    // Wave 486: door model bits must reach GW before model-condition writeback.
+                    self.record_host_model_condition();
                     return false;
                 }
                 // CLOSING → idle
@@ -6146,6 +6154,8 @@ impl Object {
                 self.record_host_production_door();
                 self.production_door_phase_end_frame = 0;
                 self.refresh_model_condition_bits();
+                // Wave 486: door model bits must reach GW before model-condition writeback.
+                self.record_host_model_condition();
                 true
             }
             _ => {
