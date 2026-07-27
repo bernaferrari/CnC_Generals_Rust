@@ -15851,47 +15851,13 @@ impl CnCGameEngine {
             self.apply_pending_script_camera_requests();
         }
 
-        // Prefer presentation popup/music residual when installed; live take is boot residual.
+        // Wave 571: presentation-or-boot popup/music residual via helpers.
         if let Some(pres) = self.last_presentation_frame.clone() {
-            for popup in &pres.pending_popup_messages {
-                if popup.pause {
-                    self.game_paused = true;
-                    self.game_logic.set_paused(true);
-                }
-                if popup.pause_music {
-                    if let Some(sink) = self.background_music.take() {
-                        sink.stop();
-                    }
-                }
-            }
-            if pres.pending_music_stop {
-                if let Some(sink) = self.background_music.take() {
-                    sink.stop();
-                }
-            }
-            // Drain live queues so peeked presentation fields are not re-applied.
-            let _ = self.game_logic.take_popup_message_requests();
-            let _ = self.game_logic.take_music_stop_request();
+            self.apply_presentation_popup_music_residual(&pres);
             // Presentation movie residual: play via GameClient script display, then drain.
             self.apply_presentation_movie_residual(&pres);
         } else {
-            for popup in self.game_logic.take_popup_message_requests() {
-                if popup.pause {
-                    self.game_paused = true;
-                    self.game_logic.set_paused(true);
-                }
-                if popup.pause_music {
-                    if let Some(sink) = self.background_music.take() {
-                        sink.stop();
-                    }
-                }
-            }
-
-            if self.game_logic.take_music_stop_request() {
-                if let Some(sink) = self.background_music.take() {
-                    sink.stop();
-                }
-            }
+            self.apply_boot_popup_music_residual();
             // Wave 567: boot residual movies via helper (no presentation frame).
             self.apply_boot_movie_residual();
         }
@@ -18028,6 +17994,58 @@ impl CnCGameEngine {
     /// Wave 567: boot residual movies when no presentation freeze is installed.
     /// Presentation path uses `apply_presentation_movie_residual` (peek freeze + drain).
     /// Fail-closed: not full BINK parity / playable_claim.
+
+    /// Wave 571: presentation popup/music residual — apply freeze fields then drain live queues.
+    /// Callers should follow with `apply_presentation_movie_residual`.
+    fn apply_presentation_popup_music_residual(
+        &mut self,
+        pres: &crate::presentation_frame::PresentationFrame,
+    ) {
+        // Wave 571: presentation freeze owns popup/music residual when installed.
+        for popup in &pres.pending_popup_messages {
+            if popup.pause {
+                self.game_paused = true;
+                self.game_logic.set_paused(true);
+            }
+            if popup.pause_music {
+                if let Some(sink) = self.background_music.take() {
+                    sink.stop();
+                }
+            }
+        }
+        if pres.pending_music_stop {
+            if let Some(sink) = self.background_music.take() {
+                sink.stop();
+            }
+        }
+        // Drain live queues so peeked presentation fields are not re-applied.
+        let _ = self.game_logic.take_popup_message_requests();
+        let _ = self.game_logic.take_music_stop_request();
+    }
+
+    /// Wave 571: boot residual popup/music — live take only (no presentation freeze).
+    /// Callers should follow with `apply_boot_movie_residual`.
+    fn apply_boot_popup_music_residual(&mut self) {
+        // Wave 571: boot residual only.
+        for popup in self.game_logic.take_popup_message_requests() {
+            if popup.pause {
+                self.game_paused = true;
+                self.game_logic.set_paused(true);
+            }
+            if popup.pause_music {
+                if let Some(sink) = self.background_music.take() {
+                    sink.stop();
+                }
+            }
+        }
+
+        if self.game_logic.take_music_stop_request() {
+            if let Some(sink) = self.background_music.take() {
+                sink.stop();
+            }
+        }
+    }
+
     fn apply_boot_movie_residual(&mut self) {
         // Wave 567: boot residual only — host take_pending_* dual-read.
         #[cfg(feature = "game_client")]
