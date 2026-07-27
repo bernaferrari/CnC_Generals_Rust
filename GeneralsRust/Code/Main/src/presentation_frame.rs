@@ -575,6 +575,10 @@ pub struct UnitRenderInput {
     pub production_door_phase: u8,
     pub is_structure: bool,
     pub is_unit: bool,
+    /// Wave 495: frozen combat motion flags for mesh model-condition stamping.
+    pub moving: bool,
+    pub attacking: bool,
+    pub is_firing_weapon: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -610,6 +614,9 @@ impl UnitRenderInput {
             production_door_phase: ro.production_door_phase,
             is_structure: ro.is_structure,
             is_unit: ro.is_unit,
+            moving: ro.moving,
+            attacking: ro.attacking,
+            is_firing_weapon: ro.is_firing_weapon,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -650,6 +657,24 @@ impl UnitRenderInput {
             * glam::Mat4::from_rotation_y(yaw)
             * glam::Mat4::from_rotation_x(pitch)
             * glam::Mat4::from_scale(glam::Vec3::splat(scale))
+    }
+
+    /// Wave 495: ensure combat motion flags are present in model-condition bits.
+    pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
+        use crate::game_logic::host_enum_table_residual::{
+            MC_BIT_ATTACKING, MC_BIT_FIRING_A, MC_BIT_MOVING,
+        };
+        let mut bits = self.model_condition_bits;
+        if self.moving {
+            bits |= 1u128 << MC_BIT_MOVING;
+        }
+        if self.attacking {
+            bits |= 1u128 << MC_BIT_ATTACKING;
+        }
+        if self.is_firing_weapon {
+            bits |= 1u128 << MC_BIT_FIRING_A;
+        }
+        bits
     }
 
     /// Never-explored skip for the main mesh pass (snapshot FOW only).
@@ -8006,6 +8031,9 @@ mod tests {
             production_door_phase: 0,
             is_structure: false,
             is_unit: true,
+            moving: false,
+            attacking: false,
+            is_firing_weapon: false,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
