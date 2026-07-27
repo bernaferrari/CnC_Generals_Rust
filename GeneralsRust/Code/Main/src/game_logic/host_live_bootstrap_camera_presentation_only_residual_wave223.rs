@@ -88,18 +88,19 @@ pub fn honesty_bootstrap_camera_presentation_only_source() -> bool {
     let rest = &eng[i..];
     let end = rest.find("\n    fn ").unwrap_or(rest.len().min(5500));
     let body = &rest[..end];
-    // Wave 458 supersedes Wave 223 call-site dual-read: live GameLogic is Option and
+    // Wave 473 supersedes Wave 223/458: bootstrap is presentation-only (no GameLogic param).
     // call sites prefer pipeline presentation freeze.
     body.contains("presentation: Option<&crate::presentation_frame::PresentationFrame>")
         && body.contains("local_team_base_position")
         && body.contains("world_bounds_vec3")
         && body.contains("sample_startup_camera_heights")
-        && body.contains("game_logic: Option<&GameLogic>")
+        && !body.contains("game_logic: Option<&GameLogic>")
+        && !body.contains("game_logic:")
         && body.contains("is_shell_game: bool")
         && eng.contains("startup_camera_presentation")
-        && eng.contains("startup_camera_live_logic")
+        && !eng.contains("startup_camera_live_logic")
         && eng
-            .matches("Wave 458: prefer pipeline presentation freeze")
+            .matches("Self::bootstrap_camera_for_loaded_map(")
             .count()
             >= 2
 }

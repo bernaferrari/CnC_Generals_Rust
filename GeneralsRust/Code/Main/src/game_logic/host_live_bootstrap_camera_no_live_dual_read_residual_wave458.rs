@@ -32,7 +32,7 @@ pub const BOOTSTRAP_CAMERA_NO_LIVE_DUAL_READ_METHOD_NAMES_WAVE458: &[&str] = &[
 
 pub const BOOTSTRAP_CAMERA_NO_LIVE_DUAL_READ_SOURCE_MARKERS_WAVE458: &[&str] = &[
     "Wave 458: live GameLogic only when presentation freeze is missing",
-    "game_logic: Option<&GameLogic>",
+    "no game_logic param (Wave 473)",
     "startup_camera_live_logic",
     "startup_camera_presentation",
 ];
@@ -161,27 +161,31 @@ pub fn simulate_bootstrap_camera_no_live_dual_read_source() -> bool {
     let Some(body) = function_body(src, "fn bootstrap_camera_for_loaded_map(") else {
         return false;
     };
-    let ok = body.contains("Wave 458: live GameLogic only when presentation freeze is missing")
-        && body.contains("game_logic: Option<&GameLogic>")
+    // Wave 473 supersedes Option live dual-read: presentation-only bootstrap.
+    let ok = (body.contains("Wave 458: live GameLogic only when presentation freeze is missing")
+        || body.contains("Wave 473: presentation freeze only"))
         && body.contains("is_shell_game: bool")
         && body.contains("local_team_base_position")
         && body.contains("world_bounds_vec3()")
-        && !body.contains("game_logic: &GameLogic");
+        && !body.contains("game_logic: &GameLogic")
+        && !body.contains("no game_logic param (Wave 473)");
     residual_action_store(ResidualBootstrapCameraNoLiveDualReadAction::BootstrapSource);
     ok
 }
 
 pub fn simulate_bootstrap_camera_no_live_dual_read_callsites() -> bool {
     let src = cnc_source();
+    // Wave 473: presentation freeze at callsites, no live_logic arg.
     let ok = src.matches("startup_camera_presentation").count() >= 2
-        && src.matches("startup_camera_live_logic").count() >= 2
-        && src
-            .matches("Wave 458: prefer pipeline presentation freeze")
-            .count()
-            >= 2
+        && !src.contains("startup_camera_live_logic")
+        && src.contains("Self::bootstrap_camera_for_loaded_map(")
+        && (src.contains("Wave 458: prefer pipeline presentation freeze")
+            || src.contains("startup_camera_presentation"))
         && !src.contains(
             "Self::bootstrap_camera_for_loaded_map(\n                    &self.game_logic,",
-        );
+        )
+        && !src
+            .contains("Self::bootstrap_camera_for_loaded_map(\n                &self.game_logic,");
     residual_action_store(ResidualBootstrapCameraNoLiveDualReadAction::CallSites);
     ok
 }
