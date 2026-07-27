@@ -639,6 +639,8 @@ pub struct UnitRenderInput {
     pub captured: bool,
     /// Wave 510: power plant overcharge residual.
     pub overcharge_enabled: bool,
+    /// Wave 511: death type name residual for burned/aflame pose.
+    pub death_type_name: String,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -703,6 +705,7 @@ impl UnitRenderInput {
             world_is_night: false,
             captured: ro.captured,
             overcharge_enabled: ro.overcharge_enabled,
+            death_type_name: ro.death_type_name.clone(),
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -756,6 +759,7 @@ impl UnitRenderInput {
     /// Wave 508: stamp body-damage / DISGUISED / STUNNED residual bits.
     /// Wave 509: stamp TOPPLED / FREEFALL / NIGHT / SNOW residual bits.
     /// Wave 510: stamp CAPTURED / LOADED / POWER_PLANT_UPGRADED residual bits.
+    /// Wave 511: stamp BURNED / AFLAME / SPECIAL_CHEERING / CARRYING residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -991,6 +995,39 @@ impl UnitRenderInput {
                 bits |= 1u128 << pp_b;
             } else {
                 bits &= !(1u128 << pp_b);
+            }
+        }
+        // Wave 511: burned/aflame death pose + special cheering + carrying residual.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                aflame_model_bit, burned_model_bit, carrying_model_bit, special_cheering_model_bit,
+            };
+            let death = self.death_type_name.to_ascii_lowercase();
+            let burn_b = burned_model_bit();
+            let flame_b = aflame_model_bit();
+            if death.contains("burn") {
+                bits |= 1u128 << burn_b;
+            } else {
+                bits &= !(1u128 << burn_b);
+            }
+            if death.contains("flame") || death.contains("fire") {
+                bits |= 1u128 << flame_b;
+            } else {
+                bits &= !(1u128 << flame_b);
+            }
+            let cheer_b = special_cheering_model_bit();
+            let infantry = matches!(self.object_type, PresentationObjectType::Infantry);
+            if self.using_ability && infantry {
+                bits |= 1u128 << cheer_b;
+            } else {
+                bits &= !(1u128 << cheer_b);
+            }
+            let carry_b = carrying_model_bit();
+            // Infantry non-combat ability residual (flag/crate-like carry pose).
+            if self.using_ability && infantry && !self.attacking && !self.is_firing_weapon {
+                bits |= 1u128 << carry_b;
+            } else {
+                bits &= !(1u128 << carry_b);
             }
         }
         bits
@@ -8594,6 +8631,7 @@ mod tests {
             world_is_night: false,
             captured: false,
             overcharge_enabled: false,
+            death_type_name: String::new(),
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };

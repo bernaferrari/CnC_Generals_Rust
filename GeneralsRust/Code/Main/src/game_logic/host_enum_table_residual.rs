@@ -582,6 +582,25 @@ pub fn packing_model_bit() -> u32 {
 pub fn unpacking_model_bit() -> u32 {
     model_condition_bit_name_index("UNPACKING").unwrap_or(0) as u32
 }
+/// C++ MODELCONDITION_AFLAME residual bit index.
+pub fn aflame_model_bit() -> u32 {
+    model_condition_bit_name_index("AFLAME").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_BURNED residual bit index.
+pub fn burned_model_bit() -> u32 {
+    model_condition_bit_name_index("BURNED").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_SPECIAL_CHEERING residual bit index.
+pub fn special_cheering_model_bit() -> u32 {
+    model_condition_bit_name_index("SPECIAL_CHEERING").unwrap_or(0) as u32
+}
+
+/// C++ MODELCONDITION_CARRYING residual bit index.
+pub fn carrying_model_bit() -> u32 {
+    model_condition_bit_name_index("CARRYING").unwrap_or(0) as u32
+}
 
 pub fn door_1_opening_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_OPENING").unwrap_or(0) as u32
