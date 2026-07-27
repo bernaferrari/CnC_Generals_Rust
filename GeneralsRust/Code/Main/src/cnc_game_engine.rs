@@ -16033,7 +16033,7 @@ impl CnCGameEngine {
                 ui
             } else {
                 // Boot/loading residual only.
-                self.game_logic.update_ui_state(self.current_player_id)
+                self.host_update_ui_state(self.current_player_id)
             };
             if !ui_state.radar_events.is_empty() {
                 for evt in &ui_state.radar_events {
@@ -18300,7 +18300,7 @@ impl CnCGameEngine {
             return pres.fow_shell_bypass;
         }
         // Boot residual only.
-        self.game_logic.isInShellGame()
+        self.host_is_in_shell_game()
     }
 
     /// Wave 553: presentation freeze owns total play-time residual when installed
@@ -18518,6 +18518,41 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.templates.contains_key(name)
+    }
+
+    /// Wave 585: host UI-state residual (boot/loading without presentation freeze).
+    #[inline]
+    fn host_update_ui_state(&mut self, player_id: u32) -> crate::ui::GameUIState {
+        // Wave 585: host update_ui_state residual.
+        self.game_logic.update_ui_state(player_id)
+    }
+
+    /// Wave 585: host shell-map probe residual (`isInShellGame`).
+    #[inline]
+    fn host_is_in_shell_game(&self) -> bool {
+        // Wave 585: host isInShellGame residual.
+        self.game_logic.isInShellGame()
+    }
+
+    /// Wave 585: host world-size override residual (minimap/heightmap repair path).
+    #[inline]
+    fn host_override_world_size(&mut self, width: f32, height: f32) {
+        // Wave 585: host override_world_size residual.
+        self.game_logic.override_world_size(width, height);
+    }
+
+    /// Wave 585: host world-bounds residual (boot path without presentation freeze).
+    #[inline]
+    fn host_world_bounds(&self) -> (glam::Vec3, glam::Vec3) {
+        // Wave 585: host world_bounds residual.
+        self.game_logic.world_bounds()
+    }
+
+    /// Wave 585: host first-opponent residual (debug victory hotkey).
+    #[inline]
+    fn host_first_opponent_id(&self, player_id: u32) -> Option<u32> {
+        // Wave 585: host first_opponent_id residual.
+        self.game_logic.first_opponent_id(player_id)
     }
 
     /// Wave 584: host object-alive probe residual (upgrade honesty boot fallback).
@@ -18849,7 +18884,7 @@ impl CnCGameEngine {
         // Wave 552: menu residual — freeze must affirm shell, else boot probe.
         match self.last_presentation_frame.as_ref() {
             Some(pres) if pres.fow_shell_bypass => true,
-            _ => self.game_logic.isInShellGame(),
+            _ => self.host_is_in_shell_game(),
         }
     }
 
@@ -18863,7 +18898,7 @@ impl CnCGameEngine {
         // Wave 552: optional freeze owns shell-bypass; boot residual otherwise.
         match frame {
             Some(pres) => pres.fow_shell_bypass,
-            None => self.game_logic.isInShellGame(),
+            None => self.host_is_in_shell_game(),
         }
     }
 
@@ -19532,7 +19567,7 @@ impl CnCGameEngine {
                     pres.world_env.world_max = world_bounds.1.to_array();
                 }
                 // Host pathfinding/world size residual (sim still needs repaired extents).
-                self.game_logic.override_world_size(w, h);
+                self.host_override_world_size(w, h);
                 // Keep last_presentation aligned after stamp.
                 if let Some(pres) = self.render_pipeline.presentation_frame() {
                     self.last_presentation_frame = Some(pres.clone());
@@ -20166,7 +20201,7 @@ impl CnCGameEngine {
         {
             frame.world_env.world_bounds_vec3()
         } else {
-            self.game_logic.world_bounds()
+            self.host_world_bounds()
         }
     }
 
@@ -20665,7 +20700,7 @@ impl CnCGameEngine {
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) =>
             {
                 // Debug residual only — not retail CommandMap.
-                let winner = self.game_logic.first_opponent_id(self.current_player_id);
+                let winner = self.host_first_opponent_id(self.current_player_id);
                 self.debug_show_victory(winner);
             }
             Key::Character(c)

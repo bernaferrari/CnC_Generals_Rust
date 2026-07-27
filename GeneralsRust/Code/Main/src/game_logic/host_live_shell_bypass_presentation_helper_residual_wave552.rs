@@ -130,12 +130,16 @@ pub fn honesty_shell_bypass_presentation_helper_source_markers_residual_wave552(
     };
     let helper_ok = body.contains("Wave 552")
         && body.contains("pres.fow_shell_bypass")
-        && body.contains("self.game_logic.isInShellGame()");
+        && (body.contains("self.game_logic.isInShellGame()")
+            || body.contains("self.host_is_in_shell_game()"));
     let affirms = eng.contains("fn presentation_affirms_shell_or_boot")
         && eng.contains("presentation_affirms_shell_or_boot()");
     let from_pres = eng.contains("fn shell_bypass_from_presentation")
         && eng.contains("shell_bypass_from_presentation(startup_camera_presentation)");
-    let boot_only = eng.matches("self.game_logic.isInShellGame()").count() == 3; // three helpers
+    // Wave 585: raw isInShellGame lives only in host_is_in_shell_game; callers use helper.
+    let boot_only = eng.matches("self.game_logic.isInShellGame()").count() == 1
+        && eng.contains("fn host_is_in_shell_game")
+        && eng.contains("self.host_is_in_shell_game()");
     let ok = helper_ok
         && affirms
         && from_pres
@@ -175,7 +179,8 @@ pub fn simulate_shell_bypass_presentation_helper_dispatch_source() -> bool {
     let ok = eng.contains("presentation_or_boot_shell_bypass()")
         && eng.contains("presentation_affirms_shell_or_boot()")
         && eng.contains("shell_bypass_from_presentation(startup_camera_presentation)")
-        && eng.matches("self.game_logic.isInShellGame()").count() == 3;
+        && eng.matches("self.game_logic.isInShellGame()").count() == 1
+        && eng.contains("self.host_is_in_shell_game()");
     residual_action_store(ResidualShellBypassPresentationHelperAction::DispatchSource);
     ok
 }
