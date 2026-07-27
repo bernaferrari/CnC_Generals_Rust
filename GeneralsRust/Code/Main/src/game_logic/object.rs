@@ -6185,6 +6185,22 @@ impl Object {
 
     /// C++ RadarUpdate::update extend completion residual.
     /// Returns true when extension just completed this tick.
+    /// Wave 625: apply radar-extend complete residual after GW writeback.
+    ///
+    /// Does not re-check done_frame (GameWorld is last-writer for complete flag).
+    pub(crate) fn apply_radar_extend_complete_residual(&mut self) {
+        use crate::game_logic::host_enum_table_residual::{
+            radar_extending_model_bit, radar_upgraded_model_bit,
+        };
+        self.radar_extend_complete = true;
+        self.radar_extend_done_frame = 0;
+        self.model_condition_bits &= !(1u128 << radar_extending_model_bit());
+        self.model_condition_bits |= 1u128 << radar_upgraded_model_bit();
+        self.refresh_model_condition_bits();
+        self.record_host_radar_extend();
+        self.record_host_model_condition();
+    }
+
     pub fn tick_radar_extend(&mut self, current_frame: u32) -> bool {
         if self.radar_extend_done_frame == 0 || self.radar_extend_complete {
             return false;

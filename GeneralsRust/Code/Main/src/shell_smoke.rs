@@ -2516,6 +2516,11 @@ use crate::game_logic::host_live_host_upgrade_ready_log_helper_residual_wave624:
     honesty_host_upgrade_ready_log_helper_nav_commands_residual_wave624,
     simulate_live_host_upgrade_ready_log_helper_honesty,
 };
+use crate::game_logic::host_live_host_radar_extend_ready_log_helper_residual_wave625::{
+    honesty_host_radar_extend_ready_log_helper_method_names_residual_wave625,
+    honesty_host_radar_extend_ready_log_helper_nav_commands_residual_wave625,
+    simulate_live_host_radar_extend_ready_log_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -6106,6 +6111,9 @@ pub struct ShellSmokeResult {
     pub host_upgrade_ready_log_helper_method_names_wave624_ok: bool,
     pub host_upgrade_ready_log_helper_nav_commands_wave624_ok: bool,
     pub host_upgrade_ready_log_helper_live_wave624_ok: bool,
+    pub host_radar_extend_ready_log_helper_method_names_wave625_ok: bool,
+    pub host_radar_extend_ready_log_helper_nav_commands_wave625_ok: bool,
+    pub host_radar_extend_ready_log_helper_live_wave625_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9591,6 +9599,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_upgrade_ready_log_helper_nav_commands_residual_wave624();
     let host_upgrade_ready_log_helper_live_wave624_ok =
         simulate_live_host_upgrade_ready_log_helper_honesty();
+    let host_radar_extend_ready_log_helper_method_names_wave625_ok =
+        honesty_host_radar_extend_ready_log_helper_method_names_residual_wave625();
+    let host_radar_extend_ready_log_helper_nav_commands_wave625_ok =
+        honesty_host_radar_extend_ready_log_helper_nav_commands_residual_wave625();
+    let host_radar_extend_ready_log_helper_live_wave625_ok =
+        simulate_live_host_radar_extend_ready_log_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -11452,6 +11466,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_upgrade_ready_log_helper_method_names_wave624_ok,
         host_upgrade_ready_log_helper_nav_commands_wave624_ok,
         host_upgrade_ready_log_helper_live_wave624_ok,
+        host_radar_extend_ready_log_helper_method_names_wave625_ok,
+        host_radar_extend_ready_log_helper_nav_commands_wave625_ok,
+        host_radar_extend_ready_log_helper_live_wave625_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -21082,6 +21099,21 @@ mod tests {
         assert!(
             r.host_upgrade_ready_log_helper_live_wave624_ok,
             "host upgrade ready log helper live residual wave624: {}",
+            r.detail
+        );
+        assert!(
+            r.host_radar_extend_ready_log_helper_method_names_wave625_ok,
+            "host radar extend ready log helper method names residual pack wave625: {}",
+            r.detail
+        );
+        assert!(
+            r.host_radar_extend_ready_log_helper_nav_commands_wave625_ok,
+            "host radar extend ready log helper nav commands residual pack wave625: {}",
+            r.detail
+        );
+        assert!(
+            r.host_radar_extend_ready_log_helper_live_wave625_ok,
+            "host radar extend ready log helper live residual wave625: {}",
             r.detail
         );
         assert!(

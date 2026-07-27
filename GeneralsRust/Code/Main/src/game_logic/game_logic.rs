@@ -26083,6 +26083,24 @@ impl GameLogic {
     /// state transitions; host applies model/FX residual for those IDs.
     /// Wave 624: under GameWorld completed-upgrade writeback, drain ready log and
     /// apply full host upgrade residual (unlocks, EVA, radar, status bits).
+    /// Wave 625: GameWorld radar-extend complete writeback records ready IDs;
+    /// host applies upgraded model residual and complete counter.
+    pub fn host_apply_radar_extend_ready_completions(&mut self) -> usize {
+        // Wave 625: GameWorld radar-extend complete writeback records ready IDs;
+        // host applies upgraded model residual and complete counter.
+        let events = crate::game_logic::host_radar_extend_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get_mut(&ev.structure) else {
+                continue;
+            };
+            obj.apply_radar_extend_complete_residual();
+            self.radar_extend_completes = self.radar_extend_completes.saturating_add(1);
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_upgrade_ready_completions(&mut self) -> usize {
         // Wave 624: under GameWorld completed-upgrade writeback, drain ready log and
         // apply full host upgrade residual (unlocks, EVA, radar, status bits).
