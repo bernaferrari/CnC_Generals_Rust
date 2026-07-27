@@ -6184,6 +6184,7 @@ impl GameWorldShadow {
 
     pub fn writeback_model_condition_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<(ObjectId, u128, u128)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6194,8 +6195,18 @@ impl GameWorldShadow {
             if obj.model_condition_bits == ent.model_condition_bits {
                 continue;
             }
+            let prev = obj.model_condition_bits;
+            // Direct assign — avoid host_model_condition_log re-entry during writeback.
+            // Keep `obj.model_condition_bits = ent.model_condition_bits` for Wave 486
+            // residual source markers (door visual path).
             obj.model_condition_bits = ent.model_condition_bits;
+            // Wave 633: GameWorld model-condition last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push((ObjectId(hid), prev, ent.model_condition_bits));
             updated += 1;
+        }
+        for (oid, prev, next) in ready {
+            crate::game_logic::host_model_condition_ready_log::record(oid, prev, next);
         }
         updated
     }
@@ -8004,6 +8015,8 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_bounce_land_to_host(logic);
         let _sr_wb = shadow.writeback_selection_radius_to_host(logic);
         let _mc_wb = shadow.writeback_model_condition_to_host(logic);
+        // Wave 633: drain model-condition ready log after GW writeback.
+        let _mc_ready = logic.host_apply_model_condition_ready_completions();
         let _dmc_wb = shadow.writeback_demo_mine_cheer_to_host(logic);
         let _cv_wb = shadow.writeback_crush_vision_to_host(logic);
         let _bt_wb = shadow.writeback_building_type_to_host(logic);
@@ -11920,6 +11933,7 @@ mod tests {
             e.model_condition_bits = 0b1011;
         }
         assert!(shadow.writeback_model_condition_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_model_condition_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         assert_eq!(o.model_condition_bits, 0b1011);
     }
