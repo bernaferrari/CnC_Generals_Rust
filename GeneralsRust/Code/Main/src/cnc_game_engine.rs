@@ -18887,8 +18887,8 @@ impl CnCGameEngine {
         graphics_system: &GraphicsSystem,
         game_logic: &mut GameLogic,
     ) -> anyhow::Result<()> {
-        // Wave 457: prefer presentation freeze for minimap world bounds
-        // Host GameLogic override remains only when heightmap size repairs degenerate bounds.
+        // Wave 465: presentation-first minimap bounds; heightmap repair stamps freeze
+        // and only then mirrors size onto host GameLogic for pathfinding residual.
         let mut world_bounds = if let Some(pres) = render_pipeline.presentation_frame() {
             pres.world_env.world_bounds_vec3()
         } else {
@@ -18904,13 +18904,19 @@ impl CnCGameEngine {
         let world_height = (world_bounds.1.z - world_bounds.0.z).abs();
         if world_width <= 1.0 || world_height <= 1.0 {
             if let Some((w, h)) = render_pipeline.heightmap_world_size() {
-                game_logic.override_world_size(w, h);
-                world_bounds = game_logic.world_bounds();
+                let half_w = w * 0.5;
+                let half_h = h * 0.5;
+                world_bounds = (
+                    Vec3::new(-half_w, 0.0, -half_h),
+                    Vec3::new(half_w, 0.0, half_h),
+                );
                 // Stamp repaired bounds into presentation freeze when installed.
                 if let Some(pres) = render_pipeline.presentation_frame_mut() {
                     pres.world_env.world_min = world_bounds.0.to_array();
                     pres.world_env.world_max = world_bounds.1.to_array();
                 }
+                // Host pathfinding/world size residual (sim still needs repaired extents).
+                game_logic.override_world_size(w, h);
             }
         }
 
