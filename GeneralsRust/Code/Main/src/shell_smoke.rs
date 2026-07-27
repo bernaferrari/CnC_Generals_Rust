@@ -2416,6 +2416,11 @@ use crate::game_logic::host_live_host_loading_sfx_helper_residual_wave604::{
     honesty_host_loading_sfx_helper_nav_commands_residual_wave604,
     simulate_live_host_loading_sfx_helper_honesty,
 };
+use crate::game_logic::host_live_host_menu_client_helper_residual_wave605::{
+    honesty_host_menu_client_helper_method_names_residual_wave605,
+    honesty_host_menu_client_helper_nav_commands_residual_wave605,
+    simulate_live_host_menu_client_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5946,6 +5951,9 @@ pub struct ShellSmokeResult {
     pub host_loading_sfx_helper_method_names_wave604_ok: bool,
     pub host_loading_sfx_helper_nav_commands_wave604_ok: bool,
     pub host_loading_sfx_helper_live_wave604_ok: bool,
+    pub host_menu_client_helper_method_names_wave605_ok: bool,
+    pub host_menu_client_helper_nav_commands_wave605_ok: bool,
+    pub host_menu_client_helper_live_wave605_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9312,6 +9320,11 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host_loading_sfx_helper_nav_commands_wave604_ok =
         honesty_host_loading_sfx_helper_nav_commands_residual_wave604();
     let host_loading_sfx_helper_live_wave604_ok = simulate_live_host_loading_sfx_helper_honesty();
+    let host_menu_client_helper_method_names_wave605_ok =
+        honesty_host_menu_client_helper_method_names_residual_wave605();
+    let host_menu_client_helper_nav_commands_wave605_ok =
+        honesty_host_menu_client_helper_nav_commands_residual_wave605();
+    let host_menu_client_helper_live_wave605_ok = simulate_live_host_menu_client_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -11113,6 +11126,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_loading_sfx_helper_method_names_wave604_ok,
         host_loading_sfx_helper_nav_commands_wave604_ok,
         host_loading_sfx_helper_live_wave604_ok,
+        host_menu_client_helper_method_names_wave605_ok,
+        host_menu_client_helper_nav_commands_wave605_ok,
+        host_menu_client_helper_live_wave605_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -20443,6 +20459,21 @@ mod tests {
         assert!(
             r.host_loading_sfx_helper_live_wave604_ok,
             "host loading sfx helper live residual wave604: {}",
+            r.detail
+        );
+        assert!(
+            r.host_menu_client_helper_method_names_wave605_ok,
+            "host menu client helper method names residual pack wave605: {}",
+            r.detail
+        );
+        assert!(
+            r.host_menu_client_helper_nav_commands_wave605_ok,
+            "host menu client helper nav commands residual pack wave605: {}",
+            r.detail
+        );
+        assert!(
+            r.host_menu_client_helper_live_wave605_ok,
+            "host menu client helper live residual wave605: {}",
             r.detail
         );
         assert!(
