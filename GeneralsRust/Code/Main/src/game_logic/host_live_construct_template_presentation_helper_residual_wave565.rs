@@ -142,8 +142,9 @@ pub fn honesty_construct_template_presentation_helper_source_markers_residual_wa
     let arm_ok = arm_i.is_some_and(|i| {
         let w = &eng[i..eng.len().min(i + 16000)];
         w.contains("Wave 565")
-            && w.contains("presentation_or_boot_has_template")
-            && w.contains("create_object")
+            && (w.contains("presentation_or_boot_has_template")
+                || w.contains("presentation_or_live_has_template"))
+            && (w.contains("create_object") || w.contains("host_create_object"))
             && w.contains("USA_Dozer")
     });
     let ok = field_ok && helper_ok && arm_ok && !eng.contains("playable_claim = true");
@@ -181,8 +182,9 @@ pub fn simulate_construct_template_presentation_helper_dispatch_source() -> bool
         return false;
     };
     let w = &eng[i..eng.len().min(i + 16000)];
-    let ok = w.contains("presentation_or_boot_has_template")
-        && w.contains("create_object")
+    let ok = (w.contains("presentation_or_boot_has_template")
+        || w.contains("presentation_or_live_has_template"))
+        && (w.contains("create_object") || w.contains("host_create_object"))
         && w.contains("Wave 565");
     residual_action_store(ResidualConstructTemplatePresentationHelperAction::DispatchSource);
     ok
