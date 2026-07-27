@@ -9907,7 +9907,7 @@ impl CnCGameEngine {
                             if !self.presentation_or_live_has_template(name) {
                                 continue;
                             }
-                            if self.game_logic.enqueue_production(pid, name.to_string()) {
+                            if self.host_enqueue_production(pid, name.to_string()) {
                                 ok_name = Some(name.to_string());
                                 break;
                             }
@@ -15342,7 +15342,8 @@ impl CnCGameEngine {
                 // C++ shell/menu parity: menu-frame script camera requests must still drive
                 // the shell-map viewport even when not in InGame state.
                 let process_commands_started = Instant::now();
-                self.game_logic.process_commands();
+                // Wave 582: shell/menu command residual via helper.
+                self.host_process_shell_menu_commands();
                 let process_commands_elapsed = process_commands_started.elapsed();
                 let script_camera_started = Instant::now();
                 self.apply_pending_script_camera_requests();
@@ -18540,6 +18541,25 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.templates.contains_key(name)
+    }
+
+    /// Wave 582: host production enqueue residual (train honesty path boundary).
+    #[inline]
+    fn host_enqueue_production(
+        &mut self,
+        producer: crate::game_logic::ObjectId,
+        template_name: String,
+    ) -> bool {
+        // Wave 582: host enqueue residual.
+        self.game_logic.enqueue_production(producer, template_name)
+    }
+
+    /// Wave 582: shell/menu frame process_commands residual (no Command SFX).
+    /// Distinct from InGame `host_process_commands_with_command_sound`.
+    #[inline]
+    fn host_process_shell_menu_commands(&mut self) {
+        // Wave 582: shell/menu command drain residual.
+        self.game_logic.process_commands();
     }
 
     /// Wave 581: host create_object residual (thin authority spawn boundary).
