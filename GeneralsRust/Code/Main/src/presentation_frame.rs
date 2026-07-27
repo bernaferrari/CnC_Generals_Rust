@@ -8709,6 +8709,7 @@ impl PresentationFrame {
     /// Collect presentation→audio requests (no GameLogic borrow).
     /// Wave 527/528: FireSound loop residual uses host sound name + looping flag + snapshot pose.
     /// Wave 528: WeaponFireLoopStop is stop-only (no FireSound replay).
+    /// Wave 529: RadarMessage → EVA/radar audio event names + snapshot position.
     /// Fail-closed: not Miles/device spatial parity — names resolve via SoundEffectsTable.
     pub fn collect_audio_events(&self) -> Vec<crate::game_logic::AudioEventRequest> {
         use crate::game_logic::AudioEventRequest;
@@ -8777,9 +8778,9 @@ impl PresentationFrame {
                 PresentationEvent::MoveOrdered { unit, .. } => Some(("UnitMove", Some(*unit))),
                 PresentationEvent::WeaponFireLoopStarted { .. }
                 | PresentationEvent::WeaponFireLoopStopped { .. } => None,
-                PresentationEvent::RadarMessage { .. }
-                | PresentationEvent::OwnerChanged { .. }
+                PresentationEvent::OwnerChanged { .. }
                 | PresentationEvent::ParticleSystemSpawned { .. } => None,
+                PresentationEvent::RadarMessage { .. } => None, // handled below (Wave 529)
             };
             let Some((kind, obj)) = mapped else {
                 continue;
@@ -8790,6 +8791,45 @@ impl PresentationFrame {
                 if let Some(pos) = pose_by_id.get(&id) {
                     req = req.with_position(*pos);
                 }
+            }
+            out.push(req);
+        }
+
+        // Wave 529: radar/EVA presentation audio residual (no GameLogic dual-write).
+        // kind: 0=Generic 1=Attack 2=Ally; text also maps classic EVA phrases.
+        for ev in &self.events {
+            let PresentationEvent::RadarMessage {
+                text,
+                position,
+                kind,
+                ..
+            } = ev
+            else {
+                continue;
+            };
+            let t = text.to_ascii_lowercase();
+            let event_name = if t.contains("low power") || t.contains("power shortage") {
+                "EVA_LowPower"
+            } else if t.contains("insufficient funds") || t.contains("not enough money") {
+                "EVA_InsufficientFunds"
+            } else if t.contains("base under attack") || t.contains("our base is under attack") {
+                "EVA_BaseUnderAttack"
+            } else if t.contains("ally under attack") || t.contains("ally is under attack") {
+                "EVA_AllyUnderAttack"
+            } else if t.contains("building lost") || t.contains("structure lost") {
+                "EVA_BuildingLost"
+            } else if t.contains("unit lost") {
+                "EVA_UnitLost"
+            } else {
+                match kind {
+                    1 => "RadarAttack",
+                    2 => "RadarAlly",
+                    _ => "RadarGeneric",
+                }
+            };
+            let mut req = AudioEventRequest::new(event_name).with_priority(180);
+            if position.length_squared() > 0.01 {
+                req = req.with_position(*position);
             }
             out.push(req);
         }

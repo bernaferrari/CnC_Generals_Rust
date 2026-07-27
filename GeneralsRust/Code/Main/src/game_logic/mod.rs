@@ -456,6 +456,7 @@ pub mod host_live_presentation_object_fx_particles_residual_wave500;
 pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_overlay_stamp_residual_wave190;
 pub mod host_live_presentation_poison_defector_tint_residual_wave499;
+pub mod host_live_presentation_radar_eva_audio_residual_wave529;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
 pub mod host_live_presentation_script_camera_probe_residual_wave252;
 pub mod host_live_presentation_second_life_stun_residual_wave523;
@@ -2394,6 +2395,14 @@ pub use host_live_presentation_firesound_stop_residual_wave528::{
     honesty_presentation_firesound_stop_source_markers_residual_wave528,
     residual_presentation_firesound_stop_last_action, residual_presentation_firesound_stop_ok,
     simulate_live_presentation_firesound_stop_honesty,
+};
+pub use host_live_presentation_radar_eva_audio_residual_wave529::{
+    honesty_presentation_radar_eva_audio_method_names_residual_wave529,
+    honesty_presentation_radar_eva_audio_nav_commands_residual_wave529,
+    honesty_presentation_radar_eva_audio_residual_pack_wave529,
+    honesty_presentation_radar_eva_audio_source_markers_residual_wave529,
+    residual_presentation_radar_eva_audio_last_action, residual_presentation_radar_eva_audio_ok,
+    simulate_live_presentation_radar_eva_audio_honesty,
 };
 
 pub use host_live_presentation_move_attack_helper_residual_wave526::{
