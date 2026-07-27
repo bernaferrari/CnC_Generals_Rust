@@ -1,6 +1,7 @@
 //! Wave 495 residual peels: unit mesh pass stamps combat model-condition bits.
 //! - `UnitRenderInput` carries `moving` / `attacking` / `is_firing_weapon`
-//! - `model_condition_bits_with_combat_flags` ORs MC_BIT_MOVING/ATTACKING/FIRING_A
+//! - `model_condition_bits_with_combat_flags` ORs moving/attacking/firing bits
+//!   (MC_BIT_* or Wave 526 name-table helpers)
 //! - render collect uses stamped bits before sold mesh resolve
 //! Never flips shell `playable_claim`.
 //!
@@ -142,7 +143,9 @@ pub fn simulate_presentation_mesh_combat_flags_input_source() -> bool {
         && pf.contains("moving: ro.moving")
         && pf.contains("attacking: ro.attacking")
         && pf.contains("fn model_condition_bits_with_combat_flags")
-        && pf.contains("MC_BIT_FIRING_A");
+        && (pf.contains("MC_BIT_FIRING_A")
+            || pf.contains("firing_a_model_bit")
+            || pf.contains("moving_model_bit"));
     residual_action_store(ResidualPresentationMeshCombatFlagsAction::InputSource);
     ok
 }

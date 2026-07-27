@@ -748,6 +748,27 @@ pub fn post_collapse_model_bit() -> u32 {
 pub fn frontcrushed_model_bit() -> u32 {
     model_condition_bit_name_index("FRONTCRUSHED").unwrap_or(0) as u32
 }
+
+/// C++ MODELCONDITION_MOVING residual bit index (wraps MC_BIT_MOVING).
+pub fn moving_model_bit() -> u32 {
+    model_condition_bit_name_index("MOVING").unwrap_or(MC_BIT_MOVING as usize) as u32
+}
+/// C++ MODELCONDITION_ATTACKING residual bit index (wraps MC_BIT_ATTACKING).
+pub fn attacking_model_bit() -> u32 {
+    model_condition_bit_name_index("ATTACKING").unwrap_or(MC_BIT_ATTACKING as usize) as u32
+}
+/// C++ MODELCONDITION_REALLYDAMAGED residual bit index.
+pub fn reallydamaged_model_bit() -> u32 {
+    model_condition_bit_name_index("REALLYDAMAGED").unwrap_or(MC_BIT_REALLYDAMAGED as usize) as u32
+}
+/// C++ MODELCONDITION_RUBBLE residual bit index.
+pub fn rubble_model_bit() -> u32 {
+    model_condition_bit_name_index("RUBBLE").unwrap_or(MC_BIT_RUBBLE as usize) as u32
+}
+/// C++ MODELCONDITION_DAMAGED residual bit index.
+pub fn damaged_model_bit() -> u32 {
+    model_condition_bit_name_index("DAMAGED").unwrap_or(MC_BIT_DAMAGED as usize) as u32
+}
 /// C++ MODELCONDITION_BACKCRUSHED residual bit index.
 pub fn backcrushed_model_bit() -> u32 {
     model_condition_bit_name_index("BACKCRUSHED").unwrap_or(0) as u32
