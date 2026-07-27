@@ -262,6 +262,7 @@ pub struct RenderableObject {
     pub formation_offset: glam::Vec2,
     /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
     pub over_water: bool,
+    /// Wave 524: multi-door DOOR_2..4 banks + SMOLDERING residual.
     /// Wave 523: stamp STUNNED_FLAILING / SECOND_LIFE / POST_COLLAPSE / SPECIAL_DAMAGED.
     /// Wave 522: C++ terrain cell cliff residual.
     pub cell_is_cliff: bool,
@@ -902,10 +903,8 @@ impl UnitRenderInput {
     /// Wave 515: stamp RAISING_FLAG from is_surrendered residual.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
-            deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
-            door_1_waiting_open_model_bit, door_1_waiting_to_close_model_bit,
-            radar_extending_model_bit, radar_upgraded_model_bit, MC_BIT_ATTACKING, MC_BIT_FIRING_A,
-            MC_BIT_MOVING,
+            deployed_model_bit, radar_extending_model_bit, radar_upgraded_model_bit,
+            MC_BIT_ATTACKING, MC_BIT_FIRING_A, MC_BIT_MOVING,
         };
         let mut bits = self.model_condition_bits;
         if self.moving {
@@ -986,21 +985,58 @@ impl UnitRenderInput {
             }
             let _ = self.moving_backwards; // freeze residual; no dedicated ZH model bit
         }
-        // Clear door-1 bank then set active phase bit (C++ door model condition residual).
-        let open_b = door_1_opening_model_bit();
-        let wait_b = door_1_waiting_open_model_bit();
-        let wait_close_b = door_1_waiting_to_close_model_bit();
-        let close_b = door_1_closing_model_bit();
-        bits &= !(1u128 << open_b);
-        bits &= !(1u128 << wait_b);
-        bits &= !(1u128 << wait_close_b);
-        bits &= !(1u128 << close_b);
-        match self.production_door_phase {
-            1 => bits |= 1u128 << open_b,
-            2 => bits |= 1u128 << wait_b,
-            3 => bits |= 1u128 << wait_close_b,
-            4 => bits |= 1u128 << close_b,
-            _ => {}
+        // Wave 524: clear door 1..4 banks then set active phase bit on each door bank
+        // (multi-door factory residual; host tracks one production_door_phase).
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+                door_1_waiting_to_close_model_bit, door_2_closing_model_bit,
+                door_2_opening_model_bit, door_2_waiting_open_model_bit,
+                door_2_waiting_to_close_model_bit, door_3_closing_model_bit,
+                door_3_opening_model_bit, door_3_waiting_open_model_bit,
+                door_3_waiting_to_close_model_bit, door_4_closing_model_bit,
+                door_4_opening_model_bit, door_4_waiting_open_model_bit,
+                door_4_waiting_to_close_model_bit,
+            };
+            let banks = [
+                (
+                    door_1_opening_model_bit(),
+                    door_1_waiting_open_model_bit(),
+                    door_1_waiting_to_close_model_bit(),
+                    door_1_closing_model_bit(),
+                ),
+                (
+                    door_2_opening_model_bit(),
+                    door_2_waiting_open_model_bit(),
+                    door_2_waiting_to_close_model_bit(),
+                    door_2_closing_model_bit(),
+                ),
+                (
+                    door_3_opening_model_bit(),
+                    door_3_waiting_open_model_bit(),
+                    door_3_waiting_to_close_model_bit(),
+                    door_3_closing_model_bit(),
+                ),
+                (
+                    door_4_opening_model_bit(),
+                    door_4_waiting_open_model_bit(),
+                    door_4_waiting_to_close_model_bit(),
+                    door_4_closing_model_bit(),
+                ),
+            ];
+            for (open_b, wait_b, wait_close_b, close_b) in banks {
+                bits &= !(1u128 << open_b);
+                bits &= !(1u128 << wait_b);
+                bits &= !(1u128 << wait_close_b);
+                bits &= !(1u128 << close_b);
+                match self.production_door_phase {
+                    1 => bits |= 1u128 << open_b,
+                    2 => bits |= 1u128 << wait_b,
+                    3 => bits |= 1u128 << wait_close_b,
+                    4 => bits |= 1u128 << close_b,
+                    _ => {}
+                }
+            }
         }
         // Wave 501: deployed / radar dish residual bits for mesh subobject selection.
         let dep_b = deployed_model_bit();
@@ -1441,6 +1477,11 @@ impl UnitRenderInput {
             let death = self.death_type_name.to_ascii_lowercase();
             let burn_b = burned_model_bit();
             let flame_b = aflame_model_bit();
+            let smolder_b = {
+                use crate::game_logic::host_enum_table_residual::smoldering_model_bit;
+                smoldering_model_bit()
+            };
+            bits &= !(1u128 << smolder_b);
             if death.contains("burn") {
                 bits |= 1u128 << burn_b;
             } else {
@@ -1450,6 +1491,13 @@ impl UnitRenderInput {
                 bits |= 1u128 << flame_b;
             } else {
                 bits &= !(1u128 << flame_b);
+            }
+            // Wave 524: SMOLDERING when burned residual without active flame.
+            if (death.contains("burn") || death.contains("smolder"))
+                && !(death.contains("flame") || death.contains("fire"))
+                && self.destroyed
+            {
+                bits |= 1u128 << smolder_b;
             }
             let cheer_b = special_cheering_model_bit();
             let infantry = matches!(self.object_type, PresentationObjectType::Infantry);

@@ -864,6 +864,55 @@ pub fn door_1_closing_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_CLOSING").unwrap_or(0) as u32
 }
 
+/// C++ MODELCONDITION_DOOR_2_OPENING residual bit index.
+pub fn door_2_opening_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_2_OPENING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_2_WAITING_OPEN residual bit index.
+pub fn door_2_waiting_open_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_2_WAITING_OPEN").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_2_WAITING_TO_CLOSE residual bit index.
+pub fn door_2_waiting_to_close_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_2_WAITING_TO_CLOSE").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_2_CLOSING residual bit index.
+pub fn door_2_closing_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_2_CLOSING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_3_OPENING residual bit index.
+pub fn door_3_opening_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_3_OPENING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_3_WAITING_OPEN residual bit index.
+pub fn door_3_waiting_open_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_3_WAITING_OPEN").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_3_WAITING_TO_CLOSE residual bit index.
+pub fn door_3_waiting_to_close_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_3_WAITING_TO_CLOSE").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_3_CLOSING residual bit index.
+pub fn door_3_closing_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_3_CLOSING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_4_OPENING residual bit index.
+pub fn door_4_opening_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_4_OPENING").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_4_WAITING_OPEN residual bit index.
+pub fn door_4_waiting_open_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_4_WAITING_OPEN").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_4_WAITING_TO_CLOSE residual bit index.
+pub fn door_4_waiting_to_close_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_4_WAITING_TO_CLOSE").unwrap_or(0) as u32
+}
+/// C++ MODELCONDITION_DOOR_4_CLOSING residual bit index.
+pub fn door_4_closing_model_bit() -> u32 {
+    model_condition_bit_name_index("DOOR_4_CLOSING").unwrap_or(0) as u32
+}
+
 /// C++ MODELCONDITION_DOOR_1_WAITING_TO_CLOSE residual bit.
 pub fn door_1_waiting_to_close_model_bit() -> u32 {
     model_condition_bit_name_index("DOOR_1_WAITING_TO_CLOSE").unwrap_or(0) as u32

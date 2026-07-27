@@ -447,6 +447,7 @@ pub mod host_live_presentation_mesh_deploy_radar_residual_wave501;
 pub mod host_live_presentation_mesh_door_phase_residual_wave496;
 pub mod host_live_presentation_mesh_sold_condition_residual_wave491;
 pub mod host_live_presentation_mesh_turret_residual_wave494;
+pub mod host_live_presentation_multi_door_smolder_residual_wave524;
 pub mod host_live_presentation_object_fx_particles_residual_wave500;
 pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_overlay_stamp_residual_wave190;
@@ -2365,6 +2366,15 @@ pub use host_live_presentation_cliff_flood_residual_wave522::{
     honesty_presentation_cliff_flood_source_markers_residual_wave522,
     residual_presentation_cliff_flood_last_action, residual_presentation_cliff_flood_ok,
     simulate_live_presentation_cliff_flood_honesty,
+};
+pub use host_live_presentation_multi_door_smolder_residual_wave524::{
+    honesty_presentation_multi_door_smolder_method_names_residual_wave524,
+    honesty_presentation_multi_door_smolder_nav_commands_residual_wave524,
+    honesty_presentation_multi_door_smolder_residual_pack_wave524,
+    honesty_presentation_multi_door_smolder_source_markers_residual_wave524,
+    residual_presentation_multi_door_smolder_last_action,
+    residual_presentation_multi_door_smolder_ok,
+    simulate_live_presentation_multi_door_smolder_honesty,
 };
 pub use host_live_presentation_second_life_stun_residual_wave523::{
     honesty_presentation_second_life_stun_method_names_residual_wave523,
