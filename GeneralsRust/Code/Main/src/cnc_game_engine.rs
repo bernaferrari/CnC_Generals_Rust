@@ -17014,6 +17014,36 @@ impl CnCGameEngine {
     /// Wave 576: host command flush residual — process_commands then Command SFX.
     /// Keeps UI-issued command feedback paired (no mid-frame dual-write beyond host).
     #[inline]
+
+    /// Wave 577: host camera jump residual — clamp, set camera_target XZ, request focus.
+    #[inline]
+    fn host_center_camera_and_request_focus(&mut self, world_pos: glam::Vec3) -> glam::Vec3 {
+        // Wave 577: paired camera target + host request_camera_focus residual.
+        let clamped = self.clamp_to_world_bounds(world_pos);
+        self.camera_target.x = clamped.x;
+        self.camera_target.z = clamped.z;
+        self.game_logic.request_camera_focus(clamped);
+        clamped
+    }
+
+    /// Wave 577: host start-new-game residual with faction team (optional skirmish AI).
+    #[inline]
+    fn host_start_new_game_with_faction(
+        &mut self,
+        mode: crate::game_logic::GameMode,
+        faction_team: crate::game_logic::Team,
+        setup_skirmish_ai: bool,
+    ) {
+        // Wave 577: start_new_game + set_player_team (+ optional skirmish AI).
+        self.game_logic.start_new_game(mode);
+        let _ = self
+            .game_logic
+            .set_player_team(self.current_player_id, faction_team);
+        if setup_skirmish_ai {
+            self.game_logic.setup_skirmish_ai(self.current_player_id);
+        }
+    }
+
     fn host_process_commands_with_command_sound(&mut self) {
         // Wave 576: process + Command SFX residual.
         self.game_logic.process_commands();
@@ -18846,27 +18876,19 @@ impl CnCGameEngine {
                     crate::skirmish_config::apply_skirmish_config(&mut self.game_logic, config)
                 {
                     warn!("apply_skirmish_config failed: {e}; falling back to legacy start");
-                    self.game_logic.start_new_game(mode);
-                    let _ = self
-                        .game_logic
-                        .set_player_team(self.current_player_id, faction_team);
-                    self.game_logic.setup_skirmish_ai(self.current_player_id);
+                    // Wave 577: host start residual via helper.
+                    self.host_start_new_game_with_faction(mode, faction_team, true);
                 } else if let Some(human) = config.slots.iter().find(|s| s.is_human && s.is_active)
                 {
                     self.current_player_id = human.slot_index as u32;
                 }
             } else {
-                self.game_logic.start_new_game(mode);
-                let _ = self
-                    .game_logic
-                    .set_player_team(self.current_player_id, faction_team);
-                self.game_logic.setup_skirmish_ai(self.current_player_id);
+                // Wave 577: host start residual via helper.
+                self.host_start_new_game_with_faction(mode, faction_team, true);
             }
         } else {
-            self.game_logic.start_new_game(mode);
-            let _ = self
-                .game_logic
-                .set_player_team(self.current_player_id, faction_team);
+            // Wave 577: host start residual via helper (non-skirmish).
+            self.host_start_new_game_with_faction(mode, faction_team, false);
         }
 
         if !self.game_logic.load_map(&map_name) {
@@ -20149,10 +20171,8 @@ impl CnCGameEngine {
                         .as_ref()
                         .and_then(|frame| frame.centroid_of_ids(&stored));
                     if let Some(center) = center {
-                        let clamped = self.clamp_to_world_bounds(center);
-                        self.camera_target.x = clamped.x;
-                        self.camera_target.z = clamped.z;
-                        self.game_logic.request_camera_focus(clamped);
+                        // Wave 577: host camera jump via helper.
+                        let clamped = self.host_center_camera_and_request_focus(center);
                         info!("VIEW_TEAM{} camera jump to {:?}", group_num, clamped);
                     }
                 } else {
@@ -21066,11 +21086,8 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(&msg);
             info!("SAVE_VIEW{} -> {:?}", slot + 1, pos);
         } else if let Some(pos) = self.camera_view_bookmarks[slot] {
-            let clamped = self.clamp_to_world_bounds(pos);
-            self.camera_target.x = clamped.x;
-            self.camera_target.z = clamped.z;
-            // Also request presentation camera focus residual for dual path.
-            self.game_logic.request_camera_focus(clamped);
+            // Wave 577: host camera jump via helper.
+            let clamped = self.host_center_camera_and_request_focus(pos);
             info!("VIEW_VIEW{} -> {:?}", slot + 1, clamped);
         } else {
             let msg = format!("Camera view {} is empty", slot + 1);
@@ -21289,14 +21306,12 @@ impl CnCGameEngine {
         } else {
             self.camera_target
         };
-        let clamped = self.clamp_to_world_bounds(focus);
-        self.camera_target.x = clamped.x;
-        self.camera_target.z = clamped.z;
+        // Wave 577: host camera jump via helper, then default zoom.
+        let clamped = self.host_center_camera_and_request_focus(focus);
         self.camera_zoom = self.compute_default_camera_zoom_for_target(
             clamped,
             self.ui_script_default_camera_max_height(),
         );
-        self.game_logic.request_camera_focus(clamped);
         info!("CAMERA_RESET residual -> {:?}", clamped);
     }
 
