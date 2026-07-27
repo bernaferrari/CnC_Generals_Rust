@@ -157,7 +157,10 @@ fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
 
 pub fn simulate_camera_center_presentation_height_source() -> bool {
     let src = cnc_source();
-    let Some(body) = function_body(src, "fn center_camera_on(") else {
+    // Wave 611: logic lives in host helper; thin wrapper delegates.
+    let Some(body) = function_body(src, "fn host_center_camera_on(")
+        .or_else(|| function_body(src, "fn center_camera_on("))
+    else {
         return false;
     };
     let ok = body.contains("Wave 460: prefer presentation-frozen height grid")
