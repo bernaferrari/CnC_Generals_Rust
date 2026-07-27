@@ -250,6 +250,7 @@ pub mod host_live_battle_bus_slow_death_behavior_dual_world_empty_gate_residual_
 pub mod host_live_bone_fx_update_dual_world_empty_gate_residual_wave404;
 pub mod host_live_boot_camera_helper_residual_wave572;
 pub mod host_live_boot_movie_helper_residual_wave567;
+pub mod host_live_boot_player_info_helper_residual_wave573;
 pub mod host_live_boot_ui_message_helper_residual_wave566;
 pub mod host_live_bootstrap_camera_no_live_dual_read_residual_wave458;
 pub mod host_live_bootstrap_camera_presentation_only_residual_wave223;
@@ -2201,6 +2202,14 @@ pub use host_live_boot_movie_helper_residual_wave567::{
     honesty_boot_movie_helper_source_markers_residual_wave567,
     residual_boot_movie_helper_last_action, residual_boot_movie_helper_ok,
     simulate_live_boot_movie_helper_honesty,
+};
+pub use host_live_boot_player_info_helper_residual_wave573::{
+    honesty_boot_player_info_helper_method_names_residual_wave573,
+    honesty_boot_player_info_helper_nav_commands_residual_wave573,
+    honesty_boot_player_info_helper_residual_pack_wave573,
+    honesty_boot_player_info_helper_source_markers_residual_wave573,
+    residual_boot_player_info_helper_last_action, residual_boot_player_info_helper_ok,
+    simulate_live_boot_player_info_helper_honesty,
 };
 pub use host_live_boot_ui_message_helper_residual_wave566::{
     honesty_boot_ui_message_helper_method_names_residual_wave566,

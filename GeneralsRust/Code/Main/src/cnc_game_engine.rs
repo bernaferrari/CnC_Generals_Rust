@@ -17031,18 +17031,13 @@ impl CnCGameEngine {
         self.presentation_or_boot_local_team()
     }
 
-    /// Wave 234/549: player roster probe prefers presentation freeze.
-    /// When freeze is installed, missing player_info fails closed (no host
-    /// player_* dual-read mid-frame). Boot residual without freeze unchanged.
-    fn ui_player_info(
+    /// Wave 573: boot residual player roster probe (no presentation freeze).
+    /// Shared by `ui_player_info` and `presentation_or_boot_diplomacy_players`.
+    fn boot_player_info_from_host(
         &self,
         player_id: u32,
     ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
-        if let Some(frame) = self.last_presentation_frame.as_ref() {
-            // Wave 549: presentation freeze owns player roster residual — even if miss.
-            return frame.player_info(player_id).cloned();
-        }
-        // Wave 240: boot residual via field probes (no &Player expose).
+        // Wave 573: boot residual via field probes (no &Player expose).
         if !self.game_logic.player_exists(player_id) {
             return None;
         }
@@ -17062,6 +17057,22 @@ impl CnCGameEngine {
                 .player_color_rgb(player_id)
                 .unwrap_or((255, 255, 255)),
         })
+    }
+
+    /// Wave 234/549: player roster probe prefers presentation freeze.
+    /// When freeze is installed, missing player_info fails closed (no host
+    /// player_* dual-read mid-frame). Boot residual without freeze unchanged.
+    /// Wave 573: boot path via `boot_player_info_from_host`.
+    fn ui_player_info(
+        &self,
+        player_id: u32,
+    ) -> Option<crate::presentation_frame::PresentationPlayerInfo> {
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            // Wave 549: presentation freeze owns player roster residual — even if miss.
+            return frame.player_info(player_id).cloned();
+        }
+        // Wave 573: boot residual via shared host probe helper.
+        self.boot_player_info_from_host(player_id)
     }
 
     #[inline]
@@ -18378,6 +18389,7 @@ impl CnCGameEngine {
 
     /// Wave 558: presentation freeze owns diplomacy roster residual when installed.
     /// Boot residual without freeze uses host player_* probes (no get_players dual-read).
+    /// Wave 573: boot roster build via `boot_player_info_from_host`.
     #[inline]
     fn presentation_or_boot_diplomacy_players(
         &self,
@@ -18386,25 +18398,12 @@ impl CnCGameEngine {
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             return frame.players.clone();
         }
-        // Boot residual only — Wave 240 field probes (no &Player expose).
+        // Wave 573: boot residual via shared host probe helper.
         let mut out = Vec::new();
         for id in self.game_logic.player_ids() {
-            let team = self
-                .game_logic
-                .player_team(id)
-                .unwrap_or(crate::game_logic::Team::USA);
-            out.push(crate::presentation_frame::PresentationPlayerInfo {
-                id,
-                name: self.game_logic.player_name(id).unwrap_or_default(),
-                team,
-                is_alive: self.game_logic.player_is_alive(id),
-                is_local: self.game_logic.player_is_local(id) || id == self.current_player_id,
-                is_ai: self.game_logic.ai_manager_contains_player(id),
-                color_rgb: self
-                    .game_logic
-                    .player_color_rgb(id)
-                    .unwrap_or((255, 255, 255)),
-            });
+            if let Some(info) = self.boot_player_info_from_host(id) {
+                out.push(info);
+            }
         }
         out
     }

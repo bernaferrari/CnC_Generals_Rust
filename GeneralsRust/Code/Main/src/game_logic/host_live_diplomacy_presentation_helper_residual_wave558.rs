@@ -128,11 +128,14 @@ pub fn honesty_diplomacy_presentation_helper_source_markers_residual_wave558() -
         residual_action_store(ResidualDiplomacyPresentationHelperAction::SourceMarkers);
         return false;
     };
+    // Wave 573: boot roster may build via boot_player_info_from_host.
     let helper_ok = helper.contains("Wave 558")
         && helper.contains("frame.players.clone()")
         && helper.contains("self.game_logic.player_ids()")
-        && helper.contains("player_name(id)")
-        && helper.contains("player_team(id)");
+        && (helper.contains("player_name(id)")
+            || helper.contains("boot_player_info_from_host(id)"))
+        && (helper.contains("player_team(id)")
+            || helper.contains("boot_player_info_from_host(id)"));
     let sync_ok = sync.contains("Wave 558")
         && sync.contains("presentation_or_boot_diplomacy_players()")
         && !sync.contains("self.game_logic.player_ids()")

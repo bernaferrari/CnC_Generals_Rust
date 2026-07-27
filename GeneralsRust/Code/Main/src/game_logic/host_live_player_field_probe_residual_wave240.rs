@@ -125,7 +125,14 @@ pub fn honesty_player_field_probe_source() -> bool {
     let Some(info) = fn_body(eng, "fn ui_player_info(") else {
         return false;
     };
-    if !(info.contains("Wave 240") && !info.contains("get_player(")) {
+    // Wave 573: boot probes live in boot_player_info_from_host; ui_player_info remains fail-closed.
+    let info_ok =
+        (info.contains("Wave 240") || info.contains("Wave 573") || info.contains("Wave 549"))
+            && !info.contains("get_player(")
+            && (info.contains("player_exists")
+                || info.contains("boot_player_info_from_host")
+                || eng.contains("fn boot_player_info_from_host"));
+    if !info_ok {
         return false;
     }
     let Some(sel) = fn_body(eng, "fn ui_selected_ids(") else {
