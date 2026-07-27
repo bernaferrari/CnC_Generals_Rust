@@ -26079,6 +26079,32 @@ impl GameLogic {
 
     /// Wave 622: under damage authority, GameWorld experience writeback records
     /// veterancy level-ups; host applies combat bonus residual for those IDs.
+    /// Wave 623: under damage authority, GameWorld body-damage writeback records
+    /// state transitions; host applies model/FX residual for those IDs.
+    pub fn host_apply_body_damage_ready_completions(&mut self) -> usize {
+        // Wave 623: under damage authority, GameWorld body-damage writeback records
+        // state transitions; host applies model/FX residual for those IDs.
+        if !crate::gameworld_shadow::gameworld_damage_authority_live() {
+            return 0;
+        }
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let events = crate::game_logic::host_body_damage_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            let Some(obj) = self.objects.get_mut(&ev.object) else {
+                continue;
+            };
+            let prev = HostBodyDamageType::from_ordinal(ev.previous_ordinal);
+            let next = HostBodyDamageType::from_ordinal(ev.new_ordinal);
+            if prev == next {
+                continue;
+            }
+            obj.apply_body_damage_state_change_residual(prev, next);
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_veterancy_ready_completions(&mut self) -> usize {
         // Wave 622: under damage authority, GameWorld experience writeback records
         // veterancy level-ups; host applies combat bonus residual for those IDs.

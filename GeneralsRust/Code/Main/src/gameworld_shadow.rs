@@ -2340,6 +2340,7 @@ impl GameWorldShadow {
     pub fn writeback_body_damage_to_host(&self, logic: &mut GameLogic) -> usize {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         let mut updated = 0usize;
+        let mut transitions: Vec<(ObjectId, u8, u8)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2349,9 +2350,19 @@ impl GameWorldShadow {
             };
             let want = HostBodyDamageType::from_ordinal(ent.body_damage_state);
             if obj.body_damage_state != want {
+                let prev_ord = obj.body_damage_state.ordinal();
+                let new_ord = want.ordinal();
                 obj.body_damage_state = want;
+                // Wave 623: GameWorld body-damage last-write residual —
+                // host applies model/FX side effects from ready log.
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    transitions.push((ObjectId(hid), prev_ord, new_ord));
+                }
                 updated += 1;
             }
+        }
+        for (oid, prev, next) in transitions {
+            crate::game_logic::host_body_damage_ready_log::record(oid, prev, next);
         }
         updated
     }
@@ -7737,6 +7748,8 @@ pub fn shadow_session_after_host_tick(
     let _prod_wb = shadow.writeback_production_to_host(logic);
     let _ = shadow.writeback_production_door_to_host(logic);
     let _ = shadow.writeback_body_damage_to_host(logic);
+    // Wave 623: drain body-damage ready log after GW body-state writeback.
+    let _body_ready = logic.host_apply_body_damage_ready_completions();
     let _ = shadow.writeback_death_type_to_host(logic);
     let _ = shadow.writeback_radar_extend_to_host(logic);
     let _ = shadow.writeback_shock_stun_to_host(logic);

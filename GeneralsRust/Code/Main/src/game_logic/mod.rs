@@ -58,6 +58,7 @@ pub use host_damage_log::{drain as drain_host_damage_events, HostDamageEvent};
 pub mod host_ai_attitude_log;
 pub mod host_ai_state_log;
 pub mod host_attack_log;
+pub mod host_body_damage_ready_log;
 pub mod host_building_type_log;
 pub mod host_command_set_log;
 pub mod host_construction_log;
@@ -377,6 +378,7 @@ pub mod host_live_hijacker_update_dual_world_empty_gate_residual_wave288;
 pub mod host_live_hive_structure_body_dual_world_empty_gate_residual_wave389;
 pub mod host_live_horde_update_dual_world_empty_gate_residual_wave378;
 pub mod host_live_host_beacon_presentation_residual_wave211;
+pub mod host_live_host_body_damage_ready_log_helper_residual_wave623;
 pub mod host_live_host_camera_queue_drain_helper_residual_wave596;
 pub mod host_live_host_camera_start_helper_residual_wave577;
 pub mod host_live_host_cancel_selection_helper_residual_wave580;
@@ -2552,6 +2554,15 @@ pub use host_live_fixed_step_diag_presentation_helper_residual_wave564::{
     residual_fixed_step_diag_presentation_helper_last_action,
     residual_fixed_step_diag_presentation_helper_ok,
     simulate_live_fixed_step_diag_presentation_helper_honesty,
+};
+pub use host_live_host_body_damage_ready_log_helper_residual_wave623::{
+    honesty_host_body_damage_ready_log_helper_method_names_residual_wave623,
+    honesty_host_body_damage_ready_log_helper_nav_commands_residual_wave623,
+    honesty_host_body_damage_ready_log_helper_residual_pack_wave623,
+    honesty_host_body_damage_ready_log_helper_source_markers_residual_wave623,
+    residual_host_body_damage_ready_log_helper_last_action,
+    residual_host_body_damage_ready_log_helper_ok,
+    simulate_live_host_body_damage_ready_log_helper_honesty,
 };
 pub use host_live_host_camera_queue_drain_helper_residual_wave596::{
     honesty_host_camera_queue_drain_helper_method_names_residual_wave596,
