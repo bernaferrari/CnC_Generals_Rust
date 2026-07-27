@@ -6166,7 +6166,8 @@ impl PresentationFrame {
             turret_holding: ent.turret_holding,
             last_damage_source_host: ent.last_damage_source_host,
             command_set_override: ent.command_set_override.clone(),
-            command_set_name: String::new(),
+            // Wave 493: effective command set name falls back to override residual.
+            command_set_name: ent.command_set_override.clone(),
             is_detector: ent.is_detector,
             active_weapon_slot: ent.active_weapon_slot,
             overcharge_enabled: ent.overcharge_enabled,
@@ -6209,7 +6210,8 @@ impl PresentationFrame {
             } else {
                 10.0
             },
-            engine_bridged: false,
+            // Wave 493: engine-bridge + ground height from GW entity residual.
+            engine_bridged: ent.engine_bridged,
             fow_visibility: {
                 // Entity FOW floats: alpha≈1 visible; explored-but-low alpha → fogged; else hidden.
                 if ent.fow_visibility_alpha >= 0.95 {
@@ -6224,8 +6226,14 @@ impl PresentationFrame {
                     crate::fow_rendering::ObjectVisibility::HIDDEN
                 }
             },
-            ground_height: PRESENTATION_DEFAULT_GROUND_HEIGHT,
-            ground_height_from_terrain: false,
+            ground_height: if ent.ground_height_from_terrain {
+                ent.ground_height
+            } else if ent.ground_height.abs() > 1e-6 {
+                ent.ground_height
+            } else {
+                PRESENTATION_DEFAULT_GROUND_HEIGHT
+            },
+            ground_height_from_terrain: ent.ground_height_from_terrain,
         }
     }
 
