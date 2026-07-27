@@ -1375,6 +1375,7 @@ impl RenderPipeline {
             // Wave 491: mesh pass honors sold model-condition residual from presentation.
             // Wave 495: stamp moving/attacking/firing bits then honor sold residual.
             // Wave 496: stamp production-door phase bits into model-condition bank.
+            // Wave 497: full stamped bits + body damage drive mesh key variants.
             let model_bits = u.model_condition_bits_with_combat_flags();
             let _ = u.model_condition_bits; // residual source marker (bits via stamp helper)
             let sold_for_mesh =
@@ -1382,14 +1383,15 @@ impl RenderPipeline {
                     model_bits,
                     crate::game_logic::host_enum_table_residual::sold_model_bit(),
                 );
-            let _combat_model_bits = model_bits; // residual: combat bits available for mesh variants
+            let _combat_model_bits = model_bits; // residual: combat/door bits available for mesh variants
             let model_name_owned =
-                crate::assets::mesh_asset_resolve::model_key_with_presentation_state(
+                crate::assets::mesh_asset_resolve::model_key_with_presentation_conditions(
                     &u.model_key,
-                    0,
+                    u.body_damage_state,
                     false,
-                    sold_for_mesh,
+                    model_bits,
                 );
+            let _sold_for_mesh = sold_for_mesh; // residual: sold still derived for honesty
             let template_name_owned = u.template_name.clone();
             let selection_radius = u.selection_radius;
             let model_hint_owned = Some(model_name_owned.clone());

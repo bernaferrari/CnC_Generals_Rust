@@ -458,6 +458,24 @@ pub fn model_key_with_presentation_state(
     model_key_with_body_damage(base_key, body_damage_state, dying || sold)
 }
 
+/// Wave 497: mesh key from body damage + full stamped model-condition bits.
+///
+/// Treats SOLD and RUBBLE model-condition bits as dying/rubble mesh branch
+/// (same path as explicit sold/dying flags).
+pub fn model_key_with_presentation_conditions(
+    base_key: &str,
+    body_damage_state: u8,
+    dying: bool,
+    model_condition_bits: u128,
+) -> String {
+    use crate::game_logic::host_enum_table_residual::{
+        host_model_condition_has, sold_model_bit, MC_BIT_RUBBLE,
+    };
+    let sold = host_model_condition_has(model_condition_bits, sold_model_bit());
+    let rubble = host_model_condition_has(model_condition_bits, MC_BIT_RUBBLE);
+    model_key_with_presentation_state(base_key, body_damage_state, dying || rubble, sold)
+}
+
 #[derive(Clone, Copy)]
 enum BodyMeshWant {
     Damaged,

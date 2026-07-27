@@ -579,6 +579,8 @@ pub struct UnitRenderInput {
     pub moving: bool,
     pub attacking: bool,
     pub is_firing_weapon: bool,
+    /// Wave 497: body damage ordinal for mesh variant resolve (0..3).
+    pub body_damage_state: u8,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -617,6 +619,7 @@ impl UnitRenderInput {
             moving: ro.moving,
             attacking: ro.attacking,
             is_firing_weapon: ro.is_firing_weapon,
+            body_damage_state: ro.body_damage_state,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -8052,6 +8055,7 @@ mod tests {
             moving: false,
             attacking: false,
             is_firing_weapon: false,
+            body_damage_state: 0,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
