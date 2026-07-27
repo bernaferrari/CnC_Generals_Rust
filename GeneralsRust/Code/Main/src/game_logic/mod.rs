@@ -378,6 +378,7 @@ pub mod host_live_host_game_client_menu_shell_helper_residual_wave588;
 pub mod host_live_host_game_client_shell_tick_helper_residual_wave586;
 pub mod host_live_host_pause_team_helper_residual_wave575;
 pub mod host_live_host_presentation_finalize_helper_residual_wave589;
+pub mod host_live_host_presentation_seed_helper_residual_wave590;
 pub mod host_live_host_runtime_cmd_helper_residual_wave583;
 pub mod host_live_host_selection_map_helper_residual_wave579;
 pub mod host_live_host_silent_command_peel_residual_wave578;
@@ -2579,6 +2580,14 @@ pub use host_live_host_presentation_finalize_helper_residual_wave589::{
     residual_host_presentation_finalize_helper_last_action,
     residual_host_presentation_finalize_helper_ok,
     simulate_live_host_presentation_finalize_helper_honesty,
+};
+pub use host_live_host_presentation_seed_helper_residual_wave590::{
+    honesty_host_presentation_seed_helper_method_names_residual_wave590,
+    honesty_host_presentation_seed_helper_nav_commands_residual_wave590,
+    honesty_host_presentation_seed_helper_residual_pack_wave590,
+    honesty_host_presentation_seed_helper_source_markers_residual_wave590,
+    residual_host_presentation_seed_helper_last_action, residual_host_presentation_seed_helper_ok,
+    simulate_live_host_presentation_seed_helper_honesty,
 };
 pub use host_live_host_runtime_cmd_helper_residual_wave583::{
     honesty_host_runtime_cmd_helper_method_names_residual_wave583,

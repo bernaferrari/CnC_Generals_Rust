@@ -238,12 +238,12 @@ mod tests {
 
     fn match_start_presentation_seed_uses_shadow_overlay() {
         let src = include_str!("cnc_game_engine.rs");
-        // Tokenize so this test name does not match the production fn finder.
-        let needle = format!("fn {}{}(", "seed_presentation_after_", "match_start");
+        // Wave 590: match-start peels through host_seed_presentation_after_match_start.
+        let needle = "fn host_seed_presentation_after_match_start(";
         let i = src
-            .find(&needle)
-            .expect("seed_presentation_after_match_start");
-        let body = &src[i..src.len().min(i + 1200)];
+            .find(needle)
+            .expect("host_seed_presentation_after_match_start");
+        let body = &src[i..src.len().min(i + 1400)];
         assert!(
             body.contains("build_for_engine"),
             "match-start seed must use build_for_engine (Wave 195 host+GW presentation)"
@@ -256,11 +256,25 @@ mod tests {
             !body.contains("build_and_apply_for_hud"),
             "seed must not skip shadow via build_and_apply_for_hud"
         );
-        // Boot/render residual seed also uses build_for_engine.
+        // Thin wrapper still exists for callers.
+        assert!(
+            src.contains("fn seed_presentation_after_match_start")
+                && src.contains("host_seed_presentation_after_match_start()"),
+            "seed_presentation_after_match_start must delegate to host helper"
+        );
+        // Boot/render residual seed via host_ensure_presentation_frame_for_render.
         let j = src
             .find("Boot/Menu residual: if no frame yet")
             .expect("boot residual comment");
-        let boot = &src[j..src.len().min(j + 700)];
+        let boot_call = &src[j..src.len().min(j + 500)];
+        assert!(
+            boot_call.contains("host_ensure_presentation_frame_for_render"),
+            "boot path must call host_ensure_presentation_frame_for_render"
+        );
+        let k = src
+            .find("fn host_ensure_presentation_frame_for_render(")
+            .expect("host_ensure_presentation_frame_for_render");
+        let boot = &src[k..src.len().min(k + 900)];
         assert!(
             boot.contains("build_for_engine"),
             "boot presentation seed must use build_for_engine"
@@ -15794,31 +15808,9 @@ impl CnCGameEngine {
     /// After map load / load-game / skirmish StartGame: seed PresentationFrame + HUD so
     /// the first InGame frame has units/minimap/selection identity without waiting for
     /// the next dual-tick. Does not advance logic frames.
+    /// Wave 590: via `host_seed_presentation_after_match_start`.
     fn seed_presentation_after_match_start(&mut self) {
-        self.match_damage_applied = 0.0;
-        self.match_kills = 0;
-        crate::game_logic::host_damage_log::reset_cumulative();
-
-        let local_id = self.current_player_id;
-        // Match post-tick boundary: host freeze → shadow sync/overlay → HUD consumers.
-        if let Some(ref mut shadow) = self.gameworld_shadow {
-            shadow.sync_from_host(&self.game_logic);
-        }
-        // Wave 195: single engine presentation build (host residual + GW objects).
-        let mut pres = crate::presentation_frame::PresentationFrame::build_for_engine(
-            &self.game_logic,
-            local_id,
-            self.gameworld_shadow.as_ref(),
-        );
-        pres.apply_to_game_hud(&mut self.game_hud);
-        #[cfg(feature = "game_client")]
-        {
-            pres.apply_to_control_bar(&mut self.control_bar);
-        }
-        let mut ui = GameUIState::default();
-        pres.apply_to_ui_state(&mut ui);
-        self.last_ui_state = Some(ui);
-        self.last_presentation_frame = Some(pres);
+        self.host_seed_presentation_after_match_start();
     }
 
     pub fn render(&mut self) -> Result<()> {
@@ -15997,19 +15989,8 @@ impl CnCGameEngine {
         // Full presentation snapshot for render collect (transforms/model/selection/health).
         // Boot/Menu residual: if no frame yet, freeze one from host logic so execute
         // never dual-reads live GameLogic (immutable presentation boundary).
-        if self.last_presentation_frame.is_none() {
-            let local = self.current_player_id;
-            if let Some(ref mut shadow) = self.gameworld_shadow {
-                shadow.sync_from_host(&self.game_logic);
-            }
-            // Wave 195: single engine presentation build (host residual + GW objects).
-            let frame = crate::presentation_frame::PresentationFrame::build_for_engine(
-                &self.game_logic,
-                local,
-                self.gameworld_shadow.as_ref(),
-            );
-            self.last_presentation_frame = Some(frame);
-        }
+        // Wave 590: boot/render presentation seed via helper.
+        self.host_ensure_presentation_frame_for_render();
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -18439,6 +18420,76 @@ impl CnCGameEngine {
         false
     }
 
+    /// Wave 590: seed PresentationFrame after match start (no logic advance).
+    /// Syncs shadow, builds host+GW frame, applies HUD/ControlBar/UI state.
+    #[inline]
+    fn host_seed_presentation_after_match_start(&mut self) {
+        // Wave 590: match-start presentation seed residual.
+        self.match_damage_applied = 0.0;
+        self.match_kills = 0;
+        crate::game_logic::host_damage_log::reset_cumulative();
+
+        let local_id = self.current_player_id;
+        // Match post-tick boundary: host freeze → shadow sync/overlay → HUD consumers.
+        if let Some(ref mut shadow) = self.gameworld_shadow {
+            shadow.sync_from_host(&self.game_logic);
+        }
+        // Wave 195/590: single engine presentation build (host residual + GW objects).
+        let mut pres = crate::presentation_frame::PresentationFrame::build_for_engine(
+            &self.game_logic,
+            local_id,
+            self.gameworld_shadow.as_ref(),
+        );
+        pres.apply_to_game_hud(&mut self.game_hud);
+        #[cfg(feature = "game_client")]
+        {
+            pres.apply_to_control_bar(&mut self.control_bar);
+        }
+        let mut ui = GameUIState::default();
+        pres.apply_to_ui_state(&mut ui);
+        self.last_ui_state = Some(ui);
+        self.last_presentation_frame = Some(pres);
+    }
+
+    /// Wave 590: boot/render residual — freeze a PresentationFrame if none installed.
+    /// Ensures execute never dual-reads live GameLogic mid-draw.
+    #[inline]
+    fn host_ensure_presentation_frame_for_render(&mut self) {
+        // Wave 590: boot presentation seed residual.
+        if self.last_presentation_frame.is_some() {
+            return;
+        }
+        let local = self.current_player_id;
+        if let Some(ref mut shadow) = self.gameworld_shadow {
+            shadow.sync_from_host(&self.game_logic);
+        }
+        // Wave 195/590: single engine presentation build (host residual + GW objects).
+        let frame = crate::presentation_frame::PresentationFrame::build_for_engine(
+            &self.game_logic,
+            local,
+            self.gameworld_shadow.as_ref(),
+        );
+        self.last_presentation_frame = Some(frame);
+    }
+
+    /// Wave 590: pipeline env seed residual (host+GW) when pipeline has no frame.
+    #[inline]
+    fn host_ensure_presentation_env_for_hints(&mut self) {
+        // Wave 590: pipeline env seed residual.
+        // Wave 466: prefer host+GameWorld shadow freeze when a shadow session exists.
+        // Wave 455: presentation-only env boundary — seed via build_for_engine only.
+        if self.render_pipeline.presentation_frame().is_some() {
+            return;
+        }
+        // Wave 560: local_player_id must be current player (not logic frame).
+        let env_frame = crate::presentation_frame::PresentationFrame::build_for_engine(
+            &self.game_logic,
+            self.current_player_id,
+            self.gameworld_shadow.as_ref(),
+        );
+        self.render_pipeline.set_presentation_frame(Some(env_frame));
+    }
+
     /// Wave 589: post-logic presentation finalize residual.
     ///
     /// Builds immutable `PresentationFrame` (victory + GameWorld object path when
@@ -19451,19 +19502,8 @@ impl CnCGameEngine {
 
     fn ensure_presentation_env_for_hints(&mut self) {
         // Wave 474: instance seed only — no free-fn GameLogic dual-read surface.
-        // Wave 466: prefer host+GameWorld shadow freeze when a shadow session exists.
-        // Wave 455/466: freeze host map env into PresentationFrame once (with optional
-        // GameWorld overlay), then env apply is presentation-only.
-        if self.render_pipeline.presentation_frame().is_none() {
-            // Wave 560: local_player_id must be current player (not logic frame).
-            // Passing get_frame() mis-binds FOW/local team residual on seed.
-            let env_frame = crate::presentation_frame::PresentationFrame::build_for_engine(
-                &self.game_logic,
-                self.current_player_id,
-                self.gameworld_shadow.as_ref(),
-            );
-            self.render_pipeline.set_presentation_frame(Some(env_frame));
-        }
+        // Wave 474/466/455/590: pipeline env seed via host helper.
+        self.host_ensure_presentation_env_for_hints();
     }
 
     fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline) {

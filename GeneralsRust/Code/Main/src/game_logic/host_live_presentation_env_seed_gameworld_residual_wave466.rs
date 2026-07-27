@@ -158,18 +158,23 @@ fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
 
 pub fn simulate_presentation_env_seed_gameworld_source() -> bool {
     let src = cnc_source();
-    let Some(body) = function_body(src, "fn ensure_presentation_env_for_hints(") else {
+    // Wave 590: real env seed body lives in host_ensure_presentation_env_for_hints.
+    let Some(body) = function_body(src, "fn host_ensure_presentation_env_for_hints(")
+        .or_else(|| function_body(src, "fn ensure_presentation_env_for_hints("))
+    else {
         return false;
     };
-    // Wave 474: instance method seeds with self.gameworld_shadow overlay.
+    // Wave 474/590: instance method seeds with self.gameworld_shadow overlay.
     let ok = (body
         .contains("Wave 466: prefer host+GameWorld shadow freeze when a shadow session exists")
-        || body.contains("Wave 474: instance seed only"))
+        || body.contains("Wave 474: instance seed only")
+        || body.contains("Wave 590"))
         && body.contains("build_for_engine")
         && body.contains("self.gameworld_shadow.as_ref()")
         && body.contains("&self.game_logic")
         && body.contains("&mut self")
-        && !body.contains("shadow: Option<&crate::gameworld_shadow::GameWorldShadow>");
+        && !body.contains("shadow: Option<&crate::gameworld_shadow::GameWorldShadow>")
+        && src.contains("self.host_ensure_presentation_env_for_hints()");
     residual_action_store(ResidualPresentationEnvSeedGameworldAction::EnsureSource);
     ok
 }
