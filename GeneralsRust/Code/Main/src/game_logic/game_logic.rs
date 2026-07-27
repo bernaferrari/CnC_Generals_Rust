@@ -5644,47 +5644,9 @@ impl GameLogic {
                 }
             }
         }
-
-        if self.game_mode != GameMode::Shell {
-            return;
-        }
-
-        let tracker = gamelogic::scripting::engine::get_named_object_tracker();
-        for &(_, index) in spawned_object_ids {
-            let object = &objects[index];
-            let Some(name) = object
-                .name
-                .as_deref()
-                .map(str::trim)
-                .filter(|name| !name.is_empty())
-            else {
-                continue;
-            };
-            let ground_height = self
-                .terrain_height_at(Vec3::new(object.position.x, 0.0, object.position.y))
-                .unwrap_or(0.0);
-            let grounded_position = gamelogic::common::Coord3D::new(
-                object.position.x,
-                object.position.y,
-                object.position.z + ground_height,
-            );
-            // Dual-world registry write only when bridge is enabled.
-            if !crate::gameworld_shadow::engine_object_bridge_enabled() {
-                continue;
-            }
-            let Some(object_id) = tracker.get_object_id(name).ok().flatten() else {
-                continue;
-            };
-            let Some(object_arc) =
-                gamelogic::object::registry::OBJECT_REGISTRY.get_object(object_id)
-            else {
-                continue;
-            };
-            let write_result = object_arc.write();
-            if let Ok(mut object_guard) = write_result {
-                let _ = object_guard.set_position(&grounded_position);
-            }
-        }
+        // Wave 475: host map grounding is host-ObjectStore only.
+        // Dual-world OBJECT_REGISTRY pose writes retired — bridge/shadow materialize owns GW poses.
+        let _ = objects;
     }
 
     /// Load a map with optional milestone progress reporting.

@@ -356,6 +356,7 @@ pub mod host_live_legacy_object_registry_fastpath_residual_wave248;
 pub mod host_live_lifetime_update_dual_world_empty_gate_residual_wave412;
 pub mod host_live_local_team_presentation_only_residual_wave220;
 pub mod host_live_locomotor_core_dual_world_empty_gate_residual_wave423;
+pub mod host_live_map_ground_no_registry_pose_dual_write_residual_wave475;
 pub mod host_live_map_lighting_presentation_only_residual_wave456;
 pub mod host_live_map_load_residual_wave170;
 pub mod host_live_max_health_upgrade_dual_world_empty_gate_residual_wave314;
@@ -2167,6 +2168,20 @@ pub use host_live_ensure_presentation_env_instance_residual_wave474::{
     ENSURE_PRESENTATION_ENV_INSTANCE_NAV_STEPS_WAVE474,
     ENSURE_PRESENTATION_ENV_INSTANCE_SOURCE_MARKERS_WAVE474,
     RUNTIME_HOST_ENSURE_PRESENTATION_ENV_INSTANCE_CMD_NAMES_WAVE474,
+};
+pub use host_live_map_ground_no_registry_pose_dual_write_residual_wave475::{
+    honesty_map_ground_no_registry_pose_dual_write_method_names_residual_wave475,
+    honesty_map_ground_no_registry_pose_dual_write_nav_commands_residual_wave475,
+    honesty_map_ground_no_registry_pose_dual_write_residual_pack_wave475,
+    residual_map_ground_no_registry_pose_dual_write_last_action,
+    residual_map_ground_no_registry_pose_dual_write_ok,
+    simulate_live_map_ground_no_registry_pose_dual_write_honesty,
+    simulate_map_ground_host_only_source, simulate_map_ground_registry_pose_absent,
+    ResidualMapGroundNoRegistryPoseDualWriteAction,
+    MAP_GROUND_NO_REGISTRY_POSE_DUAL_WRITE_METHOD_NAMES_WAVE475,
+    MAP_GROUND_NO_REGISTRY_POSE_DUAL_WRITE_NAV_STEPS_WAVE475,
+    MAP_GROUND_NO_REGISTRY_POSE_DUAL_WRITE_SOURCE_MARKERS_WAVE475,
+    RUNTIME_HOST_MAP_GROUND_NO_REGISTRY_POSE_DUAL_WRITE_CMD_NAMES_WAVE475,
 };
 
 pub use host_live_camera_center_presentation_height_residual_wave460::{
