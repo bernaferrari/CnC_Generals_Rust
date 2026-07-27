@@ -1374,6 +1374,7 @@ impl RenderPipeline {
             let world_matrix = gameplay_to_render_transform(u.world_matrix());
             // Wave 491: mesh pass honors sold model-condition residual from presentation.
             // Wave 495: stamp moving/attacking/firing bits then honor sold residual.
+            // Wave 496: stamp production-door phase bits into model-condition bank.
             let model_bits = u.model_condition_bits_with_combat_flags();
             let _ = u.model_condition_bits; // residual source marker (bits via stamp helper)
             let sold_for_mesh =

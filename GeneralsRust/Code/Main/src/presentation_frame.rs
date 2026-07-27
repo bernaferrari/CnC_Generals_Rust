@@ -660,9 +660,11 @@ impl UnitRenderInput {
     }
 
     /// Wave 495: ensure combat motion flags are present in model-condition bits.
+    /// Wave 496: also stamp production-door phase bits for structure mesh residual.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
-            MC_BIT_ATTACKING, MC_BIT_FIRING_A, MC_BIT_MOVING,
+            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+            door_1_waiting_to_close_model_bit, MC_BIT_ATTACKING, MC_BIT_FIRING_A, MC_BIT_MOVING,
         };
         let mut bits = self.model_condition_bits;
         if self.moving {
@@ -673,6 +675,22 @@ impl UnitRenderInput {
         }
         if self.is_firing_weapon {
             bits |= 1u128 << MC_BIT_FIRING_A;
+        }
+        // Clear door-1 bank then set active phase bit (C++ door model condition residual).
+        let open_b = door_1_opening_model_bit();
+        let wait_b = door_1_waiting_open_model_bit();
+        let wait_close_b = door_1_waiting_to_close_model_bit();
+        let close_b = door_1_closing_model_bit();
+        bits &= !(1u128 << open_b);
+        bits &= !(1u128 << wait_b);
+        bits &= !(1u128 << wait_close_b);
+        bits &= !(1u128 << close_b);
+        match self.production_door_phase {
+            1 => bits |= 1u128 << open_b,
+            2 => bits |= 1u128 << wait_b,
+            3 => bits |= 1u128 << wait_close_b,
+            4 => bits |= 1u128 << close_b,
+            _ => {}
         }
         bits
     }
