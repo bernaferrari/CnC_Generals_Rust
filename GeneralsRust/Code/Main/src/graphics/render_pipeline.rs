@@ -658,6 +658,13 @@ impl RenderPipeline {
         self.presentation_frame.as_ref()
     }
 
+    #[inline]
+    pub fn presentation_frame_mut(
+        &mut self,
+    ) -> Option<&mut crate::presentation_frame::PresentationFrame> {
+        self.presentation_frame.as_mut()
+    }
+
     /// Live GameLogic identity reads during last unit mesh collect (0 when presentation owns pass).
     pub fn last_live_unit_identity_reads(&self) -> usize {
         self.debug_last_live_unit_identity_reads

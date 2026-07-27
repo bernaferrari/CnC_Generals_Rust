@@ -355,6 +355,7 @@ pub mod host_live_map_load_residual_wave170;
 pub mod host_live_max_health_upgrade_dual_world_empty_gate_residual_wave314;
 pub mod host_live_meta_event_dual_world_empty_gate_residual_wave345;
 pub mod host_live_minefield_behavior_dual_world_empty_gate_residual_wave410;
+pub mod host_live_minimap_bounds_presentation_first_residual_wave457;
 pub mod host_live_missile_ai_dual_world_empty_gate_residual_wave350;
 pub mod host_live_missile_launcher_building_update_dual_world_empty_gate_residual_wave382;
 pub mod host_live_mob_member_slaved_update_dual_world_empty_gate_residual_wave374;
@@ -2721,6 +2722,21 @@ pub use host_live_minefield_behavior_dual_world_empty_gate_residual_wave410::{
     honesty_live_minefield_behavior_dual_world_empty_gate_nav_commands_residual_wave410,
     honesty_live_minefield_behavior_dual_world_empty_gate_residual_pack_wave410,
     simulate_live_minefield_behavior_dual_world_empty_gate_honesty,
+};
+pub use host_live_minimap_bounds_presentation_first_residual_wave457::{
+    honesty_minimap_bounds_presentation_first_method_names_residual_wave457,
+    honesty_minimap_bounds_presentation_first_nav_commands_residual_wave457,
+    honesty_minimap_bounds_presentation_first_residual_pack_wave457,
+    residual_minimap_bounds_presentation_first_last_action,
+    residual_minimap_bounds_presentation_first_ok,
+    simulate_live_minimap_bounds_presentation_first_honesty,
+    simulate_minimap_bounds_presentation_first_callsites,
+    simulate_minimap_bounds_presentation_first_source,
+    ResidualMinimapBoundsPresentationFirstAction,
+    MINIMAP_BOUNDS_PRESENTATION_FIRST_METHOD_NAMES_WAVE457,
+    MINIMAP_BOUNDS_PRESENTATION_FIRST_NAV_STEPS_WAVE457,
+    MINIMAP_BOUNDS_PRESENTATION_FIRST_SOURCE_MARKERS_WAVE457,
+    RUNTIME_HOST_MINIMAP_BOUNDS_PRESENTATION_FIRST_CMD_NAMES_WAVE457,
 };
 pub use host_live_missile_ai_dual_world_empty_gate_residual_wave350::{
     honesty_live_missile_ai_dual_world_empty_gate_method_names_residual_wave350,
