@@ -426,6 +426,7 @@ pub mod host_live_presentation_build_from_gameworld_residual_wave193;
 pub mod host_live_presentation_burn_cheer_carry_residual_wave511;
 pub mod host_live_presentation_capture_load_overcharge_residual_wave510;
 pub mod host_live_presentation_construction_disguise_residual_wave503;
+pub mod host_live_presentation_emoticon_float_residual_wave514;
 pub mod host_live_presentation_env_only_residual_wave455;
 pub mod host_live_presentation_env_seed_gameworld_residual_wave466;
 pub mod host_live_presentation_env_seed_mirror_last_residual_wave467;
@@ -2401,6 +2402,20 @@ pub use host_live_presentation_construction_disguise_residual_wave503::{
     PRESENTATION_CONSTRUCTION_DISGUISE_NAV_STEPS_WAVE503,
     PRESENTATION_CONSTRUCTION_DISGUISE_SOURCE_MARKERS_WAVE503,
     RUNTIME_HOST_PRESENTATION_CONSTRUCTION_DISGUISE_CMD_NAMES_WAVE503,
+};
+pub use host_live_presentation_emoticon_float_residual_wave514::{
+    honesty_presentation_emoticon_float_method_names_residual_wave514,
+    honesty_presentation_emoticon_float_nav_commands_residual_wave514,
+    honesty_presentation_emoticon_float_residual_pack_wave514,
+    honesty_presentation_emoticon_float_source_markers_residual_wave514,
+    residual_presentation_emoticon_float_last_action, residual_presentation_emoticon_float_ok,
+    simulate_live_presentation_emoticon_float_honesty,
+    simulate_presentation_emoticon_float_collect_source,
+    simulate_presentation_emoticon_float_freeze_source, ResidualPresentationEmoticonFloatAction,
+    PRESENTATION_EMOTICON_FLOAT_METHOD_NAMES_WAVE514,
+    PRESENTATION_EMOTICON_FLOAT_NAV_STEPS_WAVE514,
+    PRESENTATION_EMOTICON_FLOAT_SOURCE_MARKERS_WAVE514,
+    RUNTIME_HOST_PRESENTATION_EMOTICON_FLOAT_CMD_NAMES_WAVE514,
 };
 pub use host_live_presentation_fire_prone_turret_residual_wave512::{
     honesty_presentation_fire_prone_turret_method_names_residual_wave512,
