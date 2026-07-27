@@ -123,7 +123,7 @@ The gamelogic crate still stores factory objects behind `Arc<RwLock<_>>` for leg
 Host `GameLogic::update_simulation` now owns path follow, projectile drain/step, combat fire, and AI (`update_ai` + `THE_AI` / skirmish AI manager). Engine no longer mid-frame double-steps path or a dual `CombatSystem`.
 
 Remaining engine residual after host update:
-- GameWorld shadow session (last-writer HP/cash/pose/targets/move; production progress sole-tick under PRODUCTION_AUTHORITY (host completes/spawns))
+- GameWorld shadow session (last-writer HP/cash/pose/targets/move; production progress sole-tick under PRODUCTION_AUTHORITY (host completes/spawns via `apply_*_production_completions`; Wave 595))
 - Presentation build + client/render orchestration:
   - Post-logic finalize: `host_finalize_presentation_after_logic` (build + audio dispatch + particle mirror + FPS; Wave 589)
   - Seeds: match-start / boot-render / pipeline-env via host presentation seed helpers (Wave 590)
