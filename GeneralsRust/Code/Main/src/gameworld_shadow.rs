@@ -4192,6 +4192,7 @@ impl GameWorldShadow {
 
     pub fn writeback_stored_supplies_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<(ObjectId, u32, u32)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -4202,8 +4203,15 @@ impl GameWorldShadow {
             if obj.stored_resources.supplies == ent.stored_supplies {
                 continue;
             }
+            let prev = obj.stored_resources.supplies;
             obj.stored_resources.supplies = ent.stored_supplies;
+            // Wave 641: GameWorld stored-supplies last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push((ObjectId(hid), prev, ent.stored_supplies));
             updated += 1;
+        }
+        for (oid, prev, next) in ready {
+            crate::game_logic::host_stored_supplies_ready_log::record(oid, prev, next);
         }
         updated
     }
@@ -8138,6 +8146,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 624: drain upgrade-ready log after GW completed-upgrade writeback.
         let _upg_ready = logic.host_apply_upgrade_ready_completions();
         let _ss_wb = shadow.writeback_stored_supplies_to_host(logic);
+        // Wave 641: drain stored-supplies ready log after GW writeback.
+        let _ss_ready = logic.host_apply_stored_supplies_ready_completions();
     } else {
         // Avoid unbounded growth when economy authority off.
         let _ = crate::game_logic::host_economy_log::drain();
@@ -10392,6 +10402,7 @@ mod tests {
             e.stored_supplies = 900;
         }
         assert!(shadow.writeback_stored_supplies_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_stored_supplies_ready_log::drain();
         assert_eq!(
             logic
                 .get_objects()

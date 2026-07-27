@@ -124,6 +124,7 @@ pub mod host_special_power_ready_log;
 pub mod host_status_log;
 pub mod host_stealth_flags_log;
 pub mod host_stored_supplies_log;
+pub mod host_stored_supplies_ready_log;
 pub mod host_target_location_log;
 pub mod host_transform_ready_log;
 pub mod host_turret_log;
@@ -452,6 +453,7 @@ pub mod host_live_host_special_power_ready_log_helper_residual_wave618;
 pub mod host_live_host_start_save_load_helper_residual_wave611;
 pub mod host_live_host_status_map_presentation_fail_closed_residual_wave546;
 pub mod host_live_host_status_selected_presentation_fail_closed_residual_wave547;
+pub mod host_live_host_stored_supplies_ready_log_helper_residual_wave641;
 pub mod host_live_host_template_spawn_helper_residual_wave581;
 pub mod host_live_host_tick_mutation_helper_residual_wave584;
 pub mod host_live_host_transform_ready_log_helper_residual_wave636;
@@ -3079,6 +3081,15 @@ pub use host_live_host_status_selected_presentation_fail_closed_residual_wave547
     residual_host_status_selected_presentation_fail_closed_last_action,
     residual_host_status_selected_presentation_fail_closed_ok,
     simulate_live_host_status_selected_presentation_fail_closed_honesty,
+};
+pub use host_live_host_stored_supplies_ready_log_helper_residual_wave641::{
+    honesty_host_stored_supplies_ready_log_helper_method_names_residual_wave641,
+    honesty_host_stored_supplies_ready_log_helper_nav_commands_residual_wave641,
+    honesty_host_stored_supplies_ready_log_helper_residual_pack_wave641,
+    honesty_host_stored_supplies_ready_log_helper_source_markers_residual_wave641,
+    residual_host_stored_supplies_ready_log_helper_last_action,
+    residual_host_stored_supplies_ready_log_helper_ok,
+    simulate_live_host_stored_supplies_ready_log_helper_honesty,
 };
 pub use host_live_host_template_spawn_helper_residual_wave581::{
     honesty_host_template_spawn_helper_method_names_residual_wave581,

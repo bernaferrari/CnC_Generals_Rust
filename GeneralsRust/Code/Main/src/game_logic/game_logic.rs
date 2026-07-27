@@ -26121,6 +26121,28 @@ impl GameLogic {
     /// host applies AI/status/movement residual without re-assigning destination.
     /// Wave 640: GameWorld fire-intent writeback records dirty objects; host
     /// applies presentation bookkeeping residual via record_host_fire_intent.
+    /// Wave 641: GameWorld stored-supplies writeback records changes; host
+    /// applies gatherer presentation residual (HUD / supply counter consumers).
+    pub fn host_apply_stored_supplies_ready_completions(&mut self) -> usize {
+        // Wave 641: GameWorld stored-supplies writeback records changes; host
+        // applies gatherer presentation residual (HUD / supply counter consumers).
+        let events = crate::game_logic::host_stored_supplies_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            if ev.previous_supplies == ev.new_supplies {
+                continue;
+            }
+            if !self.objects.contains_key(&ev.object) {
+                continue;
+            }
+            // Supplies already writeback-synced. Re-record via host economy-adjacent
+            // presentation residual when a gatherer carry amount changes.
+            crate::game_logic::host_stored_supplies_log::record(ev.object, ev.new_supplies);
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_fire_intent_ready_completions(&mut self) -> usize {
         // Wave 640: GameWorld fire-intent writeback records dirty objects; host
         // applies presentation bookkeeping residual via record_host_fire_intent.
