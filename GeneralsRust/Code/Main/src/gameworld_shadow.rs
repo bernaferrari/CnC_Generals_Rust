@@ -2645,6 +2645,7 @@ impl GameWorldShadow {
 
     pub fn writeback_ai_mood_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -2668,7 +2669,13 @@ impl GameWorldShadow {
             } else {
                 Some(ent.attack_priority_set.clone())
             };
+            // Wave 645: GameWorld AI-mood last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_ai_mood_ready_log::record(oid);
         }
         updated
     }
@@ -8000,6 +8007,8 @@ pub fn shadow_session_after_host_tick(
     let _ = shadow.writeback_sole_healing_to_host(logic);
     let _ = shadow.writeback_hijacker_to_host(logic);
     let _ = shadow.writeback_ai_mood_to_host(logic);
+    // Wave 645: drain AI-mood ready log after GW writeback.
+    let _mood_ready = logic.host_apply_ai_mood_ready_completions();
     let _ = shadow.writeback_ai_request_to_host(logic);
     let _ = shadow.writeback_hijacker_to_host(logic);
     let _construction_wb = shadow.writeback_construction_to_host(logic);
@@ -9231,6 +9240,7 @@ mod tests {
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
+        let _ = crate::game_logic::host_ai_mood_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         assert!(n >= 1, "writeback must touch building");
@@ -10647,6 +10657,7 @@ mod tests {
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
+        let _ = crate::game_logic::host_ai_mood_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         assert!(wb >= 1);
@@ -15384,6 +15395,7 @@ mod tests {
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
+        let _ = crate::game_logic::host_ai_mood_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let d = logic
@@ -15441,6 +15453,7 @@ mod tests {
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
+        let _ = crate::game_logic::host_ai_mood_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         assert_eq!(
@@ -15813,6 +15826,7 @@ mod tests {
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
+        let _ = crate::game_logic::host_ai_mood_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
@@ -15982,6 +15996,7 @@ mod tests {
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
+        let _ = crate::game_logic::host_ai_mood_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&hole).unwrap();
@@ -16037,6 +16052,7 @@ mod tests {
         assert!(shadow.writeback_sole_healing_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
+        let _ = crate::game_logic::host_ai_mood_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&tgt).unwrap();
@@ -16085,6 +16101,7 @@ mod tests {
             o.attack_priority_set = None;
         }
         assert!(shadow.writeback_ai_mood_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_ai_mood_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
@@ -18952,6 +18969,7 @@ mod tests {
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
+        let _ = crate::game_logic::host_ai_mood_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         assert_eq!(
@@ -19002,6 +19020,7 @@ mod tests {
         let _ = shadow.writeback_sole_healing_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let _ = shadow.writeback_ai_mood_to_host(&mut logic);
+        let _ = crate::game_logic::host_ai_mood_ready_log::drain();
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
         let o = logic.get_objects().get(&oid).unwrap();
