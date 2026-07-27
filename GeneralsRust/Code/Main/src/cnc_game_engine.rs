@@ -15573,40 +15573,8 @@ impl CnCGameEngine {
 
         // Wave 598: InGame HUD presentation residual via host helper.
         self.host_apply_ingame_hud_from_presentation(dt);
-
-        // Update camera
-        if self.current_state != GameState::Menu {
-            self.update_camera(visual_dt);
-        }
-
-        // Update audio
-        if self.current_state != GameState::Menu {
-            self.cleanup_sound_effects();
-        }
-        if self.current_state == GameState::InGame {
-            self.set_runtime_ui_state_projection(UISystemState::InGame);
-            if let Err(err) = self.ui_manager.update(dt) {
-                warn!("UI manager update failed in playing state: {}", err);
-            }
-        }
-
-        // Commands already drained in the logic-frame block (before shadow).
-        // Script camera requests still apply here after presentation build.
-        if self.current_state == GameState::InGame {
-            self.apply_pending_script_camera_requests();
-        }
-
-        // Wave 571: presentation-or-boot popup/music residual via helpers.
-        if let Some(pres) = self.last_presentation_frame.clone() {
-            self.apply_presentation_popup_music_residual(&pres);
-            // Presentation movie residual: play via GameClient script display, then drain.
-            self.apply_presentation_movie_residual(&pres);
-        } else {
-            self.apply_boot_popup_music_residual();
-            // Wave 567: boot residual movies via helper (no presentation frame).
-            self.apply_boot_movie_residual();
-        }
-
+        // Wave 600: post-HUD camera/audio/UI/popup-music residual via host helper.
+        self.host_tick_post_presentation_client_residuals(visual_dt, dt);
         // Wave 599: defeat/alliance/victory broadcast residual via host helper.
         self.host_broadcast_match_outcome_residuals();
     }
@@ -18384,6 +18352,46 @@ impl CnCGameEngine {
             self.gameworld_shadow.as_ref(),
         );
         self.render_pipeline.set_presentation_frame(Some(env_frame));
+    }
+
+    /// Wave 600: post-presentation client residual (camera/audio/UI/popup/music).
+    ///
+    /// After HUD apply: non-Menu camera + SFX cleanup, InGame UI projection,
+    /// script camera residual, and presentation-or-boot popup/music/movies.
+    fn host_tick_post_presentation_client_residuals(&mut self, visual_dt: f32, dt: f32) {
+        // Wave 600: post-presentation client residual.
+        // Update camera
+        if self.current_state != GameState::Menu {
+            self.update_camera(visual_dt);
+        }
+
+        // Update audio
+        if self.current_state != GameState::Menu {
+            self.cleanup_sound_effects();
+        }
+        if self.current_state == GameState::InGame {
+            self.set_runtime_ui_state_projection(UISystemState::InGame);
+            if let Err(err) = self.ui_manager.update(dt) {
+                warn!("UI manager update failed in playing state: {}", err);
+            }
+        }
+
+        // Commands already drained in the logic-frame block (before shadow).
+        // Script camera requests still apply here after presentation build.
+        if self.current_state == GameState::InGame {
+            self.apply_pending_script_camera_requests();
+        }
+
+        // Wave 571: presentation-or-boot popup/music residual via helpers.
+        if let Some(pres) = self.last_presentation_frame.clone() {
+            self.apply_presentation_popup_music_residual(&pres);
+            // Presentation movie residual: play via GameClient script display, then drain.
+            self.apply_presentation_movie_residual(&pres);
+        } else {
+            self.apply_boot_popup_music_residual();
+            // Wave 567: boot residual movies via helper (no presentation frame).
+            self.apply_boot_movie_residual();
+        }
     }
 
     /// Wave 599: match outcome broadcast residual (defeat/alliance/victory).

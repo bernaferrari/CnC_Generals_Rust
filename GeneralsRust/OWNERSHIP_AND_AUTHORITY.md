@@ -135,6 +135,7 @@ Remaining engine residual after host update:
   - GameWorld shadow session: `host_run_gameworld_shadow_after_logic` (session + observe view + couple end; Wave 597)
   - InGame HUD: `host_apply_ingame_hud_from_presentation` (freeze HUD/EVA/ControlBar + boot economy; Wave 598)
   - Match outcome: `host_broadcast_match_outcome_residuals` (defeat/alliance/victory; Wave 599)
+  - Post-HUD client: `host_tick_post_presentation_client_residuals` (camera/audio/UI/popup/music; Wave 600)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep
