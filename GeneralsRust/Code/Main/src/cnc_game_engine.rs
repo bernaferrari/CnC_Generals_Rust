@@ -22349,7 +22349,14 @@ impl CnCGameEngine {
     }
 
     fn toggle_camera_follow_selection(&mut self) {
-        if self.game_logic.camera_follow_object_id().is_some() {
+        // Wave 548: presentation freeze owns follow-active residual when installed
+        // (`camera_follow_position`; no live `camera_follow_object_id` dual-read).
+        // Command authority still writes `set_camera_follow_object` for host follow state.
+        let follow_active = match self.last_presentation_frame.as_ref() {
+            Some(pres) => pres.camera_follow_position.is_some(),
+            None => self.game_logic.camera_follow_object_id().is_some(),
+        };
+        if follow_active {
             self.game_logic.set_camera_follow_object(None);
             let msg = "Camera follow off";
             self.game_hud.push_info_message(msg);
