@@ -181,7 +181,6 @@ pub fn simulate_engine_env_free_fn_game_logic_only_seed_source() -> bool {
         "ensure_presentation_env_for_hints",
         "bootstrap_camera_for_loaded_map",
         "sample_startup_camera_heights",
-        "preload_all_models",
     ];
     let ok = !free.is_empty()
         && free.iter().all(|n| allowed.contains(&n.as_str()))
@@ -249,7 +248,6 @@ mod tests {
             "ensure_presentation_env_for_hints",
             "bootstrap_camera_for_loaded_map",
             "sample_startup_camera_heights",
-            "preload_all_models",
         ];
         assert!(
             free.iter().all(|n| allowed.contains(&n.as_str())),

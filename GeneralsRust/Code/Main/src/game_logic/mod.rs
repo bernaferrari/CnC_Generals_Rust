@@ -292,6 +292,7 @@ pub mod host_live_core_sim_dual_world_empty_gate_residual_wave450;
 pub mod host_live_countermeasures_dual_world_empty_gate_residual_wave328;
 pub mod host_live_crate_collide_dual_world_empty_gate_residual_wave303;
 pub mod host_live_damage_module_dual_world_empty_gate_residual_wave415;
+pub mod host_live_dead_model_preload_removed_residual_wave472;
 pub mod host_live_deliver_payload_ai_dual_world_empty_gate_residual_wave352;
 pub mod host_live_demo_trap_update_dual_world_empty_gate_residual_wave373;
 pub mod host_live_demoralize_power_dual_world_empty_gate_residual_wave403;
@@ -2370,6 +2371,17 @@ pub use host_live_damage_module_dual_world_empty_gate_residual_wave415::{
     honesty_live_damage_module_dual_world_empty_gate_residual_pack_wave415,
     simulate_live_damage_module_dual_world_empty_gate_honesty,
 };
+pub use host_live_dead_model_preload_removed_residual_wave472::{
+    honesty_dead_model_preload_removed_method_names_residual_wave472,
+    honesty_dead_model_preload_removed_nav_commands_residual_wave472,
+    honesty_dead_model_preload_removed_residual_pack_wave472,
+    residual_dead_model_preload_removed_last_action, residual_dead_model_preload_removed_ok,
+    simulate_dead_model_preload_removed_source, simulate_live_dead_model_preload_removed_honesty,
+    simulate_texture_preload_retained_source, ResidualDeadModelPreloadRemovedAction,
+    DEAD_MODEL_PRELOAD_REMOVED_METHOD_NAMES_WAVE472, DEAD_MODEL_PRELOAD_REMOVED_NAV_STEPS_WAVE472,
+    DEAD_MODEL_PRELOAD_REMOVED_SOURCE_MARKERS_WAVE472,
+    RUNTIME_HOST_DEAD_MODEL_PRELOAD_REMOVED_CMD_NAMES_WAVE472,
+};
 pub use host_live_deliver_payload_ai_dual_world_empty_gate_residual_wave352::{
     honesty_live_deliver_payload_ai_dual_world_empty_gate_method_names_residual_wave352,
     honesty_live_deliver_payload_ai_dual_world_empty_gate_nav_commands_residual_wave352,
@@ -2463,6 +2475,7 @@ pub use host_live_engine_env_free_fn_game_logic_only_seed_residual_wave471::{
     ENGINE_ENV_FREE_FN_GAME_LOGIC_ONLY_SEED_SOURCE_MARKERS_WAVE471,
     RUNTIME_HOST_ENGINE_ENV_FREE_FN_GAME_LOGIC_ONLY_SEED_CMD_NAMES_WAVE471,
 };
+
 pub use host_live_engine_player_ui_boot_peel_residual_wave237::{
     honesty_live_engine_player_ui_boot_peel_method_names_residual_wave237,
     honesty_live_engine_player_ui_boot_peel_nav_commands_residual_wave237,

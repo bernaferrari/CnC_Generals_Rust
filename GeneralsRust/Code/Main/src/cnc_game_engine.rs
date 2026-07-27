@@ -25198,80 +25198,6 @@ pub async fn run_cnc_game(
 }
 
 impl CnCGameEngine {
-    /// Preload all models used by game objects into the graphics system
-    async fn preload_all_models(
-        graphics_system: &mut GraphicsSystem,
-        game_logic: &GameLogic,
-    ) -> anyhow::Result<()> {
-        use std::collections::HashSet;
-
-        println!("🎨 PRELOAD: Starting model preloading for all game objects...");
-
-        // Prefer PresentationFrame model_key freeze; live template fallback.
-        let mut unique_models: HashSet<String> = HashSet::new();
-        // Wave 201: presentation model_key freeze via engine builder (no shadow).
-        let frame =
-            crate::presentation_frame::PresentationFrame::build_for_engine(game_logic, 0, None);
-        for key in frame.unique_model_keys() {
-            unique_models.insert(key);
-        }
-        // Presentation unique_model_keys is authoritative (no live get_objects dual-read).
-
-        println!("📦 Loading {} models...", unique_models.len());
-
-        // Load each model into graphics system
-        let mut loaded_count = 0;
-        let mut failed_count = 0;
-        let total_models = unique_models.len();
-
-        for (index, model_name) in unique_models.iter().enumerate() {
-            println!(
-                "🎯 Loading model {}/{}: {} (starting...)",
-                index + 1,
-                total_models,
-                model_name
-            );
-
-            match Self::load_model_into_graphics_system_blocking(graphics_system, model_name) {
-                Ok(true) => {
-                    loaded_count += 1;
-                    println!(
-                        "✅ Model {}/{} loaded successfully",
-                        index + 1,
-                        total_models
-                    );
-                }
-                Ok(false) => {
-                    println!(
-                        "⚠️  Model {}/{} already loaded (skipping)",
-                        index + 1,
-                        total_models
-                    );
-                }
-                Err(e) => {
-                    failed_count += 1;
-                    eprintln!("❌ Model '{}' failed: {}", model_name, e);
-                    eprintln!("   Continuing with next model...");
-                }
-            }
-
-            println!(
-                "📊 Progress: {}/{} models processed, {} loaded, {} failed",
-                index + 1,
-                total_models,
-                loaded_count,
-                failed_count
-            );
-        }
-
-        println!(
-            "✅ Loaded {} models ({} failed)",
-            loaded_count, failed_count
-        );
-
-        Ok(())
-    }
-
     /// Preload textures from all cached models using C++ approach - material names as texture files
     async fn preload_model_textures(graphics_system: &mut GraphicsSystem) -> anyhow::Result<()> {
         use std::collections::HashSet;
@@ -25571,39 +25497,6 @@ impl CnCGameEngine {
         }
 
         Ok(())
-    }
-
-    /// Load a single model into the graphics system
-    fn load_model_into_graphics_system_blocking(
-        graphics_system: &mut GraphicsSystem,
-        model_name: &str,
-    ) -> anyhow::Result<bool> {
-        // Check if model is already loaded
-        if graphics_system.get_model(model_name).is_some() {
-            return Ok(false); // Already loaded
-        }
-
-        // Get asset manager and load the model
-        if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
-            // CRITICAL FIX: Load model in a scope to release asset manager lock before cache_model()
-            let w3d_model = {
-                let mut asset_manager = asset_manager_arc.lock().unwrap_or_else(|e| e.into_inner());
-                match asset_manager.load_w3d_model_blocking(model_name) {
-                    Ok(model) => Ok(model),
-                    Err(e) => Err(anyhow::anyhow!(
-                        "Failed to load W3D model '{}': {}",
-                        model_name,
-                        e
-                    )),
-                }
-            }?; // Asset manager lock is released here
-
-            // C++ parity: cache the loaded model immediately once it is available.
-            graphics_system.cache_model(model_name.to_string(), w3d_model);
-            Ok(true)
-        } else {
-            anyhow::bail!("Asset manager not available");
-        }
     }
 }
 
