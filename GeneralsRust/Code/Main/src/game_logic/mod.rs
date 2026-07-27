@@ -447,6 +447,7 @@ pub mod host_live_presentation_seed_residual_wave171;
 pub mod host_live_presentation_stealth_mesh_residual_wave502;
 pub mod host_live_presentation_time_frozen_probe_residual_wave250;
 pub mod host_live_presentation_visual_speed_probe_residual_wave251;
+pub mod host_live_presentation_water_rider_residual_wave507;
 pub mod host_live_presentation_weaponset_veterancy_residual_wave506;
 pub mod host_live_presentation_world_bounds_probe_residual_wave461;
 pub mod host_live_prison_behavior_dual_world_empty_gate_residual_wave385;
@@ -2509,6 +2510,19 @@ pub use host_live_presentation_stealth_mesh_residual_wave502::{
     PRESENTATION_STEALTH_MESH_METHOD_NAMES_WAVE502, PRESENTATION_STEALTH_MESH_NAV_STEPS_WAVE502,
     PRESENTATION_STEALTH_MESH_SOURCE_MARKERS_WAVE502,
     RUNTIME_HOST_PRESENTATION_STEALTH_MESH_CMD_NAMES_WAVE502,
+};
+pub use host_live_presentation_water_rider_residual_wave507::{
+    honesty_presentation_water_rider_method_names_residual_wave507,
+    honesty_presentation_water_rider_nav_commands_residual_wave507,
+    honesty_presentation_water_rider_residual_pack_wave507,
+    honesty_presentation_water_rider_source_markers_residual_wave507,
+    residual_presentation_water_rider_last_action, residual_presentation_water_rider_ok,
+    simulate_live_presentation_water_rider_honesty,
+    simulate_presentation_water_rider_freeze_source,
+    simulate_presentation_water_rider_stamp_source, ResidualPresentationWaterRiderAction,
+    PRESENTATION_WATER_RIDER_METHOD_NAMES_WAVE507, PRESENTATION_WATER_RIDER_NAV_STEPS_WAVE507,
+    PRESENTATION_WATER_RIDER_SOURCE_MARKERS_WAVE507,
+    RUNTIME_HOST_PRESENTATION_WATER_RIDER_CMD_NAMES_WAVE507,
 };
 pub use host_live_presentation_weaponset_veterancy_residual_wave506::{
     honesty_presentation_weaponset_veterancy_method_names_residual_wave506,

@@ -32,7 +32,7 @@ pub const PRESENTATION_GARRISON_CONTAIN_METHOD_NAMES_WAVE504: &[&str] = &[
 
 pub const PRESENTATION_GARRISON_CONTAIN_SOURCE_MARKERS_WAVE504: &[&str] = &[
     "Wave 504: contained units are not drawn as free world meshes",
-    "Wave 504: garrisoned structure residual bit when occupants present",
+    "Wave 504/507: garrisoned residual for structures; transports use RIDER bits",
     "garrisoned_model_bit",
     "occupant_count: ro.occupant_count",
 ];
@@ -153,11 +153,13 @@ pub fn simulate_presentation_garrison_contain_filter_source() -> bool {
 pub fn simulate_presentation_garrison_contain_stamp_source() -> bool {
     let pf = pf_source();
     let en = en_source();
-    let ok = pf.contains("Wave 504: garrisoned structure residual bit when occupants present")
+    let ok = pf
+        .contains("Wave 504/507: garrisoned residual for structures; transports use RIDER bits")
         && pf.contains("occupant_count: ro.occupant_count")
         && pf.contains("garrisoned_model_bit")
         && en.contains("pub fn garrisoned_model_bit")
-        && pf.contains("self.occupant_count > 0");
+        && (pf.contains("self.occupant_count > 0")
+            || pf.contains("self.is_structure && self.occupant_count > 0"));
     residual_action_store(ResidualPresentationGarrisonContainAction::StampSource);
     ok
 }

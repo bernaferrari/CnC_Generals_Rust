@@ -244,6 +244,8 @@ pub struct RenderableObject {
     pub airborne_target: bool,
     /// Wave 505: C++ OBJECT_STATUS_PARACHUTING residual.
     pub parachuting: bool,
+    /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
+    pub over_water: bool,
     /// Host movement max speed residual.
     pub move_max_speed: f32,
     /// Host velocity residual.
@@ -619,6 +621,8 @@ pub struct UnitRenderInput {
     pub velocity: Vec3,
     /// Wave 506: presentation veterancy residual for weaponset model bits.
     pub veterancy: PresentationVeterancy,
+    /// Wave 507: over-water residual for mesh model-condition.
+    pub over_water: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -676,6 +680,7 @@ impl UnitRenderInput {
             object_type: ro.object_type,
             velocity: ro.velocity,
             veterancy: ro.veterancy,
+            over_water: ro.over_water,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -725,6 +730,7 @@ impl UnitRenderInput {
     /// Wave 504: stamp GARRISONED model-condition residual when occupied.
     /// Wave 505: stamp parachuting / jetexhaust / using-weapon residual bits.
     /// Wave 506: stamp weaponset veterancy residual bits.
+    /// Wave 507: stamp OVER_WATER + transport RIDER1..n residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -805,11 +811,11 @@ impl UnitRenderInput {
                 }
             }
         }
-        // Wave 504: garrisoned structure residual bit when occupants present.
+        // Wave 504/507: garrisoned residual for structures; transports use RIDER bits.
         {
             use crate::game_logic::host_enum_table_residual::garrisoned_model_bit;
             let g_b = garrisoned_model_bit();
-            if self.occupant_count > 0 {
+            if self.is_structure && self.occupant_count > 0 {
                 bits |= 1u128 << g_b;
             } else {
                 bits &= !(1u128 << g_b);
@@ -857,6 +863,28 @@ impl UnitRenderInput {
                 PresentationVeterancy::Veteran => bits |= 1u128 << vet_b,
                 PresentationVeterancy::Elite => bits |= 1u128 << elite_b,
                 PresentationVeterancy::Heroic => bits |= 1u128 << hero_b,
+            }
+        }
+        // Wave 507: over-water + transport RIDER1..n residual bits.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                over_water_model_bit, rider_model_bit,
+            };
+            let water_b = over_water_model_bit();
+            if self.over_water {
+                bits |= 1u128 << water_b;
+            } else {
+                bits &= !(1u128 << water_b);
+            }
+            // Clear RIDER bank then stamp passenger slots on non-structure transports.
+            for slot in 1u8..=8u8 {
+                bits &= !(1u128 << rider_model_bit(slot));
+            }
+            if !self.is_structure && self.occupant_count > 0 {
+                let n = (self.occupant_count as u8).min(8);
+                for slot in 1u8..=n {
+                    bits |= 1u128 << rider_model_bit(slot);
+                }
             }
         }
         bits
@@ -2740,6 +2768,7 @@ impl PresentationFrame {
                 using_ability: obj.status.using_ability,
                 airborne_target: obj.status.airborne_target,
                 parachuting: obj.is_parachuting(),
+                over_water: obj.over_water,
                 move_max_speed: obj.movement.max_speed,
                 velocity: obj.movement.velocity,
                 ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
@@ -6240,6 +6269,7 @@ impl PresentationFrame {
             using_ability: ent.using_ability,
             airborne_target: ent.airborne_target,
             parachuting: ent.parachuting,
+            over_water: false,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
             ai_state_ordinal: ent.ai_state_ordinal,
@@ -8432,6 +8462,7 @@ mod tests {
             object_type: PresentationObjectType::Neutral,
             velocity: Vec3::ZERO,
             veterancy: PresentationVeterancy::Rookie,
+            over_water: false,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
