@@ -431,6 +431,7 @@ pub mod host_live_presentation_env_only_residual_wave455;
 pub mod host_live_presentation_env_seed_gameworld_residual_wave466;
 pub mod host_live_presentation_env_seed_mirror_last_residual_wave467;
 pub mod host_live_presentation_fire_prone_turret_residual_wave512;
+pub mod host_live_presentation_formation_link_residual_wave516;
 pub mod host_live_presentation_fow_only_residual_wave213;
 pub mod host_live_presentation_from_gameworld_default_residual_wave194;
 pub mod host_live_presentation_gameworld_overlay_residual_wave187;
@@ -2433,6 +2434,14 @@ pub use host_live_presentation_fire_prone_turret_residual_wave512::{
     PRESENTATION_FIRE_PRONE_TURRET_SOURCE_MARKERS_WAVE512,
     RUNTIME_HOST_PRESENTATION_FIRE_PRONE_TURRET_CMD_NAMES_WAVE512,
 };
+pub use host_live_presentation_formation_link_residual_wave516::{
+    honesty_presentation_formation_link_method_names_residual_wave516,
+    honesty_presentation_formation_link_nav_commands_residual_wave516,
+    honesty_presentation_formation_link_residual_pack_wave516,
+    honesty_presentation_formation_link_source_markers_residual_wave516,
+    residual_presentation_formation_link_last_action, residual_presentation_formation_link_ok,
+    simulate_live_presentation_formation_link_honesty,
+};
 pub use host_live_presentation_garrison_contain_residual_wave504::{
     honesty_presentation_garrison_contain_method_names_residual_wave504,
     honesty_presentation_garrison_contain_nav_commands_residual_wave504,
@@ -2626,6 +2635,7 @@ pub use host_live_presentation_surrender_formation_residual_wave515::{
     PRESENTATION_SURRENDER_FORMATION_SOURCE_MARKERS_WAVE515,
     RUNTIME_HOST_PRESENTATION_SURRENDER_FORMATION_CMD_NAMES_WAVE515,
 };
+
 pub use host_live_presentation_topple_freefall_weather_residual_wave509::{
     honesty_presentation_topple_freefall_weather_method_names_residual_wave509,
     honesty_presentation_topple_freefall_weather_nav_commands_residual_wave509,

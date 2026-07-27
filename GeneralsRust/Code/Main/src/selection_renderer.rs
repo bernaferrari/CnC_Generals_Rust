@@ -6,6 +6,7 @@
 //! - Team-colored indicators (friendly/enemy)
 //! - Health bars and status indicators
 //! - Drag selection box rendering
+//! - Wave 516: formation links from presentation formation_id
 //!
 //! Wave 79 residual honesty: selection/HUD color + health-bar + pulse defaults
 //! (host-testable; not full W3D Drawable health-bar GPU path).
@@ -235,6 +236,50 @@ impl SelectionRenderer {
                         ro.health_current,
                         ro.health_max.max(1.0),
                     ));
+                }
+            }
+        }
+
+        // Wave 516: formation links among selected units sharing formation_id
+        // (presentation-owned; no live GameLogic dual-read).
+        {
+            use std::collections::HashMap;
+            let mut by_fid: HashMap<u32, Vec<(ObjectId, Vec2)>> = HashMap::new();
+            for object_id in &selected_ids {
+                let Some(ro) = by_id.get(object_id) else {
+                    continue;
+                };
+                if ro.destroyed || ro.formation_id == 0 {
+                    continue;
+                }
+                if let Some(screen_pos) = self.world_to_screen(
+                    ro.position,
+                    camera_view_matrix,
+                    camera_proj_matrix,
+                    window_size,
+                ) {
+                    by_fid
+                        .entry(ro.formation_id)
+                        .or_default()
+                        .push((*object_id, screen_pos));
+                }
+            }
+            let mut fids: Vec<u32> = by_fid.keys().copied().collect();
+            fids.sort_unstable();
+            let link_color = [
+                self.selection_color[0],
+                self.selection_color[1],
+                self.selection_color[2],
+                0.45,
+            ];
+            for fid in fids {
+                let mut members = by_fid.remove(&fid).unwrap_or_default();
+                members.sort_by_key(|(id, _)| id.0);
+                if members.len() < 2 {
+                    continue;
+                }
+                for pair in members.windows(2) {
+                    commands.push(self.create_formation_link(pair[0].1, pair[1].1, link_color));
                 }
             }
         }
@@ -728,6 +773,49 @@ impl SelectionRenderer {
 
         let indices = vec![0, 1, 2, 0, 2, 3];
 
+        UIRenderCommand {
+            vertices,
+            indices,
+            texture_id: None,
+            blend_mode: crate::ui::BlendMode::Alpha,
+            primitive_type: crate::ui::PrimitiveType::Triangles,
+            clip_rect: None,
+        }
+    }
+
+    /// Wave 516: thin screen-space link between formation mates (presentation residual).
+    fn create_formation_link(&self, a: Vec2, b: Vec2, color: [f32; 4]) -> UIRenderCommand {
+        let delta = b - a;
+        let len = delta.length().max(1.0);
+        let dir = delta / len;
+        let normal = Vec2::new(-dir.y, dir.x) * 1.25;
+        let p0 = a + normal;
+        let p1 = a - normal;
+        let p2 = b - normal;
+        let p3 = b + normal;
+        let vertices = vec![
+            Vertex {
+                position: [p0.x, p0.y, 0.0],
+                color,
+                tex_coords: [0.0, 0.0],
+            },
+            Vertex {
+                position: [p1.x, p1.y, 0.0],
+                color,
+                tex_coords: [1.0, 0.0],
+            },
+            Vertex {
+                position: [p2.x, p2.y, 0.0],
+                color,
+                tex_coords: [1.0, 1.0],
+            },
+            Vertex {
+                position: [p3.x, p3.y, 0.0],
+                color,
+                tex_coords: [0.0, 1.0],
+            },
+        ];
+        let indices = vec![0, 1, 2, 0, 2, 3];
         UIRenderCommand {
             vertices,
             indices,
