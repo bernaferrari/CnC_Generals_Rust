@@ -160,6 +160,7 @@ Remaining engine residual after host update:
   - Construction ready log: GW writeback → `host_construction_ready_log` → host complete gate (Wave 617)
   - Special-power ready log: GW writeback → `host_special_power_ready_log` → host EVA drain (Wave 618)
   - Sell-finish ready log: GW writeback → `host_sell_ready_log` → host finish gate (Wave 619)
+  - Rebuild-hole ready log: GW writeback → `host_rebuild_ready_log` → host spawn gate (Wave 620)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep

@@ -68677,6 +68677,17 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         let mut holes_to_remove: Vec<ObjectId> = Vec::new();
+        // Wave 620: under construction sole-tick, GameWorld writeback records
+        // rebuild-ready holes; host only starts worker/building for those IDs.
+        let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
+        let ready_holes: std::collections::HashSet<ObjectId> = if construction_sole {
+            crate::game_logic::host_rebuild_ready_log::drain()
+                .into_iter()
+                .map(|ev| ev.hole)
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
         for hole_id in ids {
             // Hole health regen residual (always while hole alive).
             if let Some(h) = self.objects.get_mut(&hole_id) {
@@ -68795,6 +68806,10 @@ impl GameLogic {
                 continue;
             }
             if h.rebuild_ready_frame == 0 || now < h.rebuild_ready_frame {
+                continue;
+            }
+            // Wave 620: under sole-tick, only start rebuild for IDs GW recorded ready.
+            if construction_sole && !ready_holes.contains(&hole_id) {
                 continue;
             }
             let team = h.team;
