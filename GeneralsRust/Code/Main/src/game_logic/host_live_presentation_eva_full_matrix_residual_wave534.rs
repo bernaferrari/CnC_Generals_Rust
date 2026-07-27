@@ -116,7 +116,9 @@ pub fn honesty_presentation_eva_full_matrix_source_markers_residual_wave534() ->
     let rec_n = gl.matches("host_eva_log::record_event").count();
     let ok = log.contains("pub fn record_event")
         && log.contains("pub fn eva_event_audio_name")
-        && log.contains("format!(\"EVA_{event:?}\")")
+        && log.contains("eva_event_table_token")
+        && log.contains("eva_event_audio_name")
+        && log.contains("EVA_{}")
         && pf.contains("PresentationEvent::EvaAlert")
         && pf.contains("host_eva_log::take_last_drain")
         && set_n > 0
