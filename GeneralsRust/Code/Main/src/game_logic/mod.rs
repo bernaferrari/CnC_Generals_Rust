@@ -423,6 +423,7 @@ pub mod host_live_presentation_append_missing_residual_wave192;
 pub mod host_live_presentation_body_disguise_stun_residual_wave508;
 pub mod host_live_presentation_build_for_engine_residual_wave195;
 pub mod host_live_presentation_build_from_gameworld_residual_wave193;
+pub mod host_live_presentation_capture_load_overcharge_residual_wave510;
 pub mod host_live_presentation_construction_disguise_residual_wave503;
 pub mod host_live_presentation_env_only_residual_wave455;
 pub mod host_live_presentation_env_seed_gameworld_residual_wave466;
@@ -2351,6 +2352,22 @@ pub use host_live_presentation_body_disguise_stun_residual_wave508::{
     PRESENTATION_BODY_DISGUISE_STUN_NAV_STEPS_WAVE508,
     PRESENTATION_BODY_DISGUISE_STUN_SOURCE_MARKERS_WAVE508,
     RUNTIME_HOST_PRESENTATION_BODY_DISGUISE_STUN_CMD_NAMES_WAVE508,
+};
+pub use host_live_presentation_capture_load_overcharge_residual_wave510::{
+    honesty_presentation_capture_load_overcharge_method_names_residual_wave510,
+    honesty_presentation_capture_load_overcharge_nav_commands_residual_wave510,
+    honesty_presentation_capture_load_overcharge_residual_pack_wave510,
+    honesty_presentation_capture_load_overcharge_source_markers_residual_wave510,
+    residual_presentation_capture_load_overcharge_last_action,
+    residual_presentation_capture_load_overcharge_ok,
+    simulate_live_presentation_capture_load_overcharge_honesty,
+    simulate_presentation_capture_load_overcharge_freeze_source,
+    simulate_presentation_capture_load_overcharge_stamp_source,
+    ResidualPresentationCaptureLoadOverchargeAction,
+    PRESENTATION_CAPTURE_LOAD_OVERCHARGE_METHOD_NAMES_WAVE510,
+    PRESENTATION_CAPTURE_LOAD_OVERCHARGE_NAV_STEPS_WAVE510,
+    PRESENTATION_CAPTURE_LOAD_OVERCHARGE_SOURCE_MARKERS_WAVE510,
+    RUNTIME_HOST_PRESENTATION_CAPTURE_LOAD_OVERCHARGE_CMD_NAMES_WAVE510,
 };
 pub use host_live_presentation_construction_disguise_residual_wave503::{
     honesty_presentation_construction_disguise_method_names_residual_wave503,

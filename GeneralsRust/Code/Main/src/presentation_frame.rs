@@ -246,6 +246,8 @@ pub struct RenderableObject {
     pub parachuting: bool,
     /// Wave 509: C++ parachute open residual (false + parachuting => FREEFALL).
     pub parachute_open: bool,
+    /// Wave 510: C++ CAPTURED model-condition residual.
+    pub captured: bool,
     /// Wave 507: C++ OVER_WATER model condition residual (hover craft / water).
     pub over_water: bool,
     /// Host movement max speed residual.
@@ -633,6 +635,10 @@ pub struct UnitRenderInput {
     pub world_is_snow: bool,
     /// Wave 509: world night residual stamped into mesh model-condition.
     pub world_is_night: bool,
+    /// Wave 510: captured residual for CAPTURED model-condition.
+    pub captured: bool,
+    /// Wave 510: power plant overcharge residual.
+    pub overcharge_enabled: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -695,6 +701,8 @@ impl UnitRenderInput {
             parachute_open: ro.parachute_open,
             world_is_snow: false,
             world_is_night: false,
+            captured: ro.captured,
+            overcharge_enabled: ro.overcharge_enabled,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -747,6 +755,7 @@ impl UnitRenderInput {
     /// Wave 507: stamp OVER_WATER + transport RIDER1..n residual bits.
     /// Wave 508: stamp body-damage / DISGUISED / STUNNED residual bits.
     /// Wave 509: stamp TOPPLED / FREEFALL / NIGHT / SNOW residual bits.
+    /// Wave 510: stamp CAPTURED / LOADED / POWER_PLANT_UPGRADED residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -957,6 +966,31 @@ impl UnitRenderInput {
                 bits |= 1u128 << snow_b;
             } else {
                 bits &= !(1u128 << snow_b);
+            }
+        }
+        // Wave 510: captured / loaded transport / power-plant overcharge residual bits.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                captured_model_bit, loaded_model_bit, power_plant_upgraded_model_bit,
+            };
+            let cap_b = captured_model_bit();
+            if self.captured {
+                bits |= 1u128 << cap_b;
+            } else {
+                bits &= !(1u128 << cap_b);
+            }
+            let load_b = loaded_model_bit();
+            // Transport cargo residual (non-structure with occupants).
+            if !self.is_structure && self.occupant_count > 0 {
+                bits |= 1u128 << load_b;
+            } else {
+                bits &= !(1u128 << load_b);
+            }
+            let pp_b = power_plant_upgraded_model_bit();
+            if self.overcharge_enabled {
+                bits |= 1u128 << pp_b;
+            } else {
+                bits &= !(1u128 << pp_b);
             }
         }
         bits
@@ -2853,6 +2887,7 @@ impl PresentationFrame {
                 airborne_target: obj.status.airborne_target,
                 parachuting: obj.is_parachuting(),
                 parachute_open: obj.is_parachute_open(),
+                captured: obj.has_captured_model_condition() || obj.is_private_captured(),
                 over_water: obj.over_water,
                 move_max_speed: obj.movement.max_speed,
                 velocity: obj.movement.velocity,
@@ -6358,6 +6393,7 @@ impl PresentationFrame {
             airborne_target: ent.airborne_target,
             parachuting: ent.parachuting,
             parachute_open: ent.parachute_open,
+            captured: false,
             over_water: false,
             move_max_speed: ent.move_max_speed,
             velocity: vel,
@@ -8556,6 +8592,8 @@ mod tests {
             parachute_open: false,
             world_is_snow: false,
             world_is_night: false,
+            captured: false,
+            overcharge_enabled: false,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
