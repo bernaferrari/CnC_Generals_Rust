@@ -461,6 +461,7 @@ pub mod host_live_presentation_multi_door_smolder_residual_wave524;
 pub mod host_live_presentation_object_fx_particles_residual_wave500;
 pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_overlay_stamp_residual_wave190;
+pub mod host_live_presentation_particle_spawn_audio_residual_wave535;
 pub mod host_live_presentation_poison_defector_tint_residual_wave499;
 pub mod host_live_presentation_radar_eva_audio_residual_wave529;
 pub mod host_live_presentation_rebuilt_vertical_gate_residual_wave196;
@@ -2443,6 +2444,15 @@ pub use host_live_presentation_firesound_stop_residual_wave528::{
     honesty_presentation_firesound_stop_source_markers_residual_wave528,
     residual_presentation_firesound_stop_last_action, residual_presentation_firesound_stop_ok,
     simulate_live_presentation_firesound_stop_honesty,
+};
+pub use host_live_presentation_particle_spawn_audio_residual_wave535::{
+    honesty_presentation_particle_spawn_audio_method_names_residual_wave535,
+    honesty_presentation_particle_spawn_audio_nav_commands_residual_wave535,
+    honesty_presentation_particle_spawn_audio_residual_pack_wave535,
+    honesty_presentation_particle_spawn_audio_source_markers_residual_wave535,
+    residual_presentation_particle_spawn_audio_last_action,
+    residual_presentation_particle_spawn_audio_ok,
+    simulate_live_presentation_particle_spawn_audio_honesty,
 };
 pub use host_live_presentation_radar_eva_audio_residual_wave529::{
     honesty_presentation_radar_eva_audio_method_names_residual_wave529,
