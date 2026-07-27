@@ -430,6 +430,7 @@ pub mod host_live_presentation_world_bounds_probe_residual_wave461;
 pub mod host_live_prison_behavior_dual_world_empty_gate_residual_wave385;
 pub mod host_live_production_exit_delay_sole_tick_residual_wave464;
 pub mod host_live_production_quantity_writeback_residual_wave463;
+pub mod host_live_production_sole_tick_exit_delay_arm_residual_wave480;
 pub mod host_live_production_sole_tick_no_progress_stomp_residual_wave477;
 pub mod host_live_production_update_complete_dual_world_empty_gate_residual_wave365;
 pub mod host_live_production_update_dual_world_empty_gate_residual_wave326;
@@ -2172,6 +2173,21 @@ pub use host_live_construction_sole_tick_no_progress_stomp_residual_wave478::{
     CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_NAV_STEPS_WAVE478,
     CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE478,
     RUNTIME_HOST_CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_CMD_NAMES_WAVE478,
+};
+pub use host_live_production_sole_tick_exit_delay_arm_residual_wave480::{
+    honesty_production_sole_tick_exit_delay_arm_method_names_residual_wave480,
+    honesty_production_sole_tick_exit_delay_arm_nav_commands_residual_wave480,
+    honesty_production_sole_tick_exit_delay_arm_residual_pack_wave480,
+    residual_production_sole_tick_exit_delay_arm_last_action,
+    residual_production_sole_tick_exit_delay_arm_ok,
+    simulate_live_production_sole_tick_exit_delay_arm_honesty,
+    simulate_production_sole_tick_exit_delay_arm_host_source,
+    simulate_production_sole_tick_exit_delay_arm_shadow_source,
+    ResidualProductionSoleTickExitDelayArmAction,
+    PRODUCTION_SOLE_TICK_EXIT_DELAY_ARM_METHOD_NAMES_WAVE480,
+    PRODUCTION_SOLE_TICK_EXIT_DELAY_ARM_NAV_STEPS_WAVE480,
+    PRODUCTION_SOLE_TICK_EXIT_DELAY_ARM_SOURCE_MARKERS_WAVE480,
+    RUNTIME_HOST_PRODUCTION_SOLE_TICK_EXIT_DELAY_ARM_CMD_NAMES_WAVE480,
 };
 pub use host_live_special_power_sole_tick_no_cooldown_stomp_residual_wave479::{
     honesty_special_power_sole_tick_no_cooldown_stomp_method_names_residual_wave479,

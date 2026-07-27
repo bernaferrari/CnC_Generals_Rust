@@ -7092,6 +7092,14 @@ impl GameLogic {
                             &prod.template_name,
                         );
                         building.arm_exit_delay(delay);
+                        // Wave 480: under sole-tick, progress log is power-only —
+                        // publish exit arm so GW QueueProductionExitUpdate advances.
+                        if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
+                            crate::game_logic::host_production_progress_log::record_exit_delay_only(
+                                producer_id,
+                                delay,
+                            );
+                        }
                     }
                 }
                 // SCIENCE_StealthFighter residual: record gated production spawn.

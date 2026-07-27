@@ -27,6 +27,8 @@ pub struct HostProductionProgressEvent {
     pub power_factor: f32,
     /// Wave 477: when true, apply power_factor only (GW sole-ticks queue/exit).
     pub power_factor_only: bool,
+    /// Wave 480: when true, apply exit_delay_remaining only (post-spawn arm under sole-tick).
+    pub exit_delay_only: bool,
 }
 
 thread_local! {
@@ -46,6 +48,7 @@ pub fn record(
             exit_delay_remaining: exit_delay_remaining.max(0.0),
             power_factor: power_factor.max(0.01),
             power_factor_only: false,
+            exit_delay_only: false,
         });
     });
 }
@@ -59,6 +62,21 @@ pub fn record_power_factor_only(producer: ObjectId, power_factor: f32) {
             exit_delay_remaining: 0.0,
             power_factor: power_factor.max(0.01),
             power_factor_only: true,
+            exit_delay_only: false,
+        });
+    });
+}
+
+/// Wave 480: sole-tick residual — arm factory exit delay after a unit exits.
+pub fn record_exit_delay_only(producer: ObjectId, exit_delay_remaining: f32) {
+    LOG.with(|log| {
+        log.borrow_mut().push(HostProductionProgressEvent {
+            producer,
+            items: Vec::new(),
+            exit_delay_remaining: exit_delay_remaining.max(0.0),
+            power_factor: 1.0,
+            power_factor_only: false,
+            exit_delay_only: true,
         });
     });
 }

@@ -3110,6 +3110,16 @@ impl GameWorldShadow {
                 n += 1;
                 continue;
             }
+            // Wave 480: post-spawn exit delay arm under sole-tick (no queue stomp).
+            if ev.exit_delay_only {
+                self.world
+                    .queue_mutation(gamelogic::world::WorldMutation::SetExitDelay {
+                        target: eid,
+                        exit_delay_remaining: ev.exit_delay_remaining,
+                    });
+                n += 1;
+                continue;
+            }
             let items: Vec<EntityProductionItem> = ev
                 .items
                 .iter()
