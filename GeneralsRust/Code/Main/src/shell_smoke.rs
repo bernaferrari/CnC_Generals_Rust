@@ -2356,6 +2356,11 @@ use crate::game_logic::host_live_host_render_ui_overlays_helper_residual_wave592
     honesty_host_render_ui_overlays_helper_nav_commands_residual_wave592,
     simulate_live_host_render_ui_overlays_helper_honesty,
 };
+use crate::game_logic::host_live_host_render_ui_finalize_helper_residual_wave593::{
+    honesty_host_render_ui_finalize_helper_method_names_residual_wave593,
+    honesty_host_render_ui_finalize_helper_nav_commands_residual_wave593,
+    simulate_live_host_render_ui_finalize_helper_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5850,6 +5855,9 @@ pub struct ShellSmokeResult {
     pub host_render_ui_overlays_helper_method_names_wave592_ok: bool,
     pub host_render_ui_overlays_helper_nav_commands_wave592_ok: bool,
     pub host_render_ui_overlays_helper_live_wave592_ok: bool,
+    pub host_render_ui_finalize_helper_method_names_wave593_ok: bool,
+    pub host_render_ui_finalize_helper_nav_commands_wave593_ok: bool,
+    pub host_render_ui_finalize_helper_live_wave593_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -9146,6 +9154,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_host_render_ui_overlays_helper_nav_commands_residual_wave592();
     let host_render_ui_overlays_helper_live_wave592_ok =
         simulate_live_host_render_ui_overlays_helper_honesty();
+    let host_render_ui_finalize_helper_method_names_wave593_ok =
+        honesty_host_render_ui_finalize_helper_method_names_residual_wave593();
+    let host_render_ui_finalize_helper_nav_commands_wave593_ok =
+        honesty_host_render_ui_finalize_helper_nav_commands_residual_wave593();
+    let host_render_ui_finalize_helper_live_wave593_ok =
+        simulate_live_host_render_ui_finalize_helper_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -10911,6 +10925,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         host_render_ui_overlays_helper_method_names_wave592_ok,
         host_render_ui_overlays_helper_nav_commands_wave592_ok,
         host_render_ui_overlays_helper_live_wave592_ok,
+        host_render_ui_finalize_helper_method_names_wave593_ok,
+        host_render_ui_finalize_helper_nav_commands_wave593_ok,
+        host_render_ui_finalize_helper_live_wave593_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -20061,6 +20078,21 @@ mod tests {
         assert!(
             r.host_render_ui_overlays_helper_live_wave592_ok,
             "host render UI overlays helper live residual wave592: {}",
+            r.detail
+        );
+        assert!(
+            r.host_render_ui_finalize_helper_method_names_wave593_ok,
+            "host render UI finalize helper method names residual pack wave593: {}",
+            r.detail
+        );
+        assert!(
+            r.host_render_ui_finalize_helper_nav_commands_wave593_ok,
+            "host render UI finalize helper nav commands residual pack wave593: {}",
+            r.detail
+        );
+        assert!(
+            r.host_render_ui_finalize_helper_live_wave593_ok,
+            "host render UI finalize helper live residual wave593: {}",
             r.detail
         );
         assert!(

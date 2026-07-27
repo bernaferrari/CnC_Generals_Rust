@@ -15845,35 +15845,8 @@ impl CnCGameEngine {
             // Wave 592: radar/script/clock/diag overlays via host helper.
             self.host_apply_render_ui_presentation_overlays(&mut ui_state);
             self.process_ui_events();
-            ui_state.minimap_texture_id = self.render_pipeline.get_minimap_texture_id();
-            ui_state.minimap_coordinates = self.render_pipeline.get_minimap_coordinates().cloned();
-            self.update_minimap_viewport(&mut ui_state);
-            // Prefer presentation world_env for radar/minimap when a frame is installed.
-            let world_bounds = self.presentation_world_bounds();
-            self.game_hud
-                .update_radar_pings(&ui_state.radar_pings, world_bounds.0, world_bounds.1);
-            for msg in &ui_state.radar_messages {
-                self.game_hud.push_radar_message(msg);
-            }
-            for evt in &ui_state.radar_events {
-                self.game_hud
-                    .add_radar_message(&evt.text, evt.position, evt.kind);
-            }
-
-            ui_state.match_over = self.match_over;
-            if let Some(summary) = &self.victory_summary {
-                ui_state.victory_summary = Some(summary.clone());
-                ui_state.player_outcome = summary
-                    .player_results
-                    .iter()
-                    .find(|result| result.player_id == self.current_player_id)
-                    .map(|result| result.outcome);
-            } else {
-                ui_state.victory_summary = None;
-                ui_state.player_outcome = None;
-            }
-            // Retain presentation-overlaid identity for consumers (was dropped each frame).
-            self.last_ui_state = Some(ui_state);
+            // Wave 593: minimap/radar/victory UI residual via host helper.
+            self.host_finalize_render_ui_state(&mut ui_state);
         }
 
         // Execute the main game render pipeline using the WW3D frame.
@@ -18384,6 +18357,45 @@ impl CnCGameEngine {
     /// Applies HUD radar messages from UI state, presentation-or-boot script
     /// messages, sim clock + fps/diagnostics/asset stats. Does not process UI
     /// events (caller owns that boundary).
+
+    /// Wave 593: render-path UI finalize residual (minimap/radar/victory/last_ui).
+    ///
+    /// After overlays + `process_ui_events`, stamps minimap texture/coords/viewport,
+    /// radar pings/messages from presentation world bounds, match-over/victory
+    /// summary, and retains `last_ui_state`.
+    fn host_finalize_render_ui_state(&mut self, ui_state: &mut crate::ui::GameUIState) {
+        // Wave 593: render UI finalize residual.
+        ui_state.minimap_texture_id = self.render_pipeline.get_minimap_texture_id();
+        ui_state.minimap_coordinates = self.render_pipeline.get_minimap_coordinates().cloned();
+        self.update_minimap_viewport(ui_state);
+        // Prefer presentation world_env for radar/minimap when a frame is installed.
+        let world_bounds = self.presentation_world_bounds();
+        self.game_hud
+            .update_radar_pings(&ui_state.radar_pings, world_bounds.0, world_bounds.1);
+        for msg in &ui_state.radar_messages {
+            self.game_hud.push_radar_message(msg);
+        }
+        for evt in &ui_state.radar_events {
+            self.game_hud
+                .add_radar_message(&evt.text, evt.position, evt.kind);
+        }
+
+        ui_state.match_over = self.match_over;
+        if let Some(summary) = &self.victory_summary {
+            ui_state.victory_summary = Some(summary.clone());
+            ui_state.player_outcome = summary
+                .player_results
+                .iter()
+                .find(|result| result.player_id == self.current_player_id)
+                .map(|result| result.outcome);
+        } else {
+            ui_state.victory_summary = None;
+            ui_state.player_outcome = None;
+        }
+        // Retain presentation-overlaid identity for consumers (was dropped each frame).
+        self.last_ui_state = Some(ui_state.clone());
+    }
+
     fn host_apply_render_ui_presentation_overlays(
         &mut self,
         ui_state: &mut crate::ui::GameUIState,
