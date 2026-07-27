@@ -3753,6 +3753,7 @@ impl GameWorldShadow {
 
     pub fn writeback_contain_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
+        let mut ready: Vec<(ObjectId, u32, u32, bool, u16, u16)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -3761,41 +3762,67 @@ impl GameWorldShadow {
                 continue;
             };
             let mut did = false;
+            let prev_cb = obj.contained_by.map(|c| c.0).unwrap_or(0);
             let new_cb = if ent.contained_by_host == 0 {
                 None
             } else {
                 Some(ObjectId(ent.contained_by_host))
             };
+            let new_cb_u = new_cb.map(|c| c.0).unwrap_or(0);
+            let mut prev_gcount = 0u16;
+            let mut new_gcount = 0u16;
+            let mut garrison_changed = false;
             if obj.contained_by != new_cb {
                 obj.contained_by = new_cb;
                 did = true;
             }
             if let Some(bd) = obj.building_data.as_mut() {
+                prev_gcount = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
                 let new_units: Vec<ObjectId> = ent
                     .garrisoned_host_ids
                     .iter()
                     .copied()
                     .map(ObjectId)
                     .collect();
+                new_gcount = new_units.len().min(u16::MAX as usize) as u16;
                 if bd.garrisoned_units != new_units {
                     bd.garrisoned_units = new_units;
+                    garrison_changed = true;
                     did = true;
                 }
-            } else if !ent.garrisoned_host_ids.is_empty() {
+            } else if !ent.garrisoned_host_ids.is_empty() || !obj.occupants.is_empty() {
+                prev_gcount = obj.occupants.len().min(u16::MAX as usize) as u16;
                 let new_occ: Vec<ObjectId> = ent
                     .garrisoned_host_ids
                     .iter()
                     .copied()
                     .map(ObjectId)
                     .collect();
+                new_gcount = new_occ.len().min(u16::MAX as usize) as u16;
                 if obj.occupants != new_occ {
                     obj.occupants = new_occ;
+                    garrison_changed = true;
                     did = true;
                 }
             }
             if did {
+                // Wave 628: GameWorld contain membership last-write residual —
+                // host applies AI/status counters from ready log.
+                ready.push((
+                    ObjectId(hid),
+                    prev_cb,
+                    new_cb_u,
+                    garrison_changed,
+                    prev_gcount,
+                    new_gcount,
+                ));
                 updated += 1;
             }
+        }
+        for (oid, prev_cb, new_cb, gchg, prev_n, new_n) in ready {
+            crate::game_logic::host_contain_ready_log::record(
+                oid, prev_cb, new_cb, gchg, prev_n, new_n,
+            );
         }
         updated
     }
@@ -7605,6 +7632,9 @@ pub fn shadow_session_after_host_tick(
     let _ss_applied = shadow.apply_host_stored_supplies_events(&stored_supplies_events);
     let _ai_applied = shadow.apply_host_ai_state_events(&ai_state_events);
     let _contain_applied = shadow.apply_host_contain_events(&contain_events);
+    // Wave 628: contain membership last-write + ready-log residual.
+    let _contain_wb = shadow.writeback_contain_to_host(logic);
+    let _contain_ready = logic.host_apply_contain_ready_completions();
     let _radar_applied = shadow.apply_host_radar_events(&radar_events);
     let _progress_applied = shadow.apply_host_player_progress_events(&player_progress_events);
     let _meta_applied = shadow.apply_host_player_meta_events(&player_meta_events);
@@ -9966,6 +9996,7 @@ mod tests {
             e.garrisoned_host_ids = vec![inf.0];
         }
         assert!(shadow.writeback_contain_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_contain_ready_log::drain();
         assert_eq!(
             logic.get_objects().get(&inf).expect("i").contained_by,
             Some(bunker)

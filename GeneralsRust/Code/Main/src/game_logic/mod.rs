@@ -67,6 +67,7 @@ pub mod host_construction_progress_log;
 pub mod host_construction_ready_log;
 pub mod host_contain_capacity_log;
 pub mod host_contain_log;
+pub mod host_contain_ready_log;
 pub mod host_continuous_fire_log;
 pub mod host_crush_vision_log;
 pub mod host_demo_mine_cheer_log;
@@ -390,6 +391,7 @@ pub mod host_live_host_combat_cursor_transition_helper_residual_wave612;
 pub mod host_live_host_command_flush_helper_residual_wave576;
 pub mod host_live_host_construction_complete_clear_ready_log_helper_residual_wave626;
 pub mod host_live_host_construction_ready_log_helper_residual_wave617;
+pub mod host_live_host_contain_ready_log_helper_residual_wave628;
 pub mod host_live_host_destroy_ready_log_helper_residual_wave621;
 pub mod host_live_host_enqueue_shell_cmd_helper_residual_wave582;
 pub mod host_live_host_game_client_device_tick_helper_residual_wave587;
@@ -2631,6 +2633,14 @@ pub use host_live_host_construction_ready_log_helper_residual_wave617::{
     residual_host_construction_ready_log_helper_last_action,
     residual_host_construction_ready_log_helper_ok,
     simulate_live_host_construction_ready_log_helper_honesty,
+};
+pub use host_live_host_contain_ready_log_helper_residual_wave628::{
+    honesty_host_contain_ready_log_helper_method_names_residual_wave628,
+    honesty_host_contain_ready_log_helper_nav_commands_residual_wave628,
+    honesty_host_contain_ready_log_helper_residual_pack_wave628,
+    honesty_host_contain_ready_log_helper_source_markers_residual_wave628,
+    residual_host_contain_ready_log_helper_last_action, residual_host_contain_ready_log_helper_ok,
+    simulate_live_host_contain_ready_log_helper_honesty,
 };
 pub use host_live_host_destroy_ready_log_helper_residual_wave621::{
     honesty_host_destroy_ready_log_helper_method_names_residual_wave621,
