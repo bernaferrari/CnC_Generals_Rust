@@ -6773,6 +6773,17 @@ impl GameLogic {
         let mut completed_structures: Vec<ObjectId> = Vec::new();
         let mut ready_superweapons: Vec<(ObjectId, Team, String)> = Vec::new();
         let mut radar_extend_done: Vec<ObjectId> = Vec::new();
+        // Wave 617: under sole-tick, GameWorld writeback records ready structures;
+        // host only applies completion side effects for those IDs (GW decides readiness).
+        let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
+        let ready_structures: std::collections::HashSet<ObjectId> = if construction_sole {
+            crate::game_logic::host_construction_ready_log::drain()
+                .into_iter()
+                .map(|ev| ev.structure)
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
@@ -6795,7 +6806,8 @@ impl GameLogic {
                     let base_rate = 1.0 / obj.thing.template.build_time.max(0.01);
                     let effective_rate = base_rate * dozer_count as f32 * power_factor;
                     // Under CONSTRUCTION_AUTHORITY + shadow, GameWorld sole-ticks percent
-                    // using effective_rate; host only completes when writeback hits 1.0.
+                    // using effective_rate; host only completes when writeback hits 1.0
+                    // (Wave 617: readiness gated by host_construction_ready_log).
                     // Prior freeze without rate residual stalled builds — rate is logged.
                     let sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
                     let projected = if sole {
@@ -6821,7 +6833,14 @@ impl GameLogic {
                         );
                     }
 
-                    if projected >= 1.0 {
+                    // Wave 617: under sole-tick, only complete ready-log IDs
+                    // (fallback: empty ready set still scans writeback percent).
+                    let may_complete = if construction_sole {
+                        ready_structures.is_empty() || ready_structures.contains(&id)
+                    } else {
+                        true
+                    };
+                    if may_complete && projected >= 1.0 {
                         obj.construction_percent = 1.0;
                         obj.set_status_under_construction(false);
                         obj.clear_under_construction_model_conditions();

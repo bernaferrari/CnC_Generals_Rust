@@ -2729,6 +2729,13 @@ impl GameWorldShadow {
                 obj.status.unselectable = ent.unselectable;
                 dirty = true;
             }
+            // Wave 617: GameWorld sole-tick construction-ready residual —
+            // finished builds (percent>=1, still under_construction) for host complete.
+            if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
+                if obj.status.under_construction && pct + 1e-6 >= 1.0 {
+                    crate::game_logic::host_construction_ready_log::record(ObjectId(hid), pct);
+                }
+            }
             if dirty {
                 updated += 1;
             }
