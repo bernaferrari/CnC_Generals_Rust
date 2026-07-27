@@ -435,6 +435,7 @@ pub mod host_live_presentation_env_only_residual_wave455;
 pub mod host_live_presentation_env_seed_gameworld_residual_wave466;
 pub mod host_live_presentation_env_seed_mirror_last_residual_wave467;
 pub mod host_live_presentation_fire_prone_turret_residual_wave512;
+pub mod host_live_presentation_firesound_audio_residual_wave527;
 pub mod host_live_presentation_formation_link_residual_wave516;
 pub mod host_live_presentation_fow_only_residual_wave213;
 pub mod host_live_presentation_from_gameworld_default_residual_wave194;
@@ -2376,6 +2377,14 @@ pub use host_live_presentation_crush_user_residual_wave525::{
     honesty_presentation_crush_user_source_markers_residual_wave525,
     residual_presentation_crush_user_last_action, residual_presentation_crush_user_ok,
     simulate_live_presentation_crush_user_honesty,
+};
+pub use host_live_presentation_firesound_audio_residual_wave527::{
+    honesty_presentation_firesound_audio_method_names_residual_wave527,
+    honesty_presentation_firesound_audio_nav_commands_residual_wave527,
+    honesty_presentation_firesound_audio_residual_pack_wave527,
+    honesty_presentation_firesound_audio_source_markers_residual_wave527,
+    residual_presentation_firesound_audio_last_action, residual_presentation_firesound_audio_ok,
+    simulate_live_presentation_firesound_audio_honesty,
 };
 pub use host_live_presentation_move_attack_helper_residual_wave526::{
     honesty_presentation_move_attack_helper_method_names_residual_wave526,

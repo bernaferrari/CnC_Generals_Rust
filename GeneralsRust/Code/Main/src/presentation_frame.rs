@@ -8707,11 +8707,46 @@ impl PresentationFrame {
     }
 
     /// Collect presentation→audio requests (no GameLogic borrow).
-    /// Fail-closed: not Miles/device spatial parity — event names only for dispatch tables.
+    /// Wave 527: FireSound loop residual uses host sound name + looping flag + snapshot pose.
+    /// Fail-closed: not Miles/device spatial parity — names resolve via SoundEffectsTable.
     pub fn collect_audio_events(&self) -> Vec<crate::game_logic::AudioEventRequest> {
         use crate::game_logic::AudioEventRequest;
         let mut out = Vec::new();
+        // Snapshot pose lookup for 3D placement (no live GameLogic dual-read).
+        let pose_by_id: std::collections::HashMap<ObjectId, glam::Vec3> =
+            self.objects.iter().map(|o| (o.id, o.position)).collect();
         for ev in &self.events {
+            // Wave 527: FiringTracker loop uses concrete FireSound name when non-empty.
+            if let PresentationEvent::WeaponFireLoopStarted { unit, sound } = ev {
+                let name = if sound.is_empty() {
+                    "WeaponFireLoop"
+                } else {
+                    sound.as_str()
+                };
+                let mut req = AudioEventRequest::new(name).with_object(*unit).looping();
+                if let Some(pos) = pose_by_id.get(unit) {
+                    req = req.with_position(*pos);
+                }
+                out.push(req);
+                continue;
+            }
+            if let PresentationEvent::WeaponFireLoopStopped { unit, sound } = ev {
+                let name = if sound.is_empty() {
+                    "WeaponFireLoopStop"
+                } else {
+                    // Stop uses same event key as start for AudioManager stop_object residual.
+                    sound.as_str()
+                };
+                let mut req = AudioEventRequest::new(name).with_object(*unit);
+                // Non-looping stop residual — managers match object_id + event_type.
+                if let Some(pos) = pose_by_id.get(unit) {
+                    req = req.with_position(*pos);
+                }
+                // Priority bump so stop is not dropped under budget.
+                req = req.with_priority(200);
+                out.push(req);
+                continue;
+            }
             let mapped: Option<(&str, Option<crate::game_logic::ObjectId>)> = match ev {
                 PresentationEvent::ObjectDestroyed { id, .. } => Some(("UnitDie", Some(*id))),
                 PresentationEvent::ConstructionComplete { id, .. } => {
@@ -8745,14 +8780,8 @@ impl PresentationFrame {
                 PresentationEvent::EconomyChanged { .. } => Some(("MoneyTick", None)),
                 PresentationEvent::Victory { .. } => Some(("Victory", None)),
                 PresentationEvent::MoveOrdered { unit, .. } => Some(("UnitMove", Some(*unit))),
-                PresentationEvent::WeaponFireLoopStarted { unit, sound } => {
-                    let _ = sound;
-                    Some(("WeaponFireLoop", Some(*unit)))
-                }
-                PresentationEvent::WeaponFireLoopStopped { unit, sound } => {
-                    let _ = sound;
-                    Some(("WeaponFireLoopStop", Some(*unit)))
-                }
+                PresentationEvent::WeaponFireLoopStarted { .. }
+                | PresentationEvent::WeaponFireLoopStopped { .. } => None,
                 PresentationEvent::RadarMessage { .. }
                 | PresentationEvent::OwnerChanged { .. }
                 | PresentationEvent::ParticleSystemSpawned { .. } => None,
@@ -8763,6 +8792,9 @@ impl PresentationFrame {
             let mut req = AudioEventRequest::new(kind);
             if let Some(id) = obj {
                 req = req.with_object(id);
+                if let Some(pos) = pose_by_id.get(&id) {
+                    req = req.with_position(*pos);
+                }
             }
             out.push(req);
         }
