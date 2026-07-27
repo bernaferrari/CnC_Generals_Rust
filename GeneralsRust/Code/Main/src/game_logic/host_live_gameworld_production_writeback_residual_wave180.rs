@@ -150,6 +150,8 @@ pub fn simulate_live_gameworld_production_writeback_honesty() -> bool {
             total_time: 10.0,
             cost_supplies: 150,
             is_upgrade: false,
+            quantity_total: 1,
+            quantity_produced: 0,
         }],
         0.0,
         1.0,

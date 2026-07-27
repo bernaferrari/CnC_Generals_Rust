@@ -11,6 +11,10 @@ pub struct HostProductionQueueItem {
     pub total_time: f32,
     pub cost_supplies: u32,
     pub is_upgrade: bool,
+    /// C++ ProductionEntry::m_productionQuantityTotal residual (Wave 463).
+    pub quantity_total: u32,
+    /// C++ ProductionEntry::m_productionQuantityProduced residual (Wave 463).
+    pub quantity_produced: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
