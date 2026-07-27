@@ -116,7 +116,9 @@ pub fn honesty_presentation_script_camera_probe_source() -> bool {
     else {
         return false;
     };
-    let Some(pitch) = fn_body(eng, "fn ui_script_default_camera_pitch(") else {
+    let Some(pitch) = fn_body(eng, "fn host_ui_script_default_camera_pitch(")
+        .or_else(|| fn_body(eng, "fn ui_script_default_camera_pitch("))
+    else {
         return false;
     };
     max_h.contains("Wave 252")

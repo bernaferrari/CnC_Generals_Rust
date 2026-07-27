@@ -125,7 +125,9 @@ pub fn honesty_ui_selection_seed_presentation_fail_closed_method_names_residual_
 pub fn honesty_ui_selection_seed_presentation_fail_closed_source_markers_residual_wave544() -> bool
 {
     let eng = eng_source();
-    let Some(body) = fn_body(eng, "fn ui_selection_seed_id(") else {
+    let Some(body) = fn_body(eng, "fn host_ui_selection_seed_id(")
+        .or_else(|| fn_body(eng, "fn ui_selection_seed_id("))
+    else {
         residual_action_store(ResidualUiSelectionSeedPresentationFailClosedAction::SourceMarkers);
         return false;
     };
@@ -180,7 +182,9 @@ pub fn simulate_ui_selection_seed_presentation_fail_closed_collect_source() -> b
 
 pub fn simulate_ui_selection_seed_presentation_fail_closed_dispatch_source() -> bool {
     let eng = eng_source();
-    let Some(body) = fn_body(eng, "fn ui_selection_seed_id(") else {
+    let Some(body) = fn_body(eng, "fn host_ui_selection_seed_id(")
+        .or_else(|| fn_body(eng, "fn ui_selection_seed_id("))
+    else {
         residual_action_store(ResidualUiSelectionSeedPresentationFailClosedAction::DispatchSource);
         return false;
     };
