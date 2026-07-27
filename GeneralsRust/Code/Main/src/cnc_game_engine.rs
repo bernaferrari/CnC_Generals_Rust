@@ -15842,48 +15842,8 @@ impl CnCGameEngine {
             // GameUIState is built from PresentationFrame only (no live object walks).
             // Wave 591: render UI presentation consumer via host helper.
             let mut ui_state = self.host_build_render_ui_state_from_presentation();
-            if !ui_state.radar_events.is_empty() {
-                for evt in &ui_state.radar_events {
-                    self.game_hud
-                        .add_radar_message(&evt.text, evt.position, evt.kind);
-                }
-            } else {
-                for msg in &ui_state.radar_messages {
-                    self.game_hud.push_radar_message(msg);
-                }
-            }
-            // Wave 570: presentation-or-boot script message residual via helper.
-            let new_script_messages: Vec<String> =
-                self.take_presentation_or_boot_new_script_messages();
-            for msg in &new_script_messages {
-                self.game_hud.push_script_message(msg);
-            }
-            // Wave 462: prefer pipeline/last presentation sim clock residual.
-            // Wave 553: via presentation_or_boot_total_play_time helper.
-            ui_state.current_game_time = self.presentation_or_boot_total_play_time();
-            ui_state.fps = self.fps;
-            ui_state.frame_time_ms = if self.fps > 0.0 {
-                1000.0 / self.fps
-            } else {
-                0.0
-            };
-            ui_state.performance_score = (ui_state.fps / 60.0).clamp(0.0, 1.5);
-            if let Some(diag) = &self.diagnostics_overlay {
-                ui_state.diagnostics = Some(diag.clone());
-            } else {
-                ui_state.diagnostics = Some(DiagnosticsOverlayStats::from_overall(
-                    ui_state.performance_score * 100.0,
-                ));
-            }
-            ui_state.show_debug_overlay = self.show_debug_info;
-            if let Some(manager_arc) = get_asset_manager() {
-                if let Ok(manager) = manager_arc.lock() {
-                    let stats = manager.get_statistics();
-                    ui_state.assets_loaded = stats.archive_stats.total_files as u64;
-                    ui_state.asset_memory_mb = 0.0;
-                    ui_state.asset_cache_usage = 0.0;
-                }
-            }
+            // Wave 592: radar/script/clock/diag overlays via host helper.
+            self.host_apply_render_ui_presentation_overlays(&mut ui_state);
             self.process_ui_events();
             ui_state.minimap_texture_id = self.render_pipeline.get_minimap_texture_id();
             ui_state.minimap_coordinates = self.render_pipeline.get_minimap_coordinates().cloned();
@@ -18418,6 +18378,60 @@ impl CnCGameEngine {
     /// Prefers pipeline freeze, then `last_presentation_frame`. Builds
     /// `GameUIState` from presentation only (no live object walks). Boot/loading
     /// residual without a freeze still uses `host_update_ui_state`.
+
+    /// Wave 592: render-path presentation overlays residual (radar/script/clock/diag).
+    ///
+    /// Applies HUD radar messages from UI state, presentation-or-boot script
+    /// messages, sim clock + fps/diagnostics/asset stats. Does not process UI
+    /// events (caller owns that boundary).
+    fn host_apply_render_ui_presentation_overlays(
+        &mut self,
+        ui_state: &mut crate::ui::GameUIState,
+    ) {
+        // Wave 592: render UI presentation overlays residual.
+        if !ui_state.radar_events.is_empty() {
+            for evt in &ui_state.radar_events {
+                self.game_hud
+                    .add_radar_message(&evt.text, evt.position, evt.kind);
+            }
+        } else {
+            for msg in &ui_state.radar_messages {
+                self.game_hud.push_radar_message(msg);
+            }
+        }
+        // Wave 570: presentation-or-boot script message residual via helper.
+        let new_script_messages: Vec<String> = self.take_presentation_or_boot_new_script_messages();
+        for msg in &new_script_messages {
+            self.game_hud.push_script_message(msg);
+        }
+        // Wave 462: prefer pipeline/last presentation sim clock residual.
+        // Wave 553: via presentation_or_boot_total_play_time helper.
+        ui_state.current_game_time = self.presentation_or_boot_total_play_time();
+        ui_state.fps = self.fps;
+        ui_state.frame_time_ms = if self.fps > 0.0 {
+            1000.0 / self.fps
+        } else {
+            0.0
+        };
+        ui_state.performance_score = (ui_state.fps / 60.0).clamp(0.0, 1.5);
+        if let Some(diag) = &self.diagnostics_overlay {
+            ui_state.diagnostics = Some(diag.clone());
+        } else {
+            ui_state.diagnostics = Some(DiagnosticsOverlayStats::from_overall(
+                ui_state.performance_score * 100.0,
+            ));
+        }
+        ui_state.show_debug_overlay = self.show_debug_info;
+        if let Some(manager_arc) = get_asset_manager() {
+            if let Ok(manager) = manager_arc.lock() {
+                let stats = manager.get_statistics();
+                ui_state.assets_loaded = stats.archive_stats.total_files as u64;
+                ui_state.asset_memory_mb = 0.0;
+                ui_state.asset_cache_usage = 0.0;
+            }
+        }
+    }
+
     fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState {
         // Wave 591: render UI presentation consumer residual.
         // Wave 462: prefer pipeline freeze, then last_presentation_frame.
