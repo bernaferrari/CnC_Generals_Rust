@@ -2076,6 +2076,11 @@ use crate::game_logic::host_live_presentation_eva_client_dispatch_residual_wave5
     honesty_presentation_eva_client_dispatch_nav_commands_residual_wave536,
     simulate_live_presentation_eva_client_dispatch_honesty,
 };
+use crate::game_logic::host_live_presentation_eva_alert_counter_dedupe_residual_wave537::{
+    honesty_presentation_eva_alert_counter_dedupe_method_names_residual_wave537,
+    honesty_presentation_eva_alert_counter_dedupe_nav_commands_residual_wave537,
+    simulate_live_presentation_eva_alert_counter_dedupe_honesty,
+};
 use crate::game_logic::host_live_map_load_residual_wave170::{
     honesty_live_map_load_method_names_residual_wave170,
     honesty_live_map_load_nav_commands_residual_wave170, simulate_live_map_load_honesty,
@@ -5402,6 +5407,9 @@ pub struct ShellSmokeResult {
     pub presentation_eva_client_dispatch_method_names_wave536_ok: bool,
     pub presentation_eva_client_dispatch_nav_commands_wave536_ok: bool,
     pub presentation_eva_client_dispatch_live_wave536_ok: bool,
+    pub presentation_eva_alert_counter_dedupe_method_names_wave537_ok: bool,
+    pub presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok: bool,
+    pub presentation_eva_alert_counter_dedupe_live_wave537_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -8375,6 +8383,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         honesty_presentation_eva_client_dispatch_nav_commands_residual_wave536();
     let presentation_eva_client_dispatch_live_wave536_ok =
         simulate_live_presentation_eva_client_dispatch_honesty();
+    let presentation_eva_alert_counter_dedupe_method_names_wave537_ok =
+        honesty_presentation_eva_alert_counter_dedupe_method_names_residual_wave537();
+    let presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok =
+        honesty_presentation_eva_alert_counter_dedupe_nav_commands_residual_wave537();
+    let presentation_eva_alert_counter_dedupe_live_wave537_ok =
+        simulate_live_presentation_eva_alert_counter_dedupe_honesty();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -9972,6 +9986,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         presentation_eva_client_dispatch_method_names_wave536_ok,
         presentation_eva_client_dispatch_nav_commands_wave536_ok,
         presentation_eva_client_dispatch_live_wave536_ok,
+        presentation_eva_alert_counter_dedupe_method_names_wave537_ok,
+        presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok,
+        presentation_eva_alert_counter_dedupe_live_wave537_ok,
 
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -18282,6 +18299,21 @@ mod tests {
         assert!(
             r.presentation_eva_client_dispatch_live_wave536_ok,
             "presentation eva client dispatch live residual wave536: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_eva_alert_counter_dedupe_method_names_wave537_ok,
+            "presentation eva alert counter dedupe method names residual pack wave537: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok,
+            "presentation eva alert counter dedupe nav commands residual pack wave537: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_eva_alert_counter_dedupe_live_wave537_ok,
+            "presentation eva alert counter dedupe live residual wave537: {}",
             r.detail
         );
         assert!(
