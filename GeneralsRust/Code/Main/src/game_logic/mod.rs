@@ -587,6 +587,7 @@ pub mod host_live_unit_exit_dual_world_empty_gate_residual_wave432;
 pub mod host_live_upgrade_behavior_dual_world_empty_gate_residual_wave453;
 pub mod host_live_veterancy_crate_collide_dual_world_empty_gate_residual_wave368;
 pub mod host_live_victory_dual_world_empty_gate_residual_wave294;
+pub mod host_live_victory_presentation_helper_residual_wave556;
 pub mod host_live_visual_speed_presentation_helper_residual_wave550;
 pub mod host_live_wander_ai_dual_world_empty_gate_residual_wave430;
 pub mod host_live_wave_guide_dual_world_empty_gate_residual_wave332;
@@ -2649,6 +2650,14 @@ pub use host_live_ui_selection_seed_presentation_fail_closed_residual_wave544::{
     residual_ui_selection_seed_presentation_fail_closed_last_action,
     residual_ui_selection_seed_presentation_fail_closed_ok,
     simulate_live_ui_selection_seed_presentation_fail_closed_honesty,
+};
+pub use host_live_victory_presentation_helper_residual_wave556::{
+    honesty_victory_presentation_helper_method_names_residual_wave556,
+    honesty_victory_presentation_helper_nav_commands_residual_wave556,
+    honesty_victory_presentation_helper_residual_pack_wave556,
+    honesty_victory_presentation_helper_source_markers_residual_wave556,
+    residual_victory_presentation_helper_last_action, residual_victory_presentation_helper_ok,
+    simulate_live_victory_presentation_helper_honesty,
 };
 pub use host_live_visual_speed_presentation_helper_residual_wave550::{
     honesty_visual_speed_presentation_helper_method_names_residual_wave550,

@@ -2088,17 +2088,9 @@ impl CnCGameEngine {
     }
 
     fn runtime_host_status_snapshot(&mut self) -> RuntimeHostSnapshot {
-        // Prefer presentation victory residual when installed (no live re-evaluate dual-read).
-        let (match_over, victory_label) = if let Some(pres) = self.last_presentation_frame.as_ref()
-        {
-            let label = pres.victory_label.clone().unwrap_or_default();
-            (pres.match_over, label)
-        } else if let Some(v) = self.game_logic.evaluate_victory_condition() {
-            // Menu/loading residual only (no presentation frame yet).
-            (true, format!("{v:?}"))
-        } else {
-            (false, String::new())
-        };
+        // Wave 556: prefer presentation victory residual when installed (no live
+        // re-evaluate dual-read). Boot residual only without freeze.
+        let (match_over, victory_label) = self.presentation_or_boot_match_over_label();
 
         // Wave 546/554: presentation freeze owns host status map residual when
         // installed (even if empty — no host dual-read mid-frame). Empty → "-".
@@ -16061,23 +16053,10 @@ impl CnCGameEngine {
         // Prefer presentation shell bypass when a frame is installed (no live dual-read).
         let in_shell = self.presentation_or_boot_shell_bypass();
         if !self.match_over && self.current_state == GameState::InGame && !in_shell {
-            // Prefer presentation victory residual when frame installed (no live re-evaluate).
-            if let Some(pres) = self.last_presentation_frame.as_ref() {
-                if pres.match_over {
-                    let winner = pres.events.iter().find_map(|ev| match ev {
-                        crate::presentation_frame::PresentationEvent::Victory { winner_player } => {
-                            *winner_player
-                        }
-                        _ => None,
-                    });
-                    self.show_victory_screen(winner);
-                }
-            } else if let Some(condition) = self.game_logic.evaluate_victory_condition() {
-                // Boot residual only — no presentation frame yet.
-                match condition {
-                    VictoryCondition::Winner(id) => self.show_victory_screen(Some(id)),
-                    VictoryCondition::Draw => self.show_victory_screen(None),
-                }
+            // Wave 556: prefer presentation victory residual when frame installed
+            // (no live re-evaluate). Boot residual only without freeze.
+            if let Some(winner) = self.presentation_or_boot_victory_winner() {
+                self.show_victory_screen(winner);
             }
         }
     }
@@ -18352,6 +18331,52 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.player_unlocked_sciences(player_id)
+    }
+
+    /// Wave 556: presentation freeze owns match-over / victory-label residual when
+    /// installed (no live re-evaluate dual-read). Boot residual without freeze uses
+    /// host `evaluate_victory_condition`.
+    #[inline]
+    fn presentation_or_boot_match_over_label(&mut self) -> (bool, String) {
+        // Wave 556: presentation freeze owns match-over / victory-label residual.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return (
+                pres.match_over,
+                pres.victory_label.clone().unwrap_or_default(),
+            );
+        }
+        // Boot residual only.
+        if let Some(v) = self.game_logic.evaluate_victory_condition() {
+            (true, format!("{v:?}"))
+        } else {
+            (false, String::new())
+        }
+    }
+
+    /// Wave 556: InGame victory screen residual — presentation freeze owns match_over
+    /// and winner id; boot residual evaluates host victory condition.
+    /// Returns `Some(winner)` when a victory screen should show (`None` winner = draw).
+    #[inline]
+    fn presentation_or_boot_victory_winner(&mut self) -> Option<Option<u32>> {
+        // Wave 556: presentation freeze owns victory winner residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            if !pres.match_over {
+                return None;
+            }
+            let winner = pres.events.iter().find_map(|ev| match ev {
+                crate::presentation_frame::PresentationEvent::Victory { winner_player } => {
+                    *winner_player
+                }
+                _ => None,
+            });
+            return Some(winner);
+        }
+        // Boot residual only.
+        match self.game_logic.evaluate_victory_condition() {
+            Some(crate::game_logic::VictoryCondition::Winner(id)) => Some(Some(id)),
+            Some(crate::game_logic::VictoryCondition::Draw) => Some(None),
+            None => None,
+        }
     }
 
     /// Wave 552: Menu residual — only trust freeze when it *affirms* shell-map
