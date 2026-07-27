@@ -6968,6 +6968,7 @@ impl GameWorldShadow {
             return 0;
         }
         let mut updated = 0usize;
+        let mut ready: Vec<ObjectId> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -6992,7 +6993,13 @@ impl GameWorldShadow {
             obj.last_fire_sim_time = ent.last_fire_sim_time;
             obj.last_fire_frame = ent.last_fire_frame;
             obj.fire_intent_count = ent.fire_intent_count;
+            // Wave 640: GameWorld fire-intent last-write residual —
+            // host applies presentation bookkeeping from ready log.
+            ready.push(ObjectId(hid));
             updated += 1;
+        }
+        for oid in ready {
+            crate::game_logic::host_fire_intent_ready_log::record(oid);
         }
         updated
     }
@@ -7906,6 +7913,8 @@ pub fn shadow_session_after_host_tick(
     // Wave 638: drain attack-target ready log after GW writeback.
     let _atk_ready = logic.host_apply_attack_target_ready_completions();
     let _ = shadow.writeback_fire_intent_to_host(logic);
+    // Wave 640: drain fire-intent ready log after GW writeback.
+    let _fi_ready = logic.host_apply_fire_intent_ready_completions();
     let _move_wb = shadow.writeback_move_targets_to_host(logic);
     // Wave 639: drain move-target ready log after GW writeback.
     let _mt_ready = logic.host_apply_move_target_ready_completions();
@@ -8022,6 +8031,8 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
         let _ = shadow.writeback_fire_intent_to_host(logic);
+        // Wave 640: drain fire-intent ready log after GW writeback.
+        let _fi_ready = logic.host_apply_fire_intent_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
@@ -8030,6 +8041,8 @@ pub fn shadow_session_after_host_tick(
         let _cf_wb = shadow.writeback_continuous_fire_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
         let _ = shadow.writeback_fire_intent_to_host(logic);
+        // Wave 640: drain fire-intent ready log after GW writeback.
+        let _fi_ready = logic.host_apply_fire_intent_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
@@ -8049,6 +8062,8 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
         let _ = shadow.writeback_fire_intent_to_host(logic);
+        // Wave 640: drain fire-intent ready log after GW writeback.
+        let _fi_ready = logic.host_apply_fire_intent_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
@@ -8059,6 +8074,8 @@ pub fn shadow_session_after_host_tick(
         let _ = shadow.writeback_stealth_delay_to_host(logic);
         let _ = shadow.writeback_combat_attack_to_host(logic);
         let _ = shadow.writeback_fire_intent_to_host(logic);
+        // Wave 640: drain fire-intent ready log after GW writeback.
+        let _fi_ready = logic.host_apply_fire_intent_ready_completions();
         let _ = shadow.writeback_locomotor_to_host(logic);
         let _ = shadow.writeback_ai_request_to_host(logic);
         let _ = shadow.writeback_hijacker_to_host(logic);
@@ -8066,6 +8083,8 @@ pub fn shadow_session_after_host_tick(
         // Wave 635: drain weapon-stats ready log after GW writeback.
         let _ws_ready = logic.host_apply_weapon_stats_ready_completions();
         let _ = shadow.writeback_fire_intent_to_host(logic);
+        // Wave 640: drain fire-intent ready log after GW writeback.
+        let _fi_ready = logic.host_apply_fire_intent_ready_completions();
         let _mv_wb = shadow.writeback_movement_to_host(logic);
         // Wave 637: drain movement ready log after GW writeback.
         let _mv_ready = logic.host_apply_movement_ready_completions();
@@ -12227,6 +12246,7 @@ mod tests {
         assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_weapon_stats_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let o = logic.get_objects().get(&oid).expect("o");
         let w = o.weapon.as_ref().expect("w");
         assert!((w.damage - 33.0).abs() < 1e-5);
@@ -12305,6 +12325,7 @@ mod tests {
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -12532,6 +12553,7 @@ mod tests {
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -12975,6 +12997,7 @@ mod tests {
         assert!(shadow.writeback_continuous_fire_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -13178,6 +13201,7 @@ mod tests {
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -14353,6 +14377,7 @@ mod tests {
         let n = shadow.writeback_attack_targets_to_host(&mut logic);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         assert!(n >= 1, "expected host target writeback");
         assert_eq!(logic.get_objects().get(&a).unwrap().target, Some(b));
         // Clear via shadow mutation + writeback
@@ -14361,6 +14386,7 @@ mod tests {
         let _ = shadow.writeback_attack_targets_to_host(&mut logic);
         let _ = crate::game_logic::host_attack_target_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         assert_eq!(logic.get_objects().get(&a).unwrap().target, None);
     }
 
@@ -15432,6 +15458,7 @@ mod tests {
             assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
             let _ = crate::game_logic::host_weapon_stats_ready_log::drain();
             let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+            let _ = crate::game_logic::host_fire_intent_ready_log::drain();
             let t = logic
                 .get_objects()
                 .get(&oid)
@@ -16363,6 +16390,7 @@ mod tests {
         let _ = shadow.writeback_stealth_delay_to_host(&mut logic);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -16425,6 +16453,7 @@ mod tests {
         assert!(shadow.writeback_stealth_delay_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_combat_attack_to_host(&mut logic);
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -16508,6 +16537,7 @@ mod tests {
         }
         assert!(shadow.writeback_combat_attack_to_host(&mut logic) >= 1);
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let _ = shadow.writeback_locomotor_to_host(&mut logic);
         let _ = shadow.writeback_ai_request_to_host(&mut logic);
         let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -16804,6 +16834,7 @@ mod tests {
         assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
         let _ = crate::game_logic::host_weapon_stats_ready_log::drain();
         let _ = shadow.writeback_fire_intent_to_host(&mut logic);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let o = logic.get_objects().get(&oid).unwrap();
         assert!(o.leech_range_active_primary);
         assert!(o.leech_range_active_secondary);
@@ -16858,6 +16889,7 @@ mod tests {
             o.last_fire_damage = 0.0;
         }
         assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.last_fire_victim_host, victim.0);
         assert_eq!(o.fire_intent_count, 3);
@@ -18430,11 +18462,13 @@ mod tests {
         assert!(shadow.apply_host_fire_intent_events(&host_fire_intent_log::drain()) >= 1);
         // Host still default zeros; writeback skipped when authority off.
         assert_eq!(shadow.writeback_fire_intent_to_host(&mut logic), 0);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.fire_intent_count, 0);
         std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
         assert!(gameworld_ai_attack_authority_enabled());
         assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.fire_intent_count, 1);
         assert_eq!(o.last_fire_victim_host, 9);
@@ -18497,6 +18531,7 @@ mod tests {
         shadow.sync_from_host(&logic);
         assert!(shadow.apply_host_fire_intent_events(&evs) >= 1);
         assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
+        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
         let o = logic.get_objects().get(&oid).unwrap();
         assert_eq!(o.last_fire_victim_host, vid.0);
         assert_eq!(o.last_fire_frame, 77);
