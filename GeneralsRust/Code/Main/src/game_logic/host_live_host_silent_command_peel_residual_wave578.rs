@@ -24,6 +24,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_SILENT_COMMAND_PEEL_METHOD_NAMES_WAVE578: &[&str] = &[
     "host_queue_and_process_command_silent",
     "host_queue_and_process_command",
+    "host_queue_command",
     "host_process_commands_with_command_sound",
     "process_commands",
     "Wave 578",
@@ -135,12 +136,13 @@ pub fn honesty_host_silent_command_peel_source_markers_residual_wave578() -> boo
     let raw_process = eng.matches("self.game_logic.process_commands()").count();
     let raw_queue = eng.matches("self.game_logic.queue_command").count();
     // raw_process: host_process + silent + shell menu = 3
-    // raw_queue: queue-with-sound helper + silent helper = 2
+    // raw_queue: queue-with-sound helper + silent helper + host_queue_command (Wave 584) = 3
     let ok = silent_ok
         && call_ok
         && silent_calls >= 8
         && raw_process == 3
-        && raw_queue == 2
+        && raw_queue == 3
+        && eng.contains("fn host_queue_command")
         && eng.contains("Wave 578")
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostSilentCommandPeelAction::SourceMarkers);

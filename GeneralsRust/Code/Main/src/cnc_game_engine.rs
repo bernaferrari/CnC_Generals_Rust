@@ -10198,10 +10198,8 @@ impl CnCGameEngine {
                             // producer still alive.
                             // Wave 227: producer still-alive honesty via presentation identity
                             // (boot residual without frame: fail-closed false).
-                            if self.ui_object_alive(pid)
-                                || (self.last_presentation_frame.is_none()
-                                    && self.game_logic.object_is_alive(pid))
-                            {
+                            // Wave 584: presentation-or-boot alive residual.
+                            if self.presentation_or_boot_object_alive(pid) {
                                 ok = Some((pid, name.to_string()));
                                 break 'outer;
                             }
@@ -15330,7 +15328,7 @@ impl CnCGameEngine {
                 if in_shell && !self.game_paused {
                     // Keep shell map/scripts alive in menu without allowing large fixed-step
                     // catch-up loops to block the UI thread.
-                    self.game_logic.update_shell_with_budget(dt, 1);
+                    self.host_update_shell_with_budget(dt, 1);
                     // Wave 568: shell/menu script FPS residual via helper.
                     self.apply_shell_script_fps_limit_residual();
                 }
@@ -15551,7 +15549,7 @@ impl CnCGameEngine {
         // C++ parity gate:
         //   (Network == NULL && !isGamePaused()) || (Network && Network->isFrameDataReady()).
         let network_frame_data_ready =
-            Self::network_frame_data_ready_gate(self.game_logic.isInMultiplayerGame());
+            Self::network_frame_data_ready_gate(self.host_is_in_multiplayer_game());
         if Self::should_update_game_logic_frame(self.game_paused, network_frame_data_ready) {
             // Retail m_TiVOFastMode residual: extra logic steps while armed.
             let ff_steps = if self.replay_fast_forward { 4 } else { 1 };
@@ -15572,17 +15570,8 @@ impl CnCGameEngine {
             }
             // Update game logic first
             for _ in 0..ff_steps {
-                if let Some(budget) = headless_step_budget {
-                    if let Some(timing) = self.last_frame_timing {
-                        self.game_logic.update_with_timing_budget(&timing, budget);
-                    } else {
-                        self.game_logic.update_with_dt_budget(dt, budget);
-                    }
-                } else if let Some(timing) = self.last_frame_timing {
-                    self.game_logic.update_with_timing(&timing);
-                } else {
-                    self.game_logic.update_with_dt(dt);
-                }
+                // Wave 584: host logic tick residual via helper.
+                self.host_update_logic_frame(dt, headless_step_budget);
             }
             // Script FPS applied from presentation residual after snapshot build (below).
             // Live take remains for boot path when no frame is produced this tick.
@@ -17036,6 +17025,13 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Command);
     }
 
+    /// Wave 584: host queue-command residual (no immediate process flush).
+    #[inline]
+    fn host_queue_command(&mut self, command: crate::command_system::GameCommand) {
+        // Wave 584: host queue residual.
+        self.game_logic.queue_command(command);
+    }
+
     /// Wave 576: queue a GameCommand then flush with Command SFX.
     #[inline]
     fn host_queue_and_process_command(&mut self, command: crate::command_system::GameCommand) {
@@ -17695,8 +17691,9 @@ impl CnCGameEngine {
                         }
                     }
                     // Live host special-power ready is boot residual only (no presentation UI residual).
+                    // Wave 584: boot special-power ready residual via helper.
                     if self.last_presentation_frame.is_none()
-                        && self.game_logic.is_special_power_ready_for(*id, &requested)
+                        && self.host_is_special_power_ready_for(*id, &requested)
                     {
                         resolved = Some(requested.clone());
                         break;
@@ -18521,6 +18518,127 @@ impl CnCGameEngine {
         }
         // Boot residual only.
         self.game_logic.templates.contains_key(name)
+    }
+
+    /// Wave 584: host object-alive probe residual (upgrade honesty boot fallback).
+    #[inline]
+    fn host_object_is_alive(&self, id: crate::game_logic::ObjectId) -> bool {
+        // Wave 584: host object_is_alive residual.
+        self.game_logic.object_is_alive(id)
+    }
+
+    /// Wave 584: presentation freeze owns object-alive residual when installed.
+    /// Boot residual without freeze uses host object_is_alive probe.
+    #[inline]
+    fn presentation_or_boot_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
+        // Wave 584: presentation-first alive residual (ui_object_alive) with boot host probe.
+        if self.ui_object_alive(id) {
+            return true;
+        }
+        if self.last_presentation_frame.is_none() {
+            return self.host_object_is_alive(id);
+        }
+        false
+    }
+
+    /// Wave 584: host shell-map tick residual (menu frame budgeted update).
+    #[inline]
+    fn host_update_shell_with_budget(&mut self, dt: f32, budget: usize) {
+        // Wave 584: host shell update residual.
+        self.game_logic.update_shell_with_budget(dt, budget);
+    }
+
+    /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
+    #[inline]
+    fn host_update_logic_frame(&mut self, dt: f32, budget: Option<usize>) {
+        // Wave 584: host logic tick residual.
+        if let Some(budget) = budget {
+            if let Some(timing) = self.last_frame_timing {
+                self.game_logic.update_with_timing_budget(&timing, budget);
+            } else {
+                self.game_logic.update_with_dt_budget(dt, budget);
+            }
+        } else if let Some(timing) = self.last_frame_timing {
+            self.game_logic.update_with_timing(&timing);
+        } else {
+            self.game_logic.update_with_dt(dt);
+        }
+    }
+
+    /// Wave 584: host multiplayer gate residual (network frame-data readiness).
+    #[inline]
+    fn host_is_in_multiplayer_game(&self) -> bool {
+        // Wave 584: host multiplayer residual.
+        self.game_logic.isInMultiplayerGame()
+    }
+
+    /// Wave 584: host special-power ready residual (boot-only UI fallback).
+    #[inline]
+    fn host_is_special_power_ready_for(
+        &self,
+        id: crate::game_logic::ObjectId,
+        power: &crate::command_system::SpecialPowerType,
+    ) -> bool {
+        // Wave 584: host special-power ready residual.
+        self.game_logic.is_special_power_ready_for(id, power)
+    }
+
+    /// Wave 584: presentation freeze owns victory summary residual when installed.
+    /// Boot residual without freeze uses host build_victory_summary.
+    #[inline]
+    fn presentation_or_boot_victory_summary(
+        &self,
+        winner: Option<u32>,
+    ) -> crate::game_logic::VictorySummary {
+        // Wave 584: presentation freeze owns victory summary residual when installed.
+        if let Some(summary) = self
+            .last_presentation_frame
+            .as_ref()
+            .and_then(|f| f.victory_summary.clone())
+        {
+            return summary;
+        }
+        // Boot residual only.
+        self.game_logic.build_victory_summary(winner)
+    }
+
+    /// Wave 584: host match reset residual (GameLogic::reset boundary).
+    #[inline]
+    fn host_reset_game_logic(&mut self) {
+        // Wave 584: host reset residual.
+        self.game_logic.reset();
+    }
+
+    /// Wave 584: host destroy-object residual (debug Shift+Delete path).
+    #[inline]
+    fn host_destroy_object(&mut self, id: crate::game_logic::ObjectId) {
+        // Wave 584: host destroy residual.
+        self.game_logic.destroy_object(id);
+    }
+
+    /// Wave 584: host science purchase capability residual (boot-only).
+    #[inline]
+    fn host_player_can_purchase_science(&self, player_id: u32, name: &str) -> bool {
+        // Wave 584: host science capability residual.
+        self.game_logic.player_can_purchase_science(player_id, name)
+    }
+
+    /// Wave 584: host clear unit path residual (waypoint clear path).
+    #[inline]
+    fn host_clear_unit_movement_path(&mut self, id: crate::game_logic::ObjectId) -> bool {
+        // Wave 584: host clear path residual.
+        self.game_logic.clear_unit_movement_path(id)
+    }
+
+    /// Wave 584: host guard-radius adjust residual.
+    #[inline]
+    fn host_adjust_unit_guard_radius(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        delta: f32,
+    ) -> Option<f32> {
+        // Wave 584: host guard radius residual.
+        self.game_logic.adjust_unit_guard_radius(id, delta)
     }
 
     /// Wave 583: host force-complete construction residual (runtime train honesty).
@@ -20081,14 +20199,8 @@ impl CnCGameEngine {
 
     fn show_victory_screen(&mut self, winner: Option<u32>) {
         // Prefer presentation-frozen summary when available (no live re-aggregate).
-        let summary = self
-            .last_presentation_frame
-            .as_ref()
-            .and_then(|f| f.victory_summary.clone())
-            .unwrap_or_else(|| {
-                // Boot residual only — no presentation summary yet.
-                self.game_logic.build_victory_summary(winner)
-            });
+        // Wave 584: victory summary residual via helper.
+        let summary = self.presentation_or_boot_victory_summary(winner);
         let queued_summary = summary.clone();
         self.victory_summary = Some(summary.clone());
         if let Err(err) = crate::game_results_queue::queue_victory_summary(queued_summary) {
@@ -20117,7 +20229,7 @@ impl CnCGameEngine {
         info!("Resetting gameplay state after match completion");
         self.drain_renderer_attachments();
 
-        self.game_logic.reset();
+        self.host_reset_game_logic();
         self.resource_manager = ResourceManager::new();
 
         // Path grid rebuild is owned by GameLogic on map load/reset.
@@ -20465,7 +20577,7 @@ impl CnCGameEngine {
                         return;
                     }
                     for id in self.selected_objects.clone() {
-                        self.game_logic.destroy_object(id);
+                        self.host_destroy_object(id);
                     }
                     self.selected_objects.clear();
                     // Wave 583: clear selection residual via host_set_selection.
@@ -21800,8 +21912,9 @@ impl CnCGameEngine {
             }
             // Wave 238: InGame fail-open from presentation unlocked list;
             // boot-only capability probe without &Player expose.
+            // Wave 584: boot science capability residual via helper.
             if self.last_presentation_frame.is_none()
-                && !self.game_logic.player_can_purchase_science(player_id, name)
+                && !self.host_player_can_purchase_science(player_id, name)
             {
                 continue;
             }
@@ -21815,17 +21928,17 @@ impl CnCGameEngine {
             return;
         };
 
-        self.game_logic
-            .queue_command(crate::command_system::GameCommand {
-                command_type: crate::command_system::CommandType::PurchaseScience {
-                    science_name: science_name.clone(),
-                },
-                player_id,
-                command_id: 0,
-                timestamp: std::time::SystemTime::now(),
-                selected_units: Vec::new(),
-                modifier_keys: crate::command_system::ModifierKeys::default(),
-            });
+        // Wave 584: host queue purchase-science residual.
+        self.host_queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::PurchaseScience {
+                science_name: science_name.clone(),
+            },
+            player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: Vec::new(),
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
         let msg = format!("Purchased {science_name}");
         self.game_hud.push_info_message(&msg);
         self.ui_manager.game_hud_mut().push_info_message(&msg);
@@ -22051,7 +22164,7 @@ impl CnCGameEngine {
         }
         let mut any = false;
         for id in selected {
-            if self.game_logic.clear_unit_movement_path(id) {
+            if self.host_clear_unit_movement_path(id) {
                 any = true;
             }
         }
@@ -22121,7 +22234,7 @@ impl CnCGameEngine {
         let mut any = false;
         let mut last_r = 0.0_f32;
         for id in selected {
-            if let Some(r) = self.game_logic.adjust_unit_guard_radius(id, delta) {
+            if let Some(r) = self.host_adjust_unit_guard_radius(id, delta) {
                 last_r = r;
                 any = true;
             }

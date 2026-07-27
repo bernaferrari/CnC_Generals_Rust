@@ -1,7 +1,8 @@
 //! Wave 227 residual peels: construct dozer spawn remembers pose (no live
 //! `get_object(builder)` dual-read); upgrade honesty uses
-//! `GameLogic::object_is_alive`. Engine production path has zero
-//! `.get_object(` dual-reads. Never flips shell `playable_claim`.
+//! `GameLogic::object_is_alive` (Wave 584: via `presentation_or_boot_object_alive`).
+//! Engine production path has zero `.get_object(` dual-reads. Never flips shell
+//! `playable_claim`.
 //!
 //! Orthogonal to Wave 226 hotkey selection/camera residual.
 //! Host residual only — network deferred.
@@ -23,6 +24,8 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_CONSTRUCT_SPAWN_POSE_AUTHORITY_API_METHOD_NAMES_WAVE227: &[&str] = &[
     "spawned_builder_pose",
     "object_is_alive",
+    "presentation_or_boot_object_alive",
+    "host_object_is_alive",
     "object_position",
     "construct",
     "playable_claim = false",
@@ -45,7 +48,7 @@ pub const RUNTIME_HOST_LIVE_CONSTRUCT_SPAWN_POSE_AUTHORITY_API_CMD_NAMES_WAVE227
 
 /// Honesty: method names residual pack.
 pub fn honesty_live_construct_spawn_pose_authority_api_method_names_residual_wave227() -> bool {
-    LIVE_CONSTRUCT_SPAWN_POSE_AUTHORITY_API_METHOD_NAMES_WAVE227.len() == 5
+    LIVE_CONSTRUCT_SPAWN_POSE_AUTHORITY_API_METHOD_NAMES_WAVE227.len() == 7
         && residual_name_index(
             LIVE_CONSTRUCT_SPAWN_POSE_AUTHORITY_API_METHOD_NAMES_WAVE227,
             "spawned_builder_pose",
@@ -56,8 +59,12 @@ pub fn honesty_live_construct_spawn_pose_authority_api_method_names_residual_wav
         ) == Some(1)
         && residual_name_index(
             LIVE_CONSTRUCT_SPAWN_POSE_AUTHORITY_API_METHOD_NAMES_WAVE227,
+            "presentation_or_boot_object_alive",
+        ) == Some(2)
+        && residual_name_index(
+            LIVE_CONSTRUCT_SPAWN_POSE_AUTHORITY_API_METHOD_NAMES_WAVE227,
             "playable_claim = false",
-        ) == Some(4)
+        ) == Some(6)
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
@@ -89,7 +96,10 @@ pub fn honesty_construct_spawn_pose_authority_api_source() -> bool {
         && gl.contains("Wave 227")
         && eng.contains("spawned_builder_pose")
         && eng.contains("Wave 227")
-        && eng.contains("object_is_alive(pid)")
+        && (eng.contains("object_is_alive(pid)")
+            || eng.contains("presentation_or_boot_object_alive(pid)"))
+        && eng.contains("fn presentation_or_boot_object_alive")
+        && eng.contains("fn host_object_is_alive")
         // Production engine must not dual-read via `.get_object(`.
         && !eng.contains(".get_object(")
 }
