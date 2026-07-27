@@ -3407,7 +3407,7 @@ impl PresentationFrame {
             particle_systems.len(),
         );
 
-        Self {
+        let mut frame = Self {
             frame: LogicFrame(logic.get_frame()),
             total_play_time_seconds: logic.get_total_play_time(),
             ai_difficulty: logic.get_difficulty(),
@@ -3606,7 +3606,10 @@ impl PresentationFrame {
             gameworld_appended: 0,
             gameworld_rebuilt: 0,
             gameworld_primary_objects: false,
-        }
+        };
+        // Wave 500: named damage/death/bone FX residual → particle observe list.
+        let _ = frame.append_object_residual_fx_particles();
+        frame
     }
 
     /// Build after evaluating victory (mutates victory subsystem once).
@@ -6353,6 +6356,75 @@ impl PresentationFrame {
         appended
     }
 
+    /// Wave 500: merge per-object damage/death/bone FX residual names into the
+    /// presentation particle list so client/upload observe named FXLists without
+    /// a live GameLogic dual-read during render.
+    ///
+    /// Host drain currently queues `FX:{name}` audio tags; this peels the same
+    /// names into `PresentationParticleSystem` with `fx_list_name` set.
+    /// Fail-closed: not full FXList.ini particle graph / bone-local offsets.
+    pub fn append_object_residual_fx_particles(&mut self) -> usize {
+        use crate::game_logic::combat_particles::CombatParticleKind;
+        let frame = self.frame.0;
+        let mut next_id = self
+            .particle_systems
+            .iter()
+            .map(|p| p.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+            .max(1);
+        let mut appended = 0usize;
+        for o in &self.objects {
+            let candidates: [(Option<&str>, CombatParticleKind); 3] = [
+                (
+                    o.damage_fx_name.as_deref(),
+                    CombatParticleKind::WeaponImpact,
+                ),
+                (
+                    o.death_fx_name.as_deref(),
+                    CombatParticleKind::DeathExplosion,
+                ),
+                (o.bone_fx_name.as_deref(), CombatParticleKind::WeaponImpact),
+            ];
+            for (name, kind) in candidates {
+                let Some(name) = name else {
+                    continue;
+                };
+                if name.is_empty() {
+                    continue;
+                }
+                let already = self.particle_systems.iter().any(|p| {
+                    (!p.fx_list_name.is_empty() && p.fx_list_name == name)
+                        || (p.template_name == name && p.source_object == Some(o.id))
+                });
+                if already {
+                    continue;
+                }
+                self.particle_systems.push(PresentationParticleSystem {
+                    id: next_id,
+                    kind,
+                    template_name: name.to_string(),
+                    position: o.position,
+                    source_object: Some(o.id),
+                    target_object: None,
+                    spawned_frame: frame,
+                    active: true,
+                    client_system_id: None,
+                    fx_list_name: name.to_string(),
+                    ocl_list_name: String::new(),
+                });
+                next_id = next_id.saturating_add(1).max(1);
+                appended += 1;
+            }
+        }
+        if appended > 0 {
+            // Keep dual-tick particle_count honest with expanded list.
+            self.dual_tick.particle_count = self.particle_systems.len() as u32;
+        }
+        appended
+    }
+
     /// Wave 498: re-stamp host-only FX presentation residual after GameWorld object rebuild.
     ///
     /// GW entities do not yet own TransitionDamageFX / BoneFX / poison tint / defector /
@@ -6475,6 +6547,8 @@ impl PresentationFrame {
         if let Some(logic) = host {
             let _ = frame.overlay_host_fx_residual(logic);
         }
+        // Wave 500: object FX residual names → particle list after host FX stamp.
+        let _ = frame.append_object_residual_fx_particles();
         // Local player residual already stamped by overlay inside rebuild.
         frame
     }
@@ -6523,6 +6597,8 @@ impl PresentationFrame {
                 let _ = frame.rebuild_objects_from_gameworld(shadow);
                 // Wave 498: host FX residual after GW object rebuild.
                 let _ = frame.overlay_host_fx_residual(logic);
+                // Wave 500: object FX residual names → particle list.
+                let _ = frame.append_object_residual_fx_particles();
             }
             Some(shadow) => {
                 let _ = frame.overlay_gameworld_shadow(shadow);

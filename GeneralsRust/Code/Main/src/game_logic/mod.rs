@@ -433,6 +433,7 @@ pub mod host_live_presentation_mesh_condition_resolve_residual_wave497;
 pub mod host_live_presentation_mesh_door_phase_residual_wave496;
 pub mod host_live_presentation_mesh_sold_condition_residual_wave491;
 pub mod host_live_presentation_mesh_turret_residual_wave494;
+pub mod host_live_presentation_object_fx_particles_residual_wave500;
 pub mod host_live_presentation_overlay_deepen_residual_wave189;
 pub mod host_live_presentation_overlay_stamp_residual_wave190;
 pub mod host_live_presentation_poison_defector_tint_residual_wave499;
@@ -2399,6 +2400,22 @@ pub use host_live_presentation_mesh_turret_residual_wave494::{
     PRESENTATION_MESH_TURRET_METHOD_NAMES_WAVE494, PRESENTATION_MESH_TURRET_NAV_STEPS_WAVE494,
     PRESENTATION_MESH_TURRET_SOURCE_MARKERS_WAVE494,
     RUNTIME_HOST_PRESENTATION_MESH_TURRET_CMD_NAMES_WAVE494,
+};
+pub use host_live_presentation_object_fx_particles_residual_wave500::{
+    honesty_presentation_object_fx_particles_method_names_residual_wave500,
+    honesty_presentation_object_fx_particles_nav_commands_residual_wave500,
+    honesty_presentation_object_fx_particles_residual_pack_wave500,
+    honesty_presentation_object_fx_particles_source_markers_residual_wave500,
+    residual_presentation_object_fx_particles_last_action,
+    residual_presentation_object_fx_particles_ok,
+    simulate_live_presentation_object_fx_particles_honesty,
+    simulate_presentation_object_fx_particles_append_source,
+    simulate_presentation_object_fx_particles_build_source,
+    ResidualPresentationObjectFxParticlesAction,
+    PRESENTATION_OBJECT_FX_PARTICLES_METHOD_NAMES_WAVE500,
+    PRESENTATION_OBJECT_FX_PARTICLES_NAV_STEPS_WAVE500,
+    PRESENTATION_OBJECT_FX_PARTICLES_SOURCE_MARKERS_WAVE500,
+    RUNTIME_HOST_PRESENTATION_OBJECT_FX_PARTICLES_CMD_NAMES_WAVE500,
 };
 pub use host_live_presentation_poison_defector_tint_residual_wave499::{
     honesty_presentation_poison_defector_tint_method_names_residual_wave499,
