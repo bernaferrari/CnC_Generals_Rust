@@ -18306,6 +18306,18 @@ impl CnCGameEngine {
         self.game_logic.get_difficulty()
     }
 
+    /// Wave 557: presentation freeze owns replay-mode residual when installed.
+    /// Boot residual without freeze uses host `isInReplayGame`.
+    #[inline]
+    fn presentation_or_boot_in_replay_game(&self) -> bool {
+        // Wave 557: presentation freeze owns replay-mode residual when installed.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            return pres.in_replay_game;
+        }
+        // Boot residual only.
+        self.game_logic.isInReplayGame()
+    }
+
     /// Wave 555: presentation freeze owns unlocked-sciences residual when installed.
     /// Boot residual without freeze uses host probe API.
     #[inline]
@@ -19301,9 +19313,10 @@ impl CnCGameEngine {
     fn apply_script_frame_limit(&mut self) {
         let global_data = game_engine::common::global_data::read();
         // Wave 550: presentation freeze owns FPS-limit visual_speed residual when
-        // installed (no host visual_speed_multiplier dual-read). Replay flag is
-        // engine-mode residual (not world dual-read) — always from GameLogic.
+        // installed (no host visual_speed_multiplier dual-read).
+        // Wave 557: presentation freeze owns replay-mode residual when installed.
         let visual_speed = self.presentation_or_boot_visual_speed();
+        let in_replay = self.presentation_or_boot_in_replay_game();
 
         let max_fps = Self::effective_fps_limit_for_frame(
             self.script_fps_limit,
@@ -19311,7 +19324,7 @@ impl CnCGameEngine {
             global_data.writable.frames_per_second_limit,
             visual_speed,
             global_data.tivo_fast_mode,
-            self.game_logic.isInReplayGame(),
+            in_replay,
         );
         drop(global_data);
 
