@@ -160,12 +160,13 @@ pub fn simulate_presentation_env_seed_mirror_last_source() -> bool {
     let Some(body) = function_body(src, "fn ensure_presentation_env_seeded(") else {
         return false;
     };
-    let ok = body.contains(
+    let ok = (body.contains(
         "Wave 467: seed pipeline presentation (host+GW) and mirror into last_presentation_frame",
-    ) && body.contains("ensure_presentation_env_for_hints")
-        && body.contains("gameworld_shadow.as_ref()")
+    ) || body.contains("Wave 467/474: seed pipeline presentation"))
+        && body.contains("ensure_presentation_env_for_hints")
         && body.contains("last_presentation_frame.is_none()")
-        && body.contains("presentation_frame().cloned()");
+        && body.contains("presentation_frame().cloned()")
+        && !body.contains("Self::ensure_presentation_env_for_hints(");
     residual_action_store(ResidualPresentationEnvSeedMirrorLastAction::SeededSource);
     ok
 }

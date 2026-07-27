@@ -311,6 +311,7 @@ pub mod host_live_engine_env_free_fn_game_logic_only_seed_residual_wave471;
 pub mod host_live_engine_player_ui_boot_peel_residual_wave237;
 pub mod host_live_engine_presentation_player_ui_residual_wave234;
 pub mod host_live_enhanced_player_dual_world_empty_gate_residual_wave287;
+pub mod host_live_ensure_presentation_env_instance_residual_wave474;
 pub mod host_live_evacuate_contain_log_residual_wave201;
 pub mod host_live_exit_strategies_dual_world_empty_gate_residual_wave312;
 pub mod host_live_experience_tracker_dual_world_empty_gate_residual_wave420;
@@ -2152,6 +2153,22 @@ pub use host_live_camera_bootstrap_presentation_only_residual_wave473::{
     CAMERA_BOOTSTRAP_PRESENTATION_ONLY_SOURCE_MARKERS_WAVE473,
     RUNTIME_HOST_CAMERA_BOOTSTRAP_PRESENTATION_ONLY_CMD_NAMES_WAVE473,
 };
+pub use host_live_ensure_presentation_env_instance_residual_wave474::{
+    honesty_ensure_presentation_env_instance_method_names_residual_wave474,
+    honesty_ensure_presentation_env_instance_nav_commands_residual_wave474,
+    honesty_ensure_presentation_env_instance_residual_pack_wave474,
+    residual_ensure_presentation_env_instance_last_action,
+    residual_ensure_presentation_env_instance_ok,
+    simulate_ensure_presentation_env_free_surface_empty,
+    simulate_ensure_presentation_env_instance_source,
+    simulate_live_ensure_presentation_env_instance_honesty,
+    ResidualEnsurePresentationEnvInstanceAction,
+    ENSURE_PRESENTATION_ENV_INSTANCE_METHOD_NAMES_WAVE474,
+    ENSURE_PRESENTATION_ENV_INSTANCE_NAV_STEPS_WAVE474,
+    ENSURE_PRESENTATION_ENV_INSTANCE_SOURCE_MARKERS_WAVE474,
+    RUNTIME_HOST_ENSURE_PRESENTATION_ENV_INSTANCE_CMD_NAMES_WAVE474,
+};
+
 pub use host_live_camera_center_presentation_height_residual_wave460::{
     honesty_camera_center_presentation_height_method_names_residual_wave460,
     honesty_camera_center_presentation_height_nav_commands_residual_wave460,

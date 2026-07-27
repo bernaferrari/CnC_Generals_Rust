@@ -18689,32 +18689,25 @@ impl CnCGameEngine {
 
     /// Wave 467: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
     fn ensure_presentation_env_seeded(&mut self) {
-        // Wave 467: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
-        Self::ensure_presentation_env_for_hints(
-            &mut self.render_pipeline,
-            &self.game_logic,
-            self.gameworld_shadow.as_ref(),
-        );
+        // Wave 467/474: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
+        self.ensure_presentation_env_for_hints();
         if self.last_presentation_frame.is_none() {
             self.last_presentation_frame = self.render_pipeline.presentation_frame().cloned();
         }
     }
 
-    fn ensure_presentation_env_for_hints(
-        render_pipeline: &mut RenderPipeline,
-        game_logic: &GameLogic,
+    fn ensure_presentation_env_for_hints(&mut self) {
+        // Wave 474: instance seed only — no free-fn GameLogic dual-read surface.
         // Wave 466: prefer host+GameWorld shadow freeze when a shadow session exists.
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-    ) {
         // Wave 455/466: freeze host map env into PresentationFrame once (with optional
         // GameWorld overlay), then env apply is presentation-only.
-        if render_pipeline.presentation_frame().is_none() {
+        if self.render_pipeline.presentation_frame().is_none() {
             let env_frame = crate::presentation_frame::PresentationFrame::build_for_engine(
-                game_logic,
-                game_logic.get_frame() as u32,
-                shadow,
+                &self.game_logic,
+                self.game_logic.get_frame() as u32,
+                self.gameworld_shadow.as_ref(),
             );
-            render_pipeline.set_presentation_frame(Some(env_frame));
+            self.render_pipeline.set_presentation_frame(Some(env_frame));
         }
     }
 
