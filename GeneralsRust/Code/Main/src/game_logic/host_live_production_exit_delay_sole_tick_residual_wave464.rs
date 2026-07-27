@@ -175,7 +175,9 @@ pub fn simulate_production_exit_delay_sole_tick_gw_source() -> bool {
 pub fn simulate_production_exit_delay_sole_tick_host_source() -> bool {
     let src = game_logic_source();
     // sole-tick branch must try_complete without tick_exit_delay immediately before it
-    let ok = (src.contains("Wave 464: GameWorld sole-ticks queue progress + exit delay") || src.contains("Wave 464/614: GameWorld sole-ticks progress + exit delay") || src.contains("host_production_ready_log"))
+    let ok = (src.contains("Wave 464: GameWorld sole-ticks queue progress + exit delay")
+        || src.contains("Wave 464/614: GameWorld sole-ticks progress + exit delay")
+        || src.contains("host_production_ready_log"))
         && src.contains("gameworld_production_sole_tick_enabled()")
         && src.contains("building.try_complete_production()");
     // Ensure sole branch does not call tick_exit_delay

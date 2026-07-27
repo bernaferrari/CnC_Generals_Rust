@@ -164,7 +164,7 @@ pub fn honesty_host_production_complete_apply_helper_source_markers_residual_wav
         && upgrade.contains("ObjectId(0)")
         && upgrade.contains("apply_host_upgrade_complete");
     let unit_ok = unit.contains("Wave 595")
-        && unit.contains("self.create_object(")
+        && (unit.contains("self.create_object(") || unit.contains("host_spawn_production_unit"))
         && unit.contains("host_production_log::record_complete")
         && unit.contains("notify_unit_production_complete")
         && unit.contains("arm_exit_delay")
