@@ -623,6 +623,8 @@ pub struct UnitRenderInput {
     pub veterancy: PresentationVeterancy,
     /// Wave 507: over-water residual for mesh model-condition.
     pub over_water: bool,
+    /// Wave 508: any host disable residual that blocks acting (stun pose).
+    pub disabled: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
@@ -681,6 +683,7 @@ impl UnitRenderInput {
             velocity: ro.velocity,
             veterancy: ro.veterancy,
             over_water: ro.over_water,
+            disabled: ro.disabled,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
@@ -731,6 +734,7 @@ impl UnitRenderInput {
     /// Wave 505: stamp parachuting / jetexhaust / using-weapon residual bits.
     /// Wave 506: stamp weaponset veterancy residual bits.
     /// Wave 507: stamp OVER_WATER + transport RIDER1..n residual bits.
+    /// Wave 508: stamp body-damage / DISGUISED / STUNNED residual bits.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         use crate::game_logic::host_enum_table_residual::{
             deployed_model_bit, door_1_closing_model_bit, door_1_opening_model_bit,
@@ -885,6 +889,32 @@ impl UnitRenderInput {
                 for slot in 1u8..=n {
                     bits |= 1u128 << rider_model_bit(slot);
                 }
+            }
+        }
+        // Wave 508: body-damage / disguised / stunned model-condition residual.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                disguised_model_bit, host_apply_body_damage_model_bits, stunned_model_bit,
+                HostBodyDamageType,
+            };
+            let body = match self.body_damage_state {
+                1 => HostBodyDamageType::Damaged,
+                2 => HostBodyDamageType::ReallyDamaged,
+                3 => HostBodyDamageType::Rubble,
+                _ => HostBodyDamageType::Pristine,
+            };
+            bits = host_apply_body_damage_model_bits(bits, body);
+            let dis_b = disguised_model_bit();
+            if self.disguised {
+                bits |= 1u128 << dis_b;
+            } else {
+                bits &= !(1u128 << dis_b);
+            }
+            let stun_b = stunned_model_bit();
+            if self.disabled {
+                bits |= 1u128 << stun_b;
+            } else {
+                bits &= !(1u128 << stun_b);
             }
         }
         bits
@@ -8463,6 +8493,7 @@ mod tests {
             velocity: Vec3::ZERO,
             veterancy: PresentationVeterancy::Rookie,
             over_water: false,
+            disabled: false,
             engine_bridged: false,
             fow_visibility: ObjectVisibility::FULLY_VISIBLE,
         };
