@@ -418,6 +418,7 @@ pub mod host_live_pow_truck_ai_dual_world_empty_gate_residual_wave354;
 pub mod host_live_pow_truck_behavior_dual_world_empty_gate_residual_wave366;
 pub mod host_live_power_plant_update_dual_world_empty_gate_residual_wave392;
 pub mod host_live_power_plant_upgrade_dual_world_empty_gate_residual_wave437;
+pub mod host_live_presentation_air_parachute_residual_wave505;
 pub mod host_live_presentation_append_missing_residual_wave192;
 pub mod host_live_presentation_build_for_engine_residual_wave195;
 pub mod host_live_presentation_build_from_gameworld_residual_wave193;
@@ -2317,6 +2318,19 @@ pub use host_live_entity_presentation_structure_ui_residual_wave490::{
     ENTITY_PRESENTATION_STRUCTURE_UI_NAV_STEPS_WAVE490,
     ENTITY_PRESENTATION_STRUCTURE_UI_SOURCE_MARKERS_WAVE490,
     RUNTIME_HOST_ENTITY_PRESENTATION_STRUCTURE_UI_CMD_NAMES_WAVE490,
+};
+pub use host_live_presentation_air_parachute_residual_wave505::{
+    honesty_presentation_air_parachute_method_names_residual_wave505,
+    honesty_presentation_air_parachute_nav_commands_residual_wave505,
+    honesty_presentation_air_parachute_residual_pack_wave505,
+    honesty_presentation_air_parachute_source_markers_residual_wave505,
+    residual_presentation_air_parachute_last_action, residual_presentation_air_parachute_ok,
+    simulate_live_presentation_air_parachute_honesty,
+    simulate_presentation_air_parachute_freeze_source,
+    simulate_presentation_air_parachute_stamp_source, ResidualPresentationAirParachuteAction,
+    PRESENTATION_AIR_PARACHUTE_METHOD_NAMES_WAVE505, PRESENTATION_AIR_PARACHUTE_NAV_STEPS_WAVE505,
+    PRESENTATION_AIR_PARACHUTE_SOURCE_MARKERS_WAVE505,
+    RUNTIME_HOST_PRESENTATION_AIR_PARACHUTE_CMD_NAMES_WAVE505,
 };
 pub use host_live_presentation_construction_disguise_residual_wave503::{
     honesty_presentation_construction_disguise_method_names_residual_wave503,
