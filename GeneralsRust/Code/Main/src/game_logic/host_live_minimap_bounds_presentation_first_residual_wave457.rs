@@ -168,7 +168,9 @@ pub fn simulate_minimap_bounds_presentation_first_source() -> bool {
         return false;
     };
     let pipe = pipeline_source();
-    let ok = body.contains("Wave 457: prefer presentation freeze for minimap world bounds")
+    // Wave 465 supersedes repair order: stamp presentation bounds from heightmap size first.
+    let ok = (body.contains("Wave 465: presentation-first minimap bounds")
+        || body.contains("Wave 457: prefer presentation freeze for minimap world bounds"))
         && body.contains("presentation_frame()")
         && body.contains("world_bounds_vec3()")
         && body.contains("presentation_frame_mut()")
