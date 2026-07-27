@@ -26115,6 +26115,39 @@ impl GameLogic {
     /// applies movement/presentation bookkeeping residual.
     /// Wave 637: GameWorld movement writeback records dirty objects; host
     /// applies path/presentation bookkeeping residual via record_host_movement.
+    /// Wave 638: GameWorld attack-target writeback records target changes; host
+    /// applies AI/status/attack-log residual (without re-assigning target).
+    pub fn host_apply_attack_target_ready_completions(&mut self) -> usize {
+        // Wave 638: GameWorld attack-target writeback records target changes; host
+        // applies AI/status/attack-log residual (without re-assigning target).
+        let events = crate::game_logic::host_attack_target_ready_log::drain();
+        let mut n = 0usize;
+        for ev in events {
+            if ev.previous_target == ev.new_target {
+                continue;
+            }
+            let Some(obj) = self.objects.get_mut(&ev.object) else {
+                continue;
+            };
+            // Target already writeback-synced. Apply residual side effects only.
+            if ev.new_target.is_some() {
+                let _ = obj.takeoff_from_airfield_parking();
+                obj.target_location = None;
+                obj.record_host_target_location();
+                // Prefer combat status bits over full set_ai_state to avoid
+                // host_ai_state_log re-entry fighting GW AI-state writeback.
+                obj.set_status_attacking(true);
+            } else {
+                obj.target_location = None;
+                obj.set_status_force_attack(false);
+                obj.set_status_attacking(false);
+            }
+            crate::game_logic::host_attack_log::record(ev.object, ev.new_target);
+            n = n.saturating_add(1);
+        }
+        n
+    }
+
     pub fn host_apply_movement_ready_completions(&mut self) -> usize {
         // Wave 637: GameWorld movement writeback records dirty objects; host
         // applies path/presentation bookkeeping residual via record_host_movement.
