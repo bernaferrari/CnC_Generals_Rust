@@ -141,6 +141,8 @@ Remaining engine residual after host update:
   - Shell screen route: `host_route_shell_owned_screen_change` (Wave 602)
   - Paused/endgame client: `host_tick_paused_client_residuals` / `host_tick_endgame_client_residuals` (Wave 603)
   - Boot UI notify: `host_notify_boot_ui_message` (Wave 603)
+  - Loading client: `host_tick_loading_client_residuals` (Wave 604)
+  - UI SFX: `host_play_sound_effect` (Wave 604)
   - InGame: `host_tick_game_client_presentation_shell` (device + FOW/pose + presentation shell)
   - Menu: `host_tick_game_client_menu_shell` (device + shell UI + NewGame drain before pump; Wave 588)
   - full `GameClient::update` stays disconnected — Main owns OS input/audio/3D present + avoids client frame sleep

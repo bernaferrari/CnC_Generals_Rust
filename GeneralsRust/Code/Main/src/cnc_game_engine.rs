@@ -15444,19 +15444,11 @@ impl CnCGameEngine {
                 return;
             }
             GameState::Loading => {
-                // In loading: minimal updates, mainly for loading screen animations
-                if let Err(err) = self.update_startup_loading() {
+                // Wave 604: loading client residual via host helper.
+                if let Err(err) = self.host_tick_loading_client_residuals() {
                     error!("Startup loading failed: {}", err);
                     self.request_state_change(GameState::Exiting);
-                    return;
                 }
-                if self.current_state != GameState::Loading {
-                    // Loading completed and transitioned this frame; avoid re-applying loading UI.
-                    return;
-                }
-                self.set_runtime_ui_state_projection(UISystemState::Loading);
-                // After loading completes, the state will transition to InGame
-                // This is handled by the initialization code setting pending_state
                 return;
             }
             GameState::Paused => {
@@ -17726,6 +17718,24 @@ impl CnCGameEngine {
     fn restart_mission_from_ui(&mut self) {
         // Wave 601: thin wrapper — restart via host helper.
         self.host_restart_mission_from_ui();
+    }
+
+    /// Wave 604: Loading-state client residual.
+    ///
+    /// Runs startup loading progress, then projects Loading UI when still in
+    /// Loading after the tick (load may transition away mid-call).
+    fn host_tick_loading_client_residuals(&mut self) -> Result<()> {
+        // Wave 604: loading client residual.
+        // In loading: minimal updates, mainly for loading screen animations
+        self.update_startup_loading()?;
+        if self.current_state != GameState::Loading {
+            // Loading completed and transitioned this frame; avoid re-applying loading UI.
+            return Ok(());
+        }
+        self.set_runtime_ui_state_projection(UISystemState::Loading);
+        // After loading completes, the state will transition to InGame
+        // This is handled by the initialization code setting pending_state
+        Ok(())
     }
 
     /// Wave 603: paused-state client residual (camera/audio/UI; no logic tick).
@@ -24481,7 +24491,14 @@ impl CnCGameEngine {
         }
     }
 
+    /// Wave 604: via `host_play_sound_effect`.
     fn play_sound_effect(&mut self, sound_type: SoundType) {
+        // Wave 604: thin wrapper — UI SFX via host helper.
+        self.host_play_sound_effect(sound_type);
+    }
+
+    fn host_play_sound_effect(&mut self, sound_type: SoundType) {
+        // Wave 604: host UI SFX residual.
         // Prefer presentation/host audio event residual when a frame is installed
         // (InGame path). Avoid dual synthetic rodio tones competing with event queue.
         if self.last_presentation_frame.is_some() {
