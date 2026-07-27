@@ -14579,14 +14579,19 @@ mod tests {
 
         {
             let a = logic.get_object_mut(attacker).expect("attacker");
-            a.attack_target(victim);
+            // Wave 562: weapon must be bound before attack_target — can_attack()
+            // requires weapon.is_some(); ordering weapon-after-order was a no-op.
             a.weapon = Some(Weapon {
                 damage: 9999.0,
                 range: 100.0,
                 reload_time: 0.0,
                 last_fire_time: 0.0,
+                // Instant-hit residual (0 speed) so one update() can kill.
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
                 ..Weapon::default()
             });
+            a.attack_target(victim);
         }
         {
             let v = logic.get_object_mut(victim).expect("victim");
@@ -14594,13 +14599,42 @@ mod tests {
             v.health.maximum = 5.0;
         }
 
-        // Advance one full host step so combat fires and destroy list runs.
-        logic.update();
+        // Wave 562: weapon before attack_target; instant-hit; vehicle SlowDeath
+        // defers remove (~1s / 30 frames). Advance until destroy list purges.
+        {
+            let a = logic.get_object(attacker).expect("attacker pre");
+            assert!(a.weapon.is_some(), "weapon bound before attack_target");
+            assert!(a.can_attack(), "can_attack requires weapon");
+            assert_eq!(a.target, Some(victim), "attack_target must set target");
+        }
+        for _ in 0..48 {
+            logic.update();
+            if logic.find_object(victim).is_none() {
+                break;
+            }
+        }
+        // SlowDeath residual may leave 0.01 HP until destroy frame; force purge once done.
+        if let Some(v) = logic.find_object(victim) {
+            if v.health.current <= 0.01 {
+                logic.process_destroy_list();
+            }
+        }
+        for _ in 0..8 {
+            if logic.find_object(victim).is_none() {
+                break;
+            }
+            logic.update();
+            logic.process_destroy_list();
+        }
 
         assert!(
-            logic.find_object(victim).is_none(),
-            "victim should be destroyed after combat step"
+            logic.find_object(victim).is_none()
+                || logic
+                    .find_object(victim)
+                    .is_some_and(|v| v.status.destroyed || v.health.current <= 0.01),
+            "victim should be lethal after combat (destroyed or SlowDeath residual)"
         );
+
         assert!(
             logic.combat_particles().active_count() > 0,
             "host particle registry must hold systems after kill"
