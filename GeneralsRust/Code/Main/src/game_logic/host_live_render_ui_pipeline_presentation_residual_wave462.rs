@@ -156,11 +156,13 @@ pub fn simulate_render_ui_pipeline_presentation_source() -> bool {
         && win.contains("or_else(|| self.last_presentation_frame.clone())")
         && win.contains("apply_to_ui_state")
         && win.contains("Boot/loading residual only")
-        && win.contains("update_ui_state(self.current_player_id)")
+        && (win.contains("update_ui_state(self.current_player_id)")
+            || win.contains("host_update_ui_state(self.current_player_id)"))
         // presentation branch must not call live update first
         && win
             .find("Boot/loading residual only")
-            .map(|b| !win[..b].contains("update_ui_state(self.current_player_id)"))
+            .map(|b| !win[..b].contains("update_ui_state(self.current_player_id)")
+                && !win[..b].contains("host_update_ui_state(self.current_player_id)"))
             .unwrap_or(false);
     residual_action_store(ResidualRenderUiPipelinePresentationAction::UiSource);
     ok

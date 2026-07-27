@@ -25,6 +25,7 @@ pub const MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_METHOD_NAMES_WAVE465: &[&s
     "heightmap_world_size",
     "presentation_frame_mut",
     "override_world_size",
+    "host_override_world_size",
     "sync_heightmap_world_bounds",
     "update_minimap_world_bounds",
 ];
@@ -94,15 +95,19 @@ fn cnc_source() -> &'static str {
 }
 
 pub fn honesty_minimap_heightmap_repair_presentation_first_method_names_residual_wave465() -> bool {
-    MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_METHOD_NAMES_WAVE465.len() == 6
+    MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_METHOD_NAMES_WAVE465.len() == 7
         && residual_name_index(
             MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_METHOD_NAMES_WAVE465,
             "reinitialize_minimap_renderer",
         ) == Some(0)
         && residual_name_index(
             MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_METHOD_NAMES_WAVE465,
+            "host_override_world_size",
+        ) == Some(4)
+        && residual_name_index(
+            MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_METHOD_NAMES_WAVE465,
             "update_minimap_world_bounds",
-        ) == Some(5)
+        ) == Some(6)
 }
 
 pub fn honesty_minimap_heightmap_repair_presentation_first_source_markers_residual_wave465() -> bool

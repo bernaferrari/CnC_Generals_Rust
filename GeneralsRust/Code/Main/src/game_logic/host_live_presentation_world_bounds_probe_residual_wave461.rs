@@ -32,6 +32,7 @@ pub const PRESENTATION_WORLD_BOUNDS_PROBE_METHOD_NAMES_WAVE461: &[&str] = &[
 pub const PRESENTATION_WORLD_BOUNDS_PROBE_SOURCE_MARKERS_WAVE461: &[&str] = &[
     "Wave 461: single presentation-first world bounds probe",
     "presentation_world_bounds()",
+    "host_world_bounds",
     "presentation_frame()",
     "last_presentation_frame",
 ];
@@ -106,15 +107,19 @@ pub fn honesty_presentation_world_bounds_probe_method_names_residual_wave461() -
 }
 
 pub fn honesty_presentation_world_bounds_probe_source_markers_residual_wave461() -> bool {
-    PRESENTATION_WORLD_BOUNDS_PROBE_SOURCE_MARKERS_WAVE461.len() == 4
+    PRESENTATION_WORLD_BOUNDS_PROBE_SOURCE_MARKERS_WAVE461.len() == 5
         && residual_name_index(
             PRESENTATION_WORLD_BOUNDS_PROBE_SOURCE_MARKERS_WAVE461,
             "Wave 461: single presentation-first world bounds probe",
         ) == Some(0)
         && residual_name_index(
             PRESENTATION_WORLD_BOUNDS_PROBE_SOURCE_MARKERS_WAVE461,
+            "host_world_bounds",
+        ) == Some(2)
+        && residual_name_index(
+            PRESENTATION_WORLD_BOUNDS_PROBE_SOURCE_MARKERS_WAVE461,
             "last_presentation_frame",
-        ) == Some(3)
+        ) == Some(4)
 }
 
 pub fn honesty_presentation_world_bounds_probe_nav_commands_residual_wave461() -> bool {
@@ -163,7 +168,7 @@ pub fn simulate_presentation_world_bounds_probe_source() -> bool {
     let ok = body.contains("presentation_frame()")
         && body.contains("last_presentation_frame")
         && body.contains("world_bounds_vec3()")
-        && body.contains("game_logic.world_bounds()");
+        && (body.contains("game_logic.world_bounds()") || body.contains("host_world_bounds()"));
     residual_action_store(ResidualPresentationWorldBoundsProbeAction::ProbeSource);
     ok
 }
@@ -178,9 +183,13 @@ pub fn simulate_presentation_world_bounds_probe_consumers() -> bool {
     let ok = uses >= 3
         && clamp.contains("presentation_world_bounds()")
         && src.contains("Wave 461: single presentation-first world bounds probe")
+        && src.contains("fn host_world_bounds")
         // No scattered last_presentation-only dual-read pattern outside helper.
         && !src.contains(
-            "if let Some(frame) = self.last_presentation_frame.as_ref() {\n                frame.world_env.world_bounds_vec3()\n            } else {\n                self.game_logic.world_bounds()",
+            "if let Some(frame) = self.last_presentation_frame.as_ref() {
+                frame.world_env.world_bounds_vec3()
+            } else {
+                self.game_logic.world_bounds()",
         );
     residual_action_store(ResidualPresentationWorldBoundsProbeAction::Consumers);
     ok
