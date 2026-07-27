@@ -372,6 +372,7 @@ pub mod host_live_host_beacon_presentation_residual_wave211;
 pub mod host_live_host_camera_queue_drain_helper_residual_wave596;
 pub mod host_live_host_camera_start_helper_residual_wave577;
 pub mod host_live_host_cancel_selection_helper_residual_wave580;
+pub mod host_live_host_combat_cursor_transition_helper_residual_wave612;
 pub mod host_live_host_command_flush_helper_residual_wave576;
 pub mod host_live_host_enqueue_shell_cmd_helper_residual_wave582;
 pub mod host_live_host_game_client_device_tick_helper_residual_wave587;
@@ -2550,6 +2551,15 @@ pub use host_live_host_cancel_selection_helper_residual_wave580::{
     honesty_host_cancel_selection_helper_source_markers_residual_wave580,
     residual_host_cancel_selection_helper_last_action, residual_host_cancel_selection_helper_ok,
     simulate_live_host_cancel_selection_helper_honesty,
+};
+pub use host_live_host_combat_cursor_transition_helper_residual_wave612::{
+    honesty_host_combat_cursor_transition_helper_method_names_residual_wave612,
+    honesty_host_combat_cursor_transition_helper_nav_commands_residual_wave612,
+    honesty_host_combat_cursor_transition_helper_residual_pack_wave612,
+    honesty_host_combat_cursor_transition_helper_source_markers_residual_wave612,
+    residual_host_combat_cursor_transition_helper_last_action,
+    residual_host_combat_cursor_transition_helper_ok,
+    simulate_live_host_combat_cursor_transition_helper_honesty,
 };
 pub use host_live_host_command_flush_helper_residual_wave576::{
     honesty_host_command_flush_helper_method_names_residual_wave576,

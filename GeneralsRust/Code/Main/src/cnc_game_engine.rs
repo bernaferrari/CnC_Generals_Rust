@@ -15098,7 +15098,16 @@ impl CnCGameEngine {
 
     /// Execute state transition with proper setup/cleanup
     /// Matches C++ GameEngine reset() and initialization patterns
+    /// Wave 612: via `host_transition_to_state`.
     fn transition_to_state(&mut self, new_state: GameState) {
+        // Wave 612: thin wrapper — residual via host helper.
+        self.host_transition_to_state(new_state)
+    }
+
+    /// Execute state transition with proper setup/cleanup
+    /// Matches C++ GameEngine reset() and initialization patterns
+    fn host_transition_to_state(&mut self, new_state: GameState) {
+        // Wave 612: host residual helper.
         let old_state = self.current_state;
 
         info!("State transition: {:?} -> {:?}", old_state, new_state);
@@ -22204,7 +22213,15 @@ impl CnCGameEngine {
     /// Cycle unfinished friendly construction residual (Ctrl+Alt+Home/End).
 
     /// Resume unfinished construction with selected dozers residual (Alt+E).
+    /// Wave 612: via `host_resume_selected_construction`.
     fn resume_selected_construction(&mut self) {
+        // Wave 612: thin wrapper — residual via host helper.
+        self.host_resume_selected_construction()
+    }
+
+    /// Resume unfinished construction with selected dozers residual (Alt+E).
+    fn host_resume_selected_construction(&mut self) {
+        // Wave 612: host residual helper.
         let player_id = self.current_player_id;
         // Wave 226: selection/team via presentation-first helpers.
         let selected = self.ui_selected_ids(player_id);
@@ -23565,11 +23582,23 @@ impl CnCGameEngine {
     }
 
     /// Ctrl+LMB ForceAttack residual (object or ground).
+    /// Wave 612: via `host_issue_force_attack_from_left_click`.
     fn issue_force_attack_from_left_click(
         &mut self,
         location: Vec3,
         target_object: Option<ObjectId>,
     ) {
+        // Wave 612: thin wrapper — residual via host helper.
+        self.host_issue_force_attack_from_left_click(location, target_object)
+    }
+
+    /// Ctrl+LMB ForceAttack residual (object or ground).
+    fn host_issue_force_attack_from_left_click(
+        &mut self,
+        location: Vec3,
+        target_object: Option<ObjectId>,
+    ) {
+        // Wave 612: host residual helper.
         // Wave 234: selection prefers engine/presentation freeze.
         let mut selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
@@ -24101,7 +24130,14 @@ impl CnCGameEngine {
         self.window.set_cursor(icon);
     }
 
+    /// Wave 612: via `host_resolve_context_cursor_icon`.
     fn resolve_context_cursor_icon(&self) -> (&'static str, winit::window::CursorIcon) {
+        // Wave 612: thin wrapper — residual via host helper.
+        self.host_resolve_context_cursor_icon()
+    }
+
+    fn host_resolve_context_cursor_icon(&self) -> (&'static str, winit::window::CursorIcon) {
+        // Wave 612: host residual helper.
         use winit::window::CursorIcon;
 
         // Placement mode residual.
